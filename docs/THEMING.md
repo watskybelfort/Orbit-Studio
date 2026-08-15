@@ -1,4 +1,4 @@
-# Sistema de temas — Onza Studio
+# Sistema de temas — Orbit Studio
 
 Minimalista con guiños a macOS. Tres temas de serie (oscuro, claro, acrílico),
 semáforo Mac opcional y un customizador con perillas simples.
@@ -68,7 +68,7 @@ Intuitivo: nada de editar archivos.
    Tinte (`--glass-tint` con picker), Acento (`--accent` con picker + paleta).
 3. **Semáforo Mac**: interruptor on/off (persiste).
 4. **Temas custom**: "Guardar como…" con nombre; lista editable; exportar/
-   importar `.onzatheme` (JSON de tokens).
+   importar `.orbittheme` (JSON de tokens).
 
 Persistencia en `settings.json` del userData; el tema se aplica al instante
 (sin reiniciar) — cambiar a/desde acrílico avisa al main para conmutar el

@@ -1,4 +1,4 @@
-# Plan de trabajo — Onza Studio
+# Plan de trabajo — Orbit Studio
 
 Plan por fases. Cada fase deja el producto **usable y coherente**; cada entrega
 dentro de una fase es su propio commit. El release formal (tag + GitHub release)
@@ -13,7 +13,7 @@ se saca al final, cuando el conjunto está pulido.
 - [x] Documentación maestra: PLAN, FEATURES, ARCHITECTURE, THEMING, COLLAB, CLAUDE-INTEGRATION.
 - [ ] Monorepo npm workspaces con TypeScript estricto: `apps/desktop`, `apps/server`,
       `packages/{core,engine,ui,collab,claude-bridge,sound-library}`.
-- [ ] Repo GitHub privado `Onza-Studio`, CI mínimo (typecheck + build).
+- [ ] Repo GitHub privado `Orbit-Studio`, CI mínimo (typecheck + build).
 
 **Criterio de salida:** `npm run dev` abre una ventana Electron con la UI base.
 
@@ -30,7 +30,7 @@ se saca al final, cuando el conjunto está pulido.
 - **Bus de comandos**: toda mutación pasa por un comando con inverso → undo/redo
   ilimitado, y la misma vía sirve luego para colaboración y para Claude.
 - IDs estables (nanoid) en todas las entidades → merge CRDT sin ambigüedad.
-- Serialización `.onza` (JSON versionado; samples referenciados por hash).
+- Serialización `.orbit` (JSON versionado; samples referenciados por hash).
 
 ### 1b. `packages/engine` — el motor DSP
 - Un AudioWorklet único con el kernel completo (sin latencia de grafo Web Audio):
@@ -56,7 +56,7 @@ offline y el CPU se mantiene bajo.
 
 ## Fase 2 — El shell: ventana, temas, layout
 
-**Objetivo:** se ve como Onza Studio. Minimalista, iconos estilo Mac, tres temas.
+**Objetivo:** se ve como Orbit Studio. Minimalista, iconos estilo Mac, tres temas.
 
 - `apps/desktop`: ventana frameless con **arquitectura A** del skill de acrílico
   (la ventana compone con alfa; el acrílico lo pone DWM con `backgroundMaterial`;
@@ -110,7 +110,7 @@ código.
    parámetro, grabación de movimientos de perillas.
 3. **Export**: render offline (mismo kernel DSP, más rápido que tiempo real) a
    WAV 16/24/32f; master o **stems por pista de mixer**; tail de reverb;
-   normalización opcional a -14 LUFS (flujo de streaming de Onza).
+   normalización opcional a -14 LUFS (flujo de streaming de Orbit).
 
 ---
 

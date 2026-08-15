@@ -1,4 +1,4 @@
-# Claude dentro del estudio — Onza Studio
+# Claude dentro del estudio — Orbit Studio
 
 Claude no es un chatbot pegado al lado: es **un colaborador dentro del proyecto**,
 con las mismas capacidades que un humano en la sesión y visible en tiempo real.

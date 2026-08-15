@@ -1,6 +1,6 @@
-# Catálogo de funciones — Onza Studio
+# Catálogo de funciones — Orbit Studio
 
-Guía completa de todo lo que tiene (y tendrá) Onza Studio. Basado en el flujo de
+Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
 y el sistema de temas acrílicos. Leyenda: **v0.1** = primera versión funcional ·
 **v0.x** = tras el release inicial · **v1+** = horizonte.
@@ -19,7 +19,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = primera versión funcional
 | Swing global (perilla como FL) | v0.1 |
 | Undo/redo ilimitado con historial navegable | v0.1 |
 | Autosave + backups rotativos del proyecto | v0.1 |
-| Formato `.onza` (JSON versionado + samples por hash), abrir/guardar/guardar como | v0.1 |
+| Formato `.orbit` (JSON versionado + samples por hash), abrir/guardar/guardar como | v0.1 |
 | Import MIDI (arrastrar .mid al proyecto) | v0.x |
 | Info del proyecto (título, autor, notas, artwork) | v0.1 |
 
@@ -86,15 +86,15 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = primera versión funcional
 
 | Instrumento | Qué es | Versión |
 |---|---|---|
-| **Onza Sub** | 808/sub: sine + drive tanh + glide, afinable al kick | v0.1 |
-| **Onza Synth** | Sustractivo: saw/square/tri/sine, SVF, 2 ADSR, unison | v0.1 |
-| **Onza Saw** | Supersaw 7 osciladores con detune/blend (trance/reggaetón) | v0.1 |
-| **Onza FM** | FM 2-op (bells, keys, bajos metálicos) | v0.1 |
-| **Onza Drums** | Caja de ritmos sintetizada: kick, clap, snare, hats (ruido filtrado), conga, rim, shaker, tom | v0.1 |
-| **Onza Sampler** | Reproduce WAV con pitch, ADSR, loop points | v0.1 |
-| **Onza Keys** | EP tipo Rhodes (FM) para boom bap / lo-fi | v0.x |
-| **Onza Slicer** | Trocea loops por transientes (estilo Fruity Slicer) | v0.x |
-| **Onza Vox** | Texturas vocales por formantes (ah/ooh/eh) | v0.x |
+| **Orbit Sub** | 808/sub: sine + drive tanh + glide, afinable al kick | v0.1 |
+| **Orbit Synth** | Sustractivo: saw/square/tri/sine, SVF, 2 ADSR, unison | v0.1 |
+| **Orbit Saw** | Supersaw 7 osciladores con detune/blend (trance/reggaetón) | v0.1 |
+| **Orbit FM** | FM 2-op (bells, keys, bajos metálicos) | v0.1 |
+| **Orbit Drums** | Caja de ritmos sintetizada: kick, clap, snare, hats (ruido filtrado), conga, rim, shaker, tom | v0.1 |
+| **Orbit Sampler** | Reproduce WAV con pitch, ADSR, loop points | v0.1 |
+| **Orbit Keys** | EP tipo Rhodes (FM) para boom bap / lo-fi | v0.x |
+| **Orbit Slicer** | Trocea loops por transientes (estilo Fruity Slicer) | v0.x |
+| **Orbit Vox** | Texturas vocales por formantes (ah/ooh/eh) | v0.x |
 
 ## 7. Efectos incluidos
 
@@ -135,7 +135,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = primera versión funcional
 | Búsqueda instantánea con filtros combinables | v0.1 |
 | Preview al click (con volumen de preview) | v0.1 |
 | Drag & drop a Channel Rack, Playlist o slot de sampler | v0.1 |
-| Contenido de fábrica generado por síntesis propia (pack Onza) | v0.1 |
+| Contenido de fábrica generado por síntesis propia (pack Orbit) | v0.1 |
 | Carpetas del usuario (añadir rutas propias, se indexan igual) | v0.1 |
 | Favoritos y colecciones | v0.x |
 | Detección automática de BPM/tonalidad al indexar | v1+ |
@@ -158,10 +158,10 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = primera versión funcional
 | Render offline (más rápido que tiempo real, mismo kernel DSP) | v0.1 |
 | **Stems** por pista de mixer en un solo pase | v0.1 |
 | Tail de reverb/delay configurable | v0.1 |
-| Normalización a **-14 LUFS** opcional (flujo streaming Onza) | v0.1 |
+| Normalización a **-14 LUFS** opcional (flujo streaming Orbit) | v0.1 |
 | Export de la selección de playlist / solo el loop | v0.1 |
 | MP3/FLAC/OGG | v0.x |
-| Export MIDI multipista (flujo FL de Onza: .mid + wav) | v0.1 |
+| Export MIDI multipista (flujo FL de Orbit: .mid + wav) | v0.1 |
 
 ## 12. Colaboración en tiempo real
 

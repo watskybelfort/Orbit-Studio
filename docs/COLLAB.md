@@ -1,4 +1,4 @@
-# Colaboración en tiempo real — Onza Studio
+# Colaboración en tiempo real — Orbit Studio
 
 Varias personas dentro del mismo proyecto, editando partes distintas de la pista
 a la vez, sin pisarse y sin conflictos.
@@ -29,7 +29,7 @@ a la vez, sin pisarse y sin conflictos.
 - Cada cliente publica: nombre, color asignado, editor activo (Playlist,
   Piano Roll de X, Mixer…), cursor (posición en el timeline / celda), selección.
 - La UI dibuja: cursores remotos con etiqueta de nombre, contornos de selección
-  con el color del usuario, chips "🎹 Ana está en el Piano Roll de Onza Sub",
+  con el color del usuario, chips "🎹 Ana está en el Piano Roll de Orbit Sub",
   lista de conectados en la barra superior.
 - **Claude aparece aquí como un usuario más** (nombre "Claude", su color) cuando
   el bridge MCP está activo.
