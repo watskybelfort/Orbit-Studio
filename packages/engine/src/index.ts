@@ -1,2 +1,11 @@
-// @orbit/engine — motor de audio DSP (AudioWorklet)
+// @orbit/engine — motor de audio DSP (AudioWorklet + render offline)
 export const ENGINE_VERSION = '0.1.0';
+
+export * from './protocol';
+export { compileProject, topoOrder, type PlayMode } from './compile';
+export { KernelCore, MAX_BLOCK } from './kernel-core';
+export { AudioEngine } from './engine';
+export { renderProject, renderStems, type RenderOptions, type RenderResult } from './render/offline';
+export { encodeWav, type WavDepth } from './render/wav';
+export { analyzeMix, gainToTarget, type MixAnalysis } from './render/analysis';
+export type { SampleData } from './dsp/voices';
