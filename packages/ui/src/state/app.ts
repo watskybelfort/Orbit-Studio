@@ -1,0 +1,78 @@
+/**
+ * Núcleo de estado de la app: UN ProjectStore + UN AudioEngine, cableados.
+ * Cualquier cambio del proyecto recompila y sincroniza el kernel (debounce
+ * por microtask para agrupar ráfagas de comandos).
+ */
+
+import { ProjectStore } from '@orbit/core';
+import { AudioEngine } from '@orbit/engine';
+import { useUiStore } from './ui';
+
+export const store = new ProjectStore();
+export const engine = new AudioEngine();
+
+let syncQueued = false;
+
+function queueSync(): void {
+  if (syncQueued) return;
+  syncQueued = true;
+  queueMicrotask(() => {
+    syncQueued = false;
+    engine.syncProject(store.project);
+  });
+}
+
+store.subscribe(queueSync);
+
+// Medidores del kernel → estado UI (~20 fps)
+engine.onMeters = (frame) => {
+  useUiStore.setState({
+    playing: frame.playing,
+    positionBeats: frame.positionBeats,
+    masterPeakL: frame.peaks[0] ?? 0,
+    cpu: frame.cpu,
+    trackPeaks: frame.peaks,
+  });
+};
+
+/** Ajusta el modo de reproducción (PAT/SONG) y resincroniza el kernel. */
+export function setPlayMode(mode: 'pattern' | 'song'): void {
+  const { activePatternId } = useUiStore.getState();
+  engine.playMode =
+    mode === 'pattern'
+      ? { mode: 'pattern', patternId: activePatternId ?? store.project.patternOrder[0]! }
+      : { mode: 'song' };
+  useUiStore.setState({ playMode: mode });
+  queueSync();
+}
+
+/** Cambia el patrón activo (afecta al modo PAT y a los editores). */
+export function setActivePattern(patternId: string): void {
+  useUiStore.setState({ activePatternId: patternId });
+  if (useUiStore.getState().playMode === 'pattern') {
+    engine.playMode = { mode: 'pattern', patternId };
+    queueSync();
+  }
+}
+
+/** Play desde el inicio (o continúa si se quiere extender más adelante). */
+export async function play(): Promise<void> {
+  await engine.init();
+  engine.syncProject(store.project);
+  engine.play(0);
+}
+
+export function stopPlayback(): void {
+  engine.stop();
+  useUiStore.setState({ playing: false, positionBeats: 0 });
+}
+
+export async function togglePlay(): Promise<void> {
+  if (useUiStore.getState().playing) stopPlayback();
+  else await play();
+}
+
+/** Primer gesto del usuario → despierta el AudioContext (política de autoplay). */
+export function ensureAudioReady(): void {
+  void engine.init().then(() => engine.syncProject(store.project));
+}

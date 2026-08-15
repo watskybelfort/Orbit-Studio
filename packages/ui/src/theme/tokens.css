@@ -44,6 +44,11 @@
   /* Popups (menús, modales, tooltips) */
   --popup-bg: #24262c;
   --shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* Medidores de nivel */
+  --meter: #46c46e;
+  --meter-hot: #e6c95a;
+  --meter-clip: #e6675a;
 }
 
 /* ── Oscuro ─────────────────────────────────────────────────────────────────

@@ -2,14 +2,23 @@ import { useEffect, useState } from 'react';
 import './theme/base.css';
 import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
+import { MenuBar } from './shell/MenuBar';
+import { Transport } from './shell/Transport';
+import { Workspace } from './shell/Workspace';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
+import { useShortcuts } from './hooks/useShortcuts';
+import { ensureAudioReady } from './state/app';
+import { useUiStore } from './state/ui';
 
-// Shell raíz: carga el tema persistido al montar (fallback: oscuro) y pinta
-// la barra de título + el área principal. El layout real (playlist, rack,
-// mixer, browser) llega en la fase de layout.
+// Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
+// browser lateral, workspace con ventanas internas y panel de Claude.
 
 export function App() {
   const [trafficLights, setTrafficLights] = useState(false);
+  const browserOpen = useUiStore((s) => s.browserOpen);
+  const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
+
+  useShortcuts();
 
   useEffect(() => {
     let alive = true;
@@ -20,15 +29,43 @@ export function App() {
       .catch(() => {
         void applyTheme('dark');
       });
+    // El AudioContext necesita un gesto: el primer pointerdown lo despierta.
+    const wake = () => {
+      ensureAudioReady();
+      window.removeEventListener('pointerdown', wake);
+    };
+    window.addEventListener('pointerdown', wake);
     return () => {
       alive = false;
+      window.removeEventListener('pointerdown', wake);
     };
   }, []);
 
   return (
     <div className="app-shell">
       <TitleBar trafficLights={trafficLights} />
-      <main className="app-main" />
+      <div className="toolbar">
+        <MenuBar />
+        <Transport />
+      </div>
+      <div className="app-columns">
+        {browserOpen && (
+          <aside className="sidebar">
+            <div className="sidebar-header">Browser</div>
+            <div className="panel-placeholder">Librería: en construcción.</div>
+          </aside>
+        )}
+        <Workspace />
+        {claudePanelOpen && (
+          <aside className="claude-panel">
+            <div className="sidebar-header">Claude</div>
+            <div className="panel-placeholder">
+              Conecta Claude Code en la carpeta del proyecto (.mcp.json) para
+              verlo trabajar aquí.
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
   );
 }
