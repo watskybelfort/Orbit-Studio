@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Instalar dependencias
+        run: npm ci
+        env:
+          # El binario de Electron no hace falta para typecheck/test/build de CI
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Aprobar scripts de esbuild
+        run: npm approve-scripts esbuild || echo "sin allow-scripts, seguimos"
+        continue-on-error: true
+      - name: Rebuild esbuild
+        run: npm rebuild esbuild
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests (core + engine + collab + bridge)
+        run: npm test
+      - name: Build de la app
+        run: npm run build
