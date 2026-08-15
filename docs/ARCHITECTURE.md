@@ -1,10 +1,10 @@
-# Arquitectura — Onza Studio
+# Arquitectura — Orbit Studio
 
 ## Visión general
 
 ```
 ┌────────────────────────────  apps/desktop (Electron)  ───────────────────────────┐
-│  main process: ventana+DWM acrílico · IPC · FS (samples, .onza) · claude-bridge  │
+│  main process: ventana+DWM acrílico · IPC · FS (samples, .orbit) · claude-bridge  │
 │  ┌──────────────────────────  renderer (packages/ui)  ─────────────────────────┐ │
 │  │  React: Playlist · Piano Roll · Channel Rack · Mixer · Browser · Claude     │ │
 │  │  Estado UI (zustand)  ←→  packages/core (modelo + bus de comandos)          │ │
@@ -45,7 +45,7 @@
 - `model/`: tipos del proyecto. Todas las entidades con `id` (nanoid).
 - `commands/`: comandos serializables `{type, payload}` con `apply/invert`.
 - `store.ts`: estado del proyecto + suscripciones granulares.
-- `onza-format.ts`: guardar/cargar `.onza` (JSON con `formatVersion`).
+- `orbit-format.ts`: guardar/cargar `.orbit` (JSON con `formatVersion`).
 - Sin dependencias de DOM ni de Electron: corre en renderer, server y tests.
 
 ### `packages/engine`

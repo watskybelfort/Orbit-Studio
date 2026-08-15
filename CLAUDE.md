@@ -1,4 +1,4 @@
-# Onza Studio — instrucciones del repo
+# Orbit Studio — instrucciones del repo
 
 DAW propio (estilo FL Studio) en Electron + TypeScript. Lee `docs/PLAN.md` para
 el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo.

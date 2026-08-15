@@ -13,4 +13,4 @@ Thumbs.db
 coverage/
 .vite/
 factory-cache/
-*.onza.autosave
+*.orbit.autosave

@@ -1,6 +1,6 @@
-# Onza Studio
+# Orbit Studio
 
-**El DAW de Onza.** Un estudio de producción musical completo, hecho desde cero:
+**El DAW de Orbit.** Un estudio de producción musical completo, hecho desde cero:
 secuenciador, piano roll, playlist, mixer con cadenas de efectos, síntesis propia,
 librería de sonidos clasificada, colaboración en tiempo real y Claude integrado
 como un productor más dentro del proyecto.
@@ -52,12 +52,12 @@ npm run server     # servidor de colaboración
 ## Estructura
 
 ```
-onza-studio/
+orbit-studio/
 ├─ apps/
 │  ├─ desktop/        Shell Electron (ventana, acrílico, IPC, empaquetado)
 │  └─ server/         Servidor de colaboración (rooms, presencia)
 ├─ packages/
-│  ├─ core/           Modelo de proyecto, comandos, undo, formato .onza
+│  ├─ core/           Modelo de proyecto, comandos, undo, formato .orbit
 │  ├─ engine/         Motor de audio DSP (AudioWorklet)
 │  ├─ ui/             Interfaz React (playlist, piano roll, mixer, browser…)
 │  ├─ collab/         Bindings Yjs + presencia
