@@ -1,0 +1,151 @@
+/* Piano Roll. Los tokens --pr-* son colores literales por tema porque el
+   canvas los lee con getComputedStyle (sin funciones CSS sin resolver). */
+
+.pianoroll {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+
+  --pr-row: #1a1c20;
+  --pr-row-black: #16181c;
+  --pr-row-scale: #20242c;
+  --pr-row-line: #2e3138;
+  --pr-grid-bar: #3a3e46;
+  --pr-grid-beat: #26292f;
+  --pr-grid-sub: #1e2126;
+  --pr-pattern-end: #4a4e58;
+  --pr-ghost: rgba(154, 157, 166, 0.28);
+  --pr-playhead: #e6c95a;
+  --pr-lane-bg: #17191d;
+}
+
+html[data-theme='light'] .pianoroll {
+  --pr-row: #f7f8fa;
+  --pr-row-black: #eceef1;
+  --pr-row-scale: #e2e8f2;
+  --pr-row-line: #d8dbe1;
+  --pr-grid-bar: #b9bec8;
+  --pr-grid-beat: #dcdfe5;
+  --pr-grid-sub: #e9ebef;
+  --pr-pattern-end: #a9aeb8;
+  --pr-ghost: rgba(95, 100, 112, 0.3);
+  --pr-playhead: #c99a1e;
+  --pr-lane-bg: #eef0f3;
+}
+
+html[data-theme='acrylic'] .pianoroll {
+  --pr-row: rgba(255, 255, 255, 0.03);
+  --pr-row-black: rgba(0, 0, 0, 0.16);
+  --pr-row-scale: rgba(255, 255, 255, 0.07);
+  --pr-row-line: rgba(255, 255, 255, 0.1);
+  --pr-grid-bar: rgba(255, 255, 255, 0.16);
+  --pr-grid-beat: rgba(255, 255, 255, 0.07);
+  --pr-grid-sub: rgba(255, 255, 255, 0.03);
+  --pr-pattern-end: rgba(255, 255, 255, 0.25);
+  --pr-lane-bg: rgba(0, 0, 0, 0.2);
+}
+
+/* ── Toolbar ── */
+
+.pr-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.pr-channel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+}
+
+.pr-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.pr-field select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+}
+
+.pr-tools {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+}
+
+/* ── Área principal ── */
+
+.pr-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.pr-keyboard {
+  flex: none;
+  will-change: transform;
+}
+
+.pr-key {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  position: relative;
+}
+
+.pr-key.black {
+  background: var(--surface-2);
+}
+
+html[data-theme='light'] .pr-key {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .pr-key.black {
+  background: #2a2c32;
+}
+
+.pr-key:hover {
+  background: var(--accent);
+}
+
+.pr-key-label {
+  position: absolute;
+  right: 5px;
+  top: 0;
+  font-size: 9px;
+  color: var(--text-dim);
+  line-height: 14px;
+}
+
+.pr-canvas-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.pr-canvas {
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
