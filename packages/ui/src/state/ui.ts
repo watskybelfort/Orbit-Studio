@@ -31,6 +31,8 @@ export interface UiState {
   selectedMixerTrack: number;
   browserOpen: boolean;
   claudePanelOpen: boolean;
+  /** Semáforo macOS en la barra de título (persistido en settings). */
+  trafficLights: boolean;
 
   openWindow: (id: WindowId) => void;
   closeWindow: (id: WindowId) => void;
@@ -65,6 +67,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedMixerTrack: 0,
   browserOpen: true,
   claudePanelOpen: false,
+  trafficLights: false,
 
   openWindow: (id) =>
     set((s) => ({
