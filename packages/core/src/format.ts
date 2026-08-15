@@ -1,0 +1,36 @@
+/** Formato .orbit: JSON versionado. Los samples van referenciados por hash. */
+
+import type { Project } from './model/types';
+import { FORMAT_VERSION } from './model/types';
+
+export const ORBIT_EXTENSION = '.orbit';
+
+export function serializeProject(project: Project): string {
+  return JSON.stringify(project, null, 1);
+}
+
+export function parseProject(json: string): Project {
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    throw new Error('El archivo no es un .orbit válido (JSON corrupto)');
+  }
+  if (typeof data !== 'object' || data === null) {
+    throw new Error('El archivo no es un .orbit válido');
+  }
+  const p = data as Partial<Project>;
+  if (p.formatVersion !== FORMAT_VERSION) {
+    throw new Error(
+      `Versión de formato no soportada: ${String(p.formatVersion)} (esperada ${FORMAT_VERSION})`,
+    );
+  }
+  for (const key of [
+    'id', 'meta', 'tempo', 'channels', 'patterns', 'mixer', 'clips',
+  ] as const) {
+    if (p[key] === undefined) {
+      throw new Error(`.orbit inválido: falta "${key}"`);
+    }
+  }
+  return p as Project;
+}
