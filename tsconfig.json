@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "paths": {
+      "@orbit/core": ["./packages/core/src/index.ts"],
+      "@orbit/core/*": ["./packages/core/src/*"],
+      "@orbit/engine": ["./packages/engine/src/index.ts"],
+      "@orbit/engine/*": ["./packages/engine/src/*"],
+      "@orbit/ui": ["./packages/ui/src/index.ts"],
+      "@orbit/ui/*": ["./packages/ui/src/*"],
+      "@orbit/collab": ["./packages/collab/src/index.ts"],
+      "@orbit/collab/*": ["./packages/collab/src/*"],
+      "@orbit/claude-bridge": ["./packages/claude-bridge/src/index.ts"],
+      "@orbit/sound-library": ["./packages/sound-library/src/index.ts"]
+    }
+  },
+  "include": [
+    "apps/desktop/src",
+    "apps/server/src",
+    "packages/*/src",
+    "packages/*/test"
+  ]
+}
