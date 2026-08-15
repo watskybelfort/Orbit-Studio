@@ -1,0 +1,109 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Barra de título custom — región de arrastre de la ventana frameless.
+   Todo color sale de tokens (var(--…)); nada hardcodeado.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: var(--titlebar-h);
+  background: var(--titlebar-bg);
+  color: var(--text);
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.titlebar__logo {
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--text-dim);
+}
+
+.titlebar__title-center {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.titlebar__spacer {
+  flex: 1;
+}
+
+/* ── Botones estilo Windows (derecha) ── */
+
+.titlebar__controls {
+  display: flex;
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.titlebar__btn {
+  width: 46px;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+  cursor: default;
+  transition: background-color 80ms ease-out;
+}
+
+.titlebar__btn:hover {
+  background: var(--titlebar-hover);
+  color: var(--text);
+}
+
+.titlebar__btn--close:hover {
+  background: var(--titlebar-close-hover);
+  color: var(--titlebar-close-hover-text);
+}
+
+/* ── Semáforo macOS (izquierda) ── */
+
+.traffic {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  gap: 8px;
+  padding: 0 14px;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.traffic__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+
+.traffic__dot--close {
+  background: var(--traffic-close);
+}
+
+.traffic__dot--min {
+  background: var(--traffic-min);
+}
+
+.traffic__dot--max {
+  background: var(--traffic-max);
+}
+
+/* Los glifos del semáforo aparecen al pasar sobre el GRUPO entero, como macOS. */
+.traffic__dot svg {
+  opacity: 0;
+  color: var(--traffic-glyph);
+  transition: opacity 80ms ease-out;
+}
+
+.traffic:hover .traffic__dot svg {
+  opacity: 1;
+}

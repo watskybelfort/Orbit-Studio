@@ -1,0 +1,112 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Tokens de tema — Orbit Studio
+   Única fuente de color/radio/blur de la UI. Regla del repo: ningún color
+   hardcodeado en componentes; todo sale de estas variables.
+
+   Tres perillas del customizador (Ajustes → Apariencia):
+     --glass-alpha  cuánta veladura pinta la UI en acrílico (0 = vidrio puro,
+                    1 = opaco). Solo tiene efecto con el tema acrílico.
+     --glass-tint   el color que vela el vidrio (picker).
+     --accent       el color de marca (picker + paleta).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Perillas */
+  --accent: #5aa9e6;
+  --glass-alpha: 0.55;
+  --glass-tint: #101114;
+
+  /* Geometría */
+  --radius: 8px;
+  --blur-popup: 24px;
+  --titlebar-h: 38px;
+
+  /* ── Paleta oscura (defecto: también aplica sin data-theme) ── */
+  --bg: #141518;
+  --surface: #1c1e23;
+  --surface-2: #24262c;
+  --text: #e8e9ec;
+  --text-dim: #9a9da6;
+  --border: #2e3138;
+
+  /* Barra de título */
+  --titlebar-bg: #1c1e23;
+  --titlebar-hover: rgba(255, 255, 255, 0.08);
+  --titlebar-close-hover: #e81123;
+  --titlebar-close-hover-text: #ffffff;
+
+  /* Semáforo macOS (colores canon del sistema) */
+  --traffic-close: #ff5f57;
+  --traffic-min: #febc2e;
+  --traffic-max: #28c840;
+  --traffic-glyph: rgba(0, 0, 0, 0.62);
+
+  /* Popups (menús, modales, tooltips) */
+  --popup-bg: #24262c;
+  --shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+/* ── Oscuro ─────────────────────────────────────────────────────────────────
+   Es el defecto: hereda los valores de :root tal cual. El bloque existe para
+   que los tres temas sean explícitos en el DOM (html[data-theme='dark']). */
+html[data-theme='dark'] {
+  /* valores de :root */
+}
+
+/* ── Claro ────────────────────────────────────────────────────────────────── */
+html[data-theme='light'] {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-2: #eceef1;
+  --text: #17181c;
+  --text-dim: #5f6470;
+  --border: #d8dbe1;
+
+  --titlebar-bg: #eceef1;
+  --titlebar-hover: rgba(0, 0, 0, 0.07);
+
+  --popup-bg: #ffffff;
+  --shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+
+/* ── Acrílico ───────────────────────────────────────────────────────────────
+   Arquitectura A del skill acrylic-theming: la ventana compone con alfa y el
+   blur del escritorio lo pone DWM, no el CSS. Reglas duras:
+   1. Solo tiñen las regiones que NO se solapan (barra de título, main,
+      sidebars). Todo contenedor anidado va `transparent` — las opacidades se
+      acumulan y taparían el vidrio.
+   2. `backdrop-filter` va ÚNICAMENTE en popups (.popup): sobre la ventana
+      transparente no hay píxeles que muestrear; dentro de la página sí.
+      PROHIBIDO en la raíz o en paneles grandes. */
+html[data-theme='acrylic'] {
+  --bg: color-mix(in srgb, var(--glass-tint) calc(var(--glass-alpha) * 100%), transparent);
+  --surface: rgba(255, 255, 255, 0.04);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --text: #e8e9ec;
+  --text-dim: #a6a9b2;
+  --border: rgba(255, 255, 255, 0.09);
+
+  /* La barra de título es región propia (no se solapa con el main):
+     puede llevar su tinte sin acumular alfa. */
+  --titlebar-bg: var(--bg);
+  --titlebar-hover: rgba(255, 255, 255, 0.1);
+
+  --popup-bg: color-mix(in srgb, var(--glass-tint) 78%, transparent);
+  --shadow-popup: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Popups ─────────────────────────────────────────────────────────────────
+   Menús, modales y tooltips. En oscuro/claro: superficie con sombra. En
+   acrílico: el ÚNICO sitio con backdrop-filter (difumina la UI de debajo). */
+.popup {
+  background: var(--popup-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popup);
+}
+
+html[data-theme='acrylic'] .popup {
+  -webkit-backdrop-filter: blur(var(--blur-popup));
+  backdrop-filter: blur(var(--blur-popup));
+}
