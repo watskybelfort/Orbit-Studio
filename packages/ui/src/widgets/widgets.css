@@ -1,0 +1,146 @@
+/* Widgets de Orbit Studio: perillas, faders, medidores, scrubbers. */
+
+.knob {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.knob-svg {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.knob-body {
+  fill: var(--surface-2);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.knob-arc {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.knob-pointer {
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.knob-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Fader ── */
+
+.fader {
+  position: relative;
+  width: 26px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.fader-track {
+  position: absolute;
+  left: 50%;
+  top: 4px;
+  bottom: 4px;
+  width: 4px;
+  transform: translateX(-50%);
+  background: var(--surface-2);
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+
+.fader-thumb {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 22px;
+  height: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  pointer-events: none;
+}
+
+.fader-thumb::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* ── Medidor ── */
+
+.meter {
+  position: relative;
+  width: 6px;
+  background: var(--surface-2);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.meter-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--meter);
+  transition: height 40ms linear;
+}
+
+.meter-fill.hot {
+  background: var(--meter-hot);
+}
+
+.meter-fill.clip {
+  background: var(--meter-clip);
+}
+
+/* ── Scrubber ── */
+
+.scrubber {
+  cursor: ns-resize;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  touch-action: none;
+  user-select: none;
+}
+
+.scrubber-suffix {
+  color: var(--text-dim);
+  margin-left: 3px;
+  font-size: 10px;
+}
+
+.scrubber-input {
+  width: 64px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 2px 6px;
+  font: inherit;
+  outline: none;
+}
