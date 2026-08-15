@@ -1,0 +1,16 @@
+node_modules/
+dist/
+dist-electron/
+out/
+release/
+build/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.local
+*.tsbuildinfo
+coverage/
+.vite/
+factory-cache/
+*.onza.autosave
