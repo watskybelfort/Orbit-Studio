@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import './theme/base.css';
 import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
@@ -14,7 +14,7 @@ import { useUiStore } from './state/ui';
 // browser lateral, workspace con ventanas internas y panel de Claude.
 
 export function App() {
-  const [trafficLights, setTrafficLights] = useState(false);
+  const trafficLights = useUiStore((s) => s.trafficLights);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
 
@@ -24,7 +24,7 @@ export function App() {
     let alive = true;
     loadThemeFromSettings()
       .then(({ overrides }) => {
-        if (alive) setTrafficLights(overrides.trafficLights ?? false);
+        if (alive) useUiStore.setState({ trafficLights: overrides.trafficLights ?? false });
       })
       .catch(() => {
         void applyTheme('dark');
