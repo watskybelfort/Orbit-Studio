@@ -1,0 +1,11 @@
+// @orbit/core — modelo de proyecto, comandos y formato .orbit
+export const CORE_VERSION = '0.1.0';
+
+export * from './model/types';
+export * from './model/params';
+export * from './model/notes';
+export * from './model/defaults';
+export * from './commands';
+export * from './store';
+export * from './format';
+export { newId } from './ids';
