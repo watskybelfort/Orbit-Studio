@@ -575,5 +575,8 @@ export function createEffect(kind: EffectKind, sr: number): EffectUnit {
     case 'gate': return new GateUnit(sr);
     case 'stereo': return new StereoUnit(sr);
     case 'analyzer': return new PassthroughUnit();
+    // Los plugins JS los instancia el kernel desde su registro (makePluginUnit);
+    // si llega aquí (plugin sin registrar), el slot pasa el audio limpio.
+    case 'plugin': return new PassthroughUnit();
   }
 }
