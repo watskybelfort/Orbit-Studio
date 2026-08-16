@@ -22,6 +22,7 @@ import {
   type WavDepth,
 } from '@orbit/engine';
 import { readSampleBytes } from '../browser/sound-actions';
+import { encodeMp3 } from './mp3';
 import { store } from '../state/app';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
@@ -29,7 +30,7 @@ import './export.css';
 
 const TARGET_LUFS = -14;
 
-type ExportMode = 'song' | 'pattern';
+type ExportMode = 'song' | 'pattern' | 'loop';
 
 interface ExportSummary {
   path: string;
@@ -41,7 +42,18 @@ interface ExportSummary {
   stemsWritten: number;
   /** Ruta del .mid exportado junto al WAV, o null si no se pidió/falló. */
   midiPath: string | null;
+  /** Ruta del .mp3 exportado junto al WAV, o null si no se pidió/falló. */
+  mp3Path: string | null;
   warnings: string[];
+}
+
+/** Recorta un render a un rango de samples (para exportar el loop). */
+function sliceRender(res: RenderResult, s0: number, s1: number): RenderResult {
+  return {
+    left: res.left.slice(s0, s1),
+    right: res.right.slice(s0, s1),
+    sampleRate: res.sampleRate,
+  };
 }
 
 type ExportStatus =
@@ -177,6 +189,8 @@ export function ExportPanel() {
   const [normalize, setNormalize] = useState(false);
   const [stems, setStems] = useState(false);
   const [midi, setMidi] = useState(true);
+  const [mp3, setMp3] = useState(false);
+  const loopRegion = useUiStore((s) => s.loopRegion);
   const [depth, setDepth] = useState<WavDepth>(16);
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' });
 
@@ -196,7 +210,11 @@ export function ExportPanel() {
   const stemTracks = useMemo(() => usedMixerTracks(project), [project]);
 
   const canExport =
-    isDesktop && !busy && (mode === 'song' || selectedPattern !== null);
+    isDesktop &&
+    !busy &&
+    (mode === 'song' ||
+      (mode === 'pattern' && selectedPattern !== null) ||
+      (mode === 'loop' && loopRegion !== null));
 
   const doExport = async () => {
     if (!canExport) return;
@@ -210,7 +228,7 @@ export function ExportPanel() {
       const baseName =
         mode === 'pattern'
           ? (pattern?.name ?? 'patron')
-          : proj.meta.title.trim() || 'proyecto';
+          : `${proj.meta.title.trim() || 'proyecto'}${mode === 'loop' ? '-loop' : ''}`;
       const path = await orbit.file.saveDialog(`${sanitizeFileName(baseName)}.wav`);
       if (!path) return; // cancelado por el usuario
 
@@ -229,8 +247,15 @@ export function ExportPanel() {
         warnings.push(`Samples no incluidos en el render: ${missing.join(', ')}.`);
       }
 
-      // Mezcla principal
-      const mix = renderProject(compiled, { samples });
+      // Mezcla principal (la fuente Loop renderiza la canción y recorta).
+      let mix = renderProject(compiled, { samples });
+      const loop = mode === 'loop' ? loopRegion : null;
+      const spb = 60 / proj.tempo;
+      if (loop) {
+        const s0 = Math.max(0, Math.floor(loop.start * spb * mix.sampleRate));
+        const s1 = Math.min(mix.left.length, Math.ceil(loop.end * spb * mix.sampleRate));
+        mix = sliceRender(mix, s0, s1);
+      }
       const analysis = analyzeMix(mix.left, mix.right, mix.sampleRate);
       let gainDb: number | null = null;
       if (normalize) {
@@ -242,6 +267,20 @@ export function ExportPanel() {
       const finalPeak = analysis.peakDb + (gainDb ?? 0);
 
       await orbit.file.write(path, encodeWav(mix.left, mix.right, mix.sampleRate, depth));
+
+      // MP3 al lado del WAV (para pasar demos rápido).
+      let mp3Path: string | null = null;
+      if (mp3) {
+        mp3Path = path.replace(/\.wav$/i, '') + '.mp3';
+        try {
+          setStatus({ kind: 'busy', label: 'Codificando MP3…' });
+          await nextPaint();
+          await orbit.file.write(mp3Path, encodeMp3(mix.left, mix.right, mix.sampleRate));
+        } catch (e) {
+          warnings.push(`No se pudo escribir ${mp3Path}: ${errorText(e)}`);
+          mp3Path = null;
+        }
+      }
 
       // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
       let midiPath: string | null = null;
@@ -274,8 +313,13 @@ export function ExportPanel() {
             label: `Renderizando stem ${i + 1}/${stemTracks.length} (${t.name})…`,
           });
           await nextPaint();
-          const res = renderStems(compiled, [t.idx], { samples }).get(t.idx);
+          let res = renderStems(compiled, [t.idx], { samples }).get(t.idx);
           if (!res) continue;
+          if (loop) {
+            const s0 = Math.max(0, Math.floor(loop.start * spb * res.sampleRate));
+            const s1 = Math.min(res.left.length, Math.ceil(loop.end * spb * res.sampleRate));
+            res = sliceRender(res, s0, s1);
+          }
           if (gainDb !== null) applyGain(res, gainDb); // misma ganancia que el master
           let slug = slugName(t.name);
           if (usedSlugs.has(slug)) slug = `${slug}-${t.idx}`;
@@ -300,6 +344,7 @@ export function ExportPanel() {
           gainDb,
           stemsWritten,
           midiPath,
+          mp3Path,
           warnings,
         },
       });
@@ -328,6 +373,14 @@ export function ExportPanel() {
             onClick={() => setMode('pattern')}
           >
             Patrón
+          </button>
+          <button
+            className={`exp-seg-btn${mode === 'loop' ? ' selected' : ''}`}
+            disabled={busy || loopRegion === null}
+            title={loopRegion === null ? 'Marca un loop en la regla de la playlist' : undefined}
+            onClick={() => setMode('loop')}
+          >
+            Loop
           </button>
         </div>
       </div>
@@ -390,6 +443,16 @@ export function ExportPanel() {
           onChange={(e) => setMidi(e.target.checked)}
         />
         MIDI multipista (.mid junto al WAV)
+      </label>
+
+      <label className="exp-check">
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={mp3}
+          onChange={(e) => setMp3(e.target.checked)}
+        />
+        También MP3 a 192 kbps (para pasar demos)
       </label>
 
       <div className="exp-row">
@@ -455,6 +518,14 @@ export function ExportPanel() {
               <span className="exp-summary-key">MIDI</span>
               <span className="exp-summary-val">
                 {status.summary.midiPath.split(/[\\/]/).pop()}
+              </span>
+            </div>
+          )}
+          {status.summary.mp3Path && (
+            <div className="exp-summary-row">
+              <span className="exp-summary-key">MP3</span>
+              <span className="exp-summary-val">
+                {status.summary.mp3Path.split(/[\\/]/).pop()}
               </span>
             </div>
           )}

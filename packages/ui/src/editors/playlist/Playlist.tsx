@@ -111,7 +111,12 @@ export function Playlist() {
   /** Marcador en edición de nombre (input flotante sobre la regla). */
   const [markerEdit, setMarkerEdit] = useState<{ id: Id; x: number; name: string } | null>(null);
   /** Región de loop del transporte (estado de motor, no de proyecto). */
-  const [loopRegion, setLoopRegion] = useState<{ start: number; end: number } | null>(null);
+  // La región de loop vive en el estado global (el export la ofrece como fuente).
+  const loopRegion = useUiStore((s) => s.loopRegion);
+  const setLoopRegion = useCallback(
+    (region: { start: number; end: number } | null) => useUiStore.setState({ loopRegion: region }),
+    [],
+  );
 
   const barLen = Math.max(1, project.timeSig.num);
   const rawSnap = SNAPS[snapIdx]?.value ?? 1;

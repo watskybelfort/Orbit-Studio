@@ -40,6 +40,8 @@ export interface UiState {
   trackPeaks: Float32Array | null;
   /** Últimos samples del master para el Orbit Scope (solo con la ventana abierta). */
   scopeFrame: Float32Array | null;
+  /** Región de loop de la playlist en beats (también fuente del export). */
+  loopRegion: { start: number; end: number } | null;
 
   activePatternId: string | null;
   /** Canal cuyo piano roll está abierto. */
@@ -89,6 +91,7 @@ export const useUiStore = create<UiState>((set) => ({
   cpu: 0,
   trackPeaks: null,
   scopeFrame: null,
+  loopRegion: null,
 
   activePatternId: null,
   pianoRollChannelId: null,
