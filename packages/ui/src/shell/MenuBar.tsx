@@ -48,6 +48,7 @@ export function MenuBar() {
       { label: 'Channel Rack', shortcut: 'F6', action: () => toggleWindow('channelRack') },
       { label: 'Piano Roll', shortcut: 'F7', action: () => toggleWindow('pianoRoll') },
       { label: 'Mixer', shortcut: 'F9', action: () => toggleWindow('mixer') },
+      { label: 'Automatización', action: () => toggleWindow('automation') },
       { label: '', separator: true },
       {
         label: 'Browser',
