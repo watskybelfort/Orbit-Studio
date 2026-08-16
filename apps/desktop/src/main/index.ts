@@ -10,6 +10,12 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
 
+// QA/depuración: ORBIT_DEBUG_PORT=9223 abre el protocolo CDP en localhost
+// (solo si se pide explícitamente; nunca por defecto).
+if (process.env['ORBIT_DEBUG_PORT']) {
+  app.commandLine.appendSwitch('remote-debugging-port', process.env['ORBIT_DEBUG_PORT']);
+}
+
 const OPAQUE_BG = { dark: '#141518', light: '#f4f5f7' } as const;
 const TRANSPARENT_BG = '#00000000';
 
@@ -84,6 +90,7 @@ function createWindow(): BrowserWindow {
   const theme: ThemeId = isThemeId(savedTheme) ? savedTheme : 'dark';
 
   const win = new BrowserWindow({
+    title: 'Orbit Studio',
     width: 1440,
     height: 900,
     minWidth: 960,
