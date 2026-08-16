@@ -31,6 +31,8 @@ import {
 } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
+import { defaultPluginParams } from '../../state/plugin-parse';
+import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Fader } from '../../widgets/Fader';
@@ -38,7 +40,9 @@ import { Knob } from '../../widgets/Knob';
 import { LevelMeter } from '../../widgets/LevelMeter';
 import './mixer.css';
 
-const EFFECT_KINDS = Object.keys(EFFECT_LABELS) as EffectKind[];
+// Efectos nativos insertables; los slots 'plugin' se insertan desde la sección
+// "Plugins JS" del menú con su pluginId (no como kind suelto).
+const EFFECT_KINDS = (Object.keys(EFFECT_LABELS) as EffectKind[]).filter((k) => k !== 'plugin');
 const FADER_H = 140;
 const SEND_DEFAULT = 0.7;
 
@@ -66,6 +70,12 @@ function formatParam(spec: ParamSpec, v: number): string {
 function trackLabel(index: number, mixer: MixerTrack[]): string {
   if (index === 0) return 'Master';
   return mixer[index]?.name ?? `#${index}`;
+}
+
+/** Nombre visible de un slot: los kind 'plugin' toman el del registro. */
+function slotLabel(slot: EffectSlot, plugins: PluginInfo[]): string {
+  if (slot.kind !== 'plugin') return EFFECT_LABELS[slot.kind];
+  return plugins.find((p) => p.id === slot.pluginId)?.name ?? EFFECT_LABELS.plugin;
 }
 
 // ── Menú flotante (efectos / routing) ────────────────────────────────────────
@@ -595,12 +605,19 @@ function EffectEditor({
   slot: EffectSlot;
   mixer: MixerTrack[];
 }) {
-  const specs = EFFECT_PARAMS[slot.kind];
+  // Los plugins JS declaran sus perillas en su archivo: specs del registro.
+  const plugins = usePluginsStore((s) => s.plugins);
+  const plugin = slot.kind === 'plugin' ? plugins.find((p) => p.id === slot.pluginId) : undefined;
+  const specs = slot.kind === 'plugin' ? (plugin?.params ?? []) : EFFECT_PARAMS[slot.kind];
+  const pluginMissing = slot.kind === 'plugin' && !plugin;
 
   return (
     <div className="fx-editor">
       {slot.kind === 'eq' && <EqAnalyzer trackIndex={trackIndex} slotIndex={slotIndex} />}
-      {specs.length === 0 && slot.kind !== 'compressor' && (
+      {pluginMissing && (
+        <div className="fx-warn">Plugin no encontrado: {slot.pluginId ?? '(sin id)'}</div>
+      )}
+      {specs.length === 0 && slot.kind !== 'compressor' && !pluginMissing && (
         <div className="fx-empty">Sin parámetros.</div>
       )}
       {specs.map((spec) =>
@@ -700,6 +717,7 @@ function ChainPanel({
 }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [fxMenu, setFxMenu] = useState<{ slot: number; x: number; y: number } | null>(null);
+  const plugins = usePluginsStore((s) => s.plugins);
 
   // Cambiar de pista cierra editor y menú (los slots son de otra cadena).
   useEffect(() => {
@@ -719,6 +737,27 @@ function ChainPanel({
       store.dispatch(
         { type: 'setEffect', trackIndex, slotIndex, slot },
         { label: `Insertar ${EFFECT_LABELS[kind]}` },
+      );
+      setExpanded(slotIndex);
+    },
+    [trackIndex],
+  );
+
+  // Insertar un plugin JS: slot kind 'plugin' con su pluginId y los defaults
+  // de las perillas que declara el propio archivo.
+  const insertPlugin = useCallback(
+    (slotIndex: number, plugin: PluginInfo) => {
+      const slot: EffectSlot = {
+        id: newId(),
+        kind: 'plugin',
+        enabled: true,
+        mix: 1,
+        params: defaultPluginParams(plugin.params),
+        pluginId: plugin.id,
+      };
+      store.dispatch(
+        { type: 'setEffect', trackIndex, slotIndex, slot },
+        { label: `Insertar ${plugin.name}` },
       );
       setExpanded(slotIndex);
     },
@@ -844,6 +883,7 @@ function ChainPanel({
               </div>
             );
           }
+          const fxName = slotLabel(slot, plugins);
           return (
             <div key={slot.id} className="fx-slot">
               <div className={`fx-row${slot.enabled ? '' : ' off'}`}>
@@ -859,7 +899,7 @@ function ChainPanel({
                         patch: { enabled: !slot.enabled },
                       },
                       {
-                        label: `${slot.enabled ? 'Apagar' : 'Encender'} ${EFFECT_LABELS[slot.kind]}`,
+                        label: `${slot.enabled ? 'Apagar' : 'Encender'} ${fxName}`,
                       },
                     )
                   }
@@ -869,7 +909,7 @@ function ChainPanel({
                   title="Editar parámetros"
                   onClick={() => setExpanded(expanded === i ? null : i)}
                 >
-                  {EFFECT_LABELS[slot.kind]}
+                  {fxName}
                 </button>
                 <Knob
                   value={slot.mix}
@@ -891,7 +931,7 @@ function ChainPanel({
                   onClick={() => {
                     store.dispatch(
                       { type: 'setEffect', trackIndex, slotIndex: i, slot: null },
-                      { label: `Quitar ${EFFECT_LABELS[slot.kind]}` },
+                      { label: `Quitar ${fxName}` },
                     );
                     if (expanded === i) setExpanded(null);
                   }}
@@ -920,6 +960,35 @@ function ChainPanel({
               {EFFECT_LABELS[kind]}
             </button>
           ))}
+          <div className="menu-sep" />
+          <div className="fx-menu-title">Plugins JS</div>
+          {plugins.map((p) => (
+            <button
+              key={p.id}
+              className="menu-item"
+              title={`Plugin JS de usuario (${p.id}.js)`}
+              onClick={() => {
+                insertPlugin(fxMenu.slot, p);
+                setFxMenu(null);
+              }}
+            >
+              {p.name}
+            </button>
+          ))}
+          {plugins.length === 0 && (
+            <div className="fx-menu-hint">Pon archivos .js en la carpeta de plugins</div>
+          )}
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            onClick={() => {
+              // El ?. doble cubre la web (sin puente) y preloads viejos sin `plugins`.
+              void window.orbit?.plugins?.openFolder();
+              setFxMenu(null);
+            }}
+          >
+            Abrir carpeta de plugins…
+          </button>
         </FloatingMenu>
       )}
     </div>
