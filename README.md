@@ -47,6 +47,12 @@ guardables con nombre).
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
+## Instalación
+
+Descarga `Orbit-Studio-Setup-<versión>.exe` de la [última release](https://github.com/watskybelfort/Orbit-Studio/releases)
+(Windows x64, instalación en un clic, pack de sonidos incluido). Para
+regenerarlo: `npm run dist` en `apps/desktop`.
+
 ## Arranque rápido (desarrollo)
 
 ```bash
