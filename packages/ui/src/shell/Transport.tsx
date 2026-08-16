@@ -1,16 +1,59 @@
-/** Barra de transporte: play/stop, PAT/SONG, BPM, swing, metrónomo, posición. */
+/** Barra de transporte: play PAT/SONG, BPM, swing, metrónomo, ventanas, posición. */
 
-import { useCallback, useRef } from 'react';
-import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { useCallback, useRef, type ReactNode } from 'react';
+import { engine, pausePlayback, play, setPlayMode, stopPlayback, store } from '../state/app';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
-import { IconMetronome, IconPause, IconPianoRoll, IconPlay, IconStop } from '../icons';
+import {
+  IconAutomation,
+  IconBrowser,
+  IconChannelRack,
+  IconClaude,
+  IconExport,
+  IconMetronome,
+  IconMixer,
+  IconPause,
+  IconPianoRoll,
+  IconPlay,
+  IconPlaylist,
+  IconStop,
+  IconWave,
+} from '../icons';
 import { useProject } from '../state/useProject';
-import { useUiStore } from '../state/ui';
+import { useUiStore, type WindowId } from '../state/ui';
 import { Knob } from '../widgets/Knob';
 import { NumberScrubber } from '../widgets/NumberScrubber';
 import { LevelMeter } from '../widgets/LevelMeter';
 import './shell.css';
+
+/**
+ * Play directo por modo: si ya está sonando EN ESE modo, para; si no, arma el
+ * modo y reproduce desde el caret. Lo usan los botones PAT/SONG y la paleta.
+ */
+export function playDirect(mode: 'pattern' | 'song'): void {
+  const ui = useUiStore.getState();
+  if (ui.playing && ui.playMode === mode) {
+    stopPlayback();
+    return;
+  }
+  setPlayMode(mode);
+  void play();
+}
+
+/** Botón de ventana de la toolbar: abre/cierra con un clic y se enciende si está abierta. */
+function WindowButton({ id, title, children }: { id: WindowId; title: string; children: ReactNode }) {
+  const open = useUiStore((s) => s.windows[id].open);
+  const toggleWindow = useUiStore((s) => s.toggleWindow);
+  return (
+    <button
+      className={`tbtn${open ? ' active' : ''}`}
+      title={title}
+      onClick={() => toggleWindow(id)}
+    >
+      {children}
+    </button>
+  );
+}
 
 export function Transport() {
   const project = useProject();
@@ -22,6 +65,9 @@ export function Transport() {
   const masterRms = useUiStore((s) => s.masterRms);
   const clipped = useUiStore((s) => s.clipped);
   const cpu = useUiStore((s) => s.cpu);
+  const browserOpen = useUiStore((s) => s.browserOpen);
+  const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
+  const compact = useUiStore((s) => s.compact);
   const recPhase = useRecorderStore((s) => s.phase);
   const recError = useRecorderStore((s) => s.error);
   const midiArmed = useLiveInputStore((s) => s.armed);
@@ -71,6 +117,19 @@ export function Transport() {
     store.dispatch({ type: 'setTempo', tempo: bpm }, { mergeKey: 'transport:tempo' });
   }, []);
 
+  const playPattern = useCallback(() => playDirect('pattern'), []);
+  const playSong = useCallback(() => playDirect('song'), []);
+  const toggleCompact = useCallback(() => {
+    useUiStore.setState((s) => ({ compact: !s.compact }));
+  }, []);
+
+  // Estado visual de los dos play: `active` = sonando en ese modo;
+  // `armed` = parado pero es el modo que usará la tecla Espacio.
+  const playBtnClass = (mode: 'pattern' | 'song') =>
+    `tbtn play${playing && playMode === mode ? ' active' : ''}${
+      !playing && playMode === mode ? ' armed' : ''
+    }`;
+
   const bar = Math.floor(positionBeats / project.timeSig.num) + 1;
   const beat = Math.floor(positionBeats % project.timeSig.num) + 1;
 
@@ -78,11 +137,20 @@ export function Transport() {
     <div className="transport">
       <div className="transport-group">
         <button
-          className={`tbtn play${playing ? ' active' : ''}`}
-          title="Reproducir (Espacio)"
-          onClick={() => void togglePlay()}
+          className={playBtnClass('pattern')}
+          title="Reproducir el Channel Rack (patrón activo) — Espacio reproduce el modo armado, L lo cambia"
+          onClick={playPattern}
         >
-          <IconPlay size={15} />
+          <IconPlay size={13} />
+          <span className="play-label">PAT</span>
+        </button>
+        <button
+          className={playBtnClass('song')}
+          title="Reproducir la Playlist (canción) — Espacio reproduce el modo armado, L lo cambia"
+          onClick={playSong}
+        >
+          <IconPlay size={13} />
+          <span className="play-label">SONG</span>
         </button>
         <button
           className="tbtn"
@@ -115,13 +183,6 @@ export function Transport() {
           onClick={toggleMidiArmed}
         >
           <IconPianoRoll size={15} />
-        </button>
-        <button
-          className={`tbtn mode${playMode === 'song' ? ' active' : ''}`}
-          title="Modo patrón / canción (L)"
-          onClick={() => setPlayMode(playMode === 'song' ? 'pattern' : 'song')}
-        >
-          {playMode === 'song' ? 'SONG' : 'PAT'}
         </button>
         <button
           className={`tbtn${metronome ? ' active' : ''}`}
@@ -186,6 +247,48 @@ export function Transport() {
         </span>
       </div>
 
+      {/* Ventanas: cada botón abre/cierra su editor de un clic. */}
+      <div className="transport-group windows-group">
+        <WindowButton id="playlist" title="Playlist (F5)">
+          <IconPlaylist size={15} />
+        </WindowButton>
+        <WindowButton id="channelRack" title="Channel Rack (F6)">
+          <IconChannelRack size={15} />
+        </WindowButton>
+        <WindowButton id="pianoRoll" title="Piano Roll (F7)">
+          <IconPianoRoll size={15} />
+        </WindowButton>
+        <WindowButton id="mixer" title="Mixer (F9)">
+          <IconMixer size={15} />
+        </WindowButton>
+        <WindowButton id="automation" title="Automatización">
+          <IconAutomation size={15} />
+        </WindowButton>
+        <WindowButton id="scope" title="Orbit Scope">
+          <IconWave size={15} />
+        </WindowButton>
+        <WindowButton id="export" title="Exportar…">
+          <IconExport size={15} />
+        </WindowButton>
+        <button
+          className={`tbtn${browserOpen ? ' active' : ''}`}
+          title="Browser (librería de sonidos)"
+          onClick={() => useUiStore.setState((s) => ({ browserOpen: !s.browserOpen }))}
+        >
+          <IconBrowser size={15} />
+        </button>
+        <button
+          className={`tbtn${claudePanelOpen ? ' active' : ''}`}
+          title="Panel de Claude"
+          onClick={() => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen }))}
+        >
+          <IconClaude size={15} />
+        </button>
+      </div>
+
+      {/* Empuja medidores, CPU y Zen a la derecha de la toolbar. */}
+      <div className="transport-spacer" />
+
       <div className="transport-group meter-group" title="Nivel master (peak + línea RMS)">
         <LevelMeter peak={masterPeak} rms={masterRms} height={22} />
         <button
@@ -195,10 +298,20 @@ export function Transport() {
         />
       </div>
 
-      <div className="transport-group" title="Carga del motor de audio">
-        <span className={`cpu-display${cpu > 0.85 ? ' hot' : cpu > 0.6 ? ' warm' : ''}`}>
+      <div className="transport-group">
+        <span
+          className={`cpu-display${cpu > 0.85 ? ' hot' : cpu > 0.6 ? ' warm' : ''}`}
+          title="Carga del motor de audio"
+        >
           CPU {Math.round(cpu * 100)}%
         </span>
+        <button
+          className={`tbtn zen${compact ? ' active' : ''}`}
+          title="Modo compacto: oculta la librería y los paneles para trabajar limpio"
+          onClick={toggleCompact}
+        >
+          ZEN
+        </button>
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
  */
 
 import { engine, pausePlayback, setPlayMode, stopPlayback, togglePlay } from '../state/app';
+import { playDirect } from '../shell/Transport';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
@@ -62,6 +63,13 @@ export function registerDefaultCommands(): void {
         group: 'Ver',
         run: () => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen })),
       },
+      {
+        id: 'ver.compacto',
+        title: ui.compact ? 'Salir del modo compacto' : 'Modo compacto (Zen)',
+        group: 'Ver',
+        keywords: 'zen clean limpio ocultar paneles libreria',
+        run: () => useUiStore.setState((s) => ({ compact: !s.compact })),
+      },
       // Transporte
       {
         id: 'transporte.play',
@@ -69,6 +77,20 @@ export function registerDefaultCommands(): void {
         group: 'Transporte',
         shortcut: 'Espacio',
         run: () => void togglePlay(),
+      },
+      {
+        id: 'transporte.play-pat',
+        title: 'Reproducir patrón (Channel Rack)',
+        group: 'Transporte',
+        keywords: 'pat channel rack beat',
+        run: () => playDirect('pattern'),
+      },
+      {
+        id: 'transporte.play-song',
+        title: 'Reproducir canción (Playlist)',
+        group: 'Transporte',
+        keywords: 'song playlist arreglo',
+        run: () => playDirect('song'),
       },
       { id: 'transporte.pausa', title: 'Pausa (conserva la posición)', group: 'Transporte', run: () => pausePlayback() },
       { id: 'transporte.stop', title: 'Detener y volver al inicio', group: 'Transporte', run: () => stopPlayback() },

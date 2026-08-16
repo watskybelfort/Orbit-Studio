@@ -55,6 +55,8 @@ export interface UiState {
   selectedMixerTrack: number;
   browserOpen: boolean;
   claudePanelOpen: boolean;
+  /** Modo compacto (Zen): oculta Browser y panel de Claude sin perder su estado. */
+  compact: boolean;
   /** Semáforo macOS en la barra de título (persistido en settings). */
   trafficLights: boolean;
 
@@ -103,6 +105,7 @@ export const useUiStore = create<UiState>((set) => ({
   selectedMixerTrack: 0,
   browserOpen: true,
   claudePanelOpen: false,
+  compact: false,
   trafficLights: false,
 
   openWindow: (id) =>

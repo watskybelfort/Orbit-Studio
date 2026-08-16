@@ -95,6 +95,13 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Empuja los grupos de la derecha (medidores, CPU, Zen) al borde. */
+.transport-spacer {
+  flex: 1;
 }
 
 .transport-group {
@@ -118,20 +125,64 @@
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.4px;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
 }
 
-.tbtn:hover {
+.tbtn:hover:not(:disabled) {
   color: var(--text);
+  border-color: color-mix(in srgb, var(--text-dim) 55%, var(--border));
+  background: color-mix(in srgb, var(--text) 6%, var(--surface-2));
+}
+
+/* Pressed: hundido con un toque de acento, feedback inmediato al clic. */
+.tbtn:active:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+}
+
+.tbtn:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .tbtn.active {
   color: var(--accent);
   border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
 }
 
-.tbtn.play.active {
+.tbtn.active:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-2));
+}
+
+/* Play PAT/SONG: icono + etiqueta; en verde de medidor cuando suenan. */
+.tbtn.play {
+  gap: 4px;
+  padding: 0 9px;
+}
+
+.tbtn.play .play-label {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.tbtn.play.active,
+.tbtn.play.active:hover:not(:disabled) {
   color: var(--meter);
   border-color: var(--meter);
+  background: color-mix(in srgb, var(--meter) 12%, var(--surface-2));
+}
+
+/* Parado: el modo armado (el que lanzará Espacio) lleva un acento tenue. */
+.tbtn.play.armed {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
 
 /* Compás (num/den) junto al BPM: scrubbers compactos */
@@ -217,6 +268,28 @@
 
 .cpu-display.hot {
   color: var(--meter-clip);
+}
+
+/* ── Modo compacto (Zen) ──
+   Sin Browser ni panel de Claude (los quita App) y toolbar algo más prieta.
+   Sutil a propósito: mismo lenguaje, menos aire. */
+
+.app-shell.compact .toolbar {
+  gap: 10px;
+  padding: 2px 8px;
+  min-height: 38px;
+}
+
+.app-shell.compact .transport {
+  gap: 10px;
+}
+
+.app-shell.compact .transport-group {
+  gap: 4px;
+}
+
+.app-shell.compact .tbtn {
+  height: 24px;
 }
 
 /* ── Workspace ── */
