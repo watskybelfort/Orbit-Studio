@@ -90,9 +90,12 @@ export class AudioEngine {
     this.send({ type: 'setMetronome', enabled });
   }
 
-  /** Activa/apaga el tap del Orbit Scope (evita copiar samples si está cerrado). */
-  setScope(enabled: boolean): void {
-    this.send({ type: 'setScope', enabled });
+  /**
+   * Activa/apaga el tap del Orbit Scope (evita copiar samples si está cerrado).
+   * `trackIndex` elige la pista de mixer tapeada (default 0 = master).
+   */
+  setScope(enabled: boolean, trackIndex = 0): void {
+    this.send({ type: 'setScope', enabled, trackIndex });
   }
 
   previewNote(channelIndex: number, key: number, on: boolean): void {

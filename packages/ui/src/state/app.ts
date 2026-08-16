@@ -36,6 +36,7 @@ engine.onMeters = (frame) => {
     ...(peak >= 1 ? { clipped: true } : null),
     cpu: frame.cpu,
     trackPeaks: frame.peaks,
+    trackRms: frame.rms,
     scopeFrame: frame.scope ?? null,
   });
 };

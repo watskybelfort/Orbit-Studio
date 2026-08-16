@@ -60,10 +60,13 @@ export class KernelCore {
 
   // Medición
   private peaks = new Float32Array(1);
+  /** Sum-of-squares por pista ((l²+r²)/2 acumulado) para el RMS del frame. */
+  private trackSumSq = new Float32Array(1);
   private masterSumSq: [number, number] = [0, 0];
   private meterSamples = 0;
-  /** Orbit Scope: anillo con los últimos samples del master (mono). */
+  /** Orbit Scope: anillo con los últimos samples de la pista tapeada (mono). */
   private scopeEnabled = false;
+  private scopeTrack = 0;
   private scopeRing = new Float32Array(2048);
   private scopePos = 0;
 
@@ -101,6 +104,7 @@ export class KernelCore {
         break;
       case 'setScope':
         this.scopeEnabled = msg.enabled;
+        this.scopeTrack = msg.trackIndex ?? 0;
         break;
       case 'setTempo':
         this.tempo = msg.tempo;
@@ -178,6 +182,7 @@ export class KernelCore {
       this.lastL = Array.from({ length: n }, () => new Float32Array(MAX_BLOCK));
       this.lastR = Array.from({ length: n }, () => new Float32Array(MAX_BLOCK));
       this.peaks = new Float32Array(n);
+      this.trackSumSq = new Float32Array(n);
     }
     // Instancias de efecto: reusar por id (conserva colas), crear nuevas, purgar.
     const alive = new Set<string>();
@@ -565,15 +570,26 @@ export class KernelCore {
       this.lastL[t]!.set(bl.subarray(0, n));
       this.lastR[t]!.set(br.subarray(0, n));
 
-      // Medidores
+      // Medidores: peak con decay visual + sum-of-squares para el RMS por pista
       let peak = this.peaks[t]! * 0.85; // decay visual
+      let sumSq = this.trackSumSq[t]!;
       for (let i = 0; i < n; i++) {
         const a = Math.abs(bl[i]!);
         const b = Math.abs(br[i]!);
         if (a > peak) peak = a;
         if (b > peak) peak = b;
+        sumSq += (bl[i]! * bl[i]! + br[i]! * br[i]!) * 0.5;
       }
       this.peaks[t] = peak;
+      this.trackSumSq[t] = sumSq;
+
+      // Tap del Orbit Scope: copia post-fader de la pista elegida (0 = master)
+      if (this.scopeEnabled && t === this.scopeTrack) {
+        for (let i = 0; i < n; i++) {
+          this.scopeRing[this.scopePos] = (bl[i]! + br[i]!) * 0.5;
+          this.scopePos = (this.scopePos + 1) & 2047;
+        }
+      }
 
       if (t === 0) {
         // Master → salida
@@ -584,12 +600,6 @@ export class KernelCore {
           this.masterSumSq[1] += br[i]! * br[i]!;
         }
         this.meterSamples += n;
-        if (this.scopeEnabled) {
-          for (let i = 0; i < n; i++) {
-            this.scopeRing[this.scopePos] = (bl[i]! + br[i]!) * 0.5;
-            this.scopePos = (this.scopePos + 1) & 2047;
-          }
-        }
       } else if (track.routeTo !== null) {
         const dl = this.bufL[track.routeTo]!;
         const dr = this.bufR[track.routeTo]!;
@@ -612,8 +622,12 @@ export class KernelCore {
 
   meterFrame(cpu = 0): MeterFrame {
     const ms = Math.max(1, this.meterSamples);
+    // RMS por pista: emitir aloca (como peaks.slice()); los acumuladores se resetean.
+    const rms = new Float32Array(this.trackSumSq.length);
+    for (let i = 0; i < rms.length; i++) rms[i] = Math.sqrt(this.trackSumSq[i]! / ms);
     const frame: MeterFrame = {
       peaks: this.peaks.slice(),
+      rms,
       masterRms: [
         Math.sqrt(this.masterSumSq[0] / ms),
         Math.sqrt(this.masterSumSq[1] / ms),
@@ -630,6 +644,7 @@ export class KernelCore {
     }
     this.masterSumSq[0] = 0;
     this.masterSumSq[1] = 0;
+    this.trackSumSq.fill(0);
     this.meterSamples = 0;
     return frame;
   }

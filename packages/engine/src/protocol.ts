@@ -101,7 +101,8 @@ export type ToKernel =
   | { type: 'seek'; beat: number }
   | { type: 'setLoop'; start: number; end: number; enabled: boolean }
   | { type: 'setMetronome'; enabled: boolean }
-  | { type: 'setScope'; enabled: boolean }
+  /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
+  | { type: 'setScope'; enabled: boolean; trackIndex?: number }
   | { type: 'setTempo'; tempo: number }
   | { type: 'channelParam'; channelIndex: number; key: string; value: number }
   | { type: 'channelMix'; channelIndex: number; volume: number; pan: number; audible: boolean }
@@ -118,9 +119,11 @@ export type ToKernel =
 export interface MeterFrame {
   /** Peak L/R por pista de mixer (post-fader), lineal. */
   peaks: Float32Array;
+  /** RMS por pista de mixer (post-fader, media L/R), lineal; una entrada por pista. */
+  rms: Float32Array;
   /** RMS master L/R. */
   masterRms: [number, number];
-  /** Últimos samples del master (mono L+R/2) para el Orbit Scope; solo si está activado. */
+  /** Últimos samples de la pista tapeada (mono L+R/2) para el Orbit Scope; solo si está activado. */
   scope?: Float32Array;
   /** Posición del playhead en beats. */
   positionBeats: number;
