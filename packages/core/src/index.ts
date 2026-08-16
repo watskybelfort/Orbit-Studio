@@ -10,3 +10,13 @@ export * from './store';
 export * from './format';
 export { newId } from './ids';
 export { encodeMidi, type EncodeMidiOptions } from './midi/encode';
+export {
+  arpeggiate,
+  chop,
+  humanize,
+  strum,
+  type ArpeggiateOptions,
+  type ChopOptions,
+  type HumanizeOptions,
+  type StrumOptions,
+} from './note-tools';
