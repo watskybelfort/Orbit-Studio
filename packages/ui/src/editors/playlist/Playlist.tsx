@@ -783,6 +783,9 @@ export function Playlist() {
       if (hit?.clip.kind === 'automation') {
         useUiStore.setState({ automationClipId: hit.clip.id });
         useUiStore.getState().openWindow('automation');
+      } else if (hit?.clip.kind === 'audio') {
+        useUiStore.setState({ audioClipId: hit.clip.id });
+        useUiStore.getState().openWindow('audioEditor');
       }
     },
     [clipAt, markerAt, beatToX, xToBeat, snapOf, project],
