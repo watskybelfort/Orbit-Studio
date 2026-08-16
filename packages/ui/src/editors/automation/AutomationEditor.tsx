@@ -42,6 +42,7 @@ import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { NumberScrubber } from '../../widgets/NumberScrubber';
+import { useThemeVersion } from '../../theme/useThemeVersion';
 import './automation.css';
 
 /** Margen del área de dibujo dentro del canvas (px). */
@@ -533,7 +534,11 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
 
   // ── Dibujo ────────────────────────────────────────────────────────────────
 
+  const themeVersion = useThemeVersion();
+
   const draw = useCallback(() => {
+    // themeVersion en deps: los tokens se leen con getComputedStyle por tema.
+    void themeVersion;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -643,7 +648,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       ctx.fillStyle = col('--au-tip-text');
       ctx.fillText(t.text, bx + 5, by + 12);
     }
-  }, [geom, points, clip, project, target, barLen]);
+  }, [geom, points, clip, project, target, barLen, themeVersion]);
 
   useEffect(() => {
     draw();
