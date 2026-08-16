@@ -1,0 +1,49 @@
+.audio-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ae-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ae-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.ae-ops {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ae-wave-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.ae-wave {
+  display: block;
+  touch-action: none;
+  cursor: ew-resize;
+}
+
+.ae-hint {
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+}

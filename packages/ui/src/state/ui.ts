@@ -11,7 +11,8 @@ export type WindowId =
   | 'export'
   | 'automation'
   | 'collab'
-  | 'scope';
+  | 'scope'
+  | 'audioEditor';
 
 export interface WindowState {
   open: boolean;
@@ -45,6 +46,8 @@ export interface UiState {
   pianoRollChannelId: string | null;
   /** Clip de automatización abierto en el editor de automatización. */
   automationClipId: string | null;
+  /** Clip de audio abierto en el editor de audio. */
+  audioClipId: string | null;
   selectedMixerTrack: number;
   browserOpen: boolean;
   claudePanelOpen: boolean;
@@ -69,6 +72,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   automation: { open: false, x: 240, y: 140, w: 720, h: 380, z: 1 },
   collab: { open: false, x: 380, y: 140, w: 420, h: 380, z: 1 },
   scope: { open: false, x: 300, y: 180, w: 560, h: 360, z: 1 },
+  audioEditor: { open: false, x: 260, y: 160, w: 720, h: 340, z: 1 },
 };
 
 export const useUiStore = create<UiState>((set) => ({
@@ -89,6 +93,7 @@ export const useUiStore = create<UiState>((set) => ({
   activePatternId: null,
   pianoRollChannelId: null,
   automationClipId: null,
+  audioClipId: null,
   selectedMixerTrack: 0,
   browserOpen: true,
   claudePanelOpen: false,
