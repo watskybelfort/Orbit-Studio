@@ -1,0 +1,102 @@
+/* Paleta de comandos (Ctrl+K). Solo tokens del tema; la caja usa .popup
+   (fondo/borde/sombra, y el ÚNICO backdrop-filter permitido en acrílico). */
+
+.palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200; /* por encima de menús (1000) y banners (1001) */
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 15vh;
+  /* Velo suave sobre la app, derivado del fondo del tema (sin colores fijos). */
+  background: color-mix(in srgb, var(--bg) 45%, transparent);
+}
+
+.palette {
+  display: flex;
+  flex-direction: column;
+  width: min(560px, calc(100vw - 32px));
+  max-height: 60vh;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.palette-input {
+  flex: none;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  outline: none;
+}
+
+.palette-input::placeholder {
+  color: var(--text-dim);
+}
+
+.palette-input:focus {
+  border-color: var(--accent);
+}
+
+.palette-list {
+  margin-top: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.palette-group-label {
+  padding: 7px 10px 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: calc(var(--radius) - 3px);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: default;
+}
+
+/* Resaltado del item activo: acento translúcido (color-mix sobre tokens). */
+.palette-item.selected {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.palette-item-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-shortcut {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.palette-item.selected .palette-shortcut {
+  color: var(--text);
+}
+
+.palette-empty {
+  padding: 14px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
