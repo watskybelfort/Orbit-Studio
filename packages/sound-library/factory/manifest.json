@@ -1,0 +1,885 @@
+{
+  "version": "1.0.0",
+  "pack": "Orbit Essentials",
+  "generatedWith": "@orbit/sound-library generate.ts — @orbit/engine renderProject (síntesis determinista)",
+  "entries": [
+    {
+      "id": "drums/trap/kick-01",
+      "name": "Kick Trap 01",
+      "category": "drums",
+      "file": "drums/trap/kick-01.wav",
+      "tags": [
+        "trap",
+        "kick",
+        "punchy",
+        "hard"
+      ],
+      "durationSec": 0.738,
+      "gainSuggestion": 0.9,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/kick-02",
+      "name": "Kick Trap 02",
+      "category": "drums",
+      "file": "drums/trap/kick-02.wav",
+      "tags": [
+        "trap",
+        "kick",
+        "deep",
+        "long"
+      ],
+      "durationSec": 1.192,
+      "gainSuggestion": 0.9,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/kick-03",
+      "name": "Kick Trap 03",
+      "category": "drums",
+      "file": "drums/trap/kick-03.wav",
+      "tags": [
+        "trap",
+        "kick",
+        "tight",
+        "short"
+      ],
+      "durationSec": 0.467,
+      "gainSuggestion": 0.9,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/snare-01",
+      "name": "Snare Trap 01",
+      "category": "drums",
+      "file": "drums/trap/snare-01.wav",
+      "tags": [
+        "trap",
+        "snare",
+        "sharp"
+      ],
+      "durationSec": 0.353,
+      "gainSuggestion": 0.85,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/snare-02",
+      "name": "Snare Trap 02",
+      "category": "drums",
+      "file": "drums/trap/snare-02.wav",
+      "tags": [
+        "trap",
+        "snare",
+        "bright",
+        "long"
+      ],
+      "durationSec": 0.485,
+      "gainSuggestion": 0.85,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/clap-01",
+      "name": "Clap Trap 01",
+      "category": "drums",
+      "file": "drums/trap/clap-01.wav",
+      "tags": [
+        "trap",
+        "clap",
+        "tight"
+      ],
+      "durationSec": 0.343,
+      "gainSuggestion": 0.85,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/clap-02",
+      "name": "Clap Trap 02",
+      "category": "drums",
+      "file": "drums/trap/clap-02.wav",
+      "tags": [
+        "trap",
+        "clap",
+        "long"
+      ],
+      "durationSec": 0.343,
+      "gainSuggestion": 0.85,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/hat-01",
+      "name": "Hat Trap 01",
+      "category": "drums",
+      "file": "drums/trap/hat-01.wav",
+      "tags": [
+        "trap",
+        "hat",
+        "short"
+      ],
+      "durationSec": 0.11,
+      "gainSuggestion": 0.55,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/hat-02",
+      "name": "Hat Trap 02",
+      "category": "drums",
+      "file": "drums/trap/hat-02.wav",
+      "tags": [
+        "trap",
+        "hat",
+        "bright"
+      ],
+      "durationSec": 0.127,
+      "gainSuggestion": 0.55,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/hat-03",
+      "name": "Hat Trap 03",
+      "category": "drums",
+      "file": "drums/trap/hat-03.wav",
+      "tags": [
+        "trap",
+        "hat",
+        "dark",
+        "long"
+      ],
+      "durationSec": 0.149,
+      "gainSuggestion": 0.55,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/openhat-01",
+      "name": "Open Hat Trap 01",
+      "category": "drums",
+      "file": "drums/trap/openhat-01.wav",
+      "tags": [
+        "trap",
+        "openhat"
+      ],
+      "durationSec": 0.639,
+      "gainSuggestion": 0.6,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/openhat-02",
+      "name": "Open Hat Trap 02",
+      "category": "drums",
+      "file": "drums/trap/openhat-02.wav",
+      "tags": [
+        "trap",
+        "openhat",
+        "long"
+      ],
+      "durationSec": 0.989,
+      "gainSuggestion": 0.6,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/rim-01",
+      "name": "Rim Trap 01",
+      "category": "drums",
+      "file": "drums/trap/rim-01.wav",
+      "tags": [
+        "trap",
+        "rim",
+        "short"
+      ],
+      "durationSec": 0.101,
+      "gainSuggestion": 0.6,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/tom-01",
+      "name": "Tom Trap 01",
+      "category": "drums",
+      "file": "drums/trap/tom-01.wav",
+      "tags": [
+        "trap",
+        "tom",
+        "low"
+      ],
+      "durationSec": 0.559,
+      "gainSuggestion": 0.8,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/tom-02",
+      "name": "Tom Trap 02",
+      "category": "drums",
+      "file": "drums/trap/tom-02.wav",
+      "tags": [
+        "trap",
+        "tom",
+        "high"
+      ],
+      "durationSec": 0.507,
+      "gainSuggestion": 0.8,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/trap/crash-01",
+      "name": "Crash Trap 01",
+      "category": "drums",
+      "file": "drums/trap/crash-01.wav",
+      "tags": [
+        "trap",
+        "crash",
+        "long"
+      ],
+      "durationSec": 2.063,
+      "gainSuggestion": 0.65,
+      "subcategory": "trap"
+    },
+    {
+      "id": "drums/boombap/kick-01",
+      "name": "Kick Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/kick-01.wav",
+      "tags": [
+        "boombap",
+        "kick",
+        "punchy"
+      ],
+      "durationSec": 0.473,
+      "gainSuggestion": 0.9,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/kick-02",
+      "name": "Kick Boom Bap 02",
+      "category": "drums",
+      "file": "drums/boombap/kick-02.wav",
+      "tags": [
+        "boombap",
+        "kick",
+        "soft",
+        "round"
+      ],
+      "durationSec": 0.644,
+      "gainSuggestion": 0.9,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/snare-01",
+      "name": "Snare Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/snare-01.wav",
+      "tags": [
+        "boombap",
+        "snare",
+        "dusty"
+      ],
+      "durationSec": 0.328,
+      "gainSuggestion": 0.85,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/snare-02",
+      "name": "Snare Boom Bap 02",
+      "category": "drums",
+      "file": "drums/boombap/snare-02.wav",
+      "tags": [
+        "boombap",
+        "snare",
+        "bright"
+      ],
+      "durationSec": 0.413,
+      "gainSuggestion": 0.85,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/hat-01",
+      "name": "Hat Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/hat-01.wav",
+      "tags": [
+        "boombap",
+        "hat",
+        "short"
+      ],
+      "durationSec": 0.119,
+      "gainSuggestion": 0.55,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/hat-02",
+      "name": "Hat Boom Bap 02",
+      "category": "drums",
+      "file": "drums/boombap/hat-02.wav",
+      "tags": [
+        "boombap",
+        "hat",
+        "crisp"
+      ],
+      "durationSec": 0.104,
+      "gainSuggestion": 0.55,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/openhat-01",
+      "name": "Open Hat Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/openhat-01.wav",
+      "tags": [
+        "boombap",
+        "openhat"
+      ],
+      "durationSec": 0.76,
+      "gainSuggestion": 0.6,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/rim-01",
+      "name": "Rim Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/rim-01.wav",
+      "tags": [
+        "boombap",
+        "rim",
+        "short"
+      ],
+      "durationSec": 0.085,
+      "gainSuggestion": 0.6,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/crash-01",
+      "name": "Crash Boom Bap 01",
+      "category": "drums",
+      "file": "drums/boombap/crash-01.wav",
+      "tags": [
+        "boombap",
+        "crash"
+      ],
+      "durationSec": 1.808,
+      "gainSuggestion": 0.65,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "percusion-latina/conga-01",
+      "name": "Conga Baja",
+      "category": "percusion-latina",
+      "file": "percusion-latina/conga-01.wav",
+      "tags": [
+        "latin",
+        "conga",
+        "low"
+      ],
+      "durationSec": 0.425,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/conga-02",
+      "name": "Conga Media",
+      "category": "percusion-latina",
+      "file": "percusion-latina/conga-02.wav",
+      "tags": [
+        "latin",
+        "conga",
+        "mid"
+      ],
+      "durationSec": 0.423,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/conga-03",
+      "name": "Conga Alta",
+      "category": "percusion-latina",
+      "file": "percusion-latina/conga-03.wav",
+      "tags": [
+        "latin",
+        "conga",
+        "high"
+      ],
+      "durationSec": 0.422,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/conga-04",
+      "name": "Conga Slap",
+      "category": "percusion-latina",
+      "file": "percusion-latina/conga-04.wav",
+      "tags": [
+        "latin",
+        "conga",
+        "slap",
+        "short"
+      ],
+      "durationSec": 0.274,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/rim-01",
+      "name": "Clave 01",
+      "category": "percusion-latina",
+      "file": "percusion-latina/rim-01.wav",
+      "tags": [
+        "latin",
+        "rim",
+        "clave"
+      ],
+      "durationSec": 0.101,
+      "gainSuggestion": 0.6
+    },
+    {
+      "id": "percusion-latina/rim-02",
+      "name": "Clave 02",
+      "category": "percusion-latina",
+      "file": "percusion-latina/rim-02.wav",
+      "tags": [
+        "latin",
+        "rim",
+        "clave",
+        "short"
+      ],
+      "durationSec": 0.081,
+      "gainSuggestion": 0.6
+    },
+    {
+      "id": "percusion-latina/shaker-01",
+      "name": "Shaker 01",
+      "category": "percusion-latina",
+      "file": "percusion-latina/shaker-01.wav",
+      "tags": [
+        "latin",
+        "shaker",
+        "short"
+      ],
+      "durationSec": 0.17,
+      "gainSuggestion": 0.55
+    },
+    {
+      "id": "percusion-latina/shaker-02",
+      "name": "Shaker 02",
+      "category": "percusion-latina",
+      "file": "percusion-latina/shaker-02.wav",
+      "tags": [
+        "latin",
+        "shaker"
+      ],
+      "durationSec": 0.23,
+      "gainSuggestion": 0.55
+    },
+    {
+      "id": "percusion-latina/shaker-03",
+      "name": "Shaker 03",
+      "category": "percusion-latina",
+      "file": "percusion-latina/shaker-03.wav",
+      "tags": [
+        "latin",
+        "shaker",
+        "long"
+      ],
+      "durationSec": 0.291,
+      "gainSuggestion": 0.55
+    },
+    {
+      "id": "percusion-latina/tom-01",
+      "name": "Timbal Bajo",
+      "category": "percusion-latina",
+      "file": "percusion-latina/tom-01.wav",
+      "tags": [
+        "latin",
+        "tom",
+        "low"
+      ],
+      "durationSec": 0.557,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/tom-02",
+      "name": "Timbal Medio",
+      "category": "percusion-latina",
+      "file": "percusion-latina/tom-02.wav",
+      "tags": [
+        "latin",
+        "tom",
+        "mid"
+      ],
+      "durationSec": 0.509,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/tom-03",
+      "name": "Timbal Alto",
+      "category": "percusion-latina",
+      "file": "percusion-latina/tom-03.wav",
+      "tags": [
+        "latin",
+        "tom",
+        "high",
+        "short"
+      ],
+      "durationSec": 0.457,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "808s/808-C-long",
+      "name": "808 C long",
+      "category": "808s",
+      "file": "808s/808-C-long.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "soft"
+      ],
+      "durationSec": 2.59,
+      "gainSuggestion": 0.9,
+      "keyRoot": "C"
+    },
+    {
+      "id": "808s/808-C-short",
+      "name": "808 C short",
+      "category": "808s",
+      "file": "808s/808-C-short.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "short",
+        "hard"
+      ],
+      "durationSec": 1.215,
+      "gainSuggestion": 0.9,
+      "keyRoot": "C"
+    },
+    {
+      "id": "808s/808-C-hard",
+      "name": "808 C hard",
+      "category": "808s",
+      "file": "808s/808-C-hard.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "hard",
+        "distorted"
+      ],
+      "durationSec": 2.554,
+      "gainSuggestion": 0.9,
+      "keyRoot": "C"
+    },
+    {
+      "id": "808s/808-Ds-long",
+      "name": "808 D# long",
+      "category": "808s",
+      "file": "808s/808-Ds-long.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "soft"
+      ],
+      "durationSec": 2.585,
+      "gainSuggestion": 0.9,
+      "keyRoot": "D#"
+    },
+    {
+      "id": "808s/808-Ds-short",
+      "name": "808 D# short",
+      "category": "808s",
+      "file": "808s/808-Ds-short.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "short",
+        "hard"
+      ],
+      "durationSec": 1.209,
+      "gainSuggestion": 0.9,
+      "keyRoot": "D#"
+    },
+    {
+      "id": "808s/808-F-long",
+      "name": "808 F long",
+      "category": "808s",
+      "file": "808s/808-F-long.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "soft"
+      ],
+      "durationSec": 2.582,
+      "gainSuggestion": 0.9,
+      "keyRoot": "F"
+    },
+    {
+      "id": "808s/808-F-short",
+      "name": "808 F short",
+      "category": "808s",
+      "file": "808s/808-F-short.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "short",
+        "hard"
+      ],
+      "durationSec": 1.206,
+      "gainSuggestion": 0.9,
+      "keyRoot": "F"
+    },
+    {
+      "id": "808s/808-F-hard",
+      "name": "808 F hard",
+      "category": "808s",
+      "file": "808s/808-F-hard.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "hard",
+        "distorted"
+      ],
+      "durationSec": 2.548,
+      "gainSuggestion": 0.9,
+      "keyRoot": "F"
+    },
+    {
+      "id": "808s/808-G-long",
+      "name": "808 G long",
+      "category": "808s",
+      "file": "808s/808-G-long.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "soft"
+      ],
+      "durationSec": 2.585,
+      "gainSuggestion": 0.9,
+      "keyRoot": "G"
+    },
+    {
+      "id": "808s/808-G-short",
+      "name": "808 G short",
+      "category": "808s",
+      "file": "808s/808-G-short.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "short",
+        "hard"
+      ],
+      "durationSec": 1.204,
+      "gainSuggestion": 0.9,
+      "keyRoot": "G"
+    },
+    {
+      "id": "808s/808-As-long",
+      "name": "808 A# long",
+      "category": "808s",
+      "file": "808s/808-As-long.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "long",
+        "soft"
+      ],
+      "durationSec": 2.583,
+      "gainSuggestion": 0.9,
+      "keyRoot": "A#"
+    },
+    {
+      "id": "808s/808-As-short",
+      "name": "808 A# short",
+      "category": "808s",
+      "file": "808s/808-As-short.wav",
+      "tags": [
+        "808",
+        "sub",
+        "trap",
+        "short",
+        "hard"
+      ],
+      "durationSec": 1.206,
+      "gainSuggestion": 0.9,
+      "keyRoot": "A#"
+    },
+    {
+      "id": "fx/impact-01",
+      "name": "Impact 01",
+      "category": "fx",
+      "file": "fx/impact-01.wav",
+      "tags": [
+        "fx",
+        "impact",
+        "dark",
+        "reverb"
+      ],
+      "durationSec": 3,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "fx/impact-02",
+      "name": "Impact 02",
+      "category": "fx",
+      "file": "fx/impact-02.wav",
+      "tags": [
+        "fx",
+        "impact",
+        "tight",
+        "reverb"
+      ],
+      "durationSec": 2.4,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "fx/crash-reverb-01",
+      "name": "Crash Reverb",
+      "category": "fx",
+      "file": "fx/crash-reverb-01.wav",
+      "tags": [
+        "fx",
+        "crash",
+        "reverb",
+        "wash",
+        "long"
+      ],
+      "durationSec": 2.339,
+      "gainSuggestion": 0.7
+    },
+    {
+      "id": "fx/sweep-up-01",
+      "name": "Sweep Up",
+      "category": "fx",
+      "file": "fx/sweep-up-01.wav",
+      "tags": [
+        "fx",
+        "riser",
+        "sweep",
+        "up",
+        "supersaw"
+      ],
+      "durationSec": 3.4,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "fx/sweep-down-01",
+      "name": "Sweep Down",
+      "category": "fx",
+      "file": "fx/sweep-down-01.wav",
+      "tags": [
+        "fx",
+        "downlifter",
+        "sweep",
+        "down",
+        "supersaw"
+      ],
+      "durationSec": 3.4,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "fx/subdrop-01",
+      "name": "Sub Drop",
+      "category": "fx",
+      "file": "fx/subdrop-01.wav",
+      "tags": [
+        "fx",
+        "subdrop",
+        "808",
+        "glide",
+        "dark"
+      ],
+      "durationSec": 3.095,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "fx/zap-01",
+      "name": "Zap FM",
+      "category": "fx",
+      "file": "fx/zap-01.wav",
+      "tags": [
+        "fx",
+        "zap",
+        "laser",
+        "fm",
+        "short"
+      ],
+      "durationSec": 0.561,
+      "gainSuggestion": 0.75
+    },
+    {
+      "id": "melodic-loops/trap-140-fm",
+      "name": "Trap Loop 140 Fm",
+      "category": "melodic-loops",
+      "file": "melodic-loops/trap-140-fm.wav",
+      "tags": [
+        "trap",
+        "loop",
+        "supersaw",
+        "dark",
+        "menor",
+        "chords"
+      ],
+      "durationSec": 6.857,
+      "gainSuggestion": 0.7,
+      "keyRoot": "F",
+      "bpm": 140
+    },
+    {
+      "id": "melodic-loops/boombap-90-cm",
+      "name": "Boom Bap Loop 90 Cm",
+      "category": "melodic-loops",
+      "file": "melodic-loops/boombap-90-cm.wav",
+      "tags": [
+        "boombap",
+        "loop",
+        "fm",
+        "keys",
+        "soul",
+        "menor"
+      ],
+      "durationSec": 10.667,
+      "gainSuggestion": 0.7,
+      "keyRoot": "C",
+      "bpm": 90
+    },
+    {
+      "id": "melodic-loops/reggaeton-100-am",
+      "name": "Reggaeton Loop 100 Am",
+      "category": "melodic-loops",
+      "file": "melodic-loops/reggaeton-100-am.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "loop",
+        "pluck",
+        "menor"
+      ],
+      "durationSec": 9.6,
+      "gainSuggestion": 0.7,
+      "keyRoot": "A",
+      "bpm": 100
+    },
+    {
+      "id": "melodic-loops/hardtek-174-em",
+      "name": "Hardtek Loop 174 Em",
+      "category": "melodic-loops",
+      "file": "melodic-loops/hardtek-174-em.wav",
+      "tags": [
+        "hardtek",
+        "acid",
+        "loop",
+        "riff",
+        "menor"
+      ],
+      "durationSec": 5.517,
+      "gainSuggestion": 0.7,
+      "keyRoot": "E",
+      "bpm": 174
+    }
+  ]
+}
