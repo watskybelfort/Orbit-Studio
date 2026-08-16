@@ -30,6 +30,7 @@ import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
+import { capturePointer } from '../../widgets/pointer';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -486,7 +487,7 @@ export function Playlist() {
     (e: React.PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.setPointerCapture(e.pointerId);
+      capturePointer(canvas, e.pointerId);
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;

@@ -17,6 +17,7 @@ import { engine, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
+import { capturePointer } from '../../widgets/pointer';
 import './pianoroll.css';
 
 const KEY_H = 14;
@@ -332,7 +333,7 @@ export function PianoRoll() {
     (e: React.PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas || !activePatternId || !channelId || channelIndex < 0) return;
-      canvas.setPointerCapture(e.pointerId);
+      capturePointer(canvas, e.pointerId);
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;

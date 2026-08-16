@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useRef } from 'react';
+import { capturePointer } from './pointer';
 import './widgets.css';
 
 export interface KnobProps {
@@ -55,7 +56,7 @@ export function Knob({
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      capturePointer(e.target as HTMLElement, e.pointerId);
       drag.current = { startY: e.clientY, startNorm: norm };
     },
     [norm],
