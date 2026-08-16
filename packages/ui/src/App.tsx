@@ -5,6 +5,7 @@ import { TitleBar } from './shell/TitleBar';
 import { MenuBar } from './shell/MenuBar';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
+import { Browser } from './browser';
 import { ClaudePanel } from './claude/ClaudePanel';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
 import { useShortcuts } from './hooks/useShortcuts';
@@ -55,7 +56,7 @@ export function App() {
         {browserOpen && (
           <aside className="sidebar">
             <div className="sidebar-header">Browser</div>
-            <div className="panel-placeholder">Librería: en construcción.</div>
+            <Browser />
           </aside>
         )}
         <Workspace />
