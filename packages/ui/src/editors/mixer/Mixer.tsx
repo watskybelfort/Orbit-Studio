@@ -30,7 +30,7 @@ import {
   type ParamSpec,
 } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
-import { store } from '../../state/app';
+import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Fader } from '../../widgets/Fader';
@@ -106,8 +106,8 @@ function FloatingMenu({
 /** Medidor aislado: solo él re-renderiza a ~20 fps con los peaks del kernel. */
 function StripMeter({ index }: { index: number }) {
   const peak = useUiStore((s) => (s.trackPeaks ? (s.trackPeaks[index] ?? 0) : 0));
-  // El master lleva además la línea de RMS (el kernel solo lo mide ahí).
-  const rms = useUiStore((s) => (index === 0 ? s.masterRms : undefined));
+  // Línea de RMS de SU pista (el kernel mide todas por frame).
+  const rms = useUiStore((s) => s.trackRms?.[index]);
   return <LevelMeter peak={peak} rms={rms} height={FADER_H} />;
 }
 
@@ -216,7 +216,25 @@ function Strip({
       }}
       onContextMenu={(e) => onContextMenu(e, index)}
     >
-      <div className="strip-color" style={{ background: track.color }} />
+      <label
+        className="strip-color"
+        style={{ background: track.color }}
+        title="Color de pista (clic para cambiar)"
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <input
+          type="color"
+          className="strip-color-input"
+          value={track.color}
+          onChange={(e) =>
+            store.dispatch(
+              { type: 'patchMixerTrack', trackIndex: index, patch: { color: e.target.value } },
+              { mergeKey: `mixer:${index}:color`, label: 'Color de pista' },
+            )
+          }
+        />
+      </label>
       <div className="strip-num">{index === 0 ? 'M' : index}</div>
       <StripName index={index} name={track.name} />
       <Knob
@@ -277,6 +295,293 @@ function Strip({
   );
 }
 
+// ── Analizador del Orbit EQ: espectro en vivo + curva de respuesta ───────────
+
+const FFT_N = 1024;
+const SPEC_DB_FLOOR = -90;
+const FREQ_MIN = 20;
+/** Escala vertical de la curva de respuesta: ±18 dB (0 dB al centro). */
+const CURVE_DB = 18;
+
+/** FFT radix-2 in situ sobre re/im (copiada del Orbit Scope). */
+function fft(re: Float32Array, im: Float32Array): void {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      const tr = re[i]!; re[i] = re[j]!; re[j] = tr;
+      const ti = im[i]!; im[i] = im[j]!; im[j] = ti;
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (-2 * Math.PI) / len;
+    const wr = Math.cos(ang);
+    const wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1;
+      let ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const a = i + k;
+        const b = i + k + len / 2;
+        const xr = re[b]! * cr - im[b]! * ci;
+        const xi = re[b]! * ci + im[b]! * cr;
+        re[b] = re[a]! - xr;
+        im[b] = im[a]! - xi;
+        re[a] = re[a]! + xr;
+        im[a] = im[a]! + xi;
+        const ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = ncr;
+      }
+    }
+  }
+}
+
+/**
+ * Coeficientes RBJ (a0 normalizado a 1), réplica EXACTA de las fórmulas de
+ * dsp/filters.ts del motor para que la curva pinte lo que suena.
+ */
+interface BiquadCoefs { b0: number; b1: number; b2: number; a1: number; a2: number }
+
+function rbjLowpass(f: number, q: number, sr: number): BiquadCoefs {
+  const w = (2 * Math.PI * Math.min(f, sr * 0.49)) / sr;
+  const cw = Math.cos(w);
+  const alpha = Math.sin(w) / (2 * q);
+  const a0 = 1 + alpha;
+  const b0 = ((1 - cw) / 2) / a0;
+  return { b0, b1: (1 - cw) / a0, b2: b0, a1: (-2 * cw) / a0, a2: (1 - alpha) / a0 };
+}
+
+function rbjHighpass(f: number, q: number, sr: number): BiquadCoefs {
+  const w = (2 * Math.PI * Math.min(f, sr * 0.49)) / sr;
+  const cw = Math.cos(w);
+  const alpha = Math.sin(w) / (2 * q);
+  const a0 = 1 + alpha;
+  const b0 = ((1 + cw) / 2) / a0;
+  return { b0, b1: (-(1 + cw)) / a0, b2: b0, a1: (-2 * cw) / a0, a2: (1 - alpha) / a0 };
+}
+
+function rbjPeaking(f: number, db: number, q: number, sr: number): BiquadCoefs {
+  const A = Math.pow(10, db / 40);
+  const w = (2 * Math.PI * Math.min(f, sr * 0.49)) / sr;
+  const cw = Math.cos(w);
+  const alpha = Math.sin(w) / (2 * q);
+  const a0 = 1 + alpha / A;
+  return {
+    b0: (1 + alpha * A) / a0,
+    b1: (-2 * cw) / a0,
+    b2: (1 - alpha * A) / a0,
+    a1: (-2 * cw) / a0,
+    a2: (1 - alpha / A) / a0,
+  };
+}
+
+function rbjLowShelf(f: number, db: number, sr: number): BiquadCoefs {
+  const A = Math.pow(10, db / 40);
+  const w = (2 * Math.PI * Math.min(f, sr * 0.49)) / sr;
+  const cw = Math.cos(w);
+  const sw = Math.sin(w);
+  const S = 1;
+  const alpha = (sw / 2) * Math.sqrt((A + 1 / A) * (1 / S - 1) + 2);
+  const twoSqrtAAlpha = 2 * Math.sqrt(A) * alpha;
+  const a0 = A + 1 + (A - 1) * cw + twoSqrtAAlpha;
+  return {
+    b0: (A * (A + 1 - (A - 1) * cw + twoSqrtAAlpha)) / a0,
+    b1: (2 * A * (A - 1 - (A + 1) * cw)) / a0,
+    b2: (A * (A + 1 - (A - 1) * cw - twoSqrtAAlpha)) / a0,
+    a1: (-2 * (A - 1 + (A + 1) * cw)) / a0,
+    a2: (A + 1 + (A - 1) * cw - twoSqrtAAlpha) / a0,
+  };
+}
+
+function rbjHighShelf(f: number, db: number, sr: number): BiquadCoefs {
+  const A = Math.pow(10, db / 40);
+  const w = (2 * Math.PI * Math.min(f, sr * 0.49)) / sr;
+  const cw = Math.cos(w);
+  const sw = Math.sin(w);
+  const S = 1;
+  const alpha = (sw / 2) * Math.sqrt((A + 1 / A) * (1 / S - 1) + 2);
+  const twoSqrtAAlpha = 2 * Math.sqrt(A) * alpha;
+  const a0 = A + 1 - (A - 1) * cw + twoSqrtAAlpha;
+  return {
+    b0: (A * (A + 1 + (A - 1) * cw + twoSqrtAAlpha)) / a0,
+    b1: (-2 * A * (A - 1 + (A + 1) * cw)) / a0,
+    b2: (A * (A + 1 + (A - 1) * cw - twoSqrtAAlpha)) / a0,
+    a1: (2 * (A - 1 - (A + 1) * cw)) / a0,
+    a2: (A + 1 - (A - 1) * cw - twoSqrtAAlpha) / a0,
+  };
+}
+
+/**
+ * Etapas activas del Orbit EQ como biquads RBJ. Mismo orden y mismos umbrales
+ * de activación que EqUnit (dsp/effects.ts): HP si > 22 Hz, LP si < 19.5 kHz.
+ */
+function eqStages(p: Record<string, number>, sr: number): BiquadCoefs[] {
+  const stages: BiquadCoefs[] = [];
+  const hp = p['hpFreq'] ?? 20;
+  const lp = p['lpFreq'] ?? 20000;
+  if (hp > 22) stages.push(rbjHighpass(hp, 0.707, sr));
+  stages.push(rbjLowShelf(p['lowFreq'] ?? 120, p['lowGain'] ?? 0, sr));
+  stages.push(rbjPeaking(p['midFreq'] ?? 1000, p['midGain'] ?? 0, p['midQ'] ?? 1, sr));
+  stages.push(rbjHighShelf(p['highFreq'] ?? 6000, p['highGain'] ?? 0, sr));
+  if (lp < 19500) stages.push(rbjLowpass(lp, 0.707, sr));
+  return stages;
+}
+
+/** Magnitud |H(e^jw)| en dB de un biquad a la frecuencia f. */
+function biquadDb(c: BiquadCoefs, f: number, sr: number): number {
+  const w = (2 * Math.PI * f) / sr;
+  const cw = Math.cos(w);
+  const c2w = Math.cos(2 * w);
+  const num =
+    c.b0 * c.b0 + c.b1 * c.b1 + c.b2 * c.b2 +
+    2 * (c.b0 * c.b1 + c.b1 * c.b2) * cw + 2 * c.b0 * c.b2 * c2w;
+  const den =
+    1 + c.a1 * c.a1 + c.a2 * c.a2 +
+    2 * (c.a1 + c.a1 * c.a2) * cw + 2 * c.a2 * c2w;
+  return 10 * Math.log10(Math.max(1e-12, num) / Math.max(1e-12, den));
+}
+
+/**
+ * Canvas del Orbit EQ: espectro en vivo de la pista (tap del kernel) con la
+ * curva de respuesta del EQ superpuesta. Mientras está montado redirige el
+ * scope a su pista; si el Orbit Scope está abierto a la vez, el último gana.
+ */
+function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ensureAudioReady();
+    engine.setScope(true, trackIndex);
+    let raf = 0;
+
+    const re = new Float32Array(FFT_N);
+    const im = new Float32Array(FFT_N);
+    const hann = new Float32Array(FFT_N);
+    for (let i = 0; i < FFT_N; i++) hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_N - 1)));
+
+    const drawLoop = () => {
+      raf = requestAnimationFrame(drawLoop);
+      const canvas = canvasRef.current;
+      const wrap = wrapRef.current;
+      if (!canvas || !wrap) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (w === 0 || h === 0) return;
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const css = getComputedStyle(canvas);
+      const col = (name: string) => css.getPropertyValue(name).trim();
+      const accent = col('--accent');
+      const dim = col('--text-dim');
+      const line = col('--border');
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = line;
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+      const sr = engine.sampleRate;
+      const nyquist = sr / 2;
+      const logMin = Math.log10(FREQ_MIN);
+      const logMax = Math.log10(nyquist);
+      const xToFreq = (x: number) => Math.pow(10, logMin + (x / w) * (logMax - logMin));
+      const freqToX = (f: number) =>
+        ((Math.log10(Math.max(FREQ_MIN, f)) - logMin) / (logMax - logMin)) * w;
+
+      // Rejilla de frecuencias
+      ctx.fillStyle = dim;
+      ctx.font = `9px ${css.fontFamily}`;
+      for (const f of [100, 1000, 10000]) {
+        const x = freqToX(f);
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(x, 0, 1, h);
+        ctx.globalAlpha = 1;
+        ctx.fillText(f >= 1000 ? `${f / 1000}k` : String(f), x + 3, h - 3);
+      }
+
+      // ── Espectro en vivo (relleno translúcido) ──
+      const frame = useUiStore.getState().scopeFrame;
+      if (frame) {
+        const off = frame.length - FFT_N;
+        for (let i = 0; i < FFT_N; i++) {
+          re[i] = frame[off + i]! * hann[i]!;
+          im[i] = 0;
+        }
+        fft(re, im);
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for (let x = 0; x < w; x++) {
+          const f = xToFreq(x);
+          const bin = Math.min(FFT_N / 2 - 1, Math.max(1, Math.round((f / nyquist) * (FFT_N / 2))));
+          const mag = Math.hypot(re[bin]!, im[bin]!) / (FFT_N / 4);
+          const db = Math.max(SPEC_DB_FLOOR, 20 * Math.log10(mag + 1e-9));
+          ctx.lineTo(x, Math.min(h, (db / SPEC_DB_FLOOR) * h));
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.35;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+
+      // ── Curva de respuesta del EQ (±18 dB, línea de 0 dB al centro) ──
+      const dbToY = (db: number) =>
+        h / 2 - (Math.max(-CURVE_DB, Math.min(CURVE_DB, db)) / CURVE_DB) * (h / 2 - 4);
+      ctx.strokeStyle = dim;
+      ctx.globalAlpha = 0.5;
+      ctx.beginPath();
+      ctx.moveTo(0, dbToY(0) + 0.5);
+      ctx.lineTo(w, dbToY(0) + 0.5);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      // Params en vivo del store (la perilla mueve la curva en el mismo frame).
+      const slot = store.project.mixer[trackIndex]?.slots[slotIndex];
+      if (slot?.kind === 'eq') {
+        const stages = eqStages(slot.params, sr);
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        for (let x = 0; x < w; x++) {
+          const f = xToFreq(x);
+          let db = 0;
+          for (const c of stages) db += biquadDb(c, f, sr);
+          const y = dbToY(db);
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    };
+    raf = requestAnimationFrame(drawLoop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      engine.setScope(false);
+    };
+  }, [trackIndex, slotIndex]);
+
+  return (
+    <div className="eq-viz" ref={wrapRef}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+}
+
 // ── Editor de un efecto (perillas desde EFFECT_PARAMS) ───────────────────────
 
 function EffectEditor({
@@ -294,6 +599,7 @@ function EffectEditor({
 
   return (
     <div className="fx-editor">
+      {slot.kind === 'eq' && <EqAnalyzer trackIndex={trackIndex} slotIndex={slotIndex} />}
       {specs.length === 0 && slot.kind !== 'compressor' && (
         <div className="fx-empty">Sin parámetros.</div>
       )}
