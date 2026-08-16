@@ -11,6 +11,7 @@ import { applyTheme, loadThemeFromSettings } from './theme/theme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { ensureAudioReady } from './state/app';
 import { initClaudeBridge } from './state/claude';
+import { useProjectFile } from './state/project-file';
 import { useUiStore } from './state/ui';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
@@ -20,6 +21,7 @@ export function App() {
   const trafficLights = useUiStore((s) => s.trafficLights);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
+  const notice = useProjectFile((s) => s.notice);
 
   useShortcuts();
 
@@ -67,6 +69,7 @@ export function App() {
           </aside>
         )}
       </div>
+      {notice && <div className="app-notice popup">{notice}</div>}
     </div>
   );
 }

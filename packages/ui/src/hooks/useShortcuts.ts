@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { setPlayMode, store, togglePlay } from '../state/app';
+import { openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 
 export function useShortcuts(): void {
@@ -26,6 +27,16 @@ export function useShortcuts(): void {
       if ((e.ctrlKey && e.code === 'KeyY') || (e.ctrlKey && e.shiftKey && e.code === 'KeyZ')) {
         e.preventDefault();
         store.redo();
+        return;
+      }
+      if (e.ctrlKey && e.code === 'KeyO') {
+        e.preventDefault();
+        void openProject();
+        return;
+      }
+      if (e.ctrlKey && e.code === 'KeyS') {
+        e.preventDefault();
+        void saveProject(e.shiftKey);
         return;
       }
       switch (e.code) {

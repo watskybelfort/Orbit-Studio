@@ -1,8 +1,8 @@
 /** Barra de menús minimalista. Los dropdowns usan .popup (regla del acrílico). */
 
 import { useEffect, useRef, useState } from 'react';
-import { createEmptyProject } from '@orbit/core';
 import { store } from '../state/app';
+import { newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
@@ -30,12 +30,10 @@ export function MenuBar() {
 
   const menus: Record<string, MenuItem[]> = {
     Archivo: [
-      {
-        label: 'Nuevo proyecto',
-        action: () => store.replaceProject(createEmptyProject()),
-      },
-      { label: 'Abrir…', disabled: true, shortcut: 'Ctrl+O' },
-      { label: 'Guardar', disabled: true, shortcut: 'Ctrl+S' },
+      { label: 'Nuevo proyecto', action: () => newProject() },
+      { label: 'Abrir…', shortcut: 'Ctrl+O', action: () => void openProject() },
+      { label: 'Guardar', shortcut: 'Ctrl+S', action: () => void saveProject() },
+      { label: 'Guardar como…', shortcut: 'Ctrl+Shift+S', action: () => void saveProject(true) },
       { label: '', separator: true },
       { label: 'Exportar…', action: () => toggleWindow('export') },
       { label: '', separator: true },
