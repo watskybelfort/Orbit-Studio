@@ -2,7 +2,7 @@
 
 import { create } from 'zustand';
 
-export type WindowId = 'channelRack' | 'pianoRoll' | 'playlist' | 'mixer' | 'settings';
+export type WindowId = 'channelRack' | 'pianoRoll' | 'playlist' | 'mixer' | 'settings' | 'export';
 
 export interface WindowState {
   open: boolean;
@@ -48,6 +48,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   playlist: { open: true, x: 560, y: 40, w: 760, h: 420, z: 3 },
   mixer: { open: false, x: 120, y: 300, w: 980, h: 440, z: 1 },
   settings: { open: false, x: 260, y: 120, w: 640, h: 480, z: 1 },
+  export: { open: false, x: 320, y: 100, w: 420, h: 500, z: 1 },
 };
 
 export const useUiStore = create<UiState>((set) => ({
