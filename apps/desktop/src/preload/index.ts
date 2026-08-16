@@ -52,6 +52,16 @@ export interface OrbitApi {
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
   };
+  readonly midi: {
+    /** Diálogo de apertura .mid; null si el usuario cancela. */
+    open(): Promise<{ name: string; data: ArrayBuffer } | null>;
+  };
+  readonly recording: {
+    /** Guarda una toma en userData/recordings; devuelve el nombre de archivo. */
+    save(name: string, data: Uint8Array): Promise<string>;
+    /** Bytes de una toma guardada (solo dentro de la carpeta de grabaciones). */
+    read(file: string): Promise<ArrayBuffer>;
+  };
   readonly autosave: {
     /** Guarda el estado como pendiente y rota el anillo de backups. */
     write(json: string): Promise<void>;
@@ -114,6 +124,13 @@ const api: OrbitApi = {
     open: () => ipcRenderer.invoke('project:open'),
     save: (path, json, suggestedName) =>
       ipcRenderer.invoke('project:save', path, json, suggestedName),
+  },
+  midi: {
+    open: () => ipcRenderer.invoke('midi:open'),
+  },
+  recording: {
+    save: (name, data) => ipcRenderer.invoke('recording:save', name, data),
+    read: (file) => ipcRenderer.invoke('recording:read', file),
   },
   autosave: {
     write: (json) => ipcRenderer.invoke('autosave:write', json),

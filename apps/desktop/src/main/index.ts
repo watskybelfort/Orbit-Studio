@@ -410,6 +410,64 @@ function registerIpc(): void {
     }
   });
 
+  // ── Import MIDI (diálogo + bytes) ──────────────────────────────────────────
+
+  ipcMain.handle('midi:open', async (event) => {
+    const win = windowOf(event.sender);
+    const options = {
+      title: 'Importar MIDI',
+      filters: [
+        { name: 'Archivos MIDI', extensions: ['mid', 'midi'] },
+        { name: 'Todos los archivos', extensions: ['*'] },
+      ],
+      properties: ['openFile' as const],
+    };
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
+    const path = result.filePaths[0];
+    if (result.canceled || !path) return null;
+    const buf = await readFile(path);
+    return {
+      name: path.split(/[\\/]/).pop() ?? 'midi',
+      data: buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength),
+    };
+  });
+
+  // ── Grabaciones (tomas de micro) ───────────────────────────────────────────
+  // Viven en userData/recordings; el renderer las referencia con el esquema
+  // `recording:<archivo>` en SampleRef.path. recording:read solo sirve
+  // archivos DENTRO de esa carpeta (mismo criterio que library:read).
+
+  const recordingsDir = () => join(app.getPath('userData'), 'recordings');
+
+  ipcMain.handle('recording:save', async (_event, name: unknown, data: unknown) => {
+    if (typeof name !== 'string' || name.length === 0) {
+      throw new Error('recording:save requiere un nombre de archivo');
+    }
+    let bytes: Uint8Array;
+    if (data instanceof Uint8Array) bytes = data;
+    else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+    else throw new Error('recording:save requiere datos Uint8Array o ArrayBuffer');
+    const safe = name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'toma.wav';
+    await mkdir(recordingsDir(), { recursive: true });
+    await writeFile(join(recordingsDir(), safe), bytes);
+    return safe;
+  });
+
+  ipcMain.handle('recording:read', async (_event, file: unknown) => {
+    if (typeof file !== 'string' || file.length === 0) {
+      throw new Error('recording:read requiere el nombre del archivo');
+    }
+    const base = resolvePath(recordingsDir());
+    const target = resolvePath(join(base, file));
+    if (target !== base && !target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+      throw new Error('recording:read solo sirve archivos de la carpeta de grabaciones');
+    }
+    const buf = await readFile(target);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
   // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
   // En desarrollo el pack vive en packages/sound-library/factory; empaquetado,
   // en resources/sound-library. library:read solo sirve archivos DENTRO del pack.
