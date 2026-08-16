@@ -1,0 +1,377 @@
+/* Channel Rack: cabecera de patrón + filas de canal con step sequencer.
+   Solo tokens (var(--…)); ningún color hardcodeado. Los colores de canal y
+   patrón llegan como datos del proyecto vía style inline. */
+
+.rack {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 100%;
+  padding-bottom: 6px;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.rack-empty,
+.rack-hint {
+  padding: 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ── Cabecera: patrón + pasos visibles ── */
+
+.rack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rack-pattern {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rack-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+}
+
+.rack-nav:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.rack-nav:disabled {
+  opacity: 0.4;
+}
+
+.rack-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.rack-pattern-name {
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rack-pattern-count {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rack-name-input {
+  width: 120px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.rack-lengths {
+  display: flex;
+  gap: 4px;
+}
+
+.rack-len {
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.rack-len:hover {
+  color: var(--text);
+}
+
+.rack-len.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ── Filas de canal ── */
+
+.rack-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+}
+
+.rack-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border-radius: 5px;
+}
+
+.rack-row.sel {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+/* LED de mute/solo */
+
+.rack-led {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.rack-led.on {
+  background: var(--meter);
+  border-color: var(--meter);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--meter) 60%, transparent);
+}
+
+.rack-led.solo {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* Nombre del canal (borde izquierdo = color del canal, inline) */
+
+.rack-name {
+  flex: none;
+  width: 112px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  touch-action: none;
+}
+
+.rack-name:hover {
+  color: var(--text);
+}
+
+.rack-name.sel {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* Pista de mixer */
+
+.rack-mix {
+  flex: none;
+  width: 26px;
+  height: 20px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rack-mix:hover {
+  color: var(--text);
+}
+
+.rack-mix-input {
+  flex: none;
+  width: 36px;
+  height: 20px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0 4px;
+  font: inherit;
+  font-size: 10px;
+  outline: none;
+}
+
+/* ── Steps ── */
+
+.rack-steps {
+  flex: 1;
+  display: flex;
+  gap: 2px;
+  touch-action: none;
+}
+
+.step {
+  position: relative;
+  flex: 1 0 13px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+/* Dos tonos alternos por grupo de 4 (como FL) */
+.step.ga {
+  background: var(--surface);
+}
+
+.step.gb {
+  background: var(--surface-2);
+}
+
+/* Separación entre grupos de 4 */
+.step.gs {
+  margin-left: 6px;
+}
+
+.step:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+/* Columna bajo el playhead (modo patrón) */
+.step.ph {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* Relleno de celda ocupada (color del canal, opacidad según velocity) */
+.step-fill {
+  position: absolute;
+  inset: 1px;
+  border-radius: 2px;
+}
+
+/* ── Mini preview de melodía (sustituye a los steps) ── */
+
+.rack-mini {
+  position: relative;
+  flex: 1;
+  height: 24px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.rack-mini:hover {
+  border-color: var(--accent);
+}
+
+.rack-mini-note {
+  position: absolute;
+  height: 3px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+
+.rack-mini-ph {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  pointer-events: none;
+}
+
+.rack-mini-hint {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+/* ── Añadir canal ── */
+
+.rack-addrow {
+  padding: 6px 12px;
+}
+
+.rack-add {
+  position: relative;
+  display: inline-block;
+}
+
+.rack-add-btn {
+  height: 24px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.rack-add-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.rack-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
+.rack-add-menu {
+  position: absolute;
+  left: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 5px;
+}
+
+.rack-add-menu.up {
+  bottom: calc(100% + 4px);
+}
+
+.rack-add-menu.down {
+  top: calc(100% + 4px);
+}
