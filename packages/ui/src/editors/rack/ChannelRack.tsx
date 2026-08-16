@@ -25,6 +25,7 @@ import {
   type InstrumentKind,
   type Note,
 } from '@orbit/core';
+import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, setActivePattern, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -137,7 +138,21 @@ export function ChannelRack() {
   const menuUp = project.channelOrder.length >= 4;
 
   return (
-    <div className="rack">
+    <div
+      className="rack"
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes(SOUND_MIME)) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        const entry = getDragEntry(e.dataTransfer);
+        if (!entry) return;
+        e.preventDefault();
+        void addSamplerChannel(entry);
+      }}
+    >
       <div className="rack-head">
         <div className="rack-pattern">
           <button

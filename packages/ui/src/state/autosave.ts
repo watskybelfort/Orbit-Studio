@@ -7,6 +7,7 @@
  */
 
 import { parseProject, serializeProject } from '@orbit/core';
+import { rehydrateSamples } from '../browser/sound-actions';
 import { store } from './app';
 
 const INTERVAL_MS = 60_000;
@@ -33,6 +34,8 @@ export async function checkRecovery(): Promise<RecoveryOffer | null> {
 /** Restaura el pendiente en el store (queda como proyecto sin guardar). */
 export function applyRecovery(offer: RecoveryOffer): void {
   store.replaceProject(parseProject(offer.json));
+  // Los samples referenciados se resuben al kernel (arranca vacío).
+  void rehydrateSamples();
   // NO se limpia el pendiente: hasta que el usuario guarde, sigue siendo la red.
 }
 
