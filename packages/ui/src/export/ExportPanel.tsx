@@ -12,11 +12,13 @@ import { encodeMidi, type Project } from '@orbit/core';
 import {
   analyzeMix,
   compileProject,
+  encodeFlac,
   encodeWav,
   gainToTarget,
   renderProject,
   renderStems,
   type CompiledProject,
+  type FlacDepth,
   type RenderResult,
   type SampleData,
   type WavDepth,
@@ -49,6 +51,8 @@ interface ExportSummary {
   midiPath: string | null;
   /** Ruta del .mp3 exportado junto al WAV, o null si no se pidió/falló. */
   mp3Path: string | null;
+  /** Ruta del .flac exportado junto al WAV, o null si no se pidió/falló. */
+  flacPath: string | null;
   warnings: string[];
 }
 
@@ -195,6 +199,7 @@ export function ExportPanel() {
   const [stems, setStems] = useState(false);
   const [midi, setMidi] = useState(true);
   const [mp3, setMp3] = useState(false);
+  const [flac, setFlac] = useState(false);
   const loopRegion = useUiStore((s) => s.loopRegion);
   const [depth, setDepth] = useState<WavDepth>(16);
   const [sampleRate, setSampleRate] = useState<number>(44100);
@@ -294,6 +299,27 @@ export function ExportPanel() {
         }
       }
 
+      // FLAC sin pérdida al lado del WAV (float 32 se escribe a 24 bits).
+      let flacPath: string | null = null;
+      if (flac) {
+        flacPath = path.replace(/\.wav$/i, '') + '.flac';
+        try {
+          setStatus({ kind: 'busy', label: 'Codificando FLAC…' });
+          await nextPaint();
+          const flacDepth: FlacDepth = depth === 16 ? 16 : 24;
+          if (depth === 32) {
+            warnings.push('FLAC no admite float: el .flac va a 24 bits.');
+          }
+          await orbit.file.write(
+            flacPath,
+            encodeFlac(mix.left, mix.right, mix.sampleRate, flacDepth),
+          );
+        } catch (e) {
+          warnings.push(`No se pudo escribir ${flacPath}: ${errorText(e)}`);
+          flacPath = null;
+        }
+      }
+
       // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
       let midiPath: string | null = null;
       if (midi) {
@@ -357,6 +383,7 @@ export function ExportPanel() {
           stemsWritten,
           midiPath,
           mp3Path,
+          flacPath,
           warnings,
         },
       });
@@ -467,6 +494,16 @@ export function ExportPanel() {
         También MP3 a 192 kbps (para pasar demos)
       </label>
 
+      <label className="exp-check">
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={flac}
+          onChange={(e) => setFlac(e.target.checked)}
+        />
+        También FLAC sin pérdida (.flac junto al WAV)
+      </label>
+
       <div className="exp-row">
         <span className="exp-label">Profundidad</span>
         <select
@@ -570,6 +607,14 @@ export function ExportPanel() {
               <span className="exp-summary-key">MP3</span>
               <span className="exp-summary-val">
                 {status.summary.mp3Path.split(/[\\/]/).pop()}
+              </span>
+            </div>
+          )}
+          {status.summary.flacPath && (
+            <div className="exp-summary-row">
+              <span className="exp-summary-key">FLAC</span>
+              <span className="exp-summary-val">
+                {status.summary.flacPath.split(/[\\/]/).pop()}
               </span>
             </div>
           )}
