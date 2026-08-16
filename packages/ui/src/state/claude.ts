@@ -25,13 +25,24 @@ interface ClaudeState {
   /** Puente disponible (estamos dentro de Electron). */
   available: boolean;
   entries: ClaudeActivityEntry[];
+  /**
+   * Petición escrita en el panel: viaja adjunta a la SIGUIENTE get_project
+   * que haga Claude (MCP no permite empujarle mensajes) y se consume ahí.
+   */
+  pendingRequest: string | null;
 }
 
 export const useClaudeStore = create<ClaudeState>(() => ({
   connected: false,
   available: typeof window !== 'undefined' && !!window.orbit?.claude,
   entries: [],
+  pendingRequest: null,
 }));
+
+/** Deja una petición para Claude (o la limpia con null). */
+export function setClaudeRequest(request: string | null): void {
+  useClaudeStore.setState({ pendingRequest: request && request.trim() !== '' ? request.trim() : null });
+}
 
 const MAX_ENTRIES = 200;
 let nextEntryId = 1;
@@ -73,7 +84,11 @@ export function initClaudeBridge(): void {
     return path;
   };
 
-  const executor = new ToolExecutor(store, saveFile);
+  const executor = new ToolExecutor(store, saveFile, () => {
+    const request = useClaudeStore.getState().pendingRequest;
+    if (request) useClaudeStore.setState({ pendingRequest: null });
+    return request;
+  });
 
   api.claude.onBridgeStatus((s) => {
     useClaudeStore.setState({ connected: s.connected });

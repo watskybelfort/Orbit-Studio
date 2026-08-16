@@ -143,7 +143,15 @@ export class ToolExecutor {
   constructor(
     private readonly store: ProjectStore,
     private readonly saveFile?: SaveFileFn,
+    /** Petición pendiente del usuario (panel de Claude); consumirla la borra. */
+    private readonly takeUserRequest?: () => string | null,
   ) {}
+
+  /** Adjunta la petición pendiente del usuario al texto de get_project. */
+  private withRequest(text: string): string {
+    const req = this.takeUserRequest?.();
+    return req ? `${text}\n\nPETICIÓN DEL USUARIO (atiéndela ahora): ${req}` : text;
+  }
 
   private get project(): Project {
     return this.store.project;
@@ -248,7 +256,7 @@ export class ToolExecutor {
 
   private getProject(a: Record<string, unknown>): string {
     const detail = optString(a, 'detail') ?? 'summary';
-    if (detail === 'full') return JSON.stringify(this.project);
+    if (detail === 'full') return this.withRequest(JSON.stringify(this.project));
     if (detail !== 'summary') throw new ToolError('detail debe ser "summary" o "full"');
 
     const p = this.project;
@@ -338,7 +346,7 @@ export class ToolExecutor {
     if (Object.keys(p.samples).length > 0) {
       lines.push(`Samples registrados: ${Object.keys(p.samples).length}`);
     }
-    return lines.join('\n');
+    return this.withRequest(lines.join('\n'));
   }
 
   // ── Notas ──────────────────────────────────────────────────────────────────

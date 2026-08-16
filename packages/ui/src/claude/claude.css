@@ -132,3 +132,74 @@
 @keyframes claude-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Peticion rapida: input abajo + chip de pendiente */
+.claude-ask {
+  border-top: 1px solid var(--border);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.claude-pending {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.claude-pending-clear {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.claude-ask-row {
+  display: flex;
+  gap: 6px;
+}
+
+.claude-ask-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+}
+
+.claude-ask-input:focus {
+  border-color: var(--accent);
+}
+
+.claude-ask-send {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.claude-ask-send:not(:disabled):hover {
+  border-color: var(--accent);
+}
+
+.claude-ask-note {
+  margin: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+}
