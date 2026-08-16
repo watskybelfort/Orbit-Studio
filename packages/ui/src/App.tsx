@@ -32,6 +32,7 @@ export function App() {
   const trafficLights = useUiStore((s) => s.trafficLights);
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
+  const compact = useUiStore((s) => s.compact);
   const notice = useProjectFile((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
 
@@ -69,21 +70,23 @@ export function App() {
   }, []);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${compact ? ' compact' : ''}`}>
       <TitleBar trafficLights={trafficLights} />
       <div className="toolbar">
         <MenuBar />
         <Transport />
       </div>
       <div className="app-columns">
-        {browserOpen && (
+        {/* En modo compacto los paneles no se montan pero conservan su flag:
+            al salir del modo vuelven solos tal y como estaban. */}
+        {browserOpen && !compact && (
           <aside className="sidebar">
             <div className="sidebar-header">Browser</div>
             <Browser />
           </aside>
         )}
         <Workspace />
-        {claudePanelOpen && (
+        {claudePanelOpen && !compact && (
           <aside className="claude-panel">
             <div className="sidebar-header">Claude</div>
             <ClaudePanel />
