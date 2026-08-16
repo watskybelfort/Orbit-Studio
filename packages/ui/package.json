@@ -6,9 +6,11 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@orbit/claude-bridge": "*",
     "@orbit/collab": "*",
     "@orbit/core": "*",
     "@orbit/engine": "*",
+    "@orbit/sound-library": "*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.15"

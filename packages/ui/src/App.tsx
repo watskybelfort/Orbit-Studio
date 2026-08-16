@@ -5,9 +5,11 @@ import { TitleBar } from './shell/TitleBar';
 import { MenuBar } from './shell/MenuBar';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
+import { ClaudePanel } from './claude/ClaudePanel';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { ensureAudioReady } from './state/app';
+import { initClaudeBridge } from './state/claude';
 import { useUiStore } from './state/ui';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
@@ -22,6 +24,7 @@ export function App() {
 
   useEffect(() => {
     let alive = true;
+    initClaudeBridge();
     loadThemeFromSettings()
       .then(({ overrides }) => {
         if (alive) useUiStore.setState({ trafficLights: overrides.trafficLights ?? false });
@@ -59,10 +62,7 @@ export function App() {
         {claudePanelOpen && (
           <aside className="claude-panel">
             <div className="sidebar-header">Claude</div>
-            <div className="panel-placeholder">
-              Conecta Claude Code en la carpeta del proyecto (.mcp.json) para
-              verlo trabajar aquí.
-            </div>
+            <ClaudePanel />
           </aside>
         )}
       </div>
