@@ -30,6 +30,10 @@ export interface UiState {
   positionBeats: number;
   metronome: boolean;
   masterPeakL: number;
+  /** RMS master (media L/R), lineal. */
+  masterRms: number;
+  /** Hubo un pico >= 0 dBFS; enclavado hasta que el usuario lo resetea. */
+  clipped: boolean;
   cpu: number;
   trackPeaks: Float32Array | null;
 
@@ -72,6 +76,8 @@ export const useUiStore = create<UiState>((set) => ({
   positionBeats: 0,
   metronome: false,
   masterPeakL: 0,
+  masterRms: 0,
+  clipped: false,
   cpu: 0,
   trackPeaks: null,
 
