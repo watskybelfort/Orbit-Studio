@@ -193,6 +193,28 @@ html[data-theme='acrylic'] .playlist {
   box-shadow: 0 0 6px color-mix(in srgb, var(--meter) 60%, transparent);
 }
 
+/* Swatch de color de la pista (el input nativo va invisible encima) */
+
+.pl-swatch {
+  flex: none;
+  position: relative;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.pl-swatch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
 .pl-track-name {
   flex: 1;
   min-width: 0;

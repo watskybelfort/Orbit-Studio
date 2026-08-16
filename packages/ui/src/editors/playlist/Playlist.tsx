@@ -1103,6 +1103,14 @@ function TrackHeader({ track }: TrackHeaderProps) {
     );
   };
 
+  // El picker nativo dispara change en ráfaga: mergeKey lo funde en un undo.
+  const setColor = (color: string) => {
+    store.dispatch(
+      { type: 'patchPlaylistTrack', trackId: track.id, patch: { color } },
+      { label: 'Color de pista', mergeKey: `pl:color:${track.id}` },
+    );
+  };
+
   return (
     <div
       className={`pl-track${track.muted ? ' muted' : ''}`}
@@ -1113,6 +1121,9 @@ function TrackHeader({ track }: TrackHeaderProps) {
         title="Silenciar pista"
         onClick={toggleMute}
       />
+      <label className="pl-swatch" title="Color de pista" style={{ background: track.color }}>
+        <input type="color" value={track.color} onChange={(e) => setColor(e.target.value)} />
+      </label>
       {editing ? (
         <input
           className="pl-name-input"
