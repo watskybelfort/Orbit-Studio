@@ -6,7 +6,19 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 16-08-2026: v0.4.0
+## Estado — 16-08-2026: v0.5.0
+
+v0.5, "toca y despacha": **tocable en vivo** (Web MIDI + teclado del PC,
+grabación MIDI armada al patrón con cuantización, pause real y tap tempo),
+**flujo diario** (paleta Ctrl+K, cortar y mutear clips, gestión de
+arrangements, export del loop y MP3, carpetas del usuario en el browser),
+**el toque Orbit** (cadena vocal de un clic y campo de petición a Claude en
+su panel) y **el pack crece a 84 sonidos** con la categoría Instrumentos:
+24 instrumentos con altura por síntesis (pianos, guitarras Karplus-Strong,
+bajos, órganos, pads, campanas, leads) tocables por nota en el piano roll
+vía sampler + keytrack. 107 tests.
+
+## Estado anterior — v0.4.0
 
 v0.4, "graba tu voz": **grabación de micro a la playlist** (botón en el
 transport; la toma se guarda como WAV en userData/recordings, se registra
