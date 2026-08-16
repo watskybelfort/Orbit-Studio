@@ -48,9 +48,26 @@
 }
 
 .strip-color {
+  position: relative;
+  display: block;
   width: 100%;
   height: 3px;
   flex: none;
+  cursor: pointer;
+}
+
+/* Input de color invisible encima del chip (zona de clic algo mayor que 3px) */
+.strip-color-input {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -2px;
+  height: 9px;
+  width: 100%;
+  opacity: 0;
+  padding: 0;
+  border: none;
+  cursor: pointer;
 }
 
 .strip-num {
@@ -337,6 +354,20 @@
 .fx-del:hover {
   background: var(--titlebar-close-hover);
   color: var(--titlebar-close-hover-text);
+}
+
+/* Analizador del Orbit EQ: espectro en vivo + curva de respuesta */
+
+.eq-viz {
+  width: 100%;
+  height: 120px;
+  margin-bottom: 2px;
+}
+
+.eq-viz canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* Editor inline del efecto expandido */
