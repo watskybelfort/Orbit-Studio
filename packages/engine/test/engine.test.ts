@@ -400,3 +400,97 @@ describe('kernel: time-stretch de clips de audio', () => {
     expect(rms(res.left, Math.round(0.7 * sr), Math.round(0.9 * sr))).toBeLessThan(0.001);
   });
 });
+
+describe('kernel: plugins JS y cambio cuantizado', () => {
+  it('un plugin JS registrado procesa el audio de su slot (y uno roto hace bypass)', () => {
+    const build = () => {
+      const p = createEmptyProject('Plug');
+      p.tempo = 120;
+      const patternId = p.patternOrder[0]!;
+      const ch = createChannel('synth', 0, 'Lead');
+      ch.mixerTrack = 1;
+      applyCommand(p, { type: 'addChannel', channel: ch });
+      applyCommand(p, { type: 'addNotes', patternId, channelId: ch.id, notes: [note(0, 4, 60)] });
+      applyCommand(p, {
+        type: 'setEffect',
+        trackIndex: 1,
+        slotIndex: 0,
+        slot: { id: 'slot-plug', kind: 'plugin', enabled: true, mix: 1, params: {}, pluginId: 'mute' },
+      });
+      return compileProject(p, { mode: 'pattern', patternId });
+    };
+
+    // Plugin "mute": multiplica por 0 — su pista debe quedar en silencio.
+    const a = new KernelCore(44100);
+    a.handleMessage({
+      type: 'registerPlugin',
+      pluginId: 'mute',
+      code: 'function createEffect(sr){ return { process(l, r, n){ for(let i=0;i<n;i++){ l[i]=0; r[i]=0; } } }; }',
+    });
+    a.handleMessage({ type: 'snapshot', project: build() });
+    a.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(a, 60);
+    expect(a.meterFrame().rms[1]!).toBe(0);
+
+    // Plugin que LANZA en process: bypass automático, el audio sobrevive.
+    const b = new KernelCore(44100);
+    b.handleMessage({
+      type: 'registerPlugin',
+      pluginId: 'mute',
+      code: 'function createEffect(sr){ return { process(){ throw new Error("boom"); } }; }',
+    });
+    b.handleMessage({ type: 'snapshot', project: build() });
+    b.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(b, 60);
+    expect(b.meterFrame().rms[1]!).toBeGreaterThan(0);
+
+    // Sin plugin registrado: el slot no existe como unidad → audio intacto.
+    const c = new KernelCore(44100);
+    c.handleMessage({ type: 'snapshot', project: build() });
+    c.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(c, 60);
+    expect(c.meterFrame().rms[1]!).toBeGreaterThan(0);
+  });
+
+  it('queueSnapshot entra exactamente al cerrar el loop (cambio cuantizado)', () => {
+    const mk = (withNotes: boolean, length: number) => {
+      const p = createEmptyProject('Live');
+      p.tempo = 120;
+      const patternId = p.patternOrder[0]!;
+      const pat = p.patterns[patternId]!;
+      pat.length = length;
+      const ch = createChannel('synth', 0, 'Lead');
+      ch.mixerTrack = 1;
+      applyCommand(p, { type: 'addChannel', channel: ch });
+      if (withNotes) {
+        applyCommand(p, {
+          type: 'addNotes',
+          patternId,
+          channelId: ch.id,
+          notes: [note(0, 1, 60), note(1, 1, 60), note(2, 1, 60), note(3, 1, 60)],
+        });
+      }
+      return compileProject(p, { mode: 'pattern', patternId });
+    };
+
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: mk(true, 4) }); // A: 4 beats con notas
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    const blocksPerBeat = Math.ceil((0.5 * 44100) / MAX_BLOCK); // 120 BPM
+    runBlocks(core, blocksPerBeat); // ~beat 1, sonando
+    expect(core.meterFrame().rms[1]!).toBeGreaterThan(0);
+
+    core.handleMessage({ type: 'queueSnapshot', project: mk(false, 8) }); // B: vacío, 8 beats
+    // Antes del cierre del loop A sigue sonando (la cola NO interrumpe).
+    runBlocks(core, blocksPerBeat * 2); // ~beat 3
+    expect(core.meterFrame().rms[1]!).toBeGreaterThan(0);
+    // Cruzando el beat 4 el snapshot B entra: posBeats salta al inicio y ya
+    // no se disparan notas (B está vacío) — tras el release queda silencio.
+    runBlocks(core, blocksPerBeat * 3); // cruza el wrap y avanza ~2 beats de B
+    expect(core.posBeats).toBeLessThan(4);
+    runBlocks(core, blocksPerBeat * 2);
+    core.meterFrame();
+    runBlocks(core, blocksPerBeat);
+    expect(core.meterFrame().rms[1]!).toBeLessThan(0.001);
+  });
+});

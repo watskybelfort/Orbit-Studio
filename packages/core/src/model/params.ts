@@ -192,6 +192,9 @@ export const EFFECT_PARAMS: Record<EffectKind, ParamSpec[]> = {
     p('monoBelow', 'MonoBelow', 0, 500, 110, { unit: 'Hz' }),
   ],
   analyzer: [],
+  // Los plugins JS declaran sus perillas en su propio archivo; la UI las lee
+  // del registro de plugins, no de aquí.
+  plugin: [],
 };
 
 export const EFFECT_LABELS: Record<EffectKind, string> = {
@@ -209,6 +212,7 @@ export const EFFECT_LABELS: Record<EffectKind, string> = {
   gate: 'Orbit Gate',
   stereo: 'Orbit Stereo',
   analyzer: 'Orbit Scope',
+  plugin: 'Plugin JS',
 };
 
 export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {

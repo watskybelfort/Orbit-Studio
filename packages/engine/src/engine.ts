@@ -70,6 +70,20 @@ export class AudioEngine {
     this.send({ type: 'snapshot', project: compileProject(project, this.playMode) });
   }
 
+  /**
+   * Cambio CUANTIZADO (vista Live): compila `play` y lo pone en cola; el
+   * kernel lo aplica justo al cerrar el loop actual. No toca this.playMode —
+   * la UI lo actualiza cuando detecta el salto de posición.
+   */
+  queueSnapshot(project: Project, play: PlayMode): void {
+    this.send({ type: 'queueSnapshot', project: compileProject(project, play) });
+  }
+
+  /** Registra (o actualiza) un plugin JS de usuario en el kernel. */
+  registerPlugin(pluginId: string, code: string): void {
+    this.send({ type: 'registerPlugin', pluginId, code });
+  }
+
   play(fromBeat = 0): void {
     this.send({ type: 'play', fromBeat });
   }
