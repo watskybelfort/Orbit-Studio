@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.5** = ya publicado en
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.6** = ya publicado en
 esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.5 (16-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.6 (16-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -18,9 +18,11 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Play / Stop, modo PAT (patrón) y SONG (canción), tecla L | v0.1 |
 | BPM 20–999 (scrubber de arrastre) | v0.1 |
 | Pause (conserva la posición; play reanuda desde el caret) y tap tempo | v0.5 |
-| BPM con decimales | v0.x |
+| BPM con decimales (arrastre entero, Shift o teclado para décimas) | v0.6 |
+| Compás editable (num/den) en la barra de transporte | v0.6 |
 | Compases variables y cambios de tempo por marcador (el modelo ya los tiene) | v0.x |
 | Metrónomo (click sintetizado en el kernel) | v0.1 |
+| Metrónomo AUDIBLE con acento según el compás (fix: antes no disparaba nunca) | v0.6 |
 | Pre-count / count-in de grabación | v0.x |
 | Loop de reproducción (región desde la regla de la playlist) | v0.1 |
 | Swing global (perilla como FL) | v0.1 |
@@ -41,7 +43,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Graph editor de velocity en el propio rack | v0.x |
 | Mute + solo (Ctrl+clic), volumen y pan por canal | v0.1 |
 | Selector de patrones (◀▶, añadir, renombrar, color) | v0.1 |
-| Clonar patrón | v0.x |
+| Clonar patrón (notas incluidas, ⧉ en la cabecera) | v0.6 |
+| ▶ propio del rack: escuchar SOLO el patrón activo | v0.6 |
+| Menú de canal (clic derecho): llenar cada 2/4/todos, vaciar, renombrar, color, borrar | v0.6 |
+| Filas y pasos más grandes y aireados (pase visual) | v0.6 |
 | Asignación de canal → pista de mixer (número como FL) | v0.1 |
 | Mini-preview de melodía que abre el Piano Roll (doble clic también) | v0.1 |
 | Mantener pulsado el icono = escuchar el canal | v0.1 |
@@ -59,15 +64,18 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Pan por nota (carril inferior conmutable Vel/Pan) | v0.3 |
 | **Slide notes** (glide real del 808, como FL) | v0.1 |
 | Snap: línea, 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, ninguno | v0.1 |
-| Snap magnético | v0.x |
+| Snap magnético (libre, se pega a la rejilla solo cerca de la línea) | v0.6 |
 | Escala resaltada (tónica + 10 modos) | v0.1 |
-| Bloqueo a escala al dibujar | v0.x |
+| Bloqueo a escala al dibujar y mover (botón Bloq) | v0.6 |
 | Ghost notes de otros canales del patrón | v0.1 |
+| Toggle de ghost notes + selector de patrón en la toolbar | v0.6 |
+| Mover selección contra el borde conserva posiciones (clamp de grupo) | v0.6 |
 | Zoom H (Ctrl+rueda) + scroll, preview audible al arrastrar | v0.1 |
 | Minimapa clicable (vista completa del patrón + viewport) | v0.3 |
 | Herramientas: Quantize, Transponer ±octava | v0.1 |
 | Herramientas: Arpegiar, Strum, Humanize, Chop (sobre la selección o todo) | v0.3 |
-| Stamp de acordes (mayor, menor, 7ª…) | v0.x |
+| Atajos FL de herramientas: Alt+A/S/U/R, Ctrl+Q, Ctrl+Shift+↑↓ | v0.6 |
+| Stamp de acordes (mayor, menor, 7ªs, sus4, power, octava) | v0.6 |
 | Riff machine (generador de motivos) | v1+ |
 | Tocar en vivo con controlador MIDI o el teclado del PC (filas Z y Q) | v0.5 |
 | Grabación MIDI armada al patrón (cuantización de inicios a 1/16, un undo) | v0.5 |
@@ -87,7 +95,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Export del loop de la playlist (fuente Loop en el ExportPanel) | v0.5 |
 | Cambiar entre **arrangements** | v0.1 |
 | Crear (+, con sus pistas base) y renombrar arrangements desde la toolbar | v0.5 |
-| Color, altura e icono por pista | v0.x |
+| Color editable por pista (swatch en la cabecera) | v0.6 |
+| Altura e icono por pista | v0.x |
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | Consolidar selección a audio (bounce in place) | v0.x |
 | Pistas apiladas / carriles de toma | v1+ |
@@ -107,8 +116,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Sidechain (cualquier pista como fuente del compresor de otra) | v0.1 |
 | Medidores peak por strip + master | v0.1 |
 | Línea de RMS en el master + LED de clip enclavado (clic = reset) | v0.3 |
+| Línea de RMS en TODOS los strips (medición por pista en el kernel) | v0.6 |
 | **Cadena vocal de un clic** (EQ + compresor + saturación + delay 1/4 + reverb) | v0.5 |
-| Color editable por pista | v0.x |
+| Color editable por pista (clic en el chip de color) | v0.6 |
 | EQ rápido de 3 bandas en el strip (como FL) | v0.x |
 | Grabar la salida de una pista a audio | v0.x |
 
@@ -132,7 +142,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Efecto | Versión |
 |---|---|
 | EQ paramétrico (HP, low shelf, peak con Q, high shelf, LP — biquads RBJ) | v0.1 |
-| Espectro visual dentro del EQ | v0.x |
+| Espectro en vivo + curva de respuesta real dentro del EQ | v0.6 |
 | Compresor (threshold, ratio, attack, release, knee, makeup) | v0.1 |
 | **Compresor sidechain** (fuente = otra pista del mixer) | v0.1 |
 | Limiter lookahead (para el master) | v0.1 |
@@ -192,16 +202,17 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | WAV 16/24/32-bit float | v0.1 |
-| Selector de sample rate (44.1–96 kHz) | v0.x |
+| Selector de sample rate (44.1–96 kHz) | v0.6 |
 | Render offline (más rápido que tiempo real, mismo kernel DSP) | v0.1 |
 | **Stems** (un WAV por pista de mixer usada, en un solo pase) | v0.1 |
 | Tail de reverb/delay (2 s en el motor) | v0.1 |
-| Tail configurable desde la UI | v0.x |
+| Tail configurable desde la UI (0–8 s) | v0.6 |
 | Normalización a **-14 LUFS** opcional (flujo streaming Orbit) | v0.1 |
 | Fuente: canción completa o patrón | v0.1 |
 | Export de la selección de playlist / solo el loop | v0.x |
 | MP3 a 192 kbps junto al WAV | v0.5 |
-| FLAC/OGG | v0.x |
+| FLAC sin pérdida (codificador propio: FIXED + Rice, bit-exacto vs ffmpeg) | v0.6 |
+| OGG | v1+ |
 | Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real
@@ -253,6 +264,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | Ventanas internas movibles/redimensionables/cerrables con z-order (como FL) | v0.1 |
+| **Ventanas desacoplables**: sacar cualquier editor a una ventana nativa del OS | v0.6 |
+| Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
+| Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
 | Recordar layout por proyecto; layouts predefinidos | v0.x |
 | F5 Playlist · F6 Channel Rack · F7 Piano Roll · F9 Mixer · F10 Ajustes | v0.1 |
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
