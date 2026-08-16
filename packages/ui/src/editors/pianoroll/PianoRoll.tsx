@@ -16,6 +16,7 @@ import {
 import { engine, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
+import { useThemeVersion } from '../../theme/useThemeVersion';
 import './pianoroll.css';
 
 const KEY_H = 14;
@@ -116,7 +117,11 @@ export function PianoRoll() {
 
   // ── Dibujo ────────────────────────────────────────────────────────────────
 
+  const themeVersion = useThemeVersion();
+
   const draw = useCallback(() => {
+    // themeVersion en deps: los tokens se leen con getComputedStyle por tema.
+    void themeVersion;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -258,7 +263,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY]);
+  }, [notes, pattern, channel, channelId, selection, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();

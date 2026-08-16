@@ -29,6 +29,7 @@ import {
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
+import { useThemeVersion } from '../../theme/useThemeVersion';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -195,7 +196,11 @@ export function Playlist() {
 
   // ── Dibujo ────────────────────────────────────────────────────────────────
 
+  const themeVersion = useThemeVersion();
+
   const draw = useCallback(() => {
+    // themeVersion en deps: los tokens se leen con getComputedStyle por tema.
+    void themeVersion;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -435,7 +440,7 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, themeVersion]);
 
   useEffect(() => {
     draw();
