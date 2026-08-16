@@ -30,6 +30,11 @@ import './export.css';
 
 const TARGET_LUFS = -14;
 
+/** Sample rates de export (el kernel renderiza a la que se pida). */
+const SAMPLE_RATES = [44100, 48000, 88200, 96000] as const;
+/** MPEG no admite más de 48 kHz: por encima, el MP3 se salta con aviso. */
+const MP3_MAX_RATE = 48000;
+
 type ExportMode = 'song' | 'pattern' | 'loop';
 
 interface ExportSummary {
@@ -192,6 +197,8 @@ export function ExportPanel() {
   const [mp3, setMp3] = useState(false);
   const loopRegion = useUiStore((s) => s.loopRegion);
   const [depth, setDepth] = useState<WavDepth>(16);
+  const [sampleRate, setSampleRate] = useState<number>(44100);
+  const [tailSeconds, setTailSeconds] = useState(2);
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' });
 
   const isDesktop = typeof window !== 'undefined' && !!window.orbit;
@@ -248,7 +255,8 @@ export function ExportPanel() {
       }
 
       // Mezcla principal (la fuente Loop renderiza la canción y recorta).
-      let mix = renderProject(compiled, { samples });
+      const renderOpts = { samples, sampleRate, tailSeconds };
+      let mix = renderProject(compiled, renderOpts);
       const loop = mode === 'loop' ? loopRegion : null;
       const spb = 60 / proj.tempo;
       if (loop) {
@@ -270,7 +278,11 @@ export function ExportPanel() {
 
       // MP3 al lado del WAV (para pasar demos rápido).
       let mp3Path: string | null = null;
-      if (mp3) {
+      if (mp3 && mix.sampleRate > MP3_MAX_RATE) {
+        warnings.push(
+          `MP3 solo admite hasta 48 kHz: exporta a 44.1/48 kHz si lo quieres (WAV escrito a ${(mix.sampleRate / 1000).toFixed(1)} kHz).`,
+        );
+      } else if (mp3) {
         mp3Path = path.replace(/\.wav$/i, '') + '.mp3';
         try {
           setStatus({ kind: 'busy', label: 'Codificando MP3…' });
@@ -313,7 +325,7 @@ export function ExportPanel() {
             label: `Renderizando stem ${i + 1}/${stemTracks.length} (${t.name})…`,
           });
           await nextPaint();
-          let res = renderStems(compiled, [t.idx], { samples }).get(t.idx);
+          let res = renderStems(compiled, [t.idx], renderOpts).get(t.idx);
           if (!res) continue;
           if (loop) {
             const s0 = Math.max(0, Math.floor(loop.start * spb * res.sampleRate));
@@ -466,6 +478,38 @@ export function ExportPanel() {
           <option value="16">16 bits</option>
           <option value="24">24 bits</option>
           <option value="32">32 bits (float)</option>
+        </select>
+      </div>
+
+      <div className="exp-row">
+        <span className="exp-label">Sample rate</span>
+        <select
+          className="exp-select"
+          disabled={busy}
+          value={String(sampleRate)}
+          onChange={(e) => setSampleRate(Number(e.target.value))}
+        >
+          {SAMPLE_RATES.map((sr) => (
+            <option key={sr} value={sr}>
+              {sr === 44100 ? '44.1 kHz' : `${sr / 1000} kHz`}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="exp-row">
+        <span className="exp-label">Cola (reverb/delay)</span>
+        <select
+          className="exp-select"
+          disabled={busy}
+          value={String(tailSeconds)}
+          onChange={(e) => setTailSeconds(Number(e.target.value))}
+        >
+          {[0, 1, 2, 4, 8].map((s) => (
+            <option key={s} value={s}>
+              {s} s
+            </option>
+          ))}
         </select>
       </div>
 
