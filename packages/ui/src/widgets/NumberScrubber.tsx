@@ -1,6 +1,7 @@
 /** Número arrastrable (BPM, longitudes): drag vertical, doble clic = teclear. */
 
 import { useCallback, useRef, useState } from 'react';
+import { capturePointer } from './pointer';
 import './widgets.css';
 
 export interface NumberScrubberProps {
@@ -61,7 +62,7 @@ export function NumberScrubber({
     <span
       className="scrubber"
       onPointerDown={(e) => {
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        capturePointer(e.target as HTMLElement, e.pointerId);
         drag.current = { startY: e.clientY, startValue: value };
       }}
       onPointerMove={(e) => {

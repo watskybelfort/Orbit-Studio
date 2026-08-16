@@ -5,6 +5,7 @@
 
 import { useCallback, useRef, type ReactNode } from 'react';
 import { useUiStore, type WindowId } from '../state/ui';
+import { capturePointer } from '../widgets/pointer';
 import './shell.css';
 
 export interface InternalWindowProps {
@@ -27,7 +28,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
   const onTitlePointerDown = useCallback(
     (e: React.PointerEvent) => {
       if ((e.target as HTMLElement).closest('.iw-close')) return;
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      capturePointer(e.currentTarget as HTMLElement, e.pointerId);
       drag.current = { mode: 'move', startX: e.clientX, startY: e.clientY, x: win.x, y: win.y, w: win.w, h: win.h };
     },
     [win.x, win.y, win.w, win.h],
@@ -36,7 +37,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
   const onResizePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      capturePointer(e.currentTarget as HTMLElement, e.pointerId);
       drag.current = { mode: 'resize', startX: e.clientX, startY: e.clientY, x: win.x, y: win.y, w: win.w, h: win.h };
     },
     [win.x, win.y, win.w, win.h],

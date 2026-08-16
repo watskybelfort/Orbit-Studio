@@ -2,6 +2,7 @@
 
 import { useCallback, useRef } from 'react';
 import { gainToDb } from '@orbit/core';
+import { capturePointer } from './pointer';
 import './widgets.css';
 
 export interface FaderProps {
@@ -46,7 +47,7 @@ export function Fader({ value, height = 160, onChange, onCommit }: FaderProps) {
       ref={track}
       title={`${db <= -96 ? '-∞' : db.toFixed(1)} dB`}
       onPointerDown={(e) => {
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        capturePointer(e.target as HTMLElement, e.pointerId);
         dragging.current = true;
         setFromClientY(e.clientY);
       }}

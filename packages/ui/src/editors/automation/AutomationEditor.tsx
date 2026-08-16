@@ -42,6 +42,7 @@ import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { NumberScrubber } from '../../widgets/NumberScrubber';
+import { capturePointer } from '../../widgets/pointer';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import './automation.css';
 
@@ -726,7 +727,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     (e: React.PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      canvas.setPointerCapture(e.pointerId);
+      capturePointer(canvas, e.pointerId);
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
