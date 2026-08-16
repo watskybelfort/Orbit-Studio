@@ -457,15 +457,57 @@ export class KernelCore {
         const track = Math.min(nTracks - 1, Math.max(0, clip.mixerTrack));
         const bl = this.bufL[track]!;
         const br = this.bufR[track]!;
+
+        // Time-stretch SOLA: dos grains solapados con crossfade triangular,
+        // leídos a velocidad natural (pitch intacto) pero re-posicionados para
+        // que el sample llene exactamente la longitud del clip. Sin stretch,
+        // lectura directa como siempre. Cero alocaciones en ambos caminos.
+        const srcSec = data.left.length / data.rate - clip.offset;
+        const clipSec = clip.length * secPerBeat;
+        const doStretch = clip.stretch && srcSec > 0.01 && clipSec > 0.01;
+        const ratio = srcSec / clipSec; // avance de la fuente por sample de salida
+        const hop = Math.max(64, Math.round(0.022 * this.sr)); // medio grain ~22 ms
+        const natRate = data.rate / this.sr;
+        const srcBase = clip.offset * data.rate;
+        const lastIdx = data.left.length - 1;
+
         for (let i = 0; i < n; i++) {
           const beatAt = relBeat + i * spb;
           if (beatAt < 0 || beatAt >= clip.length) continue;
-          const srcPos = (clip.offset + beatAt * secPerBeat) * data.rate;
-          const idx = Math.floor(srcPos);
-          if (idx < 0 || idx >= data.left.length - 1) continue;
-          const frac = srcPos - idx;
-          bl[i]! += (data.left[idx]! * (1 - frac) + data.left[idx + 1]! * frac) * clip.gain;
-          br[i]! += (data.right[idx]! * (1 - frac) + data.right[idx + 1]! * frac) * clip.gain;
+          let l = 0;
+          let r = 0;
+          if (doStretch) {
+            const tOut = beatAt * secPerBeat * this.sr;
+            const g = Math.floor(tOut / hop);
+            const inGrain = tOut - g * hop;
+            // Grain g (sube 0→1) + grain g-1 (baja 1→0); en el arranque solo g.
+            const w = g === 0 ? 1 : inGrain / hop;
+            const posA = srcBase + (g * hop * ratio + inGrain) * natRate;
+            const idxA = Math.floor(posA);
+            if (idxA >= 0 && idxA < lastIdx) {
+              const fA = posA - idxA;
+              l += (data.left[idxA]! * (1 - fA) + data.left[idxA + 1]! * fA) * w;
+              r += (data.right[idxA]! * (1 - fA) + data.right[idxA + 1]! * fA) * w;
+            }
+            if (g > 0 && w < 1) {
+              const posB = srcBase + ((g - 1) * hop * ratio + inGrain + hop) * natRate;
+              const idxB = Math.floor(posB);
+              if (idxB >= 0 && idxB < lastIdx) {
+                const fB = posB - idxB;
+                l += (data.left[idxB]! * (1 - fB) + data.left[idxB + 1]! * fB) * (1 - w);
+                r += (data.right[idxB]! * (1 - fB) + data.right[idxB + 1]! * fB) * (1 - w);
+              }
+            }
+          } else {
+            const srcPos = (clip.offset + beatAt * secPerBeat) * data.rate;
+            const idx = Math.floor(srcPos);
+            if (idx < 0 || idx >= lastIdx) continue;
+            const frac = srcPos - idx;
+            l = data.left[idx]! * (1 - frac) + data.left[idx + 1]! * frac;
+            r = data.right[idx]! * (1 - frac) + data.right[idx + 1]! * frac;
+          }
+          bl[i]! += l * clip.gain;
+          br[i]! += r * clip.gain;
         }
       }
     }

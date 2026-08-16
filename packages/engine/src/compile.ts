@@ -294,6 +294,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
           offset: clip.audioOffset ?? 0,
           gain: clip.audioGain ?? 1,
           mixerTrack: 0,
+          stretch: clip.audioStretch === true,
         });
       } else if (clip.kind === 'automation' && clip.target && clip.points) {
         const ev = sampleAutomation(clip, clip.points, clip.target, project, channelIndexOf);

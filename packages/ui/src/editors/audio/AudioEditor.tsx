@@ -348,6 +348,18 @@ export function AudioEditor() {
             )
           }
         />
+        <button
+          className={`tbtn${clip.audioStretch ? ' active' : ''}`}
+          title="Time-stretch: estira el audio (pitch intacto) para llenar el largo del clip — redimensiona el clip en la playlist y el audio lo sigue"
+          onClick={() =>
+            store.dispatch(
+              { type: 'patchClips', patches: [{ id: clip.id, audioStretch: !clip.audioStretch }] },
+              { label: clip.audioStretch ? 'Quitar time-stretch' : 'Time-stretch al clip' },
+            )
+          }
+        >
+          Stretch
+        </button>
         <div className="ae-ops">
           {(Object.keys(OP_LABELS) as AudioOp[]).map((op) => (
             <button key={op} className="tbtn" disabled={busy || !channels} onClick={() => void runOp(op)}>
