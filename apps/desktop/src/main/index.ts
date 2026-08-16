@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -544,6 +544,45 @@ function registerIpc(): void {
     }
     const buf = await readFile(target);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  });
+
+  // ── Plugins JS de usuario (SDK de efectos) ─────────────────────────────────
+  // Los .js viven en userData/plugins (no recursivo). El main solo lista y
+  // sirve el código fuente; el renderer lo parsea (name/params del contrato)
+  // y lo registra en el kernel, que lo corre con bypass automático si lanza.
+
+  const pluginsDir = () => join(app.getPath('userData'), 'plugins');
+  const PLUGINS_MAX = 100;
+
+  ipcMain.handle('plugins:scan', async () => {
+    const dir = pluginsDir();
+    await mkdir(dir, { recursive: true });
+    let items;
+    try {
+      items = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+    const found: { id: string; name: string; source: string }[] = [];
+    for (const item of items) {
+      if (found.length >= PLUGINS_MAX) break;
+      if (!item.isFile() || !item.name.toLowerCase().endsWith('.js')) continue;
+      try {
+        const source = await readFile(join(dir, item.name), 'utf8');
+        // id = nombre de archivo sin extensión (slug estable que viaja en el
+        // proyecto); el nombre "bonito" lo saca el renderer del propio código.
+        found.push({ id: item.name.replace(/\.js$/i, ''), name: item.name, source });
+      } catch {
+        // archivo ilegible: se salta sin romper el scan
+      }
+    }
+    return found;
+  });
+
+  ipcMain.handle('plugins:open-folder', async () => {
+    const dir = pluginsDir();
+    await mkdir(dir, { recursive: true });
+    await shell.openPath(dir);
   });
 
   // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
