@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.4** = ya publicado en
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.5** = ya publicado en
 esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.4 (16-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.5 (16-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -17,7 +17,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 |---|---|
 | Play / Stop, modo PAT (patrón) y SONG (canción), tecla L | v0.1 |
 | BPM 20–999 (scrubber de arrastre) | v0.1 |
-| Pause, tap tempo, BPM con decimales | v0.x |
+| Pause (conserva la posición; play reanuda desde el caret) y tap tempo | v0.5 |
+| BPM con decimales | v0.x |
 | Compases variables y cambios de tempo por marcador (el modelo ya los tiene) | v0.x |
 | Metrónomo (click sintetizado en el kernel) | v0.1 |
 | Pre-count / count-in de grabación | v0.x |
@@ -68,7 +69,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Herramientas: Arpegiar, Strum, Humanize, Chop (sobre la selección o todo) | v0.3 |
 | Stamp de acordes (mayor, menor, 7ª…) | v0.x |
 | Riff machine (generador de motivos) | v1+ |
-| Grabación MIDI en vivo desde teclado (Web MIDI) con cuantización | v0.x |
+| Tocar en vivo con controlador MIDI o el teclado del PC (filas Z y Q) | v0.5 |
+| Grabación MIDI armada al patrón (cuantización de inicios a 1/16, un undo) | v0.5 |
 
 ## 4. Playlist
 
@@ -79,12 +81,12 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Clips de automatización (con su curva dibujada; doble clic abre el editor) | v0.1 |
 | Clips de audio (soltar un sonido del browser en la playlist) | v0.2 |
 | Snap Beat/Compás/1/2/1/4/Nada (Alt = libre) | v0.1 |
-| Cortar (slip/slice) y mute por clip | v0.x |
+| Cortar clips (Shift+clic) y mute por clip (clic central) | v0.5 |
 | Marcadores de sección: crear (doble clic en la regla), renombrar, borrar, salto exacto | v0.2 |
 | Seek y región de loop desde la regla | v0.1 |
-| Export parcial de la selección / el loop | v0.x |
+| Export del loop de la playlist (fuente Loop en el ExportPanel) | v0.5 |
 | Cambiar entre **arrangements** | v0.1 |
-| Crear/renombrar arrangements desde la UI | v0.x |
+| Crear (+, con sus pistas base) y renombrar arrangements desde la toolbar | v0.5 |
 | Color, altura e icono por pista | v0.x |
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | Consolidar selección a audio (bounce in place) | v0.x |
@@ -105,6 +107,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Sidechain (cualquier pista como fuente del compresor de otra) | v0.1 |
 | Medidores peak por strip + master | v0.1 |
 | Línea de RMS en el master + LED de clip enclavado (clic = reset) | v0.3 |
+| **Cadena vocal de un clic** (EQ + compresor + saturación + delay 1/4 + reverb) | v0.5 |
 | Color editable por pista | v0.x |
 | EQ rápido de 3 bandas en el strip (como FL) | v0.x |
 | Grabar la salida de una pista a audio | v0.x |
@@ -119,6 +122,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Orbit FM** | FM 2-op (bells, keys, bajos metálicos) | v0.1 |
 | **Orbit Drums** | Caja de ritmos sintetizada, 3 kits: kick, snare, clap, hats, tom, conga, rim, shaker, crash | v0.1 |
 | **Orbit Sampler** | Reproduce WAV con pitch, keytrack, punto de inicio y reverse | v0.1 |
+| **Pack Instrumentos** | 24 instrumentos con altura por síntesis (pianos, EPs, guitarras Karplus-Strong, bajos, órganos, pads, campanas, leads — 3-4 variantes por familia), tocables por nota vía sampler + keytrack | v0.5 |
 | **Orbit Keys** | EP tipo Rhodes (FM) para boom bap / lo-fi | v0.x |
 | **Orbit Slicer** | Trocea loops por transientes (estilo Fruity Slicer) | v0.x |
 | **Orbit Vox** | Texturas vocales por formantes (ah/ooh/eh) | v0.x |
@@ -169,7 +173,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Doble clic = añade canal sampler con el sonido | v0.1 |
 | Drag & drop: al Channel Rack (canal sampler) o a la Playlist (clip de audio) | v0.2 |
 | Contenido de fábrica generado por síntesis propia (pack Orbit Essentials, 60 sonidos) | v0.1 |
-| Carpetas del usuario (añadir rutas propias, se indexan igual) | v0.x |
+| Carpetas del usuario (elige carpetas propias; se escanean y funcionan igual) | v0.5 |
 | Favoritos y colecciones | v0.x |
 | Detección automática de BPM/tonalidad al indexar | v1+ |
 
@@ -196,7 +200,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Normalización a **-14 LUFS** opcional (flujo streaming Orbit) | v0.1 |
 | Fuente: canción completa o patrón | v0.1 |
 | Export de la selección de playlist / solo el loop | v0.x |
-| MP3/FLAC/OGG | v0.x |
+| MP3 a 192 kbps junto al WAV | v0.5 |
+| FLAC/OGG | v0.x |
 | Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real
@@ -226,7 +231,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
 | Claude en la lista de presencia de la sesión (fila propia bajo su usuario) | v0.3 |
-| Campo de petición rápida ("súbeme la voz en el drop") → lanza a Claude | v0.x |
+| Campo de petición en el panel (viaja adjunta al siguiente get_project de Claude) | v0.5 |
 | Claude genera contenido a la librería (packs a demanda) | v0.x |
 
 ## 14. Apariencia y temas
@@ -253,7 +258,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
 | Ctrl+E export directo | v0.x |
-| Paleta de comandos (Ctrl+K) con búsqueda de toda acción | v0.x |
+| Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
 | Multi-ventana (mixer en segundo monitor) | v1+ |
 
 ## 16. Plugins de terceros
