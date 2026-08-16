@@ -5,7 +5,7 @@
  * (la build actual de y-websocket ya no publica `bin/utils`, así que el
  * setupWSConnection es nuestro):
  *
- * - Un Y.Doc + Awareness por room; rooms por path: ws://host:7777/<código>
+ * - Un Y.Doc + Awareness por room; rooms por path: ws://host:7900/<código>
  *   (código de 6 chars A-Z2-9 sin ambiguos; se aceptan guiones/minúsculas).
  * - messageType 0 → y-sync (step1/step2/update), messageType 1 → awareness.
  * - Persistencia: al cerrar el último socket de un room se guarda
@@ -26,7 +26,9 @@ import * as decoding from 'lib0/decoding';
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 
-const PORT = Number(process.env.PORT ?? 7777);
+// 7900 evita los rangos que Hyper-V reserva en Windows (p. ej. 7698-7797,
+// donde caía el 7777 clásico): netsh interface ipv4 show excludedportrange
+const PORT = Number(process.env.PORT ?? 7900);
 const ROOMS_DIR = resolve('./rooms');
 const PING_INTERVAL_MS = 30000;
 
@@ -205,6 +207,12 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+// ws re-emite los errores de listen del http server por aquí; sin handler
+// tirarían el proceso con un stack crudo en vez del mensaje de abajo.
+wss.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') throw err;
+});
+
 /** Keepalive: sockets que no responden al ping se terminan. */
 const alive = new Map<WsSocket, boolean>();
 setInterval(() => {
@@ -247,6 +255,18 @@ wss.on('connection', (conn, req) => {
       console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
     }
   });
+});
+
+httpServer.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
+    console.error(
+      `[server] no se pudo escuchar en el puerto ${PORT} (${err.code}): puede estar ` +
+        'ocupado o en un rango reservado de Windows. Elige otro con PORT, ' +
+        'p. ej.: PORT=7901 npm run server',
+    );
+    process.exit(1);
+  }
+  throw err;
 });
 
 httpServer.listen(PORT, () => {
