@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import type { Project } from '@orbit/core';
+import { encodeMidi, type Project } from '@orbit/core';
 import {
   analyzeMix,
   compileProject,
@@ -38,6 +38,8 @@ interface ExportSummary {
   /** Ganancia de normalización aplicada, o null si no se normalizó. */
   gainDb: number | null;
   stemsWritten: number;
+  /** Ruta del .mid exportado junto al WAV, o null si no se pidió/falló. */
+  midiPath: string | null;
   warnings: string[];
 }
 
@@ -169,6 +171,7 @@ export function ExportPanel() {
   const [patternId, setPatternId] = useState<string | null>(null);
   const [normalize, setNormalize] = useState(false);
   const [stems, setStems] = useState(false);
+  const [midi, setMidi] = useState(true);
   const [depth, setDepth] = useState<WavDepth>(16);
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' });
 
@@ -235,6 +238,26 @@ export function ExportPanel() {
 
       await orbit.file.write(path, encodeWav(mix.left, mix.right, mix.sampleRate, depth));
 
+      // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
+      let midiPath: string | null = null;
+      if (midi) {
+        midiPath = path.replace(/\.wav$/i, '') + '.mid';
+        try {
+          await orbit.file.write(
+            midiPath,
+            encodeMidi(
+              proj,
+              mode === 'pattern' && selectedPattern
+                ? { mode: 'pattern', patternId: selectedPattern }
+                : { mode: 'song' },
+            ),
+          );
+        } catch (e) {
+          warnings.push(`No se pudo escribir ${midiPath}: ${errorText(e)}`);
+          midiPath = null;
+        }
+      }
+
       // Stems: rutas hermanas <base>-<pista>.wav derivadas de la elegida.
       let stemsWritten = 0;
       if (stems && stemTracks.length > 0) {
@@ -271,6 +294,7 @@ export function ExportPanel() {
           lufs: finalLufs,
           gainDb,
           stemsWritten,
+          midiPath,
           warnings,
         },
       });
@@ -353,6 +377,16 @@ export function ExportPanel() {
         </p>
       )}
 
+      <label className="exp-check">
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={midi}
+          onChange={(e) => setMidi(e.target.checked)}
+        />
+        MIDI multipista (.mid junto al WAV)
+      </label>
+
       <div className="exp-row">
         <span className="exp-label">Profundidad</span>
         <select
@@ -369,7 +403,7 @@ export function ExportPanel() {
 
       <div className="exp-row">
         <button className="exp-export" disabled={!canExport} onClick={() => void doExport()}>
-          Exportar WAV…
+          Exportar…
         </button>
         {busy && <span className="exp-status">{status.label}</span>}
       </div>
@@ -408,6 +442,14 @@ export function ExportPanel() {
               <span className="exp-summary-key">Stems</span>
               <span className="exp-summary-val">
                 {status.summary.stemsWritten} {status.summary.stemsWritten === 1 ? 'archivo' : 'archivos'}
+              </span>
+            </div>
+          )}
+          {status.summary.midiPath && (
+            <div className="exp-summary-row">
+              <span className="exp-summary-key">MIDI</span>
+              <span className="exp-summary-val">
+                {status.summary.midiPath.split(/[\\/]/).pop()}
               </span>
             </div>
           )}

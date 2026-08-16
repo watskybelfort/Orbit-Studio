@@ -9,3 +9,4 @@ export * from './commands';
 export * from './store';
 export * from './format';
 export { newId } from './ids';
+export { encodeMidi, type EncodeMidiOptions } from './midi/encode';
