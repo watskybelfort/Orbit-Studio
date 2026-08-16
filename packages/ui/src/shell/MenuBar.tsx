@@ -9,6 +9,7 @@ import {
   IconClose,
   IconCollab,
   IconExport,
+  IconMidi,
   IconMixer,
   IconNew,
   IconOpen,
@@ -19,7 +20,7 @@ import {
   IconWave,
 } from '../icons';
 import { store } from '../state/app';
-import { newProject, openProject, saveProject } from '../state/project-file';
+import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
@@ -53,6 +54,7 @@ export function MenuBar() {
       { label: 'Guardar', icon: <IconSave />, shortcut: 'Ctrl+S', action: () => void saveProject() },
       { label: 'Guardar como…', shortcut: 'Ctrl+Shift+S', action: () => void saveProject(true) },
       { label: '', separator: true },
+      { label: 'Importar MIDI…', icon: <IconMidi />, action: () => void importMidi() },
       { label: 'Exportar…', icon: <IconExport />, action: () => toggleWindow('export') },
       { label: '', separator: true },
       { label: 'Salir', icon: <IconClose />, action: () => void window.orbit?.window.close() },
