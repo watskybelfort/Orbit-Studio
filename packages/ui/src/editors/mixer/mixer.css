@@ -196,6 +196,44 @@
   color: var(--text-dim);
 }
 
+/* Sends de la pista seleccionada: destino + perilla de nivel + quitar */
+.mixer-sends {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.send-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.send-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.send-del {
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.send-del:hover {
+  color: var(--meter-clip);
+}
+
 .mixer-chain-slots {
   flex: 1;
   min-height: 0;
