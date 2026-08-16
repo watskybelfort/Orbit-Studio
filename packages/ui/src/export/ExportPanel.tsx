@@ -26,6 +26,7 @@ import {
 import { readSampleBytes } from '../browser/sound-actions';
 import { encodeMp3 } from './mp3';
 import { store } from '../state/app';
+import { usePluginsStore } from '../state/plugins';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import './export.css';
@@ -118,6 +119,29 @@ function usedMixerTracks(project: Project): { idx: number; name: string }[] {
   return [...used]
     .sort((a, b) => a - b)
     .map((idx) => ({ idx, name: project.mixer[idx]?.name ?? `Pista ${idx}` }));
+}
+
+/**
+ * Código fuente de los plugins JS que usa el proyecto (slots kind 'plugin'),
+ * sacado del registro del renderer para que el render offline los instancie.
+ * Los que ya no están en la carpeta se reportan (sonarán en bypass).
+ */
+function collectPluginSources(project: Project): {
+  plugins: Map<string, string>;
+  missing: string[];
+} {
+  const sources = usePluginsStore.getState().sources;
+  const plugins = new Map<string, string>();
+  const missing: string[] = [];
+  for (const track of project.mixer) {
+    for (const slot of track.slots) {
+      if (slot?.kind !== 'plugin' || !slot.pluginId || plugins.has(slot.pluginId)) continue;
+      const code = sources.get(slot.pluginId);
+      if (code) plugins.set(slot.pluginId, code);
+      else if (!missing.includes(slot.pluginId)) missing.push(slot.pluginId);
+    }
+  }
+  return { plugins, missing };
 }
 
 /** Ganancia lineal in situ sobre un render (para normalizar). */
@@ -258,9 +282,16 @@ export function ExportPanel() {
       if (missing.length > 0) {
         warnings.push(`Samples no incluidos en el render: ${missing.join(', ')}.`);
       }
+      // Plugins JS usados por el mixer: sus fuentes van al render offline.
+      const pluginSources = collectPluginSources(proj);
+      if (pluginSources.missing.length > 0) {
+        warnings.push(
+          `Plugins JS no encontrados (van en bypass): ${pluginSources.missing.join(', ')}.`,
+        );
+      }
 
       // Mezcla principal (la fuente Loop renderiza la canción y recorta).
-      const renderOpts = { samples, sampleRate, tailSeconds };
+      const renderOpts = { samples, sampleRate, tailSeconds, plugins: pluginSources.plugins };
       let mix = renderProject(compiled, renderOpts);
       const loop = mode === 'loop' ? loopRegion : null;
       const spb = 60 / proj.tempo;
