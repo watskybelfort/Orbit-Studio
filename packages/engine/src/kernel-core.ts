@@ -215,9 +215,9 @@ export class KernelCore {
         let unit = this.effects.get(slot.id);
         if (!unit) {
           unit =
-            slot.kind === 'plugin'
+            (slot.kind === 'plugin'
               ? this.makePluginUnit(slot.pluginId)
-              : createEffect(slot.kind, this.sr);
+              : createEffect(slot.kind, this.sr)) ?? undefined;
           if (unit) this.effects.set(slot.id, unit);
         }
         unit?.setParams(slot.params);
