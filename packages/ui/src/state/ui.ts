@@ -38,7 +38,9 @@ export interface UiState {
   clipped: boolean;
   cpu: number;
   trackPeaks: Float32Array | null;
-  /** Últimos samples del master para el Orbit Scope (solo con la ventana abierta). */
+  /** RMS por pista de mixer (post-fader, del kernel), lineal. */
+  trackRms: Float32Array | null;
+  /** Últimos samples de la pista tapeada para el Orbit Scope / analizador del EQ. */
   scopeFrame: Float32Array | null;
   /** Región de loop de la playlist en beats (también fuente del export). */
   loopRegion: { start: number; end: number } | null;
@@ -90,6 +92,7 @@ export const useUiStore = create<UiState>((set) => ({
   clipped: false,
   cpu: 0,
   trackPeaks: null,
+  trackRms: null,
   scopeFrame: null,
   loopRegion: null,
 

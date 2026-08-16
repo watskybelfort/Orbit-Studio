@@ -9,6 +9,7 @@ import {
   type Project,
 } from '@orbit/core';
 import { compileProject, topoOrder } from '../src/compile';
+import { KernelCore, MAX_BLOCK } from '../src/kernel-core';
 import { renderProject } from '../src/render/offline';
 import { analyzeMix } from '../src/render/analysis';
 import { encodeWav } from '../src/render/wav';
@@ -196,5 +197,82 @@ describe('render offline', () => {
     expect(wav.length).toBe(44 + 1000 * 4);
     expect(String.fromCharCode(...wav.slice(0, 4))).toBe('RIFF');
     expect(String.fromCharCode(...wav.slice(8, 12))).toBe('WAVE');
+  });
+});
+
+// ── Kernel: medidores por pista y tap del scope ──────────────────────────────
+
+/** Proyecto sintético mínimo: un solo canal (synth) enrutado a la pista dada. */
+function singleTrackProject(mixerTrack: number) {
+  const p = createEmptyProject('Kernel');
+  p.tempo = 120;
+  const patternId = p.patternOrder[0]!;
+  const ch = createChannel('synth', 0, 'Lead');
+  ch.mixerTrack = mixerTrack;
+  applyCommand(p, { type: 'addChannel', channel: ch });
+  applyCommand(p, { type: 'addNotes', patternId, channelId: ch.id, notes: [note(0, 4, 60)] });
+  return compileProject(p, { mode: 'pattern', patternId });
+}
+
+/** Procesa `blocks` bloques del kernel en modo offline (descarta el audio). */
+function runBlocks(core: KernelCore, blocks: number): void {
+  const l = new Float32Array(MAX_BLOCK);
+  const r = new Float32Array(MAX_BLOCK);
+  for (let i = 0; i < blocks; i++) core.process(l, r, MAX_BLOCK);
+}
+
+describe('kernel: medidores y scope', () => {
+  it('meterFrame: RMS por pista — señal en su pista, cero en las demás', () => {
+    const compiled = singleTrackProject(1);
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: compiled });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(core, 60);
+    const frame = core.meterFrame();
+    expect(frame.rms.length).toBe(compiled.mixer.length);
+    expect(frame.rms[1]!).toBeGreaterThan(0); // la pista con la nota suena
+    expect(frame.rms[2]!).toBe(0); // pista sin señal
+    // El master también acumula (la pista 1 desemboca ahí) y masterRms sigue vivo.
+    expect(frame.rms[0]!).toBeGreaterThan(0);
+    expect(frame.masterRms[0]).toBeGreaterThan(0);
+    // Emitir el frame resetea los acumuladores: sin procesar más, el RMS vuelve a 0.
+    expect(core.meterFrame().rms[1]!).toBe(0);
+  });
+
+  it('setScope con trackIndex tapea esa pista (una pista muda da scope en silencio)', () => {
+    const compiled = singleTrackProject(1);
+    const energia = (xs: Float32Array) => {
+      let s = 0;
+      for (const v of xs) s += Math.abs(v);
+      return s;
+    };
+
+    // Tap de la pista 1 (con señal): el scope trae samples.
+    const a = new KernelCore(44100);
+    a.handleMessage({ type: 'snapshot', project: compiled });
+    a.handleMessage({ type: 'setScope', enabled: true, trackIndex: 1 });
+    a.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(a, 60);
+    const fa = a.meterFrame();
+    expect(fa.scope).toBeDefined();
+    expect(energia(fa.scope!)).toBeGreaterThan(0);
+
+    // Tap de la pista 2 (sin señal): el frame trae scope, pero en silencio.
+    const b = new KernelCore(44100);
+    b.handleMessage({ type: 'snapshot', project: compiled });
+    b.handleMessage({ type: 'setScope', enabled: true, trackIndex: 2 });
+    b.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(b, 60);
+    const fb = b.meterFrame();
+    expect(fb.scope).toBeDefined();
+    expect(energia(fb.scope!)).toBe(0);
+
+    // Compatibilidad: sin trackIndex el tap es el master (que sí lleva señal).
+    const c = new KernelCore(44100);
+    c.handleMessage({ type: 'snapshot', project: compiled });
+    c.handleMessage({ type: 'setScope', enabled: true });
+    c.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(c, 60);
+    expect(energia(c.meterFrame().scope!)).toBeGreaterThan(0);
   });
 });
