@@ -17,6 +17,8 @@ import {
   strum,
   type Note,
 } from '@orbit/core';
+import { useCollabStore } from '../../collab/collab-state';
+import { reportActivity } from '../../collab/presence';
 import { engine, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -74,6 +76,8 @@ export function PianoRoll() {
   const [selection, setSelection] = useState<Set<string>>(new Set());
   /** Qué edita el carril inferior: velocity o pan por nota. */
   const [laneMode, setLaneMode] = useState<'velocity' | 'pan'>('velocity');
+  // Conectados de la sesión (para pintar sus cursores remotos).
+  const peers = useCollabStore((s) => s.peers);
   const [lastDuration, setLastDuration] = useState(1);
   const drag = useRef<DragState | null>(null);
   /** Deltas visuales durante el gesto (sin tocar el store hasta soltar). */
@@ -274,6 +278,26 @@ export function PianoRoll() {
       ctx.globalAlpha = 1;
     }
 
+    // Cursores remotos: línea + celda con nombre de quien toca un piano roll.
+    for (const p of peers) {
+      const a = p.activity;
+      if (p.isSelf || !a || !a.editor.startsWith('Piano Roll') || a.beat === undefined) continue;
+      const px = beatToX(a.beat);
+      if (px < -80 || px > w + 20) continue;
+      ctx.fillStyle = p.user.color;
+      ctx.globalAlpha = 0.85;
+      ctx.fillRect(px, 0, 1.5, gridH);
+      if (a.key !== undefined) {
+        ctx.fillRect(px - 4, keyToY(a.key), 9, KEY_H);
+      }
+      ctx.font = `9px ${css.fontFamily}`;
+      const tw = ctx.measureText(p.user.name).width;
+      ctx.fillRect(px, 2, tw + 8, 12);
+      ctx.fillStyle = col('--pr-lane-bg');
+      ctx.fillText(p.user.name, px + 4, 11.5);
+      ctx.globalAlpha = 1;
+    }
+
     // Playhead (modo patrón)
     const ui = useUiStore.getState();
     if (ui.playing && ui.playMode === 'pattern') {
@@ -281,7 +305,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, laneMode, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
+  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -471,12 +495,20 @@ export function PianoRoll() {
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
-      const d = drag.current;
       const canvas = canvasRef.current;
-      if (!d || !canvas) return;
+      if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+
+      // Presencia: dónde está nuestro cursor (throttled; no-op sin sesión).
+      reportActivity(channel ? `Piano Roll · ${channel.name}` : 'Piano Roll', {
+        beat: xToBeat(x),
+        key: yToKey(y),
+      });
+
+      const d = drag.current;
+      if (!d) return;
       d.moved = true;
 
       if (d.mode === 'velocity') {
@@ -514,7 +546,7 @@ export function PianoRoll() {
       }
       draw();
     },
-    [zoomX, yToKey, doSnap, snap, xToBeat, draw, applyVelocityAt, channelIndex],
+    [zoomX, yToKey, doSnap, snap, xToBeat, draw, applyVelocityAt, channelIndex, channel],
   );
 
   const onPointerUp = useCallback(() => {

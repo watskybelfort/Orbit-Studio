@@ -26,6 +26,7 @@ import {
   type Note,
 } from '@orbit/core';
 import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
+import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, setActivePattern, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -140,6 +141,7 @@ export function ChannelRack() {
   return (
     <div
       className="rack"
+      onPointerDown={() => reportActivity('Channel Rack')}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(SOUND_MIME)) {
           e.preventDefault();

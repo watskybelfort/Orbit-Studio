@@ -29,6 +29,7 @@ import {
   type MixerTrack,
   type ParamSpec,
 } from '@orbit/core';
+import { reportActivity } from '../../collab/presence';
 import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -585,9 +586,13 @@ export function Mixer() {
   const selIndex = selectedRaw >= 0 && selectedRaw < mixer.length ? selectedRaw : 0;
   const selTrack = mixer[selIndex];
 
-  const onSelect = useCallback((i: number) => {
-    useUiStore.setState({ selectedMixerTrack: i });
-  }, []);
+  const onSelect = useCallback(
+    (i: number) => {
+      useUiStore.setState({ selectedMixerTrack: i });
+      reportActivity('Mixer', { detail: mixer[i]?.name });
+    },
+    [mixer],
+  );
 
   const onToggleSend = useCallback(
     (target: number) => {
