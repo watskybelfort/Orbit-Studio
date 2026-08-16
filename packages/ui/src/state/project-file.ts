@@ -6,6 +6,7 @@
 
 import { createEmptyProject, parseProject, serializeProject } from '@orbit/core';
 import { create } from 'zustand';
+import { rehydrateSamples } from '../browser/sound-actions';
 import { store } from './app';
 import { markClean } from './autosave';
 
@@ -53,6 +54,8 @@ export async function openProject(): Promise<void> {
     store.replaceProject(project);
     useProjectFile.setState({ path: result.path });
     markClean();
+    // Los samples referenciados se resuben al kernel (arranca vacío).
+    void rehydrateSamples();
     notify(`Abierto ${fileName(result.path)}.`);
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo abrir el proyecto.');

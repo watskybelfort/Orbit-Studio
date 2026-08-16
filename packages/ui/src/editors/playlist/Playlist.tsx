@@ -28,6 +28,7 @@ import {
   type PlaylistTrack,
   type Project,
 } from '@orbit/core';
+import { addAudioClip, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -901,6 +902,26 @@ export function Playlist() {
           <canvas
             ref={canvasRef}
             className="pl-canvas"
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes(SOUND_MIME)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }
+            }}
+            onDrop={(e) => {
+              // Soltar un sonido del browser: clip de audio en la pista/beat del cursor.
+              const entry = getDragEntry(e.dataTransfer);
+              if (!entry) return;
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              const row = rowAtY(e.clientY - rect.top);
+              if (!row) return;
+              void addAudioClip(
+                entry,
+                row.track.id,
+                quant(xToBeat(e.clientX - rect.left), snapBeats, false),
+              );
+            }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}

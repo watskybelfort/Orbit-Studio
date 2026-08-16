@@ -7,16 +7,13 @@
  * sin distinción de mayúsculas ni acentos).
  *
  * - Clic en una entrada: preview por el kernel (loadSample cachea por id).
- * - Doble clic: añade un canal sampler al proyecto por el bus de comandos.
- *   El canal referencia su sample por `Channel.sampleId` = id del manifest,
- *   el mismo con el que el sample vive en el kernel (ctx.samples). También
- *   se registra el SampleRef en project.samples con path `factory:<relpath>`.
+ * - Doble clic: añade un canal sampler (lógica en sound-actions.ts).
+ * - Arrastre: al Channel Rack crea canal sampler; a la Playlist, clip de audio.
  *
  * Fuera de Electron (sin window.orbit) muestra un estado vacío elegante.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { createChannel, type Command, type SampleRef } from '@orbit/core';
 import {
   CATEGORY_LABELS,
   loadManifest,
@@ -25,8 +22,8 @@ import {
   type SoundEntry,
   type SoundManifest,
 } from '@orbit/sound-library';
-import { engine, ensureAudioReady, store } from '../state/app';
-import { useUiStore } from '../state/ui';
+import { engine, ensureAudioReady } from '../state/app';
+import { addSamplerChannel, loadIntoEngine, setDragEntry } from './sound-actions';
 import './browser.css';
 
 // ── Estado de la librería ────────────────────────────────────────────────────
@@ -56,20 +53,6 @@ function formatDuration(sec: number): string {
 /** "trap" → "Trap" (etiqueta de subcategoría). */
 function subLabel(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-/** sha1 en hex del archivo (identidad del SampleRef); null si no hay WebCrypto. */
-async function sha1Hex(data: ArrayBuffer): Promise<string | null> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return null;
-  try {
-    const digest = await subtle.digest('SHA-1', data);
-    let out = '';
-    for (const b of new Uint8Array(digest)) out += b.toString(16).padStart(2, '0');
-    return out;
-  } catch {
-    return null;
-  }
 }
 
 interface SubGroup {
@@ -176,15 +159,6 @@ export function Browser() {
     });
   };
 
-  /** Lee los bytes del pack y los sube al kernel bajo el id del manifest. */
-  const loadIntoEngine = async (entry: SoundEntry): Promise<ArrayBuffer> => {
-    const api = window.orbit;
-    if (!api) throw new Error('Librería no disponible fuera de Electron');
-    const bytes = await api.library.read(entry.file);
-    await engine.loadSample(entry.id, bytes);
-    return bytes;
-  };
-
   // Clic: preview del sample por el kernel.
   const preview = async (entry: SoundEntry) => {
     ensureAudioReady();
@@ -203,41 +177,12 @@ export function Browser() {
     }
   };
 
-  // Doble clic: canal sampler nuevo por el bus de comandos.
+  // Doble clic: canal sampler nuevo (lógica compartida con el drop del rack).
   const addToProject = async (entry: SoundEntry) => {
     ensureAudioReady();
     setStatus(null);
     try {
-      const bytes = await loadIntoEngine(entry);
-
-      const channel = createChannel('sampler', store.project.channelOrder.length, entry.name);
-      // El kernel resuelve el sample de la voz por Channel.sampleId → debe ser
-      // el mismo id con el que engine.loadSample lo subió (el del manifest).
-      channel.sampleId = entry.id;
-      if (entry.gainSuggestion !== undefined) {
-        channel.volume = Math.min(2, entry.gainSuggestion);
-      }
-
-      const commands: Command[] = [];
-      if (store.project.samples[entry.id] === undefined) {
-        const sample: SampleRef = {
-          id: entry.id,
-          name: entry.name,
-          path: `factory:${entry.file}`,
-          hash: (await sha1Hex(bytes)) ?? entry.id,
-          duration: entry.durationSec,
-        };
-        commands.push({ type: 'registerSample', sample });
-      }
-      commands.push({ type: 'addChannel', channel });
-
-      const label = `Añadir sampler "${entry.name}"`;
-      store.dispatch(
-        commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
-        { label },
-      );
-      // Igual que el rack: el canal recién añadido queda seleccionado.
-      useUiStore.setState({ pianoRollChannelId: channel.id });
+      await addSamplerChannel(entry);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : `No se pudo añadir "${entry.name}"`);
     }
@@ -294,9 +239,11 @@ export function Browser() {
                       key={entry.id}
                       type="button"
                       className={playing ? 'browser-entry playing' : 'browser-entry'}
+                      draggable
+                      onDragStart={(e) => setDragEntry(e.dataTransfer, entry)}
                       onClick={() => void preview(entry)}
                       onDoubleClick={() => void addToProject(entry)}
-                      title={`${entry.name} — clic: escuchar · doble clic: añadir al proyecto`}
+                      title={`${entry.name} — clic: escuchar · doble clic: añadir · arrastra al rack o a la playlist`}
                     >
                       <span className="browser-entry-dot" aria-hidden="true" />
                       <span className="browser-entry-name">{entry.name}</span>
