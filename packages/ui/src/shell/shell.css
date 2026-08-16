@@ -322,6 +322,41 @@ html[data-theme='acrylic'] .iw-title {
   pointer-events: none;
 }
 
+/* Banner de recuperación de autosave (arriba, con botones) */
+.app-recovery {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--titlebar-h) + 46px);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  font-size: 12px;
+  color: var(--text);
+  z-index: 1001;
+}
+
+.recovery-btn {
+  padding: 4px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.recovery-btn:hover {
+  border-color: var(--accent);
+}
+
+.recovery-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* Iconos de los menus (linea fina, heredan color). */
 .menu-item-label {
   display: flex;
