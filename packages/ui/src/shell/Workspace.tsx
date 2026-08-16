@@ -4,13 +4,10 @@ import { InternalWindow } from './InternalWindow';
 import { ChannelRack } from '../editors/rack';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
+import { Playlist } from '../editors/playlist';
 import { ExportPanel } from '../export';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import './shell.css';
-
-function Placeholder({ name }: { name: string }) {
-  return <div className="panel-placeholder">{name}: en construcción.</div>;
-}
 
 export function Workspace() {
   return (
@@ -19,7 +16,7 @@ export function Workspace() {
         <ChannelRack />
       </InternalWindow>
       <InternalWindow id="playlist" title="Playlist" minW={480}>
-        <Placeholder name="Playlist" />
+        <Playlist />
       </InternalWindow>
       <InternalWindow id="pianoRoll" title="Piano Roll" minW={560}>
         <PianoRoll />
