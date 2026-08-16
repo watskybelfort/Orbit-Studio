@@ -15,6 +15,7 @@ import type { SoundCategory } from './types';
 export const CATEGORY_LABELS: Record<SoundCategory, string> = {
   drums: 'Drums',
   '808s': '808s',
+  instrumentos: 'Instrumentos',
   'percusion-latina': 'Percusión latina',
   fx: 'FX',
   'melodic-loops': 'Loops melódicos',
