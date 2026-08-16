@@ -1,3 +1,7 @@
+# CI mínimo: cada push/PR debe compilar tipos, pasar los tests y construir la app.
+# --ignore-scripts: ni electron ni esbuild necesitan postinstall aquí (esbuild trae
+# el binario por optionalDependencies; el binario de electron solo hace falta para
+# ejecutar la app, no para bundlear con electron-vite).
 name: CI
 
 on:
@@ -6,27 +10,15 @@ on:
   pull_request:
 
 jobs:
-  build:
-    runs-on: windows-latest
+  ci:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-      - name: Instalar dependencias
-        run: npm ci
-        env:
-          # El binario de Electron no hace falta para typecheck/test/build de CI
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
-      - name: Aprobar scripts de esbuild
-        run: npm approve-scripts esbuild || echo "sin allow-scripts, seguimos"
-        continue-on-error: true
-      - name: Rebuild esbuild
-        run: npm rebuild esbuild
-      - name: Typecheck
-        run: npm run typecheck
-      - name: Tests (core + engine + collab + bridge)
-        run: npm test
-      - name: Build de la app
-        run: npm run build
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
