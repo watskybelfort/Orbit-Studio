@@ -72,9 +72,14 @@ Panel de Claude).
 
 ## Estado
 
-**v0.1 feature-complete.** Qué entró exactamente y qué quedó para v0.x está
-auditado línea a línea en [docs/FEATURES.md](docs/FEATURES.md); el plan y su
-estado en [docs/PLAN.md](docs/PLAN.md).
+**v0.7.0.** El backlog fino está completo (FLAC propio, sample rates de export,
+snap magnético, espectro en el EQ, RMS por strip…), la paridad FL de diario
+también (toolbar con plays PAT/SONG, ventanas desacoplables, metrónomo con
+acento real, menú de canal con fills, atajos FL del piano roll) y el horizonte
+grande ya aterrizó: **time-stretch** de clips, **SDK de plugins JS**
+([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista Live por escenas** con
+lanzamiento cuantizado (F8). Qué entró en cada versión está auditado línea a
+línea en [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Documentación
 
@@ -86,6 +91,7 @@ estado en [docs/PLAN.md](docs/PLAN.md).
 | [docs/THEMING.md](docs/THEMING.md) | Sistema de temas: oscuro, claro, acrílico, semáforo Mac |
 | [docs/COLLAB.md](docs/COLLAB.md) | Colaboración en tiempo real |
 | [docs/CLAUDE-INTEGRATION.md](docs/CLAUDE-INTEGRATION.md) | Claude como colaborador (MCP) |
+| [docs/PLUGINS.md](docs/PLUGINS.md) | SDK de plugins JS (efectos de usuario) con ejemplo |
 
 ## Estructura
 
