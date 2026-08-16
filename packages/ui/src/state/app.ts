@@ -87,3 +87,12 @@ export async function togglePlay(): Promise<void> {
 export function ensureAudioReady(): void {
   void engine.init().then(() => engine.syncProject(store.project));
 }
+
+// Ganchos de QA solo-dev: inspeccionar estado vivo desde CDP.
+const env = (import.meta as { env?: { DEV?: boolean } }).env;
+if (env?.DEV === true && typeof window !== 'undefined') {
+  const w = window as unknown as Record<string, unknown>;
+  w['__orbitStore'] = store;
+  w['__orbitUi'] = useUiStore;
+  w['__orbitEngine'] = engine;
+}

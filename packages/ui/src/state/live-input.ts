@@ -116,6 +116,17 @@ export function toggleMidiArmed(): void {
   if (!next) commitRecording();
 }
 
+// Gancho de QA solo-dev: inspeccionar el estado de entrada en vivo desde CDP.
+const env = (import.meta as { env?: { DEV?: boolean } }).env;
+if (env?.DEV === true && typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>)['__orbitLive'] = useLiveInputStore;
+  (window as unknown as Record<string, unknown>)['__orbitLiveDebug'] = () => ({
+    held: held.size,
+    recorded: recorded.length,
+    recordChannelId,
+  });
+}
+
 let wired = false;
 
 export function initLiveInput(): void {
