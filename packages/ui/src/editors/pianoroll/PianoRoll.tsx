@@ -585,12 +585,27 @@ export function PianoRoll() {
       const g = ghost.current;
       if (!g) return;
       if (d.mode === 'move') {
-        const dBeat = (x - d.startX) / zoomX;
-        const dKey = yToKey(y) - yToKey(d.startY);
+        // Clamp de GRUPO: el delta se limita para que NINGUNA nota cruce los
+        // bordes (beat 0 o el rango de teclas). Así la selección entera se
+        // frena en bloque y conserva las posiciones relativas, en vez de que
+        // cada nota se clave en el borde y se apilen unas sobre otras.
+        let minStart = Infinity;
+        let minKey = Infinity;
+        let maxKey = -Infinity;
+        for (const orig of d.orig.values()) {
+          if (orig.start < minStart) minStart = orig.start;
+          if (orig.key < minKey) minKey = orig.key;
+          if (orig.key > maxKey) maxKey = orig.key;
+        }
+        const dBeat = Math.max(-minStart, (x - d.startX) / zoomX);
+        const dKey = Math.min(
+          KEYS - 1 - maxKey,
+          Math.max(-minKey, yToKey(y) - yToKey(d.startY)),
+        );
         let previewKey: number | undefined;
         for (const [id, orig] of d.orig) {
           const start = doSnap(orig.start + dBeat, snap === null);
-          let key = Math.min(KEYS - 1, Math.max(0, orig.key + dKey));
+          let key = orig.key + dKey;
           // Bloqueo a escala: solo si hay movimiento vertical (dKey !== 0);
           // arrastrar en horizontal no toca la key.
           if (scaleLock && dKey !== 0) key = snapToScale(key);
@@ -791,6 +806,44 @@ export function PianoRoll() {
     applyTools('Chop', (sel) => chop(sel, { grid: snapStep ?? 0.25 }));
   }, [applyTools, snapStep]);
 
+  // Atajos de herramientas estilo FL: Alt+A arpegiar, Alt+S strum, Alt+U chop,
+  // Alt+R humanizar, Ctrl+Q cuantizar, Ctrl+Shift+flechas transponer octava.
+  // Solo activos con la ventana del Piano Roll montada (como Supr/Ctrl+B).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+        if (e.code === 'KeyA') {
+          e.preventDefault();
+          doArp();
+        } else if (e.code === 'KeyS') {
+          e.preventDefault();
+          doStrum();
+        } else if (e.code === 'KeyU') {
+          e.preventDefault();
+          doChop();
+        } else if (e.code === 'KeyR') {
+          e.preventDefault();
+          doHumanize();
+        }
+      } else if (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyQ') {
+        e.preventDefault();
+        quantize();
+      } else if (e.ctrlKey && e.shiftKey && e.code === 'ArrowUp') {
+        e.preventDefault();
+        transpose(12);
+      } else if (e.ctrlKey && e.shiftKey && e.code === 'ArrowDown') {
+        e.preventDefault();
+        transpose(-12);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doArp, doStrum, doChop, doHumanize, quantize, transpose]);
+
   // ── Minimapa ──────────────────────────────────────────────────────────────
   // Vista completa del patrón con las notas y el rectángulo del viewport;
   // clic o arrastre = centrar la vista en ese punto.
@@ -945,18 +998,18 @@ export function PianoRoll() {
           </select>
         </label>
         <div className="pr-tools">
-          <button className="tbtn" onClick={quantize} title="Cuantizar (selección o todo)">Q</button>
-          <button className="tbtn" onClick={() => transpose(12)} title="Subir octava">+8va</button>
-          <button className="tbtn" onClick={() => transpose(-12)} title="Bajar octava">-8va</button>
+          <button className="tbtn" onClick={quantize} title="Cuantizar (Ctrl+Q, selección o todo)">Q</button>
+          <button className="tbtn" onClick={() => transpose(12)} title="Subir octava (Ctrl+Shift+↑)">+8va</button>
+          <button className="tbtn" onClick={() => transpose(-12)} title="Bajar octava (Ctrl+Shift+↓)">-8va</button>
           <button className="tbtn" onClick={toggleSlide} title="Slide (glide 808) en la selección">
             Slide
           </button>
-          <button className="tbtn" onClick={doArp} title="Arpegiar acordes (paso = snap)">Arp</button>
-          <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios (final fijo)">
+          <button className="tbtn" onClick={doArp} title="Arpegiar acordes (Alt+A, paso = snap)">Arp</button>
+          <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios (Alt+S)">
             Strum
           </button>
-          <button className="tbtn" onClick={doHumanize} title="Humanizar timing y velocity">Hum</button>
-          <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap">Chop</button>
+          <button className="tbtn" onClick={doHumanize} title="Humanizar timing y velocity (Alt+R)">Hum</button>
+          <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap (Alt+U)">Chop</button>
           <button
             className={`tbtn${laneMode === 'pan' ? ' active' : ''}`}
             onClick={() => setLaneMode(laneMode === 'velocity' ? 'pan' : 'velocity')}
