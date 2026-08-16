@@ -16,6 +16,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'playlist', title: 'Playlist', shortcut: 'F5' },
   { id: 'channelRack', title: 'Channel Rack', shortcut: 'F6' },
   { id: 'pianoRoll', title: 'Piano Roll', shortcut: 'F7' },
+  { id: 'liveView', title: 'Vista Live', shortcut: 'F8' },
   { id: 'mixer', title: 'Mixer', shortcut: 'F9' },
   { id: 'automation', title: 'Automatización' },
   { id: 'scope', title: 'Orbit Scope' },

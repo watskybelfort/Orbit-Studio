@@ -1,0 +1,168 @@
+/* Vista Live: grid de pads de escena (uno por patrón) + barra inferior.
+   Solo tokens (var(--…)); el color de cada patrón llega como dato del
+   proyecto vía --pad-color (style inline). Oscuro/claro/acrílico OK. */
+
+.live {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* ── Grid de pads ── */
+
+.live-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  align-content: start;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.live-pad {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  min-height: 78px;
+  padding: 9px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--pad-color, var(--accent));
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.live-pad:hover {
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--pad-color, var(--accent)) 55%, var(--border));
+  border-left-color: var(--pad-color, var(--accent));
+}
+
+.live-pad-name {
+  max-width: 100%;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-pad-meta {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Glifo de estado (▶ sonando / … en cola) en la esquina del pad */
+.live-pad-state {
+  position: absolute;
+  top: 7px;
+  right: 9px;
+  font-size: 10px;
+  color: var(--pad-color, var(--accent));
+  pointer-events: none;
+}
+
+/* Sonando: veladura y pulso de glow con el color del patrón */
+.live-pad.sounding {
+  background: color-mix(in srgb, var(--pad-color, var(--accent)) 12%, var(--surface));
+  border-color: var(--pad-color, var(--accent));
+  animation: live-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 4px color-mix(in srgb, var(--pad-color, var(--accent)) 30%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 14px color-mix(in srgb, var(--pad-color, var(--accent)) 60%, transparent);
+  }
+}
+
+/* En cola: borde parpadeante mientras espera el cierre del loop */
+.live-pad.queued {
+  animation: live-blink 0.6s steps(2, jump-none) infinite;
+}
+
+@keyframes live-blink {
+  0% {
+    border-color: var(--pad-color, var(--accent));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--pad-color, var(--accent)) 40%, transparent);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+}
+
+/* Pad «+»: crea una escena (patrón) nueva */
+.live-pad.add {
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  border-left-width: 1px;
+  color: var(--text-dim);
+  font-size: 20px;
+}
+
+.live-pad.add:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ── Barra inferior: stop, cola e hint ── */
+
+.live-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.live-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.live-stop:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.live-queued-info {
+  color: var(--accent);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-hint {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

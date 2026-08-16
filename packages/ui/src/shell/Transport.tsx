@@ -10,6 +10,7 @@ import {
   IconChannelRack,
   IconClaude,
   IconExport,
+  IconLive,
   IconMetronome,
   IconMixer,
   IconPause,
@@ -257,6 +258,9 @@ export function Transport() {
         </WindowButton>
         <WindowButton id="pianoRoll" title="Piano Roll (F7)">
           <IconPianoRoll size={15} />
+        </WindowButton>
+        <WindowButton id="liveView" title="Vista Live (F8)">
+          <IconLive size={15} />
         </WindowButton>
         <WindowButton id="mixer" title="Mixer (F9)">
           <IconMixer size={15} />

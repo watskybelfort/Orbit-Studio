@@ -5,6 +5,7 @@ import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
 import { ChannelRack } from '../editors/rack';
+import { LiveView } from '../editors/live';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
 import { Playlist } from '../editors/playlist';
@@ -45,6 +46,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="audioEditor" title="Editor de audio" minW={480} minH={240}>
         <AudioEditor />
+      </InternalWindow>
+      <InternalWindow id="liveView" title="Vista Live" minW={360} minH={260}>
+        <LiveView />
       </InternalWindow>
     </div>
   );

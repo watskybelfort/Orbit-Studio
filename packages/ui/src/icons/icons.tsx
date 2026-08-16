@@ -156,6 +156,18 @@ export function IconMixer(props: IconProps) {
   );
 }
 
+/** Vista Live: rejilla 2×2 de pads con uno «sonando» (triángulo de play). */
+export function IconLive(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="5" y="5" width="6" height="6" rx="1.5" />
+      <rect x="13" y="5" width="6" height="6" rx="1.5" />
+      <rect x="5" y="13" width="6" height="6" rx="1.5" />
+      <path d="M13.6 13.2 L19.2 16 L13.6 18.8 Z" />
+    </Icon>
+  );
+}
+
 /** Browser: carpeta con una mini forma de onda dentro. */
 export function IconBrowser(props: IconProps) {
   return (
