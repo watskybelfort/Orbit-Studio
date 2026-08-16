@@ -4,6 +4,7 @@ import { InternalWindow } from './InternalWindow';
 import { ChannelRack } from '../editors/rack';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
+import { ExportPanel } from '../export';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import './shell.css';
 
@@ -28,6 +29,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="settings" title="Ajustes">
         <SettingsPanel />
+      </InternalWindow>
+      <InternalWindow id="export" title="Exportar" minW={380}>
+        <ExportPanel />
       </InternalWindow>
     </div>
   );

@@ -1,0 +1,173 @@
+/* Panel de Export/Render — mismo lenguaje visual que Ajustes (filas etiqueta +
+   control), todo con tokens de theme/tokens.css; ningún color hardcodeado. */
+
+.export-panel {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text);
+}
+
+.exp-heading {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+
+.exp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.exp-label {
+  width: 110px;
+  flex: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Selector segmentado (Canción / Patrón) */
+.exp-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.exp-seg-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: none;
+  cursor: pointer;
+}
+
+.exp-seg-btn + .exp-seg-btn {
+  border-left: 1px solid var(--border);
+}
+
+.exp-seg-btn.selected {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.exp-seg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.exp-select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  max-width: 260px;
+}
+
+.exp-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.exp-check input {
+  accent-color: var(--accent);
+}
+
+.exp-check.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.exp-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Botón principal */
+.exp-export {
+  align-self: flex-start;
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.exp-export:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.exp-export:disabled {
+  border-color: var(--border);
+  color: var(--text-dim);
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Estado / resumen */
+.exp-status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.exp-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+.exp-summary-row {
+  display: flex;
+  gap: 10px;
+}
+
+.exp-summary-key {
+  width: 110px;
+  flex: none;
+  color: var(--text-dim);
+}
+
+.exp-summary-val {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.exp-path {
+  color: var(--text-dim);
+  word-break: break-all;
+  font-size: 11px;
+}
+
+/* Errores y avisos: texto discreto con los tokens de tono disponibles. */
+.exp-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--meter-clip);
+}
+
+.exp-warn {
+  margin: 0;
+  font-size: 11px;
+  color: var(--meter-hot);
+}

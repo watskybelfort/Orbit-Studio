@@ -37,6 +37,8 @@ export function MenuBar() {
       { label: 'Abrir…', disabled: true, shortcut: 'Ctrl+O' },
       { label: 'Guardar', disabled: true, shortcut: 'Ctrl+S' },
       { label: '', separator: true },
+      { label: 'Exportar…', action: () => toggleWindow('export') },
+      { label: '', separator: true },
       { label: 'Salir', action: () => void window.orbit?.window.close() },
     ],
     Editar: [
