@@ -19,7 +19,7 @@ import {
 } from '@orbit/core';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
-import { engine, store } from '../../state/app';
+import { engine, setActivePattern, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -97,6 +97,8 @@ export function PianoRoll() {
   const [scaleLock, setScaleLock] = useState(false);
   /** Stamp de acordes: índice en CHORDS (0 = Ninguno). */
   const [chordIdx, setChordIdx] = useState(0);
+  /** Ghost notes: notas tenues de los demás canales de ESTE patrón. */
+  const [showGhosts, setShowGhosts] = useState(true);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   /** Qué edita el carril inferior: velocity o pan por nota. */
   const [laneMode, setLaneMode] = useState<'velocity' | 'pan'>('velocity');
@@ -239,8 +241,8 @@ export function PianoRoll() {
     ctx.fillStyle = col('--pr-pattern-end');
     ctx.fillRect(beatToX(patLen), 0, 2, gridH);
 
-    // Ghost notes (otros canales)
-    if (pattern && channelId) {
+    // Ghost notes (otros canales de ESTE patrón; se pueden apagar)
+    if (showGhosts && pattern && channelId) {
       ctx.fillStyle = col('--pr-ghost');
       for (const [cid, list] of Object.entries(pattern.notes)) {
         if (cid === channelId) continue;
@@ -353,7 +355,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
+  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, scrollY, zoomX, scaleRoot, scale, showGhosts, project.timeSig.num, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -959,8 +961,21 @@ export function PianoRoll() {
     <div className="pianoroll">
       <div className="pr-toolbar">
         <span className="pr-channel" style={{ borderLeftColor: channel.color }}>
-          {channel.name} — {pattern.name}
+          {channel.name}
         </span>
+        <label className="pr-field" title="Patrón que estás editando (cambia también el patrón activo)">
+          <span className="pr-pattern-dot" style={{ background: pattern.color }} />
+          <select
+            value={pattern.id}
+            onChange={(e) => setActivePattern(e.target.value)}
+          >
+            {project.patternOrder.map((pid) => (
+              <option key={pid} value={pid}>
+                {project.patterns[pid]?.name ?? pid}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="pr-field">
           Snap
           <select value={snapIdx} onChange={(e) => setSnapIdx(Number(e.target.value))}>
@@ -1016,6 +1031,13 @@ export function PianoRoll() {
             title="Carril inferior: velocity o pan por nota"
           >
             {laneMode === 'velocity' ? 'Vel' : 'Pan'}
+          </button>
+          <button
+            className={`tbtn${showGhosts ? ' active' : ''}`}
+            onClick={() => setShowGhosts(!showGhosts)}
+            title="Ghost notes: notas tenues de los OTROS canales de este patrón (no son del patrón anterior; apágalas si molestan)"
+          >
+            Ghost
           </button>
         </div>
       </div>

@@ -162,3 +162,12 @@ html[data-theme='light'] .pr-key.black {
   height: 100%;
   cursor: pointer;
 }
+
+/* Punto de color del patron activo en el selector de la toolbar */
+.pr-pattern-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
