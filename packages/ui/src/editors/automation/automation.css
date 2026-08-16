@@ -1,0 +1,176 @@
+/* Editor de automatización. Los tokens --au-* son colores literales por tema
+   porque el canvas los lee con getComputedStyle (sin funciones CSS sin
+   resolver), igual que --pr-* y --pl-*. El resto usa los tokens globales. */
+
+.automation {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+
+  --au-bg: #17191d;
+  --au-grid-bar: #33363e;
+  --au-grid-beat: #22242a;
+  --au-grid-mid: #1e2126;
+  --au-edge: #2e3138;
+  --au-text: #9a9da6;
+  --au-point-ring: #e8e9ec;
+  --au-tip-bg: rgba(16, 17, 20, 0.88);
+  --au-tip-text: #e8e9ec;
+}
+
+html[data-theme='light'] .automation {
+  --au-bg: #f7f8fa;
+  --au-grid-bar: #c3c8d1;
+  --au-grid-beat: #e0e3e8;
+  --au-grid-mid: #e9ebef;
+  --au-edge: #b9bec8;
+  --au-text: #5f6470;
+  --au-point-ring: #17181c;
+  --au-tip-bg: rgba(255, 255, 255, 0.94);
+  --au-tip-text: #17181c;
+}
+
+html[data-theme='acrylic'] .automation {
+  --au-bg: rgba(0, 0, 0, 0.18);
+  --au-grid-bar: rgba(255, 255, 255, 0.16);
+  --au-grid-beat: rgba(255, 255, 255, 0.06);
+  --au-grid-mid: rgba(255, 255, 255, 0.04);
+  --au-edge: rgba(255, 255, 255, 0.14);
+  --au-text: #a6a9b2;
+  --au-point-ring: #e8e9ec;
+  --au-tip-bg: rgba(0, 0, 0, 0.6);
+  --au-tip-text: #e8e9ec;
+}
+
+/* ── Toolbar (cabecera del clip) ── */
+
+.au-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+/* Destino legible ("Insert 3 · volume", "Canal 808 · glide"…) */
+.au-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.au-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.au-field select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+  max-width: 170px;
+}
+
+.au-delete {
+  margin-left: auto;
+  height: 24px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.au-delete:hover {
+  color: var(--text);
+  border-color: var(--meter-clip);
+}
+
+/* ── Canvas de la curva ── */
+
+.au-canvas-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.au-canvas {
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+/* ── Estado vacío + formulario "Nuevo clip de automatización" ── */
+
+.au-empty {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.au-note {
+  margin: 0 0 12px;
+  max-width: 480px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.au-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+}
+
+.au-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.au-create {
+  align-self: flex-start;
+  height: 28px;
+  padding: 0 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+
+.au-create:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.au-create:disabled {
+  opacity: 0.45;
+  border-color: var(--border);
+}

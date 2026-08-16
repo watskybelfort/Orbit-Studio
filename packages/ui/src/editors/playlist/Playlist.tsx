@@ -675,6 +675,24 @@ export function Playlist() {
     [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw],
   );
 
+  // Doble clic en un clip de automatización → abrirlo en su editor.
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      if (y < RULER_H) return;
+      const hit = clipAt(x, y);
+      if (hit?.clip.kind === 'automation') {
+        useUiStore.setState({ automationClipId: hit.clip.id });
+        useUiStore.getState().openWindow('automation');
+      }
+    },
+    [clipAt],
+  );
+
   const onPointerUp = useCallback(() => {
     const d = drag.current;
     drag.current = null;
@@ -791,6 +809,7 @@ export function Playlist() {
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            onDoubleClick={onDoubleClick}
             onWheel={onWheel}
             onContextMenu={(e) => e.preventDefault()}
           />

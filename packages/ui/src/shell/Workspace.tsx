@@ -2,6 +2,7 @@
 
 import { InternalWindow } from './InternalWindow';
 import { CollabPanel } from '../collab';
+import { AutomationEditor } from '../editors/automation';
 import { ChannelRack } from '../editors/rack';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
@@ -33,6 +34,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="collab" title="Colaboración" minW={380}>
         <CollabPanel />
+      </InternalWindow>
+      <InternalWindow id="automation" title="Automatización" minW={520}>
+        <AutomationEditor />
       </InternalWindow>
     </div>
   );
