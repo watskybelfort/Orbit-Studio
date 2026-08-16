@@ -58,6 +58,8 @@ export function MenuBar() {
         action: () => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen })),
       },
       { label: '', separator: true },
+      { label: 'Colaboración…', action: () => toggleWindow('collab') },
+      { label: '', separator: true },
       { label: 'Ajustes', shortcut: 'F10', action: () => toggleWindow('settings') },
     ],
   };

@@ -1,6 +1,7 @@
 /** Área de trabajo: aloja las ventanas internas de los editores. */
 
 import { InternalWindow } from './InternalWindow';
+import { CollabPanel } from '../collab';
 import { ChannelRack } from '../editors/rack';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
@@ -29,6 +30,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="export" title="Exportar" minW={380}>
         <ExportPanel />
+      </InternalWindow>
+      <InternalWindow id="collab" title="Colaboración" minW={380}>
+        <CollabPanel />
       </InternalWindow>
     </div>
   );
