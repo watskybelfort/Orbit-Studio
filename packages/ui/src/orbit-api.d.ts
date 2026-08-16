@@ -25,6 +25,26 @@ interface OrbitApi {
     /** Merge superficial sobre settings.json; devuelve el resultado. */
     set(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
+  readonly claude: {
+    /** Tool calls entrantes del puente MCP (main); devuelve desuscripción. */
+    onToolCall(cb: (req: { id: string; tool: string; args: unknown }) => void): () => void;
+    /** Responde una tool call por id (el main la re-emite al canal por-id). */
+    sendToolResult(id: string, result: { text: string } | { error: string }): void;
+    /** Conexión del cliente MCP (para el indicador del panel de Claude). */
+    onBridgeStatus(cb: (s: { connected: boolean }) => void): () => void;
+  };
+  readonly file: {
+    /** Diálogo de guardado (filtro WAV); null si el usuario cancela. */
+    saveDialog(defaultName: string): Promise<string | null>;
+    /** Escribe bytes en una ruta permitida (elegida en diálogo o carpeta de usuario). */
+    write(path: string, data: Uint8Array): Promise<void>;
+  };
+  readonly library: {
+    /** JSON del manifest del pack de fábrica; null si aún no está generado. */
+    manifest(): Promise<string | null>;
+    /** Bytes de un archivo del pack (ruta relativa tal como viene en el manifest). */
+    read(file: string): Promise<ArrayBuffer>;
+  };
 }
 
 interface Window {

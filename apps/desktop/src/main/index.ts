@@ -1,8 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { release } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
@@ -72,6 +75,9 @@ function applyWindowTheme(win: BrowserWindow, theme: ThemeId): boolean {
 
 // ─── Ventana principal ───────────────────────────────────────────────────────
 
+/** Ventana viva más reciente: destino de las tool calls del puente Claude. */
+let mainWindow: BrowserWindow | null = null;
+
 function createWindow(): BrowserWindow {
   const settings = readSettings();
   const savedTheme = settings['theme'];
@@ -106,7 +112,86 @@ function createWindow(): BrowserWindow {
   } else {
     win.loadFile(join(__dirname, '../renderer/index.html'));
   }
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
   return win;
+}
+
+// ─── Puente Claude (MCP) ─────────────────────────────────────────────────────
+// El host WS (packages/claude-bridge) escucha en localhost:7855; cada tool
+// call se reenvía al renderer por IPC, donde el ToolExecutor la ejecuta contra
+// el ProjectStore vivo, y la respuesta vuelve por la pasarela genérica
+// 'claude:tool-result'.
+
+const CLAUDE_TOOL_TIMEOUT_MS = 60_000;
+
+let bridgeHost: BridgeHost | null = null;
+
+function dispatchClaudeTool(req: {
+  tool: string;
+  args: unknown;
+}): Promise<{ text: string } | { error: string }> {
+  const win =
+    mainWindow && !mainWindow.isDestroyed() ? mainWindow : BrowserWindow.getAllWindows()[0];
+  if (!win || win.isDestroyed()) {
+    return Promise.resolve({ error: 'Orbit Studio no tiene ninguna ventana abierta' });
+  }
+  const id = randomUUID();
+  const channel = `claude:tool-result:${id}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      ipcMain.removeAllListeners(channel);
+      resolve({ error: `El editor no respondió a "${req.tool}" en ${CLAUDE_TOOL_TIMEOUT_MS / 1000} s` });
+    }, CLAUDE_TOOL_TIMEOUT_MS);
+    ipcMain.once(channel, (_event, result: unknown) => {
+      clearTimeout(timer);
+      resolve(normalizeToolResult(result));
+    });
+    win.webContents.send('claude:tool-call', { id, tool: req.tool, args: req.args });
+  });
+}
+
+function normalizeToolResult(result: unknown): { text: string } | { error: string } {
+  if (typeof result === 'object' && result !== null) {
+    const r = result as { text?: unknown; error?: unknown };
+    if (typeof r.error === 'string') return { error: r.error };
+    if (typeof r.text === 'string') return { text: r.text };
+  }
+  return { error: 'Respuesta inválida del editor (se esperaba { text } o { error })' };
+}
+
+function startClaudeBridge(): void {
+  bridgeHost = startBridgeHost({
+    dispatch: dispatchClaudeTool,
+    onStatus: (s) => {
+      // Indicador de conexión para la UI (panel de Claude).
+      for (const win of BrowserWindow.getAllWindows()) {
+        win.webContents.send('claude:bridge-status', s);
+      }
+    },
+  });
+}
+
+// ─── Archivos (guardar WAV renderizado por Claude o por la UI) ───────────────
+// Rutas permitidas para 'file:write': lo elegido en un diálogo de guardado más
+// las carpetas de usuario habituales (descargas, música, documentos, escritorio,
+// datos de la app y temporales). Nada de escrituras arbitrarias en disco.
+
+const grantedWritePaths = new Set<string>();
+
+function isWriteAllowed(target: string): boolean {
+  if (grantedWritePaths.has(target)) return true;
+  const roots = ['downloads', 'music', 'documents', 'desktop', 'userData', 'temp'] as const;
+  return roots.some((root) => {
+    try {
+      const base = resolvePath(app.getPath(root));
+      return target === base || target.startsWith(base + '\\') || target.startsWith(base + '/');
+    } catch {
+      return false;
+    }
+  });
 }
 
 // ─── IPC ─────────────────────────────────────────────────────────────────────
@@ -155,16 +240,102 @@ function registerIpc(): void {
     writeSettings(merged);
     return merged;
   });
+
+  // Pasarela genérica del renderer para responder tool calls de Claude:
+  // el preload manda (id, result) y aquí se re-emite al canal por-id que
+  // espera dispatchClaudeTool con ipcMain.once.
+  ipcMain.on('claude:tool-result', (event, id: unknown, result: unknown) => {
+    if (typeof id !== 'string') return;
+    ipcMain.emit(`claude:tool-result:${id}`, event, result);
+  });
+
+  // Diálogo de guardado (filtro WAV). Devuelve la ruta elegida o null.
+  ipcMain.handle('file:save-dialog', async (event, defaultName: unknown) => {
+    const win = windowOf(event.sender);
+    const name =
+      typeof defaultName === 'string' && defaultName.length > 0 ? defaultName : 'export.wav';
+    const defaultPath = isAbsolute(name) ? name : join(app.getPath('music'), name);
+    const options = {
+      title: 'Guardar audio',
+      defaultPath,
+      filters: [
+        { name: 'Audio WAV', extensions: ['wav'] },
+        { name: 'Todos los archivos', extensions: ['*'] },
+      ],
+    };
+    const result = win
+      ? await dialog.showSaveDialog(win, options)
+      : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return null;
+    const chosen = resolvePath(result.filePath);
+    grantedWritePaths.add(chosen); // el usuario la eligió: queda autorizada
+    return chosen;
+  });
+
+  // Escritura de bytes en disco (Uint8Array o ArrayBuffer) en ruta permitida.
+  ipcMain.handle('file:write', async (_event, path: unknown, data: unknown) => {
+    if (typeof path !== 'string' || path.length === 0 || !isAbsolute(path)) {
+      throw new Error('file:write requiere una ruta absoluta');
+    }
+    let bytes: Uint8Array;
+    if (data instanceof Uint8Array) bytes = data;
+    else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+    else throw new Error('file:write requiere datos Uint8Array o ArrayBuffer');
+    const target = resolvePath(path);
+    if (!isWriteAllowed(target)) {
+      throw new Error(
+        `Ruta no permitida: ${target}. Usa file:save-dialog o una carpeta de usuario (descargas, música, documentos...)`,
+      );
+    }
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, bytes);
+  });
+
+  // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
+  // En desarrollo el pack vive en packages/sound-library/factory; empaquetado,
+  // en resources/sound-library. library:read solo sirve archivos DENTRO del pack.
+
+  const factoryDir = (): string =>
+    app.isPackaged
+      ? join(process.resourcesPath, 'sound-library')
+      : join(app.getAppPath(), '..', '..', 'packages', 'sound-library', 'factory');
+
+  ipcMain.handle('library:manifest', async () => {
+    try {
+      return await readFile(join(factoryDir(), 'manifest.json'), 'utf8');
+    } catch {
+      return null; // pack aún no generado
+    }
+  });
+
+  ipcMain.handle('library:read', async (_event, file: unknown) => {
+    if (typeof file !== 'string' || file.length === 0) {
+      throw new Error('library:read requiere la ruta relativa del manifest');
+    }
+    const base = resolvePath(factoryDir());
+    const target = resolvePath(base, file);
+    if (target !== base && !target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+      throw new Error(`Ruta fuera del pack: ${file}`);
+    }
+    const bytes = await readFile(target);
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  });
 }
 
 // ─── Ciclo de vida ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   registerIpc();
+  startClaudeBridge();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on('will-quit', () => {
+  bridgeHost?.close();
+  bridgeHost = null;
 });
 
 app.on('window-all-closed', () => {
