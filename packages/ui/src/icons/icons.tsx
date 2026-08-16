@@ -60,6 +60,16 @@ export function IconStop(props: IconProps) {
   );
 }
 
+/** Dos barras de pausa. */
+export function IconPause(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="7.5" y="6.5" width="3.2" height="11" rx="1.2" />
+      <rect x="13.3" y="6.5" width="3.2" height="11" rx="1.2" />
+    </Icon>
+  );
+}
+
 /** Patrón: bloque de 4 steps (2×2) como en un secuenciador. */
 export function IconPattern(props: IconProps) {
   return (

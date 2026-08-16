@@ -60,16 +60,22 @@ export function setActivePattern(patternId: string): void {
   }
 }
 
-/** Play desde el inicio (o continúa si se quiere extender más adelante). */
+/** Play desde el caret actual (0 tras stop; donde estaba tras pause/seek). */
 export async function play(): Promise<void> {
   await engine.init();
   engine.syncProject(store.project);
-  engine.play(0);
+  engine.play(useUiStore.getState().positionBeats);
 }
 
 export function stopPlayback(): void {
   engine.stop();
   useUiStore.setState({ playing: false, positionBeats: 0 });
+}
+
+/** Pausa: para el motor pero conserva el caret (play reanuda desde ahí). */
+export function pausePlayback(): void {
+  engine.stop();
+  useUiStore.setState({ playing: false });
 }
 
 export async function togglePlay(): Promise<void> {
