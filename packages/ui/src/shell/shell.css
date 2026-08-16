@@ -150,6 +150,22 @@
   width: 8px;
 }
 
+.cpu-display {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-dim);
+  min-width: 52px;
+  text-align: right;
+}
+
+.cpu-display.warm {
+  color: var(--meter-hot);
+}
+
+.cpu-display.hot {
+  color: var(--meter-clip);
+}
+
 /* ── Workspace ── */
 
 .workspace {
