@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { engine, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { toggleRecording, useRecorderStore } from '../state/recorder';
 import { IconMetronome, IconPlay, IconStop } from '../icons';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
@@ -20,6 +21,8 @@ export function Transport() {
   const masterRms = useUiStore((s) => s.masterRms);
   const clipped = useUiStore((s) => s.clipped);
   const cpu = useUiStore((s) => s.cpu);
+  const recPhase = useRecorderStore((s) => s.phase);
+  const recError = useRecorderStore((s) => s.error);
 
   const setTempo = useCallback((tempo: number) => {
     store.dispatch({ type: 'setTempo', tempo }, { mergeKey: 'transport:tempo' });
@@ -44,6 +47,20 @@ export function Transport() {
         </button>
         <button className="tbtn" title="Detener" onClick={stopPlayback}>
           <IconStop size={15} />
+        </button>
+        <button
+          className={`tbtn rec${recPhase === 'recording' ? ' active' : ''}`}
+          title={
+            recError
+              ? `Grabación: ${recError}`
+              : recPhase === 'recording'
+                ? 'Grabando — clic para parar y colocar la toma'
+                : 'Grabar el micro a la playlist'
+          }
+          disabled={recPhase === 'saving'}
+          onClick={() => void toggleRecording()}
+        >
+          <span className="rec-dot" />
         </button>
         <button
           className={`tbtn mode${playMode === 'song' ? ' active' : ''}`}

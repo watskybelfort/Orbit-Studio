@@ -21,6 +21,7 @@ import {
   type SampleData,
   type WavDepth,
 } from '@orbit/engine';
+import { readSampleBytes } from '../browser/sound-actions';
 import { store } from '../state/app';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
@@ -138,13 +139,17 @@ async function collectSamples(
       samples.set(id, cached);
       continue;
     }
-    if (!ref || !ref.path.startsWith('factory:') || !window.orbit) {
-      // Sin API para leer rutas locales arbitrarias desde el renderer (v0.1).
+    if (!ref || !window.orbit) {
       missing.push(ref?.name ?? id);
       continue;
     }
     try {
-      const bytes = await window.orbit.library.read(ref.path.slice('factory:'.length));
+      const bytes = await readSampleBytes(ref.path);
+      if (!bytes) {
+        // Esquema de ruta que el renderer no sabe resolver (rutas locales sueltas).
+        missing.push(ref.name);
+        continue;
+      }
       const ctx = new OfflineAudioContext(2, 1, 44100);
       const decoded = await ctx.decodeAudioData(bytes.slice(0));
       const left = decoded.getChannelData(0).slice();

@@ -120,20 +120,26 @@ export async function addAudioClip(entry: SoundEntry, trackId: Id, startBeat: nu
   );
 }
 
+/** Bytes de un SampleRef según su esquema, o null si no es resoluble aquí. */
+export async function readSampleBytes(path: string): Promise<ArrayBuffer | null> {
+  const api = window.orbit;
+  if (!api) return null;
+  if (path.startsWith('factory:')) return api.library.read(path.slice('factory:'.length));
+  if (path.startsWith('recording:')) return api.recording.read(path.slice('recording:'.length));
+  return null;
+}
+
 /**
- * Sube al kernel todos los samples de fábrica que el proyecto referencia
- * (tras abrir un .orbit o recuperar un autosave, el kernel arranca vacío y
- * los samplers/clips de audio no sonarían). Mejor esfuerzo: lo que falle se
- * ignora — el export ya avisa de samples ausentes por su lado.
+ * Sube al kernel todos los samples que el proyecto referencia (tras abrir un
+ * .orbit o recuperar un autosave, el kernel arranca vacío y los samplers y
+ * clips de audio no sonarían): pack de fábrica y grabaciones. Mejor esfuerzo:
+ * lo que falle se ignora — el export ya avisa de samples ausentes por su lado.
  */
 export async function rehydrateSamples(): Promise<void> {
-  const api = window.orbit;
-  if (!api) return;
   for (const ref of Object.values(store.project.samples)) {
-    if (!ref.path.startsWith('factory:')) continue;
     try {
-      const bytes = await api.library.read(ref.path.slice('factory:'.length));
-      await engine.loadSample(ref.id, bytes);
+      const bytes = await readSampleBytes(ref.path);
+      if (bytes) await engine.loadSample(ref.id, bytes);
     } catch {
       // sample no disponible en esta máquina: se omite
     }

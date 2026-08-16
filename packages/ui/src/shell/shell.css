@@ -150,6 +150,26 @@
   width: 8px;
 }
 
+/* Botón de grabar del transporte */
+.rec-dot {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--meter-clip);
+}
+
+.tbtn.rec.active {
+  border-color: var(--meter-clip);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+@keyframes rec-pulse {
+  50% {
+    background: color-mix(in srgb, var(--meter-clip) 30%, transparent);
+  }
+}
+
 /* LED de clipping enclavado, junto al medidor master */
 .clip-led {
   width: 8px;
