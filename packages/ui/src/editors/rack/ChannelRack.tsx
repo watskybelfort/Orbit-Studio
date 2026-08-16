@@ -24,6 +24,7 @@ import {
   type Id,
   type InstrumentKind,
   type Note,
+  type Pattern,
 } from '@orbit/core';
 import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
 import { reportActivity } from '../../collab/presence';
@@ -104,6 +105,26 @@ export function ChannelRack() {
     const p = createPattern(project.patternOrder.length);
     store.dispatch({ type: 'addPattern', pattern: p }, { label: `Añadir "${p.name}"` });
     setActivePattern(p.id);
+  };
+
+  /** Clona el patrón activo (notas incluidas, con ids nuevos) justo después. */
+  const clonePattern = () => {
+    const notes: Record<Id, Note[]> = {};
+    for (const [channelId, list] of Object.entries(pattern.notes)) {
+      notes[channelId] = list.map((n) => ({ ...n, id: newId() }));
+    }
+    const clon: Pattern = {
+      id: newId(),
+      name: `${pattern.name} (copia)`,
+      color: pattern.color,
+      length: pattern.length,
+      notes,
+    };
+    store.dispatch(
+      { type: 'addPattern', pattern: clon, index: patternIndex + 1 },
+      { label: `Clonar "${pattern.name}"` },
+    );
+    setActivePattern(clon.id);
   };
 
   const commitName = (raw: string) => {
@@ -203,6 +224,13 @@ export function ChannelRack() {
           </span>
           <button className="rack-nav" onClick={addNewPattern} title="Nuevo patrón">
             +
+          </button>
+          <button
+            className="rack-nav clone"
+            onClick={clonePattern}
+            title="Clonar patrón (notas incluidas)"
+          >
+            ⧉
           </button>
         </div>
         <div className="rack-lengths" title="Pasos del patrón">
