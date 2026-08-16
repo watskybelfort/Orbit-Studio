@@ -10,6 +10,10 @@
  * fuera de rejilla o duration > 1/16) muestra una franja mini-preview EN VEZ
  * de los pasos, que abre el Piano Roll — como hace FL.
  *
+ * ▶ en la cabecera reproduce SOLO este patrón (modo PAT desde 0). Clic
+ * derecho en el nombre de un canal abre su menú: llenar cada 2/4/todos los
+ * pasos, vaciar, renombrar, color y borrar canal.
+ *
  * Toda mutación pasa por store.dispatch (bus de comandos de @orbit/core).
  */
 
@@ -28,7 +32,15 @@ import {
 } from '@orbit/core';
 import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
 import { reportActivity } from '../../collab/presence';
-import { engine, ensureAudioReady, setActivePattern, store } from '../../state/app';
+import {
+  engine,
+  ensureAudioReady,
+  play,
+  setActivePattern,
+  setPlayMode,
+  stopPlayback,
+  store,
+} from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
@@ -69,10 +81,15 @@ export function ChannelRack() {
   const project = useProject();
   const activePatternId = useUiStore((s) => s.activePatternId);
   const selectedChannelId = useUiStore((s) => s.pianoRollChannelId);
+  const playingPattern = useUiStore((s) => s.playing && s.playMode === 'pattern');
 
   const [editingName, setEditingName] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const cancelName = useRef(false);
+  /** Menú contextual de canal (clic derecho en el nombre): id + posición. */
+  const [chanMenu, setChanMenu] = useState<{ id: Id; x: number; y: number } | null>(null);
+  /** Canal cuyo nombre se está renombrando (desde el menú contextual). */
+  const [renamingId, setRenamingId] = useState<Id | null>(null);
 
   // Patrón activo (fallback al primero si la UI aún no fijó ninguno).
   const firstPatternId = project.patternOrder[0];
@@ -127,6 +144,70 @@ export function ChannelRack() {
     setActivePattern(clon.id);
   };
 
+  /** Play del propio rack: suena SOLO este patrón, desde el principio. */
+  const playRack = () => {
+    if (playingPattern) {
+      stopPlayback();
+      return;
+    }
+    stopPlayback(); // caret a 0
+    setActivePattern(patternId);
+    setPlayMode('pattern');
+    void play();
+  };
+
+  // ── Acciones del menú contextual de canal ──────────────────────────────────
+
+  const menuChannel = chanMenu ? project.channels[chanMenu.id] : undefined;
+
+  /** Añade un paso cada `every` celdas (solo en las vacías), como FL. */
+  const fillEvery = (channelId: Id, every: number) => {
+    const ch = project.channels[channelId];
+    if (!ch) return;
+    const key = defaultKey(ch.kind);
+    const occupied = new Set(
+      (pattern.notes[channelId] ?? [])
+        .filter((n) => !isMelodic(n))
+        .map((n) => Math.floor(n.start / STEP + EPS)),
+    );
+    const notes: Note[] = [];
+    for (let i = 0; i < steps; i += every) {
+      if (occupied.has(i)) continue;
+      notes.push({ id: newId(), start: i * STEP, duration: STEP, key, velocity: 0.8, pan: 0, slide: false });
+    }
+    if (notes.length > 0) {
+      store.dispatch(
+        { type: 'addNotes', patternId, channelId, notes },
+        { label: every === 1 ? `Llenar todos los pasos de ${ch.name}` : `Llenar cada ${every} pasos de ${ch.name}` },
+      );
+    }
+  };
+
+  /** Borra todas las notas del canal en el patrón activo. */
+  const clearChannel = (channelId: Id) => {
+    const ch = project.channels[channelId];
+    const list = pattern.notes[channelId] ?? [];
+    if (!ch || list.length === 0) return;
+    store.dispatch(
+      { type: 'removeNotes', patternId, channelId, noteIds: list.map((n) => n.id) },
+      { label: `Vaciar ${ch.name} en ${pattern.name}` },
+    );
+  };
+
+  const deleteChannel = (channelId: Id) => {
+    const ch = project.channels[channelId];
+    if (!ch) return;
+    store.dispatch({ type: 'removeChannel', channelId }, { label: `Borrar canal "${ch.name}"` });
+    if (selectedChannelId === channelId) useUiStore.setState({ pianoRollChannelId: null });
+  };
+
+  const setChannelColor = (channelId: Id, color: string) => {
+    store.dispatch(
+      { type: 'patchChannel', channelId, patch: { color } },
+      { label: 'Color de canal', mergeKey: `rack:${channelId}:color` },
+    );
+  };
+
   const commitName = (raw: string) => {
     setEditingName(false);
     if (cancelName.current) {
@@ -178,6 +259,13 @@ export function ChannelRack() {
     >
       <div className="rack-head">
         <div className="rack-pattern">
+          <button
+            className={`rack-play${playingPattern ? ' on' : ''}`}
+            onClick={playRack}
+            title={playingPattern ? 'Parar' : 'Escuchar este patrón (solo el Channel Rack)'}
+          >
+            {playingPattern ? '■' : '▶'}
+          </button>
           <button
             className="rack-nav"
             onClick={() => goTo(-1)}
@@ -265,10 +353,102 @@ export function ChannelRack() {
               selected={selectedChannelId === id}
               audible={!channel.mute && (!anySolo || channel.solo)}
               playStep={playStep}
+              renaming={renamingId === id}
+              onRenameDone={() => setRenamingId(null)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setChanMenu({
+                  id,
+                  x: Math.min(e.clientX, window.innerWidth - 210),
+                  y: Math.min(e.clientY, window.innerHeight - 300),
+                });
+              }}
             />
           );
         })}
       </div>
+
+      {chanMenu && menuChannel && (
+        <>
+          <div
+            className="rack-backdrop"
+            onClick={() => setChanMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setChanMenu(null);
+            }}
+          />
+          <div className="popup rack-chan-menu" style={{ left: chanMenu.x, top: chanMenu.y }}>
+            <div className="rack-chan-menu-title" style={{ borderLeftColor: menuChannel.color }}>
+              {menuChannel.name}
+            </div>
+            <button
+              className="menu-item"
+              onClick={() => {
+                fillEvery(chanMenu.id, 2);
+                setChanMenu(null);
+              }}
+            >
+              Llenar cada 2 pasos
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                fillEvery(chanMenu.id, 4);
+                setChanMenu(null);
+              }}
+            >
+              Llenar cada 4 pasos
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                fillEvery(chanMenu.id, 1);
+                setChanMenu(null);
+              }}
+            >
+              Llenar todos los pasos
+            </button>
+            <button
+              className="menu-item"
+              onClick={() => {
+                clearChannel(chanMenu.id);
+                setChanMenu(null);
+              }}
+            >
+              Vaciar canal en este patrón
+            </button>
+            <div className="menu-sep" />
+            <button
+              className="menu-item"
+              onClick={() => {
+                setRenamingId(chanMenu.id);
+                setChanMenu(null);
+              }}
+            >
+              Renombrar…
+            </button>
+            <label className="menu-item rack-chan-color">
+              Cambiar color
+              <input
+                type="color"
+                value={menuChannel.color}
+                onChange={(e) => setChannelColor(chanMenu.id, e.target.value)}
+              />
+            </label>
+            <div className="menu-sep" />
+            <button
+              className="menu-item"
+              onClick={() => {
+                deleteChannel(chanMenu.id);
+                setChanMenu(null);
+              }}
+            >
+              Borrar canal
+            </button>
+          </div>
+        </>
+      )}
 
       <div className="rack-addrow">
         <div className="rack-add">
@@ -309,6 +489,11 @@ interface ChannelRowProps {
   /** Suena ahora mismo (mute/solo resueltos): enciende el LED. */
   audible: boolean;
   playStep: number;
+  /** El nombre está en modo edición (lo pide el menú contextual). */
+  renaming: boolean;
+  onRenameDone: () => void;
+  /** Clic derecho en el nombre: abre el menú contextual del canal. */
+  onContextMenu: (e: ReactMouseEvent<HTMLElement>) => void;
 }
 
 function ChannelRow({
@@ -321,9 +506,27 @@ function ChannelRow({
   selected,
   audible,
   playStep,
+  renaming,
+  onRenameDone,
+  onContextMenu,
 }: ChannelRowProps) {
   const [editingMix, setEditingMix] = useState(false);
   const cancelMix = useRef(false);
+  const cancelRename = useRef(false);
+
+  const commitRename = (raw: string) => {
+    onRenameDone();
+    if (cancelRename.current) {
+      cancelRename.current = false;
+      return;
+    }
+    const name = raw.trim();
+    if (!name || name === channel.name) return;
+    store.dispatch(
+      { type: 'patchChannel', channelId: channel.id, patch: { name } },
+      { label: `Renombrar canal a "${name}"` },
+    );
+  };
 
   const key = defaultKey(channel.kind);
   const melodic = notes.some(isMelodic);
@@ -445,21 +648,39 @@ function ChannelRow({
         format={formatPan}
         onChange={setPan}
       />
-      <button
-        className={`rack-name${selected ? ' sel' : ''}`}
-        style={{ borderLeftColor: channel.color }}
-        title={`${channel.name} — clic: seleccionar · doble clic: Piano Roll · mantener: escuchar`}
-        onClick={select}
-        onDoubleClick={openPianoRoll}
-        onPointerDown={(e) => {
-          if (e.button === 0) preview(true);
-        }}
-        onPointerUp={() => preview(false)}
-        onPointerLeave={() => preview(false)}
-        onPointerCancel={() => preview(false)}
-      >
-        {channel.name}
-      </button>
+      {renaming ? (
+        <input
+          className="rack-rename-input"
+          defaultValue={channel.name}
+          autoFocus
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={(e) => commitRename(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.currentTarget.blur();
+            else if (e.key === 'Escape') {
+              cancelRename.current = true;
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      ) : (
+        <button
+          className={`rack-name${selected ? ' sel' : ''}`}
+          style={{ borderLeftColor: channel.color }}
+          title={`${channel.name} — clic: seleccionar · doble clic: Piano Roll · mantener: escuchar · clic derecho: menú`}
+          onClick={select}
+          onDoubleClick={openPianoRoll}
+          onContextMenu={onContextMenu}
+          onPointerDown={(e) => {
+            if (e.button === 0) preview(true);
+          }}
+          onPointerUp={() => preview(false)}
+          onPointerLeave={() => preview(false)}
+          onPointerCancel={() => preview(false)}
+        >
+          {channel.name}
+        </button>
+      )}
       {editingMix ? (
         <input
           className="rack-mix-input"
