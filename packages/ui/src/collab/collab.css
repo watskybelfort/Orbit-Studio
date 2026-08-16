@@ -167,6 +167,17 @@
   flex: none;
 }
 
+/* Claude como colaborador: fila anidada bajo su usuario, punto de acento */
+.collab-claude {
+  margin-left: 18px;
+  margin-top: 2px;
+}
+
+/* "claude-dot" y no "claude" a secas: esa clase es la raíz del panel de Claude. */
+.collab-peer-dot.claude-dot {
+  background: var(--accent);
+}
+
 .collab-peer-name {
   color: var(--text);
 }

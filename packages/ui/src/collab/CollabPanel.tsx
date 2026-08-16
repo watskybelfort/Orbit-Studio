@@ -87,17 +87,28 @@ export function CollabPanel() {
         {phase === 'online' && peers.length > 0 && (
           <ul className="collab-peers">
             {peers.map((p) => (
-              <li key={p.clientId} className="collab-peer">
-                <span className="collab-peer-dot" style={{ background: p.user.color }} />
-                <span className="collab-peer-name">
-                  {p.user.name}
-                  {p.isSelf ? ' (tú)' : ''}
-                </span>
-                {p.activity && (
-                  <span className="collab-peer-activity">
-                    · {p.activity.editor}
-                    {p.activity.detail ? ` — ${p.activity.detail}` : ''}
+              <li key={p.clientId}>
+                <div className="collab-peer">
+                  <span className="collab-peer-dot" style={{ background: p.user.color }} />
+                  <span className="collab-peer-name">
+                    {p.user.name}
+                    {p.isSelf ? ' (tú)' : ''}
                   </span>
+                  {p.activity && (
+                    <span className="collab-peer-activity">
+                      · {p.activity.editor}
+                      {p.activity.detail ? ` — ${p.activity.detail}` : ''}
+                    </span>
+                  )}
+                </div>
+                {p.claudeActive && (
+                  <div className="collab-peer collab-claude">
+                    <span className="collab-peer-dot claude-dot" />
+                    <span className="collab-peer-name">Claude</span>
+                    <span className="collab-peer-activity">
+                      · trabajando {p.isSelf ? 'contigo' : `con ${p.user.name}`}
+                    </span>
+                  </div>
                 )}
               </li>
             ))}

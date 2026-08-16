@@ -29,6 +29,8 @@ import {
   type Project,
 } from '@orbit/core';
 import { addAudioClip, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
+import { useCollabStore } from '../../collab/collab-state';
+import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -92,6 +94,8 @@ export function Playlist() {
   const playMode = useUiStore((s) => s.playMode);
   // Posición para el caret parado (durante reproducción redibuja el RAF).
   const idlePos = useUiStore((s) => (s.playing ? -1 : s.positionBeats));
+  // Conectados de la sesión (para pintar sus cursores remotos).
+  const peers = useCollabStore((s) => s.peers);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -462,6 +466,22 @@ export function Playlist() {
       ctx.fillText(m.name, mx + 6, 9.5);
     }
 
+    // Cursores remotos: caret con nombre de quien está tocando la playlist.
+    for (const p of peers) {
+      if (p.isSelf || p.activity?.editor !== 'Playlist' || p.activity.beat === undefined) continue;
+      const px = beatToX(p.activity.beat);
+      if (px < -80 || px > w + 20) continue;
+      ctx.fillStyle = p.user.color;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
+      ctx.font = `9px ${font}`;
+      const tw = ctx.measureText(p.user.name).width;
+      ctx.fillRect(px, RULER_H + 2, tw + 8, 12);
+      ctx.fillStyle = col('--pl-ruler-bg');
+      ctx.fillText(p.user.name, px + 4, RULER_H + 11.5);
+      ctx.globalAlpha = 1;
+    }
+
     // Caret de posición (siempre en SONG) + playhead en reproducción.
     const ui = useUiStore.getState();
     if (ui.playMode === 'song') {
@@ -475,7 +495,7 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, themeVersion]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -623,6 +643,9 @@ export function Playlist() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const d = drag.current;
+
+      // Presencia: dónde está nuestro cursor (throttled; no-op sin sesión).
+      reportActivity('Playlist', { beat: xToBeat(x) });
 
       if (!d) {
         // Cursor contextual: regla, mover, redimensionar o pintar.

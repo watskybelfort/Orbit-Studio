@@ -32,6 +32,10 @@ const BACKOFF_MAX_MS = 15000;
 export interface PeerActivity {
   editor: string;
   detail?: string;
+  /** Posición del cursor en beats (para pintarlo en playlist/piano roll). */
+  beat?: number;
+  /** Altura bajo el cursor en el piano roll (nota MIDI). */
+  key?: number;
 }
 
 /** Un conectado al room (según awareness), incluido uno mismo. */
@@ -39,6 +43,8 @@ export interface PeerInfo {
   clientId: number;
   user: CollabUser;
   activity?: PeerActivity;
+  /** Este usuario tiene a Claude conectado trabajando en la sesión. */
+  claudeActive?: boolean;
   isSelf: boolean;
 }
 
@@ -153,6 +159,7 @@ export class CollabSession {
       };
       const activity = state['activity'] as PeerActivity | undefined;
       if (activity) info.activity = activity;
+      if (state['claude'] === true) info.claudeActive = true;
       peers.push(info);
     }
     return peers.sort((a, b) => a.clientId - b.clientId);
