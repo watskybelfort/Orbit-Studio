@@ -35,6 +35,27 @@ export function Transport() {
     store.dispatch({ type: 'setSwing', swing }, { mergeKey: 'transport:swing' });
   }, []);
 
+  // Compás: el motor solo usa num para los compases; den queda en 4 u 8.
+  const setTimeSigNum = useCallback(
+    (num: number) => {
+      store.dispatch(
+        { type: 'setTimeSig', timeSig: { num: Math.round(num), den: project.timeSig.den } },
+        { label: 'Compás', mergeKey: 'transport:timesig' },
+      );
+    },
+    [project.timeSig.den],
+  );
+
+  const setTimeSigDen = useCallback(
+    (den: number) => {
+      store.dispatch(
+        { type: 'setTimeSig', timeSig: { num: project.timeSig.num, den: Math.round(den) } },
+        { label: 'Compás', mergeKey: 'transport:timesig' },
+      );
+    },
+    [project.timeSig.num],
+  );
+
   // Tap tempo: media de los últimos intervalos (se reinicia tras 2.5 s quieto).
   const taps = useRef<number[]>([]);
   const tapTempo = useCallback(() => {
@@ -45,7 +66,8 @@ export function Transport() {
     if (list.length > 6) list.shift();
     if (list.length < 2) return;
     const avgMs = (list[list.length - 1]! - list[0]!) / (list.length - 1);
-    const bpm = Math.min(999, Math.max(20, Math.round(60000 / avgMs)));
+    // BPM con 1 decimal, igual que el scrubber de tempo.
+    const bpm = Math.min(999, Math.max(20, Math.round((60000 / avgMs) * 10) / 10));
     store.dispatch({ type: 'setTempo', tempo: bpm }, { mergeKey: 'transport:tempo' });
   }, []);
 
@@ -119,11 +141,30 @@ export function Transport() {
           value={project.tempo}
           min={20}
           max={999}
-          step={1}
-          decimals={0}
+          step={0.1}
+          dragStep={1}
+          decimals={1}
           suffix="BPM"
           onChange={setTempo}
         />
+        <span className="timesig" title="Compás (pulsos por compás / figura)">
+          <NumberScrubber
+            value={project.timeSig.num}
+            min={1}
+            max={16}
+            step={1}
+            onChange={setTimeSigNum}
+          />
+          <span className="timesig-sep">/</span>
+          <NumberScrubber
+            value={project.timeSig.den}
+            min={4}
+            max={8}
+            step={4}
+            dragStep={1}
+            onChange={setTimeSigDen}
+          />
+        </span>
         <Knob
           value={project.swing}
           min={0}

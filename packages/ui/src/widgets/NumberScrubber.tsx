@@ -10,6 +10,8 @@ export interface NumberScrubberProps {
   max: number;
   step?: number;
   decimals?: number;
+  /** Paso del arrastre (por defecto = step); el valor tecleado sigue usando step. */
+  dragStep?: number;
   suffix?: string;
   onChange: (v: number) => void;
   onCommit?: () => void;
@@ -21,6 +23,7 @@ export function NumberScrubber({
   max,
   step = 1,
   decimals = 0,
+  dragStep = step,
   suffix,
   onChange,
   onCommit,
@@ -30,7 +33,9 @@ export function NumberScrubber({
   const [text, setText] = useState('');
 
   const clamp = useCallback(
-    (v: number) => Math.min(max, Math.max(min, Math.round(v / step) * step)),
+    // parseFloat(toFixed) limpia el ruido de coma flotante con steps decimales (0.1).
+    (v: number) =>
+      Math.min(max, Math.max(min, parseFloat((Math.round(v / step) * step).toFixed(6)))),
     [min, max, step],
   );
 
@@ -67,7 +72,7 @@ export function NumberScrubber({
       }}
       onPointerMove={(e) => {
         if (!drag.current) return;
-        const perPixel = e.shiftKey ? step / 10 : step;
+        const perPixel = e.shiftKey ? dragStep / 10 : dragStep;
         onChange(clamp(drag.current.startValue + (drag.current.startY - e.clientY) * perPixel));
       }}
       onPointerUp={() => {
