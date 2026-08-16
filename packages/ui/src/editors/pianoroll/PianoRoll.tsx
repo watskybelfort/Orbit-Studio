@@ -31,10 +31,12 @@ const KEYS = 120; // B9..C0 hacia abajo
 const VEL_LANE_H = 64;
 const KEYBOARD_W = 64;
 
-type SnapValue = number | null;
+/** 'magnet' = posición libre que se pega a la rejilla solo si está cerca. */
+type SnapValue = number | null | 'magnet';
 
 const SNAPS: { label: string; value: SnapValue }[] = [
   { label: 'Línea', value: 0.25 },
+  { label: 'Magnético', value: 'magnet' },
   { label: '1 beat', value: 1 },
   { label: '1/2', value: 0.5 },
   { label: '1/3', value: 1 / 3 },
@@ -42,6 +44,24 @@ const SNAPS: { label: string; value: SnapValue }[] = [
   { label: '1/6', value: 1 / 6 },
   { label: '1/8', value: 0.125 },
   { label: 'Nada', value: null },
+];
+
+/** Rejilla base del snap magnético (líneas de 1/4 de beat). */
+const MAGNET_GRID = 0.25;
+/** Radio del imán en píxeles de pantalla (se convierte a beats con zoomX). */
+const MAGNET_PX = 6;
+
+/** Acordes del stamp: intervalos en semitonos desde la fundamental. */
+const CHORDS: { label: string; intervals: number[] | null }[] = [
+  { label: 'Ninguno', intervals: null },
+  { label: 'Mayor', intervals: [0, 4, 7] },
+  { label: 'Menor', intervals: [0, 3, 7] },
+  { label: '7ª', intervals: [0, 4, 7, 10] },
+  { label: 'm7', intervals: [0, 3, 7, 10] },
+  { label: 'maj7', intervals: [0, 4, 7, 11] },
+  { label: 'sus4', intervals: [0, 5, 7] },
+  { label: 'power (5ª)', intervals: [0, 7] },
+  { label: 'oct', intervals: [0, 12] },
 ];
 
 interface DragState {
@@ -73,6 +93,10 @@ export function PianoRoll() {
   const [snapIdx, setSnapIdx] = useState(0);
   const [scaleRoot, setScaleRoot] = useState(5); // F
   const [scaleName, setScaleName] = useState<string>('Menor natural');
+  /** Bloqueo a escala: crear/mover notas se ajusta a la escala activa. */
+  const [scaleLock, setScaleLock] = useState(false);
+  /** Stamp de acordes: índice en CHORDS (0 = Ninguno). */
+  const [chordIdx, setChordIdx] = useState(0);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   /** Qué edita el carril inferior: velocity o pan por nota. */
   const [laneMode, setLaneMode] = useState<'velocity' | 'pan'>('velocity');
@@ -92,14 +116,38 @@ export function PianoRoll() {
   const channelIndex = channelId ? project.channelOrder.indexOf(channelId) : -1;
   const snap = SNAPS[snapIdx]?.value ?? 0.25;
   const scale = SCALES[scaleName] ?? SCALES['Menor natural']!;
+  /** Paso numérico del snap para herramientas (Q, resize, arp...): el
+   *  magnético cuenta como su rejilla fija; 'Nada' queda en null. */
+  const snapStep: number | null = typeof snap === 'number' ? snap : snap === 'magnet' ? MAGNET_GRID : null;
 
   const doSnap = useCallback(
     (beat: number, floor = true) => {
+      if (snap === 'magnet') {
+        // Posición libre, pero si la línea de rejilla más cercana queda a
+        // menos de ~6 px de pantalla, se pega a ella (zoom-in = imán más fino).
+        const nearest = Math.round(beat / MAGNET_GRID) * MAGNET_GRID;
+        return Math.max(0, Math.abs(beat - nearest) < MAGNET_PX / zoomX ? nearest : beat);
+      }
       if (snap === null) return Math.max(0, beat);
       const q = floor ? Math.floor(beat / snap) : Math.round(beat / snap);
       return Math.max(0, q * snap);
     },
-    [snap],
+    [snap, zoomX],
+  );
+
+  /** Nota de la escala activa más cercana a `key` (en empate, hacia abajo). */
+  const snapToScale = useCallback(
+    (key: number) => {
+      if (inScale(key, scaleRoot, scale)) return key;
+      for (let d = 1; d <= 11; d++) {
+        const down = key - d;
+        if (down >= 0 && inScale(down, scaleRoot, scale)) return down;
+        const up = key + d;
+        if (up < KEYS && inScale(up, scaleRoot, scale)) return up;
+      }
+      return key;
+    },
+    [scaleRoot, scale],
   );
 
   // ── Coordenadas ───────────────────────────────────────────────────────────
@@ -446,24 +494,38 @@ export function PianoRoll() {
         return;
       }
 
-      // Crear nota
+      // Crear nota (o acorde completo si el stamp está activo)
       const start = doSnap(xToBeat(x));
-      const key = yToKey(y);
-      const id = newId();
-      const note: Note = {
-        id, start, duration: lastDuration, key, velocity: 0.8, pan: 0, slide: false,
-      };
-      store.dispatch(
-        { type: 'addNotes', patternId: activePatternId, channelId, notes: [note] },
-        { label: `Nota ${midiToNote(key)}` },
-      );
-      setSelection(new Set([id]));
-      const orig = new Map([[id, { ...note }]]);
-      ghost.current = new Map([[id, { ...note }]]);
-      drag.current = { mode: 'move', startX: x, startY: y, orig, createdId: id, moved: false, lastPreviewKey: key };
+      // Con bloqueo a escala la fundamental se ajusta primero; los intervalos
+      // del acorde NO se reajustan (se apilan tal cual desde ahí).
+      const key = scaleLock ? snapToScale(yToKey(y)) : yToKey(y);
+      const chordDef = CHORDS[chordIdx];
+      const created: Note[] = [];
+      if (chordDef?.intervals) {
+        // Stamp de acorde: todas las notas en UN dispatch (undo limpio).
+        const keys = [...new Set(chordDef.intervals.map((iv) => Math.min(KEYS - 1, Math.max(0, key + iv))))];
+        for (const k of keys) {
+          created.push({ id: newId(), start, duration: lastDuration, key: k, velocity: 0.8, pan: 0, slide: false });
+        }
+        store.dispatch(
+          { type: 'addNotes', patternId: activePatternId, channelId, notes: created },
+          { label: `Acorde ${chordDef.label} en ${midiToNote(key)}` },
+        );
+      } else {
+        created.push({ id: newId(), start, duration: lastDuration, key, velocity: 0.8, pan: 0, slide: false });
+        store.dispatch(
+          { type: 'addNotes', patternId: activePatternId, channelId, notes: created },
+          { label: `Nota ${midiToNote(key)}` },
+        );
+      }
+      setSelection(new Set(created.map((n) => n.id)));
+      // El drag posterior mueve TODO lo creado (la fundamental es created[0]).
+      const orig = new Map(created.map((n) => [n.id, { ...n }]));
+      ghost.current = new Map(created.map((n) => [n.id, { ...n }]));
+      drag.current = { mode: 'move', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
       engine.previewNote(channelIndex, key, true);
     },
-    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration],
+    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx],
   );
 
   const applyVelocityAt = useCallback(
@@ -528,7 +590,10 @@ export function PianoRoll() {
         let previewKey: number | undefined;
         for (const [id, orig] of d.orig) {
           const start = doSnap(orig.start + dBeat, snap === null);
-          const key = Math.min(KEYS - 1, Math.max(0, orig.key + dKey));
+          let key = Math.min(KEYS - 1, Math.max(0, orig.key + dKey));
+          // Bloqueo a escala: solo si hay movimiento vertical (dKey !== 0);
+          // arrastrar en horizontal no toca la key.
+          if (scaleLock && dKey !== 0) key = snapToScale(key);
           g.set(id, { ...orig, start, key });
           previewKey = key;
         }
@@ -540,13 +605,13 @@ export function PianoRoll() {
       } else if (d.mode === 'resize') {
         for (const [id, orig] of d.orig) {
           const end = doSnap(xToBeat(x), false);
-          const duration = Math.max(snap ?? 0.05, end - orig.start);
+          const duration = Math.max(snapStep ?? 0.05, end - orig.start);
           g.set(id, { ...orig, duration });
         }
       }
       draw();
     },
-    [zoomX, yToKey, doSnap, snap, xToBeat, draw, applyVelocityAt, channelIndex, channel],
+    [zoomX, yToKey, doSnap, snap, snapStep, scaleLock, snapToScale, xToBeat, draw, applyVelocityAt, channelIndex, channel],
   );
 
   const onPointerUp = useCallback(() => {
@@ -640,16 +705,17 @@ export function PianoRoll() {
   }, [selection, notes]);
 
   const quantize = useCallback(() => {
-    if (!activePatternId || !channelId || snap === null) return;
+    // Con snap magnético la Q cuantiza a la rejilla fija (snapStep = 0.25).
+    if (!activePatternId || !channelId || snapStep === null) return;
     const ids = new Set(affectedIds());
     const patches = notes
       .filter((n) => ids.has(n.id))
-      .map((n) => ({ id: n.id, start: Math.round(n.start / snap) * snap }));
+      .map((n) => ({ id: n.id, start: Math.round(n.start / snapStep) * snapStep }));
     store.dispatch(
       { type: 'patchNotes', patternId: activePatternId, channelId, patches },
       { label: 'Cuantizar' },
     );
-  }, [activePatternId, channelId, snap, notes, affectedIds]);
+  }, [activePatternId, channelId, snapStep, notes, affectedIds]);
 
   const transpose = useCallback(
     (semis: number) => {
@@ -708,12 +774,12 @@ export function PianoRoll() {
   );
 
   const doArp = useCallback(() => {
-    applyTools('Arpegiar', (sel) => arpeggiate(sel, { rate: snap ?? 0.25, mode: 'up' }));
-  }, [applyTools, snap]);
+    applyTools('Arpegiar', (sel) => arpeggiate(sel, { rate: snapStep ?? 0.25, mode: 'up' }));
+  }, [applyTools, snapStep]);
 
   const doStrum = useCallback(() => {
-    applyTools('Strum', (sel) => strum(sel, { spread: (snap ?? 0.25) / 2, direction: 'up' }));
-  }, [applyTools, snap]);
+    applyTools('Strum', (sel) => strum(sel, { spread: (snapStep ?? 0.25) / 2, direction: 'up' }));
+  }, [applyTools, snapStep]);
 
   const doHumanize = useCallback(() => {
     applyTools('Humanizar', (sel) =>
@@ -722,8 +788,8 @@ export function PianoRoll() {
   }, [applyTools]);
 
   const doChop = useCallback(() => {
-    applyTools('Chop', (sel) => chop(sel, { grid: snap ?? 0.25 }));
-  }, [applyTools, snap]);
+    applyTools('Chop', (sel) => chop(sel, { grid: snapStep ?? 0.25 }));
+  }, [applyTools, snapStep]);
 
   // ── Minimapa ──────────────────────────────────────────────────────────────
   // Vista completa del patrón con las notas y el rectángulo del viewport;
@@ -860,6 +926,21 @@ export function PianoRoll() {
           <select value={scaleName} onChange={(e) => setScaleName(e.target.value)}>
             {Object.keys(SCALES).map((s) => (
               <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <button
+          className={`tbtn${scaleLock ? ' active' : ''}`}
+          onClick={() => setScaleLock(!scaleLock)}
+          title="Bloqueo a escala: crear y mover notas se ajusta a la escala activa"
+        >
+          Bloq
+        </button>
+        <label className="pr-field">
+          Acorde
+          <select value={chordIdx} onChange={(e) => setChordIdx(Number(e.target.value))}>
+            {CHORDS.map((c, i) => (
+              <option key={c.label} value={i}>{c.label}</option>
             ))}
           </select>
         </label>
