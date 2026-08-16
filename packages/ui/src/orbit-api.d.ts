@@ -51,6 +51,10 @@ interface OrbitApi {
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
   };
+  readonly debug: {
+    /** Solo QA: siempre-encima para capturas (el main solo lo atiende con ORBIT_DEBUG_PORT). */
+    alwaysOnTop(on: boolean): Promise<void>;
+  };
 }
 
 interface Window {

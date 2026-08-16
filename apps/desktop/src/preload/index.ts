@@ -52,6 +52,10 @@ export interface OrbitApi {
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
   };
+  readonly debug: {
+    /** Solo QA: siempre-encima para capturas (el main solo lo atiende con ORBIT_DEBUG_PORT). */
+    alwaysOnTop(on: boolean): Promise<void>;
+  };
 }
 
 const api: OrbitApi = {
@@ -102,6 +106,9 @@ const api: OrbitApi = {
     open: () => ipcRenderer.invoke('project:open'),
     save: (path, json, suggestedName) =>
       ipcRenderer.invoke('project:save', path, json, suggestedName),
+  },
+  debug: {
+    alwaysOnTop: (on) => ipcRenderer.invoke('debug:always-on-top', on),
   },
 };
 

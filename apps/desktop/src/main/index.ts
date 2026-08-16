@@ -96,7 +96,9 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    frame: false,
+    // Sin `frame: false`: con frame quitado del todo, DWM no compone el
+    // backgroundMaterial (bug de Electron) y el acrílico sale sin blur.
+    // titleBarStyle 'hidden' ya da la ventana sin barra nativa.
     titleBarStyle: 'hidden',
     backgroundColor: OPAQUE_BG.dark,
     webPreferences: {
@@ -230,6 +232,18 @@ function registerIpc(): void {
   ipcMain.handle('window:isMaximized', (event) => {
     return windowOf(event.sender)?.isMaximized() ?? false;
   });
+
+  // Solo QA (con ORBIT_DEBUG_PORT): la ventana se pone siempre-encima a sí
+  // misma para capturas de pantalla — sin SetForegroundWindow, que Windows
+  // bloquea desde procesos en segundo plano y dejaría la captura sobre otra app.
+  if (process.env['ORBIT_DEBUG_PORT']) {
+    ipcMain.handle('debug:always-on-top', (event, on: unknown) => {
+      const win = windowOf(event.sender);
+      if (!win) return;
+      win.setAlwaysOnTop(on === true);
+      if (on === true) win.moveTop();
+    });
+  }
 
   ipcMain.handle('theme:apply', (event, theme: unknown) => {
     const win = windowOf(event.sender);
