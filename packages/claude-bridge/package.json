@@ -8,6 +8,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@orbit/core": "*",
+    "@orbit/engine": "*",
     "ws": "^8.21.3"
   }
 }

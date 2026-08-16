@@ -23,6 +23,7 @@
       "@orbit/collab": ["./packages/collab/src/index.ts"],
       "@orbit/collab/*": ["./packages/collab/src/*"],
       "@orbit/claude-bridge": ["./packages/claude-bridge/src/index.ts"],
+      "@orbit/claude-bridge/*": ["./packages/claude-bridge/src/*"],
       "@orbit/sound-library": ["./packages/sound-library/src/index.ts"]
     }
   },

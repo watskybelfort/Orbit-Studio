@@ -1,2 +1,9 @@
 // @orbit/claude-bridge — servidor MCP: Claude como colaborador del proyecto
+//
+// Este índice solo exporta lo browser-safe (tools + executor, para el
+// renderer). El lado Node (host WS para Electron main y relay MCP stdio) se
+// importa por subruta: '@orbit/claude-bridge/node/ws-host'.
 export const BRIDGE_VERSION = '0.1.0';
+
+export { TOOLS, findTool, type ToolDef, type ToolInputSchema } from './tools';
+export { ToolExecutor, type SaveFileFn } from './executor';
