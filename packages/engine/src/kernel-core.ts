@@ -62,6 +62,10 @@ export class KernelCore {
   private peaks = new Float32Array(1);
   private masterSumSq: [number, number] = [0, 0];
   private meterSamples = 0;
+  /** Orbit Scope: anillo con los últimos samples del master (mono). */
+  private scopeEnabled = false;
+  private scopeRing = new Float32Array(2048);
+  private scopePos = 0;
 
   constructor(public readonly sr: number) {
     this.voiceCtx = { sr, samples: this.samples };
@@ -94,6 +98,9 @@ export class KernelCore {
         break;
       case 'setMetronome':
         this.metronome = msg.enabled;
+        break;
+      case 'setScope':
+        this.scopeEnabled = msg.enabled;
         break;
       case 'setTempo':
         this.tempo = msg.tempo;
@@ -577,6 +584,12 @@ export class KernelCore {
           this.masterSumSq[1] += br[i]! * br[i]!;
         }
         this.meterSamples += n;
+        if (this.scopeEnabled) {
+          for (let i = 0; i < n; i++) {
+            this.scopeRing[this.scopePos] = (bl[i]! + br[i]!) * 0.5;
+            this.scopePos = (this.scopePos + 1) & 2047;
+          }
+        }
       } else if (track.routeTo !== null) {
         const dl = this.bufL[track.routeTo]!;
         const dr = this.bufR[track.routeTo]!;
@@ -609,6 +622,12 @@ export class KernelCore {
       playing: this.playing,
       cpu,
     };
+    if (this.scopeEnabled) {
+      // Copia ordenada del anillo (lo más antiguo primero).
+      const scope = new Float32Array(2048);
+      for (let i = 0; i < 2048; i++) scope[i] = this.scopeRing[(this.scopePos + i) & 2047]!;
+      frame.scope = scope;
+    }
     this.masterSumSq[0] = 0;
     this.masterSumSq[1] = 0;
     this.meterSamples = 0;

@@ -90,6 +90,11 @@ export class AudioEngine {
     this.send({ type: 'setMetronome', enabled });
   }
 
+  /** Activa/apaga el tap del Orbit Scope (evita copiar samples si está cerrado). */
+  setScope(enabled: boolean): void {
+    this.send({ type: 'setScope', enabled });
+  }
+
   previewNote(channelIndex: number, key: number, on: boolean): void {
     this.send({ type: 'previewNote', channelIndex, key, on });
   }
