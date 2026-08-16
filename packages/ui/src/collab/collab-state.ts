@@ -20,7 +20,7 @@ import { store } from '../state/app';
 // ── Constantes ───────────────────────────────────────────────────────────────
 
 /** URL por defecto del servidor de rooms (apps/server, `npm run server`). */
-export const DEFAULT_SERVER_URL = 'ws://localhost:7777';
+export const DEFAULT_SERVER_URL = 'ws://localhost:7900';
 
 /** Nombre visible por defecto. */
 export const DEFAULT_USER_NAME = 'Productor';
