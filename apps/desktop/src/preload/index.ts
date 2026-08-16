@@ -70,6 +70,12 @@ export interface OrbitApi {
     /** Bytes de una toma guardada (solo dentro de la carpeta de grabaciones). */
     read(file: string): Promise<ArrayBuffer>;
   };
+  readonly plugins: {
+    /** Lista los .js de userData/plugins (crea la carpeta si no existe). */
+    scan(): Promise<{ id: string; name: string; source: string }[]>;
+    /** Abre la carpeta de plugins en el explorador del sistema. */
+    openFolder(): Promise<void>;
+  };
   readonly autosave: {
     /** Guarda el estado como pendiente y rota el anillo de backups. */
     write(json: string): Promise<void>;
@@ -144,6 +150,10 @@ const api: OrbitApi = {
   recording: {
     save: (name, data) => ipcRenderer.invoke('recording:save', name, data),
     read: (file) => ipcRenderer.invoke('recording:read', file),
+  },
+  plugins: {
+    scan: () => ipcRenderer.invoke('plugins:scan'),
+    openFolder: () => ipcRenderer.invoke('plugins:open-folder'),
   },
   autosave: {
     write: (json) => ipcRenderer.invoke('autosave:write', json),
