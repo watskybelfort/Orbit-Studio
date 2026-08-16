@@ -134,6 +134,23 @@
   border-color: var(--meter);
 }
 
+/* Compás (num/den) junto al BPM: scrubbers compactos */
+.timesig {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.timesig .scrubber {
+  font-size: 11px;
+  padding: 2px 5px;
+}
+
+.timesig-sep {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 .pos-display {
   font-variant-numeric: tabular-nums;
   font-size: 13px;
