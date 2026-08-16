@@ -51,6 +51,14 @@ interface OrbitApi {
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
   };
+  readonly autosave: {
+    /** Guarda el estado como pendiente y rota el anillo de backups. */
+    write(json: string): Promise<void>;
+    /** Borra el pendiente (tras guardado manual o al descartar la recuperación). */
+    clear(): Promise<void>;
+    /** Pendiente de una sesión anterior, o null si no hay nada que recuperar. */
+    check(): Promise<{ json: string; mtimeMs: number } | null>;
+  };
   readonly debug: {
     /** Solo QA: siempre-encima para capturas (el main solo lo atiende con ORBIT_DEBUG_PORT). */
     alwaysOnTop(on: boolean): Promise<void>;

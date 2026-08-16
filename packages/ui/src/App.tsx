@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import './theme/base.css';
 import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
@@ -10,6 +10,13 @@ import { ClaudePanel } from './claude/ClaudePanel';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { ensureAudioReady } from './state/app';
+import {
+  applyRecovery,
+  checkRecovery,
+  discardRecovery,
+  initAutosave,
+  type RecoveryOffer,
+} from './state/autosave';
 import { initClaudeBridge } from './state/claude';
 import { useProjectFile } from './state/project-file';
 import { useUiStore } from './state/ui';
@@ -22,12 +29,19 @@ export function App() {
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const notice = useProjectFile((s) => s.notice);
+  const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
 
   useShortcuts();
 
   useEffect(() => {
     let alive = true;
     initClaudeBridge();
+    // Recuperación: primero mirar si quedó un autosave pendiente, y solo
+    // después arrancar el bucle (que no escribe hasta que algo cambie).
+    void checkRecovery().then((offer) => {
+      if (alive && offer) setRecovery(offer);
+      initAutosave();
+    });
     loadThemeFromSettings()
       .then(({ overrides }) => {
         if (alive) useUiStore.setState({ trafficLights: overrides.trafficLights ?? false });
@@ -70,6 +84,32 @@ export function App() {
         )}
       </div>
       {notice && <div className="app-notice popup">{notice}</div>}
+      {recovery && (
+        <div className="app-recovery popup">
+          <span className="recovery-text">
+            Hay trabajo sin guardar de la sesión anterior (
+            {new Date(recovery.mtimeMs).toLocaleString()}).
+          </span>
+          <button
+            className="recovery-btn primary"
+            onClick={() => {
+              applyRecovery(recovery);
+              setRecovery(null);
+            }}
+          >
+            Recuperar
+          </button>
+          <button
+            className="recovery-btn"
+            onClick={() => {
+              discardRecovery();
+              setRecovery(null);
+            }}
+          >
+            Descartar
+          </button>
+        </div>
+      )}
     </div>
   );
 }

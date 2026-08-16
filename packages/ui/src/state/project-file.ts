@@ -7,6 +7,7 @@
 import { createEmptyProject, parseProject, serializeProject } from '@orbit/core';
 import { create } from 'zustand';
 import { store } from './app';
+import { markClean } from './autosave';
 
 interface ProjectFileState {
   /** Ruta del .orbit abierto; null = proyecto sin guardar. */
@@ -35,6 +36,7 @@ function fileName(path: string): string {
 export function newProject(): void {
   store.replaceProject(createEmptyProject());
   useProjectFile.setState({ path: null });
+  markClean();
   notify('Proyecto nuevo.');
 }
 
@@ -50,6 +52,7 @@ export async function openProject(): Promise<void> {
     const project = parseProject(result.json);
     store.replaceProject(project);
     useProjectFile.setState({ path: result.path });
+    markClean();
     notify(`Abierto ${fileName(result.path)}.`);
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo abrir el proyecto.');
@@ -73,6 +76,7 @@ export async function saveProject(saveAs = false): Promise<void> {
     );
     if (!path) return; // cancelado
     useProjectFile.setState({ path });
+    markClean();
     notify(`Guardado en ${fileName(path)}.`);
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo guardar el proyecto.');

@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { release } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -364,6 +364,51 @@ function registerIpc(): void {
       return target;
     },
   );
+
+  // ── Autosave: pending.orbit + anillo de backups en userData/autosave ───────
+  // pending.orbit existe = hubo cambios sin guardar (la sesión murió o se cerró
+  // sin guardar); el renderer lo ofrece como recuperación al arrancar y lo
+  // limpia en cada guardado manual. El anillo conserva los últimos 5 estados.
+  const AUTOSAVE_KEEP = 5;
+  const autosaveDir = () => join(app.getPath('userData'), 'autosave');
+  const pendingPath = () => join(autosaveDir(), 'pending.orbit');
+
+  ipcMain.handle('autosave:write', async (_event, json: unknown) => {
+    if (typeof json !== 'string' || json.length === 0) return;
+    const dir = autosaveDir();
+    await mkdir(dir, { recursive: true });
+    for (let i = AUTOSAVE_KEEP - 1; i >= 1; i--) {
+      try {
+        await rename(join(dir, `backup-${i}.orbit`), join(dir, `backup-${i + 1}.orbit`));
+      } catch {
+        // ese hueco del anillo aún no existe
+      }
+    }
+    try {
+      await copyFile(pendingPath(), join(dir, 'backup-1.orbit'));
+    } catch {
+      // primer autosave de la sesión
+    }
+    await writeFile(pendingPath(), json, 'utf8');
+  });
+
+  ipcMain.handle('autosave:clear', async () => {
+    try {
+      await rm(pendingPath());
+    } catch {
+      // no había pendiente
+    }
+  });
+
+  ipcMain.handle('autosave:check', async () => {
+    try {
+      const json = await readFile(pendingPath(), 'utf8');
+      const info = await stat(pendingPath());
+      return { json, mtimeMs: info.mtimeMs };
+    } catch {
+      return null;
+    }
+  });
 
   // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
   // En desarrollo el pack vive en packages/sound-library/factory; empaquetado,
