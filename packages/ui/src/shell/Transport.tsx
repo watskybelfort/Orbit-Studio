@@ -2,8 +2,9 @@
 
 import { useCallback, useRef } from 'react';
 import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
-import { IconMetronome, IconPause, IconPlay, IconStop } from '../icons';
+import { IconMetronome, IconPause, IconPianoRoll, IconPlay, IconStop } from '../icons';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import { Knob } from '../widgets/Knob';
@@ -23,6 +24,8 @@ export function Transport() {
   const cpu = useUiStore((s) => s.cpu);
   const recPhase = useRecorderStore((s) => s.phase);
   const recError = useRecorderStore((s) => s.error);
+  const midiArmed = useLiveInputStore((s) => s.armed);
+  const midiInputs = useLiveInputStore((s) => s.midiInputs);
 
   const setTempo = useCallback((tempo: number) => {
     store.dispatch({ type: 'setTempo', tempo }, { mergeKey: 'transport:tempo' });
@@ -83,6 +86,13 @@ export function Transport() {
           onClick={() => void toggleRecording()}
         >
           <span className="rec-dot" />
+        </button>
+        <button
+          className={`tbtn${midiArmed ? ' active' : ''}`}
+          title={`Grabación MIDI ${midiArmed ? 'armada — lo que toques cae al patrón al parar' : 'apagada'} · toca con el teclado del PC (fila Z/Q)${midiInputs > 0 ? ` · ${midiInputs} dispositivo(s) MIDI` : ''}`}
+          onClick={toggleMidiArmed}
+        >
+          <IconPianoRoll size={15} />
         </button>
         <button
           className={`tbtn mode${playMode === 'song' ? ' active' : ''}`}
