@@ -19,6 +19,7 @@ import {
 } from './state/autosave';
 import { initPresence } from './collab/presence';
 import { initClaudeBridge } from './state/claude';
+import { initLiveInput } from './state/live-input';
 import { useProjectFile } from './state/project-file';
 import { useUiStore } from './state/ui';
 
@@ -38,6 +39,7 @@ export function App() {
     let alive = true;
     initClaudeBridge();
     initPresence();
+    initLiveInput();
     // Recuperación: primero mirar si quedó un autosave pendiente, y solo
     // después arrancar el bucle (que no escribe hasta que algo cambie).
     void checkRecovery().then((offer) => {
