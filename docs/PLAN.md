@@ -6,7 +6,17 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 16-08-2026: v0.3.0
+## Estado — 16-08-2026: v0.4.0
+
+v0.4, "graba tu voz": **grabación de micro a la playlist** (botón en el
+transport; la toma se guarda como WAV en userData/recordings, se registra
+con el esquema `recording:` y cae como clip donde empezó, con rehidratación
+al reabrir), **editor de audio estilo Edison** (recorte por asas no
+destructivo, ganancia, normalizar/reverse/fades como sample nuevo con undo)
+e **import MIDI** (decodificador SMF con round-trip contra el export;
+Archivo → Importar crea canales, patrón y tempo en un undo). 79 tests.
+
+## Estado anterior — v0.3.0
 
 v0.1: fases 0–7 completas con QA real contra la app viva. v0.2: fiabilidad
 diaria (CI, CPU visible, autosave + crash recovery) y flujo real (export MIDI
