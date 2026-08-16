@@ -6,18 +6,22 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 16-08-2026: v0.1 feature-complete
+## Estado — 16-08-2026: v0.2.0
 
-Las fases 0–7 están ejecutadas y el conjunto verificado con QA real contra la
-app viva (beat completo por el bridge de Claude, colaboración con dos clientes
-convergiendo por el servidor, ciclo de temas oscuro→claro→acrílico→oscuro con
-capturas, 43 tests en verde). El detalle honesto de qué entró en v0.1 y qué se
-movió al backlog v0.x está en [FEATURES.md](FEATURES.md) — los huecos grandes
-que quedaron fuera de v0.1: pause/tap tempo, marcadores de playlist, clips de
-audio desde la UI, herramientas avanzadas del piano roll (arpegiar/strum/
-humanize/chop), autosave/crash recovery, paleta de comandos, drag & drop del
-browser, export MIDI, cursores remotos de presencia y el medidor de CPU en la
-barra.
+v0.1: fases 0–7 ejecutadas y verificadas con QA real contra la app viva (beat
+por el bridge de Claude, colaboración con dos clientes convergiendo, ciclo de
+temas con capturas). v0.2 (bloques "fiabilidad diaria" + "flujo real"): CI en
+GitHub Actions, medidor de CPU visible, autosave con anillo de backups y crash
+recovery, **export MIDI multipista** junto al WAV, marcadores de sección en la
+playlist, drag & drop del browser (canal sampler / clip de audio) y
+rehidratación de samples al cargar proyecto. 52 tests en verde.
+
+Backlog v0.x (detalle en [FEATURES.md](FEATURES.md)): pause/tap tempo,
+herramientas avanzadas del piano roll (arpegiar/strum/humanize/chop, minimapa,
+pan por nota), slice/mute por clip, gestión de arrangements, paleta de comandos
+Ctrl+K, cursores remotos de presencia y Claude como peer, niveles por send,
+RMS/clip indicator, Orbit Scope en tiempo real, export de selección y sample
+rates, carpetas del usuario en el browser.
 
 ---
 
@@ -29,7 +33,7 @@ barra.
 - [x] Monorepo npm workspaces con TypeScript estricto: `apps/desktop`, `apps/server`,
       `packages/{core,engine,ui,collab,claude-bridge,sound-library}`.
 - [x] Repo GitHub privado `Orbit-Studio`.
-- [ ] CI mínimo (typecheck + build) — pendiente, backlog.
+- [x] CI mínimo (typecheck + tests + build) en GitHub Actions.
 
 **Criterio de salida:** `npm run dev` abre una ventana Electron con la UI base.
 

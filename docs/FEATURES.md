@@ -2,12 +2,12 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versión ·
-**v0.x** = tras el release inicial · **v1+** = horizonte.
+y el sistema de temas acrílicos. Leyenda: **v0.1** / **v0.2** = ya publicado en
+esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.1 (16-08-2026): lo que
-> dice v0.1 está implementado y probado; lo que se movió a v0.x existe a veces
-> ya en el modelo o el motor, pero no tiene UI todavía (se indica en cada caso).
+> Actualizado al estado REAL del código tras el QA de v0.2 (16-08-2026): lo que
+> lleva número de versión está implementado y probado; lo que sigue en v0.x
+> existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
 ---
 
@@ -25,7 +25,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 | Swing global (perilla como FL) | v0.1 |
 | Undo/redo por origen (500 niveles, fusión de ráfagas de perilla) | v0.1 |
 | Historial de undo navegable | v0.x |
-| Autosave + backups rotativos, crash recovery | v0.x |
+| Autosave por minuto + anillo de 5 backups + recuperación tras crash | v0.2 |
 | Formato `.orbit` (JSON versionado), abrir/guardar/guardar como (Ctrl+O/S) | v0.1 |
 | Import MIDI (arrastrar .mid al proyecto) | v0.x |
 | Info del proyecto (título, autor, notas — el modelo ya lo tiene) | v0.x |
@@ -77,10 +77,10 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 | Pistas ilimitadas con nombre y mute, + Pista | v0.1 |
 | Clips de patrón: pintar en serie, mover, redimensionar, duplicar (Ctrl+arrastre) | v0.1 |
 | Clips de automatización (con su curva dibujada; doble clic abre el editor) | v0.1 |
-| Clips de audio desde la UI (el motor ya los reproduce) | v0.x |
+| Clips de audio (soltar un sonido del browser en la playlist) | v0.2 |
 | Snap Beat/Compás/1/2/1/4/Nada (Alt = libre) | v0.1 |
 | Cortar (slip/slice) y mute por clip | v0.x |
-| Marcadores de sección con nombre (el modelo ya los tiene) | v0.x |
+| Marcadores de sección: crear (doble clic en la regla), renombrar, borrar, salto exacto | v0.2 |
 | Seek y región de loop desde la regla | v0.1 |
 | Export parcial de la selección / el loop | v0.x |
 | Cambiar entre **arrangements** | v0.1 |
@@ -167,7 +167,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 | Preview al clic (renderizado por el propio kernel) | v0.1 |
 | Volumen de preview ajustable | v0.x |
 | Doble clic = añade canal sampler con el sonido | v0.1 |
-| Drag & drop a Channel Rack o Playlist | v0.x |
+| Drag & drop: al Channel Rack (canal sampler) o a la Playlist (clip de audio) | v0.2 |
 | Contenido de fábrica generado por síntesis propia (pack Orbit Essentials, 60 sonidos) | v0.1 |
 | Carpetas del usuario (añadir rutas propias, se indexan igual) | v0.x |
 | Favoritos y colecciones | v0.x |
@@ -177,7 +177,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 
 | Función | Versión |
 |---|---|
-| Clips de audio en playlist (el motor ya los reproduce; falta crearlos en UI) | v0.x |
+| Clips de audio en playlist (drop desde el browser; samples rehidratados al abrir) | v0.2 |
 | Grabación de entrada (micro/línea) a la playlist | v0.x |
 | Editor de sample estilo Edison (recortar, fades, normalizar, reverse) | v0.x |
 | Time-stretch/pitch-shift de clips | v1+ |
@@ -197,7 +197,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 | Fuente: canción completa o patrón | v0.1 |
 | Export de la selección de playlist / solo el loop | v0.x |
 | MP3/FLAC/OGG | v0.x |
-| Export MIDI multipista (flujo FL de Orbit: .mid + wav) | v0.x |
+| Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real
 
@@ -268,7 +268,7 @@ y el sistema de temas acrílicos. Leyenda: **v0.1** = está en la primera versi�
 | Función | Versión |
 |---|---|
 | Kernel DSP en un solo AudioWorklet, cero GC en el audio thread | v0.1 |
-| Medidor de CPU visible en la barra superior (el kernel ya lo publica) | v0.x |
+| Medidor de CPU en la barra de transporte (aviso por color al cargarse) | v0.2 |
 | Proyecto de 100 pistas sin dropouts (objetivo QA) | v0.1 |
 | Golden tests del DSP (render determinista) — 43 tests en total | v0.1 |
-| Autosave + crash recovery (reabrir con el último autosave) | v0.x |
+| Autosave + crash recovery (banner Recuperar/Descartar al reabrir) | v0.2 |
