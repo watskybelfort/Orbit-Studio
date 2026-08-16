@@ -305,3 +305,21 @@ html[data-theme='acrylic'] .iw-title {
   z-index: 1000;
   pointer-events: none;
 }
+
+/* Iconos de los menus (linea fina, heredan color). */
+.menu-item-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.menu-icon {
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--text-dim);
+}
+
+.menu-item:hover .menu-icon {
+  color: var(--text);
+}

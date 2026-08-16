@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { engine, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { IconMetronome, IconPlay, IconStop } from '../icons';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import { Knob } from '../widgets/Knob';
@@ -36,14 +37,10 @@ export function Transport() {
           title="Reproducir (Espacio)"
           onClick={() => void togglePlay()}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <path d="M2 1 L11 6 L2 11 Z" fill="currentColor" />
-          </svg>
+          <IconPlay size={15} />
         </button>
         <button className="tbtn" title="Detener" onClick={stopPlayback}>
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="2" y="2" width="8" height="8" fill="currentColor" />
-          </svg>
+          <IconStop size={15} />
         </button>
         <button
           className={`tbtn mode${playMode === 'song' ? ' active' : ''}`}
@@ -61,9 +58,7 @@ export function Transport() {
             engine.setMetronome(next);
           }}
         >
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <path d="M4 1 h4 l2 10 h-8 Z M6 3 L8.5 9" stroke="currentColor" strokeWidth="1.2" fill="none" />
-          </svg>
+          <IconMetronome size={15} />
         </button>
       </div>
 

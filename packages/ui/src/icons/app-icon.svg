@@ -1,0 +1,18 @@
+<!-- Icono de la app Orbit Studio: anillo orbital con satélite y onda interior.
+     Dibujado en retícula 64×64 para que aguante de 16 px a 512 px.
+     Dos tonos neutros: #8A93A6 (anillo) y #C8CEDA (satélite + onda). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Anillo orbital, abierto justo donde pasa el satélite -->
+  <path d="M 56.11 22.26 A 26 26 0 1 1 41.74 7.89"
+        stroke="#8A93A6" stroke-width="4" stroke-linecap="round" fill="none" />
+  <!-- Satélite orbitando en el hueco del anillo -->
+  <circle cx="50.38" cy="13.62" r="5" fill="#C8CEDA" />
+  <!-- Forma de onda en el centro del disco -->
+  <g stroke="#C8CEDA" stroke-width="4" stroke-linecap="round">
+    <path d="M20 27 V37" />
+    <path d="M26 23 V41" />
+    <path d="M32 19 V45" />
+    <path d="M38 25 V39" />
+    <path d="M44 28 V36" />
+  </g>
+</svg>

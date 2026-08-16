@@ -1,6 +1,22 @@
 /** Barra de menús minimalista. Los dropdowns usan .popup (regla del acrílico). */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  IconAutomation,
+  IconBrowser,
+  IconChannelRack,
+  IconClaude,
+  IconClose,
+  IconCollab,
+  IconExport,
+  IconMixer,
+  IconNew,
+  IconOpen,
+  IconPianoRoll,
+  IconPlaylist,
+  IconSave,
+  IconSettings,
+} from '../icons';
 import { store } from '../state/app';
 import { newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
@@ -8,6 +24,7 @@ import './shell.css';
 
 interface MenuItem {
   label: string;
+  icon?: ReactNode;
   shortcut?: string;
   disabled?: boolean;
   action?: () => void;
@@ -30,38 +47,40 @@ export function MenuBar() {
 
   const menus: Record<string, MenuItem[]> = {
     Archivo: [
-      { label: 'Nuevo proyecto', action: () => newProject() },
-      { label: 'Abrir…', shortcut: 'Ctrl+O', action: () => void openProject() },
-      { label: 'Guardar', shortcut: 'Ctrl+S', action: () => void saveProject() },
+      { label: 'Nuevo proyecto', icon: <IconNew />, action: () => newProject() },
+      { label: 'Abrir…', icon: <IconOpen />, shortcut: 'Ctrl+O', action: () => void openProject() },
+      { label: 'Guardar', icon: <IconSave />, shortcut: 'Ctrl+S', action: () => void saveProject() },
       { label: 'Guardar como…', shortcut: 'Ctrl+Shift+S', action: () => void saveProject(true) },
       { label: '', separator: true },
-      { label: 'Exportar…', action: () => toggleWindow('export') },
+      { label: 'Exportar…', icon: <IconExport />, action: () => toggleWindow('export') },
       { label: '', separator: true },
-      { label: 'Salir', action: () => void window.orbit?.window.close() },
+      { label: 'Salir', icon: <IconClose />, action: () => void window.orbit?.window.close() },
     ],
     Editar: [
       { label: 'Deshacer', shortcut: 'Ctrl+Z', action: () => store.undo() },
       { label: 'Rehacer', shortcut: 'Ctrl+Y', action: () => store.redo() },
     ],
     Ver: [
-      { label: 'Playlist', shortcut: 'F5', action: () => toggleWindow('playlist') },
-      { label: 'Channel Rack', shortcut: 'F6', action: () => toggleWindow('channelRack') },
-      { label: 'Piano Roll', shortcut: 'F7', action: () => toggleWindow('pianoRoll') },
-      { label: 'Mixer', shortcut: 'F9', action: () => toggleWindow('mixer') },
-      { label: 'Automatización', action: () => toggleWindow('automation') },
+      { label: 'Playlist', icon: <IconPlaylist />, shortcut: 'F5', action: () => toggleWindow('playlist') },
+      { label: 'Channel Rack', icon: <IconChannelRack />, shortcut: 'F6', action: () => toggleWindow('channelRack') },
+      { label: 'Piano Roll', icon: <IconPianoRoll />, shortcut: 'F7', action: () => toggleWindow('pianoRoll') },
+      { label: 'Mixer', icon: <IconMixer />, shortcut: 'F9', action: () => toggleWindow('mixer') },
+      { label: 'Automatización', icon: <IconAutomation />, action: () => toggleWindow('automation') },
       { label: '', separator: true },
       {
         label: 'Browser',
+        icon: <IconBrowser />,
         action: () => useUiStore.setState((s) => ({ browserOpen: !s.browserOpen })),
       },
       {
         label: 'Panel de Claude',
+        icon: <IconClaude />,
         action: () => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen })),
       },
       { label: '', separator: true },
-      { label: 'Colaboración…', action: () => toggleWindow('collab') },
+      { label: 'Colaboración…', icon: <IconCollab />, action: () => toggleWindow('collab') },
       { label: '', separator: true },
-      { label: 'Ajustes', shortcut: 'F10', action: () => toggleWindow('settings') },
+      { label: 'Ajustes', icon: <IconSettings />, shortcut: 'F10', action: () => toggleWindow('settings') },
     ],
   };
 
@@ -93,7 +112,10 @@ export function MenuBar() {
                       item.action?.();
                     }}
                   >
-                    <span>{item.label}</span>
+                    <span className="menu-item-label">
+                      <span className="menu-icon">{item.icon}</span>
+                      {item.label}
+                    </span>
                     {item.shortcut && <span className="menu-shortcut">{item.shortcut}</span>}
                   </button>
                 ),

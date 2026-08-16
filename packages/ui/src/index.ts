@@ -11,6 +11,9 @@ export { useProject, useProjectVersion } from './state/useProject';
 export { useUiStore } from './state/ui';
 export type { WindowId, UiState } from './state/ui';
 
+// Iconos (línea fina, currentColor)
+export * from './icons';
+
 // Widgets
 export { Knob } from './widgets/Knob';
 export { Fader } from './widgets/Fader';
