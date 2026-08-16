@@ -18,6 +18,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { INSTRUMENTS } from './instruments';
 
 // Imports relativos a la fuente del engine: el index del paquete arrastra
 // engine.ts (worklet de Vite) que Node no puede resolver fuera del bundler.
@@ -698,6 +699,43 @@ function main(): void {
     );
   });
 
+  // ── Instrumentos con altura (tocables por nota vía sampler + keytrack) ─────
+  INSTRUMENTS.forEach((spec, i) => {
+    const rendered = spec.render(SR);
+    let l = rendered.left;
+    let rr = rendered.right;
+    normalizar(l, rr, -1);
+    [l, rr] = recortarCola(l, rr, -60, 0.05);
+    fadeOut(l, rr, 5);
+
+    const mono = esMono(l, rr);
+    const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
+    const file = `instrumentos/${spec.slug}.wav`;
+    const ruta = path.join(PACK_DIR, file);
+    fs.mkdirSync(path.dirname(ruta), { recursive: true });
+    fs.writeFileSync(ruta, wav);
+    totalBytes += wav.length;
+    porCategoria.set('instrumentos', (porCategoria.get('instrumentos') ?? 0) + 1);
+
+    const durationSec = Math.round((l.length / SR) * 1000) / 1000;
+    entries.push({
+      id: `instrumentos/${spec.slug}`,
+      name: spec.name,
+      category: 'instrumentos',
+      subcategory: spec.subcategory,
+      file,
+      tags: spec.tags,
+      keyRoot: spec.keyRoot,
+      durationSec,
+      gainSuggestion: spec.gainSuggestion,
+    });
+
+    console.log(
+      `[inst ${String(i + 1).padStart(2)}/${INSTRUMENTS.length}] ${file.padEnd(40)} ` +
+      `${durationSec.toFixed(2)}s ${(wav.length / 1024).toFixed(0).padStart(5)} KB ${mono ? 'mono' : 'stereo'}`,
+    );
+  });
+
   const manifest: SoundManifest = {
     version: '1.0.0',
     pack: 'Orbit Essentials',
@@ -725,8 +763,9 @@ function main(): void {
     if (db <= -20) throw new Error(`Categoría ${cat}: ningún WAV supera -20 dBFS`);
   }
   console.log(`\nTotal: ${cargado.entries.length} sonidos · ${(totalBytes / 1024 / 1024).toFixed(2)} MB`);
-  if (totalBytes > 15 * 1024 * 1024) {
-    throw new Error('El pack supera los 15 MB: recorta colas o duraciones');
+  // Subido de 15 a 24 MB al entrar los instrumentos con altura (v0.5).
+  if (totalBytes > 24 * 1024 * 1024) {
+    throw new Error('El pack supera los 24 MB: recorta colas o duraciones');
   }
   console.log('Pack generado y verificado.');
 }

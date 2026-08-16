@@ -880,6 +880,392 @@
       "gainSuggestion": 0.7,
       "keyRoot": "E",
       "bpm": 174
+    },
+    {
+      "id": "instrumentos/piano-suave",
+      "name": "Piano Suave",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/piano-suave.wav",
+      "tags": [
+        "piano",
+        "keys",
+        "suave",
+        "natural"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.2,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "instrumentos/piano-brillante",
+      "name": "Piano Brillante",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/piano-brillante.wav",
+      "tags": [
+        "piano",
+        "keys",
+        "brillante",
+        "pop"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "instrumentos/ep-rhodes",
+      "name": "EP Rhodes",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/ep-rhodes.wav",
+      "tags": [
+        "ep",
+        "rhodes",
+        "keys",
+        "soul",
+        "fm"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "instrumentos/ep-sucio",
+      "name": "EP Sucio",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/ep-sucio.wav",
+      "tags": [
+        "ep",
+        "keys",
+        "sucio",
+        "lofi",
+        "saturado"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.8,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "instrumentos/guitarra-nylon",
+      "name": "Guitarra Nylon",
+      "category": "instrumentos",
+      "subcategory": "cuerdas",
+      "file": "instrumentos/guitarra-nylon.wav",
+      "tags": [
+        "guitarra",
+        "nylon",
+        "acustica",
+        "calida"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.794,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "instrumentos/guitarra-electrica-limpia",
+      "name": "Guitarra Eléctrica Limpia",
+      "category": "instrumentos",
+      "subcategory": "cuerdas",
+      "file": "instrumentos/guitarra-electrica-limpia.wav",
+      "tags": [
+        "guitarra",
+        "electrica",
+        "limpia",
+        "chorus"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.309,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "instrumentos/guitarra-muted",
+      "name": "Guitarra Muted",
+      "category": "instrumentos",
+      "subcategory": "cuerdas",
+      "file": "instrumentos/guitarra-muted.wav",
+      "tags": [
+        "guitarra",
+        "muted",
+        "palm",
+        "corta"
+      ],
+      "keyRoot": "C",
+      "durationSec": 0.819,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "instrumentos/guitarra-acustica-brillante",
+      "name": "Guitarra Acústica Brillante",
+      "category": "instrumentos",
+      "subcategory": "cuerdas",
+      "file": "instrumentos/guitarra-acustica-brillante.wav",
+      "tags": [
+        "guitarra",
+        "acustica",
+        "brillante",
+        "folk"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.274,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "instrumentos/bajo-fingered",
+      "name": "Bajo Fingered",
+      "category": "instrumentos",
+      "subcategory": "bajos",
+      "file": "instrumentos/bajo-fingered.wav",
+      "tags": [
+        "bajo",
+        "fingered",
+        "sustractivo",
+        "redondo"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.4,
+      "gainSuggestion": 0.9
+    },
+    {
+      "id": "instrumentos/bajo-pick",
+      "name": "Bajo Pick",
+      "category": "instrumentos",
+      "subcategory": "bajos",
+      "file": "instrumentos/bajo-pick.wav",
+      "tags": [
+        "bajo",
+        "pick",
+        "ataque",
+        "brillante"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.2,
+      "gainSuggestion": 0.9
+    },
+    {
+      "id": "instrumentos/bajo-redondo",
+      "name": "Bajo Redondo",
+      "category": "instrumentos",
+      "subcategory": "bajos",
+      "file": "instrumentos/bajo-redondo.wav",
+      "tags": [
+        "bajo",
+        "sub",
+        "redondo",
+        "suave"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.4,
+      "gainSuggestion": 0.9
+    },
+    {
+      "id": "instrumentos/bajo-growl",
+      "name": "Bajo Growl",
+      "category": "instrumentos",
+      "subcategory": "bajos",
+      "file": "instrumentos/bajo-growl.wav",
+      "tags": [
+        "bajo",
+        "growl",
+        "fm",
+        "agresivo"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.6,
+      "gainSuggestion": 0.85
+    },
+    {
+      "id": "instrumentos/organo-suave",
+      "name": "Órgano Suave",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/organo-suave.wav",
+      "tags": [
+        "organo",
+        "keys",
+        "suave",
+        "gospel"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.4,
+      "gainSuggestion": 0.75
+    },
+    {
+      "id": "instrumentos/organo-full",
+      "name": "Órgano Full",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/organo-full.wav",
+      "tags": [
+        "organo",
+        "keys",
+        "full",
+        "vibrato"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.6,
+      "gainSuggestion": 0.7
+    },
+    {
+      "id": "instrumentos/organo-percusivo",
+      "name": "Órgano Percusivo",
+      "category": "instrumentos",
+      "subcategory": "teclas",
+      "file": "instrumentos/organo-percusivo.wav",
+      "tags": [
+        "organo",
+        "keys",
+        "percusivo",
+        "funk"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.2,
+      "gainSuggestion": 0.75
+    },
+    {
+      "id": "instrumentos/strings-ensemble",
+      "name": "Strings Ensemble",
+      "category": "instrumentos",
+      "subcategory": "pads",
+      "file": "instrumentos/strings-ensemble.wav",
+      "tags": [
+        "strings",
+        "pad",
+        "ensemble",
+        "cinematica"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.6,
+      "gainSuggestion": 0.65
+    },
+    {
+      "id": "instrumentos/pad-calido",
+      "name": "Pad Cálido",
+      "category": "instrumentos",
+      "subcategory": "pads",
+      "file": "instrumentos/pad-calido.wav",
+      "tags": [
+        "pad",
+        "calido",
+        "analogico",
+        "suave"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.4,
+      "gainSuggestion": 0.65
+    },
+    {
+      "id": "instrumentos/pad-vidrio",
+      "name": "Pad Vidrio",
+      "category": "instrumentos",
+      "subcategory": "pads",
+      "file": "instrumentos/pad-vidrio.wav",
+      "tags": [
+        "pad",
+        "vidrio",
+        "aire",
+        "brillante"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.4,
+      "gainSuggestion": 0.65
+    },
+    {
+      "id": "instrumentos/campana-pura",
+      "name": "Campana Pura",
+      "category": "instrumentos",
+      "subcategory": "campanas",
+      "file": "instrumentos/campana-pura.wav",
+      "tags": [
+        "campana",
+        "bell",
+        "fm",
+        "larga"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.6,
+      "gainSuggestion": 0.7
+    },
+    {
+      "id": "instrumentos/campanita-musica",
+      "name": "Campanita Música",
+      "category": "instrumentos",
+      "subcategory": "campanas",
+      "file": "instrumentos/campanita-musica.wav",
+      "tags": [
+        "campana",
+        "musicbox",
+        "dulce",
+        "corta"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.148,
+      "gainSuggestion": 0.7
+    },
+    {
+      "id": "instrumentos/vibrafono",
+      "name": "Vibráfono",
+      "category": "instrumentos",
+      "subcategory": "campanas",
+      "file": "instrumentos/vibrafono.wav",
+      "tags": [
+        "vibrafono",
+        "mallet",
+        "jazz",
+        "tremolo"
+      ],
+      "keyRoot": "C",
+      "durationSec": 3.6,
+      "gainSuggestion": 0.75
+    },
+    {
+      "id": "instrumentos/lead-cuadrada",
+      "name": "Lead Cuadrada",
+      "category": "instrumentos",
+      "subcategory": "leads",
+      "file": "instrumentos/lead-cuadrada.wav",
+      "tags": [
+        "lead",
+        "pulso",
+        "chip",
+        "vibrato"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.4,
+      "gainSuggestion": 0.7
+    },
+    {
+      "id": "instrumentos/flauta",
+      "name": "Flauta",
+      "category": "instrumentos",
+      "subcategory": "leads",
+      "file": "instrumentos/flauta.wav",
+      "tags": [
+        "flauta",
+        "viento",
+        "aire",
+        "organica"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.7,
+      "gainSuggestion": 0.75
+    },
+    {
+      "id": "instrumentos/lead-saw",
+      "name": "Lead Saw",
+      "category": "instrumentos",
+      "subcategory": "leads",
+      "file": "instrumentos/lead-saw.wav",
+      "tags": [
+        "lead",
+        "saw",
+        "unison",
+        "synth"
+      ],
+      "keyRoot": "C",
+      "durationSec": 2.4,
+      "gainSuggestion": 0.7
     }
   ]
 }

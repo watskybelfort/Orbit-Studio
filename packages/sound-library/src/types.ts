@@ -8,6 +8,7 @@
 export const SOUND_CATEGORIES = [
   'drums',
   '808s',
+  'instrumentos',
   'percusion-latina',
   'fx',
   'melodic-loops',
