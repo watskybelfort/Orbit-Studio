@@ -266,6 +266,121 @@ export function Browser() {
     });
   }
 
+  // ── Carpetas del usuario (packs propios, persistidas en settings) ──────────
+
+  const [folders, setFolders] = useState<string[]>([]);
+  const [folderFiles, setFolderFiles] = useState<Record<string, { file: string; name: string }[]>>(
+    {},
+  );
+
+  useEffect(() => {
+    const api = window.orbit;
+    if (!api) return;
+    void api.settings.get().then((s) => {
+      const raw = s['userFolders'];
+      const list = Array.isArray(raw) ? raw.filter((f): f is string => typeof f === 'string') : [];
+      setFolders(list);
+      for (const dir of list) {
+        void api.folder
+          .scan(dir)
+          .then((files) => setFolderFiles((p) => ({ ...p, [dir]: files })))
+          .catch(() => setStatus(`No se pudo leer ${dir}`));
+      }
+    });
+  }, []);
+
+  const addFolder = async () => {
+    const api = window.orbit;
+    if (!api) return;
+    const dir = await api.folder.pick();
+    if (!dir || folders.includes(dir)) return;
+    const next = [...folders, dir];
+    setFolders(next);
+    // Persistir ANTES de escanear: el main valida contra settings.
+    await api.settings.set({ userFolders: next });
+    try {
+      const files = await api.folder.scan(dir);
+      setFolderFiles((p) => ({ ...p, [dir]: files }));
+    } catch {
+      setStatus(`No se pudo escanear ${dir}`);
+    }
+  };
+
+  const removeFolder = (dir: string) => {
+    const next = folders.filter((f) => f !== dir);
+    setFolders(next);
+    void window.orbit?.settings.set({ userFolders: next });
+  };
+
+  const userEntry = (f: { file: string; name: string }): SoundEntry => ({
+    id: `user:${f.file}`,
+    name: f.name,
+    category: 'fx',
+    file: f.file,
+    tags: [],
+    durationSec: 0,
+  });
+
+  const q = normalize(query.trim());
+  const userSection = lib.status !== 'sin-electron' && (
+    <section className="browser-cat">
+      <div className="browser-cat-head user-head">
+        <span className="browser-cat-name">Tus carpetas</span>
+        <button
+          className="user-folder-add"
+          title="Añadir una carpeta con tus sonidos"
+          onClick={() => void addFolder()}
+        >
+          +
+        </button>
+      </div>
+      {folders.length === 0 && (
+        <div className="browser-sub-name">Añade carpetas con tus packs (se indexan igual).</div>
+      )}
+      {folders.map((dir) => {
+        const files = (folderFiles[dir] ?? []).filter(
+          (f) => q === '' || normalize(f.name).includes(q),
+        );
+        return (
+          <div key={dir} className="browser-sub">
+            <div className="browser-sub-name user-folder">
+              <span className="user-folder-name" title={dir}>
+                {dir.split(/[\\/]/).pop()}
+              </span>
+              <span className="user-folder-count">{files.length}</span>
+              <button
+                className="user-folder-del"
+                title="Quitar esta carpeta del browser"
+                onClick={() => removeFolder(dir)}
+              >
+                ✕
+              </button>
+            </div>
+            {files.slice(0, 200).map((f) => {
+              const entry = userEntry(f);
+              const playing = playingId === entry.id;
+              return (
+                <button
+                  key={entry.id}
+                  type="button"
+                  className={playing ? 'browser-entry playing' : 'browser-entry'}
+                  draggable
+                  onDragStart={(e) => setDragEntry(e.dataTransfer, entry)}
+                  onClick={() => void preview(entry)}
+                  onDoubleClick={() => void addToProject(entry)}
+                  title={`${f.file} — clic: escuchar · doble clic: añadir · arrastra al rack o a la playlist`}
+                >
+                  <span className="browser-entry-dot" aria-hidden="true" />
+                  <span className="browser-entry-name">{entry.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
+    </section>
+  );
+
   return (
     <div className="browser">
       <div className="browser-head">
@@ -286,7 +401,10 @@ export function Browser() {
           spellCheck={false}
         />
       </div>
-      <div className="browser-body">{body}</div>
+      <div className="browser-body">
+        {body}
+        {userSection}
+      </div>
       {status !== null && <div className="browser-status">{status}</div>}
     </div>
   );
