@@ -17,6 +17,8 @@ export function Transport() {
   const positionBeats = useUiStore((s) => s.positionBeats);
   const metronome = useUiStore((s) => s.metronome);
   const masterPeak = useUiStore((s) => s.masterPeakL);
+  const masterRms = useUiStore((s) => s.masterRms);
+  const clipped = useUiStore((s) => s.clipped);
   const cpu = useUiStore((s) => s.cpu);
 
   const setTempo = useCallback((tempo: number) => {
@@ -91,8 +93,13 @@ export function Transport() {
         </span>
       </div>
 
-      <div className="transport-group meter-group" title="Nivel master">
-        <LevelMeter peak={masterPeak} height={22} />
+      <div className="transport-group meter-group" title="Nivel master (peak + línea RMS)">
+        <LevelMeter peak={masterPeak} rms={masterRms} height={22} />
+        <button
+          className={`clip-led${clipped ? ' on' : ''}`}
+          title={clipped ? 'Hubo clipping — clic para resetear' : 'Sin clipping'}
+          onClick={() => useUiStore.setState({ clipped: false })}
+        />
       </div>
 
       <div className="transport-group" title="Carga del motor de audio">

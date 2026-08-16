@@ -150,6 +150,22 @@
   width: 8px;
 }
 
+/* LED de clipping enclavado, junto al medidor master */
+.clip-led {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.clip-led.on {
+  background: var(--meter-clip);
+  border-color: var(--meter-clip);
+}
+
 .cpu-display {
   font-variant-numeric: tabular-nums;
   font-size: 11px;

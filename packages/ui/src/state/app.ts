@@ -26,10 +26,14 @@ store.subscribe(queueSync);
 
 // Medidores del kernel → estado UI (~20 fps)
 engine.onMeters = (frame) => {
+  const peak = frame.peaks[0] ?? 0;
   useUiStore.setState({
     playing: frame.playing,
     positionBeats: frame.positionBeats,
-    masterPeakL: frame.peaks[0] ?? 0,
+    masterPeakL: peak,
+    masterRms: (frame.masterRms[0] + frame.masterRms[1]) / 2,
+    // El clip queda enclavado: solo lo limpia el usuario clicando el LED.
+    ...(peak >= 1 ? { clipped: true } : null),
     cpu: frame.cpu,
     trackPeaks: frame.peaks,
   });
