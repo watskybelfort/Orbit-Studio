@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** / **v0.2** / **v0.3** = ya
-publicado en esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.4** = ya publicado en
+esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.3 (16-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.4 (16-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -27,7 +27,7 @@ publicado en esa versión · **v0.x** = pendiente tras el release · **v1+** = h
 | Historial de undo navegable | v0.x |
 | Autosave por minuto + anillo de 5 backups + recuperación tras crash | v0.2 |
 | Formato `.orbit` (JSON versionado), abrir/guardar/guardar como (Ctrl+O/S) | v0.1 |
-| Import MIDI (arrastrar .mid al proyecto) | v0.x |
+| Import MIDI (Archivo → Importar: canales + patrón + tempo, en un undo) | v0.4 |
 | Info del proyecto (título, autor, notas — el modelo ya lo tiene) | v0.x |
 
 ## 2. Channel Rack
@@ -178,8 +178,8 @@ publicado en esa versión · **v0.x** = pendiente tras el release · **v1+** = h
 | Función | Versión |
 |---|---|
 | Clips de audio en playlist (drop desde el browser; samples rehidratados al abrir) | v0.2 |
-| Grabación de entrada (micro/línea) a la playlist | v0.x |
-| Editor de sample estilo Edison (recortar, fades, normalizar, reverse) | v0.x |
+| Grabación de micro a la playlist (botón en el transport; toma → WAV + clip) | v0.4 |
+| Editor de audio estilo Edison: recorte por asas, ganancia, normalizar, reverse, fades | v0.4 |
 | Time-stretch/pitch-shift de clips | v1+ |
 | Detección de transientes y slice | v0.x |
 
