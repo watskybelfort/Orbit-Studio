@@ -10,6 +10,7 @@ export * from './store';
 export * from './format';
 export { newId } from './ids';
 export { encodeMidi, type EncodeMidiOptions } from './midi/encode';
+export { decodeMidi, type DecodedMidi, type DecodedMidiTrack } from './midi/decode';
 export {
   arpeggiate,
   chop,
