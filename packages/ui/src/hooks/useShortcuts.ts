@@ -59,6 +59,10 @@ export function useShortcuts(): void {
           e.preventDefault();
           ui.toggleWindow('pianoRoll');
           break;
+        case 'F8':
+          e.preventDefault();
+          ui.toggleWindow('liveView');
+          break;
         case 'F9':
           e.preventDefault();
           ui.toggleWindow('mixer');
