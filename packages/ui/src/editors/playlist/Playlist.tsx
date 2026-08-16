@@ -21,8 +21,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   createPlaylistTrack,
   newId,
+  pickColor,
   type Clip,
   type Id,
+  type Marker,
   type PlaylistTrack,
   type Project,
 } from '@orbit/core';
@@ -101,6 +103,8 @@ export function Playlist() {
   const [scrollX, setScrollX] = useState(0); // beats
   const [scrollY, setScrollY] = useState(0); // px
   const [snapIdx, setSnapIdx] = useState(0);
+  /** Marcador en edición de nombre (input flotante sobre la regla). */
+  const [markerEdit, setMarkerEdit] = useState<{ id: Id; x: number; name: string } | null>(null);
   /** Región de loop del transporte (estado de motor, no de proyecto). */
   const [loopRegion, setLoopRegion] = useState<{ start: number; end: number } | null>(null);
 
@@ -156,6 +160,17 @@ export function Playlist() {
 
   const beatToX = useCallback((b: number) => (b - scrollX) * zoom, [scrollX, zoom]);
   const xToBeat = useCallback((x: number) => x / zoom + scrollX, [scrollX, zoom]);
+
+  /** Marcador cuya bandera cae a ±5 px de la x dada (para clic/borrar/renombrar). */
+  const markerAt = useCallback(
+    (x: number): Marker | null => {
+      for (const m of Object.values(project.markers)) {
+        if (Math.abs((m.time - scrollX) * zoom - x) <= 5) return m;
+      }
+      return null;
+    },
+    [project, scrollX, zoom],
+  );
 
   const rowAtY = useCallback(
     (y: number): RowLayout | null => {
@@ -428,6 +443,24 @@ export function Playlist() {
       }
     }
 
+    // Marcadores de sección: bandera con nombre en la regla + guía en la rejilla.
+    for (const m of Object.values(project.markers)) {
+      const mx = beatToX(m.time);
+      if (mx < -100 || mx > w + 20) continue;
+      ctx.fillStyle = m.color;
+      ctx.fillRect(mx, 0, 2, RULER_H);
+      ctx.globalAlpha = 0.16;
+      ctx.fillRect(mx, RULER_H, 1, h - RULER_H);
+      ctx.globalAlpha = 1;
+      ctx.font = `9px ${font}`;
+      const tw = ctx.measureText(m.name).width;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(mx + 2, 1, tw + 8, 11);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = col('--pl-ruler-bg');
+      ctx.fillText(m.name, mx + 6, 9.5);
+    }
+
     // Caret de posición (siempre en SONG) + playhead en reproducción.
     const ui = useUiStore.getState();
     if (ui.playMode === 'song') {
@@ -493,10 +526,19 @@ export function Playlist() {
       const y = e.clientY - rect.top;
       ensureAudioReady();
 
-      // Regla: loop (mitad superior) o seek (mitad inferior).
+      // Regla: loop (mitad superior), seek (mitad inferior) y marcadores.
       if (y < RULER_H) {
         if (e.button === 2) {
-          clearLoop();
+          // Clic derecho sobre una bandera: borrar el marcador; si no, quitar loop.
+          const m = markerAt(x);
+          if (m) {
+            store.dispatch(
+              { type: 'removeMarker', markerId: m.id },
+              { label: `Borrar marcador "${m.name}"` },
+            );
+          } else {
+            clearLoop();
+          }
           return;
         }
         if (e.button !== 0) return;
@@ -504,8 +546,10 @@ export function Playlist() {
         if (y < RULER_H / 2) {
           drag.current = { mode: 'loop', anchor: beat, moved: false };
         } else {
+          // Clic sobre una bandera: salto exacto a su marcador.
+          const m = markerAt(x);
           drag.current = { mode: 'seek' };
-          doSeek(beat);
+          doSeek(m ? m.time : beat);
         }
         return;
       }
@@ -681,7 +725,8 @@ export function Playlist() {
     [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw],
   );
 
-  // Doble clic en un clip de automatización → abrirlo en su editor.
+  // Doble clic: en la regla crea/renombra marcadores; en un clip de
+  // automatización lo abre en su editor.
   const onDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const canvas = canvasRef.current;
@@ -689,14 +734,34 @@ export function Playlist() {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      if (y < RULER_H) return;
+      if (y < RULER_H) {
+        const m = markerAt(x);
+        if (m) {
+          setMarkerEdit({ id: m.id, x: beatToX(m.time), name: m.name });
+        } else {
+          const count = Object.keys(project.markers).length;
+          store.dispatch(
+            {
+              type: 'addMarker',
+              marker: {
+                id: newId(),
+                time: quant(xToBeat(x), snapOf(e), true),
+                name: `Sección ${count + 1}`,
+                color: pickColor(count),
+              },
+            },
+            { label: 'Añadir marcador' },
+          );
+        }
+        return;
+      }
       const hit = clipAt(x, y);
       if (hit?.clip.kind === 'automation') {
         useUiStore.setState({ automationClipId: hit.clip.id });
         useUiStore.getState().openWindow('automation');
       }
     },
-    [clipAt],
+    [clipAt, markerAt, beatToX, xToBeat, snapOf, project],
   );
 
   const onPointerUp = useCallback(() => {
@@ -809,6 +874,30 @@ export function Playlist() {
           </div>
         </div>
         <div className="pl-canvas-wrap" ref={wrapRef}>
+          {markerEdit && (
+            <input
+              className="pl-marker-edit popup"
+              style={{ left: Math.max(2, markerEdit.x + 4), top: 2 }}
+              autoFocus
+              value={markerEdit.name}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => setMarkerEdit({ ...markerEdit, name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                else if (e.key === 'Escape') setMarkerEdit(null);
+              }}
+              onBlur={() => {
+                const name = markerEdit.name.trim();
+                if (name && name !== project.markers[markerEdit.id]?.name) {
+                  store.dispatch(
+                    { type: 'patchMarker', markerId: markerEdit.id, patch: { name } },
+                    { label: 'Renombrar marcador' },
+                  );
+                }
+                setMarkerEdit(null);
+              }}
+            />
+          )}
           <canvas
             ref={canvasRef}
             className="pl-canvas"

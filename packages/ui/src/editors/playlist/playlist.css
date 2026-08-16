@@ -254,3 +254,15 @@ html[data-theme='acrylic'] .playlist {
   font-size: 12px;
   pointer-events: none;
 }
+
+/* Input flotante para renombrar un marcador (doble clic sobre su bandera). */
+.pl-marker-edit {
+  position: absolute;
+  z-index: 5;
+  width: 130px;
+  height: 20px;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text);
+  outline: none;
+}
