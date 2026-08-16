@@ -65,6 +65,86 @@
   font-size: 12px;
 }
 
+/* Play del propio rack: escuchar SOLO este patrón */
+.rack-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  margin-right: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 10px;
+}
+
+.rack-play:hover {
+  border-color: var(--accent);
+}
+
+.rack-play.on {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+
+/* Menú contextual de canal (fixed; el backdrop ya es fixed) */
+.rack-chan-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+  padding: 5px;
+}
+
+.rack-chan-menu-title {
+  padding: 4px 8px 6px;
+  border-left: 3px solid transparent;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rack-chan-color {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.rack-chan-color input {
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Input de renombrar canal (mismo hueco que .rack-name) */
+.rack-rename-input {
+  flex: none;
+  width: 140px;
+  height: 26px;
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
 .rack-dot {
   flex: none;
   width: 10px;
@@ -132,16 +212,20 @@
 .rack-rows {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: 3px;
+  padding: 8px 10px;
 }
 
 .rack-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 4px;
-  border-radius: 5px;
+  gap: 7px;
+  padding: 3px 6px;
+  border-radius: 6px;
+}
+
+.rack-row:hover {
+  background: color-mix(in srgb, var(--text) 3%, transparent);
 }
 
 .rack-row.sel {
@@ -175,8 +259,8 @@
 
 .rack-name {
   flex: none;
-  width: 112px;
-  height: 24px;
+  width: 140px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   padding: 0 8px;
@@ -186,7 +270,7 @@
   border-radius: 4px;
   color: var(--text-dim);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -241,16 +325,16 @@
 .rack-steps {
   flex: 1;
   display: flex;
-  gap: 2px;
+  gap: 3px;
   touch-action: none;
 }
 
 .step {
   position: relative;
-  flex: 1 0 13px;
-  height: 24px;
+  flex: 1 0 16px;
+  height: 26px;
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
   overflow: hidden;
 }
 
@@ -265,7 +349,7 @@
 
 /* Separación entre grupos de 4 */
 .step.gs {
-  margin-left: 6px;
+  margin-left: 8px;
 }
 
 .step:hover::after {
@@ -292,7 +376,7 @@
 .rack-mini {
   position: relative;
   flex: 1;
-  height: 24px;
+  height: 26px;
   padding: 0;
   overflow: hidden;
   background: var(--surface);
