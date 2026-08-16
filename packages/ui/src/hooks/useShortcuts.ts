@@ -1,6 +1,7 @@
 /** Atajos globales de teclado (catálogo en docs/FEATURES.md §15). */
 
 import { useEffect } from 'react';
+import { usePaletteStore } from '../palette';
 import { setPlayMode, store, togglePlay } from '../state/app';
 import { openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
@@ -14,6 +15,12 @@ export function useShortcuts(): void {
       if (e.code === 'Space' && !typing) {
         e.preventDefault();
         void togglePlay();
+        return;
+      }
+      // Ctrl+K abre la paleta incluso escribiendo (es su gracia).
+      if (e.ctrlKey && e.code === 'KeyK') {
+        e.preventDefault();
+        usePaletteStore.getState().togglePalette();
         return;
       }
       if (typing) return;
