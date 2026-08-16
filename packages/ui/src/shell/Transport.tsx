@@ -17,6 +17,7 @@ export function Transport() {
   const positionBeats = useUiStore((s) => s.positionBeats);
   const metronome = useUiStore((s) => s.metronome);
   const masterPeak = useUiStore((s) => s.masterPeakL);
+  const cpu = useUiStore((s) => s.cpu);
 
   const setTempo = useCallback((tempo: number) => {
     store.dispatch({ type: 'setTempo', tempo }, { mergeKey: 'transport:tempo' });
@@ -92,6 +93,12 @@ export function Transport() {
 
       <div className="transport-group meter-group" title="Nivel master">
         <LevelMeter peak={masterPeak} height={22} />
+      </div>
+
+      <div className="transport-group" title="Carga del motor de audio">
+        <span className={`cpu-display${cpu > 0.85 ? ' hot' : cpu > 0.6 ? ' warm' : ''}`}>
+          CPU {Math.round(cpu * 100)}%
+        </span>
       </div>
     </div>
   );
