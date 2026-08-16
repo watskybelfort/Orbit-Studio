@@ -99,6 +99,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Altura e icono por pista | v0.x |
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | Consolidar selección a audio (bounce in place) | v0.x |
+| **Vista Live por escenas** (F8): pads por patrón, lanzamiento cuantizado al cierre del loop | v0.7 |
 | Pistas apiladas / carriles de toma | v1+ |
 
 ## 5. Mixer
@@ -194,7 +195,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Clips de audio en playlist (drop desde el browser; samples rehidratados al abrir) | v0.2 |
 | Grabación de micro a la playlist (botón en el transport; toma → WAV + clip) | v0.4 |
 | Editor de audio estilo Edison: recorte por asas, ganancia, normalizar, reverse, fades | v0.4 |
-| Time-stretch/pitch-shift de clips | v1+ |
+| Time-stretch de clips (SOLA por grains, pitch intacto, toggle Stretch) | v0.7 |
+| Pitch-shift de clips | v1+ |
 | Detección de transientes y slice | v0.x |
 
 ## 11. Export / render
@@ -279,7 +281,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
 | Función | Versión |
 |---|---|
-| SDK de plugins JS/TS (instrumentos y efectos en sandbox AudioWorklet) | v0.x |
+| **SDK de plugins JS** (efectos): carpeta de usuario, perillas propias, sandbox del worklet con bypass anti-crash, en vivo y en el export (docs/PLUGINS.md) | v0.7 |
+| Plugins JS de instrumento | v0.x |
 | Galería de plugins de la comunidad en el browser | v1+ |
 | Puente CLAP / VST3 vía proceso host nativo | v1+ |
 
