@@ -91,6 +91,7 @@ function createWindow(): BrowserWindow {
 
   const win = new BrowserWindow({
     title: 'Orbit Studio',
+    icon: join(__dirname, '../../resources/icon.ico'),
     width: 1440,
     height: 900,
     minWidth: 960,
