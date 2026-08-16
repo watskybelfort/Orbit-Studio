@@ -1,0 +1,353 @@
+/* Mixer estilo FL Studio: strips horizontales + panel de cadena de efectos.
+   Regla del repo: cero colores hardcodeados — todo por tokens var(--...). */
+
+.mixer {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* ── Strips ── */
+
+.mixer-strips {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px;
+  overflow: auto;
+}
+
+.strip {
+  flex: none;
+  width: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  cursor: default;
+}
+
+.strip:hover {
+  border-color: var(--text-dim);
+}
+
+.strip.selected {
+  border-color: var(--accent);
+}
+
+.strip.master {
+  background: var(--surface-2);
+}
+
+.strip-color {
+  width: 100%;
+  height: 3px;
+  flex: none;
+}
+
+.strip-num {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  margin-top: 3px;
+  color: var(--text-dim);
+}
+
+.strip.selected .strip-num {
+  color: var(--accent);
+}
+
+.strip-name {
+  height: 14px;
+  max-width: 58px;
+  font-size: 10px;
+  color: var(--text);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strip-name-input {
+  width: 58px;
+  font: inherit;
+  font-size: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0 3px;
+  outline: none;
+}
+
+.strip-fader-row {
+  display: flex;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.strip-db {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.strip-ms {
+  display: flex;
+  gap: 4px;
+}
+
+.strip-btn {
+  width: 22px;
+  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+}
+
+.strip-btn:hover {
+  color: var(--text);
+}
+
+.strip-btn.on-mute {
+  color: var(--meter-clip);
+  border-color: var(--meter-clip);
+}
+
+.strip-btn.on-solo {
+  color: var(--meter-hot);
+  border-color: var(--meter-hot);
+}
+
+/* Zona de routing rápido (puntito de send / flecha de routeTo) */
+
+.strip-route {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.strip-route-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  opacity: 0.55;
+}
+
+.strip-route-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.strip-route-arrow {
+  color: var(--accent);
+  font-size: 9px;
+  line-height: 1;
+}
+
+/* ── Panel de cadena ── */
+
+.mixer-chain {
+  width: 300px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.mixer-chain-header {
+  flex: none;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mixer-chain-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-chain-route {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.mixer-chain-slots {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fx-slot {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.fx-slot.empty {
+  background: none;
+}
+
+.fx-add {
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-radius: var(--radius);
+}
+
+.fx-add:hover {
+  color: var(--accent);
+}
+
+.fx-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 6px;
+}
+
+.fx-led {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.fx-led.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.fx-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fx-row.off .fx-name {
+  color: var(--text-dim);
+}
+
+.fx-del {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-dim);
+}
+
+.fx-del:hover {
+  background: var(--titlebar-close-hover);
+  color: var(--titlebar-close-hover-text);
+}
+
+/* Editor inline del efecto expandido */
+
+.fx-editor {
+  border-top: 1px solid var(--border);
+  padding: 8px 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 4px;
+}
+
+.fx-empty {
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 2px 4px;
+}
+
+.fx-opt {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.fx-side {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 4px;
+}
+
+.fx-side span {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.mixer-select {
+  font: inherit;
+  font-size: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 4px;
+  outline: none;
+  max-width: 140px;
+}
+
+.mixer-select:focus {
+  border-color: var(--accent);
+}
+
+/* ── Menú flotante (lista de efectos / "Enrutar aquí") ──
+   Reusa .popup (tokens + blur en acrílico) y .menu-item del shell. */
+
+.mixer-menu {
+  position: fixed;
+  z-index: 3000;
+  min-width: 160px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+}
