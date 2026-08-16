@@ -1,0 +1,27 @@
+# Empaquetado Windows de Orbit Studio (electron-builder).
+# electron-vite deja la app compilada en out/; aquí solo se envuelve: asar con
+# out/ + resources/ (icono de ventana) y el pack de sonidos como recurso
+# externo en resources/sound-library — la ruta exacta que el main espera
+# cuando app.isPackaged.
+appId: studio.orbit.desktop
+productName: Orbit Studio
+electronVersion: 43.4.0
+directories:
+  output: dist
+files:
+  - out/**
+  - resources/**
+  - package.json
+extraResources:
+  - from: ../../packages/sound-library/factory
+    to: sound-library
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: resources/icon.ico
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: Orbit-Studio-Setup-${version}.exe
+  shortcutName: Orbit Studio
