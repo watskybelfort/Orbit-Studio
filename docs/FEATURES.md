@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** / **v0.2** = ya publicado en
-esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
+y el sistema de temas acrílicos. Leyenda: **v0.1** / **v0.2** / **v0.3** = ya
+publicado en esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.2 (16-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.3 (16-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -55,7 +55,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Selección marquee (Ctrl+arrastre), Ctrl+A, duplicar (Ctrl+B), Supr | v0.1 |
 | Modos de herramienta brush / cortar (slice) | v0.x |
 | Velocity por nota (carril inferior) | v0.1 |
-| Pan por nota (el modelo ya lo tiene) | v0.x |
+| Pan por nota (carril inferior conmutable Vel/Pan) | v0.3 |
 | **Slide notes** (glide real del 808, como FL) | v0.1 |
 | Snap: línea, 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, ninguno | v0.1 |
 | Snap magnético | v0.x |
@@ -63,9 +63,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Bloqueo a escala al dibujar | v0.x |
 | Ghost notes de otros canales del patrón | v0.1 |
 | Zoom H (Ctrl+rueda) + scroll, preview audible al arrastrar | v0.1 |
-| Minimapa | v0.x |
+| Minimapa clicable (vista completa del patrón + viewport) | v0.3 |
 | Herramientas: Quantize, Transponer ±octava | v0.1 |
-| Herramientas: Arpegiar, Strum, Humanize, Chop | v0.x |
+| Herramientas: Arpegiar, Strum, Humanize, Chop (sobre la selección o todo) | v0.3 |
 | Stamp de acordes (mayor, menor, 7ª…) | v0.x |
 | Riff machine (generador de motivos) | v1+ |
 | Grabación MIDI en vivo desde teclado (Web MIDI) con cuantización | v0.x |
@@ -101,10 +101,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Editor de parámetros de cada efecto inline (perillas por parámetro) | v0.1 |
 | Routing libre pista→pista (clic derecho, "enrutar aquí") | v0.1 |
 | Sends (Ctrl+clic) | v0.1 |
-| Nivel ajustable por send | v0.x |
+| Nivel ajustable por send (perilla + quitar, en la cadena de la pista) | v0.3 |
 | Sidechain (cualquier pista como fuente del compresor de otra) | v0.1 |
 | Medidores peak por strip + master | v0.1 |
-| Medidor RMS y clip indicator | v0.x |
+| Línea de RMS en el master + LED de clip enclavado (clic = reset) | v0.3 |
 | Color editable por pista | v0.x |
 | EQ rápido de 3 bandas en el strip (como FL) | v0.x |
 | Grabar la salida de una pista a audio | v0.x |
@@ -140,7 +140,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Gate | v0.1 |
 | Utilidades estéreo: width, gain, mono-maker (low-end mono) | v0.1 |
 | Medidor LUFS + análisis de mezcla (offline, en el export y `analyze_mix`) | v0.1 |
-| Orbit Scope en tiempo real (espectro, osciloscopio) | v0.x |
+| **Orbit Scope** en tiempo real: forma de onda + espectro del master (Ver → Orbit Scope) | v0.3 |
 | Vinyl/lo-fi (crujido + wow/flutter) | v0.x |
 | Pitch shifter / vocoder | v1+ |
 | Convolución (IRs) | v1+ |
@@ -207,7 +207,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Edición simultánea sin conflictos (CRDT Yjs, log de comandos) | v0.1 |
 | Reconexión automática con backoff | v0.1 |
 | Lista de conectados con nombre y color | v0.1 |
-| Cursores remotos y "está editando X" (la tubería de awareness ya existe) | v0.x |
+| Cursores remotos en playlist y piano roll (caret con nombre y color) | v0.3 |
+| "Está editando X" en el panel (Playlist, Piano Roll · canal, Mixer · pista…) | v0.3 |
 | Undo **por usuario** (tu Ctrl+Z no deshace lo del otro) | v0.1 |
 | Servidor propio (`apps/server`) con persistencia de sesiones y /health | v0.1 |
 | Modo seguidor (ver la pantalla lógica de otro) | v0.x |
@@ -224,7 +225,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Todas sus ediciones pasan por el bus de comandos → undo separado del tuyo | v0.1 |
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
-| Claude en la lista de presencia de la sesión como un colaborador más | v0.x |
+| Claude en la lista de presencia de la sesión (fila propia bajo su usuario) | v0.3 |
 | Campo de petición rápida ("súbeme la voz en el drop") → lanza a Claude | v0.x |
 | Claude genera contenido a la librería (packs a demanda) | v0.x |
 

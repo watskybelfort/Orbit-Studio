@@ -6,22 +6,23 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 16-08-2026: v0.2.0
+## Estado — 16-08-2026: v0.3.0
 
-v0.1: fases 0–7 ejecutadas y verificadas con QA real contra la app viva (beat
-por el bridge de Claude, colaboración con dos clientes convergiendo, ciclo de
-temas con capturas). v0.2 (bloques "fiabilidad diaria" + "flujo real"): CI en
-GitHub Actions, medidor de CPU visible, autosave con anillo de backups y crash
-recovery, **export MIDI multipista** junto al WAV, marcadores de sección en la
-playlist, drag & drop del browser (canal sampler / clip de audio) y
-rehidratación de samples al cargar proyecto. 52 tests en verde.
+v0.1: fases 0–7 completas con QA real contra la app viva. v0.2: fiabilidad
+diaria (CI, CPU visible, autosave + crash recovery) y flujo real (export MIDI
+multipista, marcadores, drag & drop, clips de audio, rehidratación de samples).
+v0.3, "el estudio se siente vivo": **piano roll pro** (arpegiar, strum,
+humanize y chop de note-tools, pan por nota en el carril conmutable, minimapa
+clicable), **colaboración visible** (cursores remotos con nombre y color en
+playlist y piano roll, actividad por peer en el panel y Claude como
+colaborador en la presencia) y **mixer fino** (nivel por send con perilla,
+línea de RMS + LED de clip enclavado, Orbit Scope real con forma de onda y
+espectro del master). 65 tests en verde. Instalador NSIS por release.
 
 Backlog v0.x (detalle en [FEATURES.md](FEATURES.md)): pause/tap tempo,
-herramientas avanzadas del piano roll (arpegiar/strum/humanize/chop, minimapa,
-pan por nota), slice/mute por clip, gestión de arrangements, paleta de comandos
-Ctrl+K, cursores remotos de presencia y Claude como peer, niveles por send,
-RMS/clip indicator, Orbit Scope en tiempo real, export de selección y sample
-rates, carpetas del usuario en el browser.
+slice/mute por clip, gestión de arrangements desde la UI, paleta de comandos
+Ctrl+K, export de selección y sample rates, carpetas del usuario en el
+browser, snap magnético y bloqueo a escala, graph editor del rack.
 
 ---
 
