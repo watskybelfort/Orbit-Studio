@@ -45,6 +45,12 @@ interface OrbitApi {
     /** Bytes de un archivo del pack (ruta relativa tal como viene en el manifest). */
     read(file: string): Promise<ArrayBuffer>;
   };
+  readonly project: {
+    /** Diálogo de apertura .orbit; null si el usuario cancela. */
+    open(): Promise<{ path: string; json: string } | null>;
+    /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
+    save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
+  };
 }
 
 interface Window {

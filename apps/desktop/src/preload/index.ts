@@ -46,6 +46,12 @@ export interface OrbitApi {
     /** Bytes de un archivo del pack (ruta relativa tal como viene en el manifest). */
     read(file: string): Promise<ArrayBuffer>;
   };
+  readonly project: {
+    /** Diálogo de apertura .orbit; null si el usuario cancela. */
+    open(): Promise<{ path: string; json: string } | null>;
+    /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
+    save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
+  };
 }
 
 const api: OrbitApi = {
@@ -91,6 +97,11 @@ const api: OrbitApi = {
   library: {
     manifest: () => ipcRenderer.invoke('library:manifest'),
     read: (file) => ipcRenderer.invoke('library:read', file),
+  },
+  project: {
+    open: () => ipcRenderer.invoke('project:open'),
+    save: (path, json, suggestedName) =>
+      ipcRenderer.invoke('project:save', path, json, suggestedName),
   },
 };
 

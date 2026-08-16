@@ -291,6 +291,58 @@ function registerIpc(): void {
     await writeFile(target, bytes);
   });
 
+  // ── Proyectos .orbit (diálogos + fs SOLO en el main) ───────────────────────
+
+  ipcMain.handle('project:open', async (event) => {
+    const win = windowOf(event.sender);
+    const options = {
+      title: 'Abrir proyecto',
+      filters: [
+        { name: 'Proyecto Orbit', extensions: ['orbit'] },
+        { name: 'Todos los archivos', extensions: ['*'] },
+      ],
+      properties: ['openFile' as const],
+    };
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
+    const path = result.filePaths[0];
+    if (result.canceled || !path) return null;
+    const json = await readFile(path, 'utf8');
+    return { path: resolvePath(path), json };
+  });
+
+  // path null = "guardar como" (diálogo); si no, sobrescribe la ruta dada.
+  ipcMain.handle(
+    'project:save',
+    async (event, path: unknown, json: unknown, suggestedName: unknown) => {
+      if (typeof json !== 'string' || json.length === 0) {
+        throw new Error('project:save requiere el JSON del proyecto');
+      }
+      let target = typeof path === 'string' && path.length > 0 ? resolvePath(path) : null;
+      if (!target) {
+        const win = windowOf(event.sender);
+        const name =
+          typeof suggestedName === 'string' && suggestedName.length > 0
+            ? suggestedName
+            : 'proyecto.orbit';
+        const options = {
+          title: 'Guardar proyecto',
+          defaultPath: join(app.getPath('documents'), name),
+          filters: [{ name: 'Proyecto Orbit', extensions: ['orbit'] }],
+        };
+        const result = win
+          ? await dialog.showSaveDialog(win, options)
+          : await dialog.showSaveDialog(options);
+        if (result.canceled || !result.filePath) return null;
+        target = resolvePath(result.filePath);
+      }
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, json, 'utf8');
+      return target;
+    },
+  );
+
   // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
   // En desarrollo el pack vive en packages/sound-library/factory; empaquetado,
   // en resources/sound-library. library:read solo sirve archivos DENTRO del pack.
