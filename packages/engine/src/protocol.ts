@@ -81,6 +81,8 @@ export interface CompiledAudioClip {
 
 export interface CompiledProject {
   tempo: number;
+  /** Pulsos por compás (acento del metrónomo); ausente = 4. */
+  timeSigNum?: number;
   /** Longitud del timeline en beats (para loop de canción y render). */
   lengthBeats: number;
   channels: CompiledChannel[];

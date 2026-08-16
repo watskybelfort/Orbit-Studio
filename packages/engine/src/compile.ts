@@ -307,6 +307,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
 
   return {
     tempo: project.tempo,
+    timeSigNum: project.timeSig.num,
     lengthBeats,
     channels,
     events,

@@ -276,3 +276,53 @@ describe('kernel: medidores y scope', () => {
     expect(energia(c.meterFrame().scope!)).toBeGreaterThan(0);
   });
 });
+
+describe('kernel: metrónomo', () => {
+  /** Proyecto compilado vacío (solo mixer): el único audio es el click. */
+  function emptyCompiled() {
+    const p = createEmptyProject('Metro');
+    p.tempo = 120;
+    return compileProject(p, { mode: 'pattern', patternId: p.patternOrder[0]! });
+  }
+
+  it('suena desde el primer bloque (incluido el beat 0) y por beat', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: emptyCompiled() });
+    core.handleMessage({ type: 'setMetronome', enabled: true });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    core.process(l, r, MAX_BLOCK);
+    // El click del beat 0 tiene que estar en el PRIMER bloque.
+    let first = 0;
+    for (const v of l) first = Math.max(first, Math.abs(v));
+    expect(first).toBeGreaterThan(0.2);
+
+    // A 120 BPM el beat 1 cae en el sample 22050: procesa hasta pasarlo y
+    // verifica que alrededor hay un click nuevo (pico alto tras el ataque).
+    const spBeat = (60 / 120) * 44100; // samples por beat
+    const blocksToBeat1 = Math.floor(spBeat / MAX_BLOCK) - 1;
+    runBlocks(core, blocksToBeat1);
+    let nearBeat1 = 0;
+    for (let i = 0; i < 4; i++) {
+      core.process(l, r, MAX_BLOCK);
+      for (const v of l) nearBeat1 = Math.max(nearBeat1, Math.abs(v));
+    }
+    expect(nearBeat1).toBeGreaterThan(0.2);
+  });
+
+  it('sin metrónomo el proyecto vacío es silencio absoluto', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: emptyCompiled() });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    let peak = 0;
+    for (let i = 0; i < 40; i++) {
+      core.process(l, r, MAX_BLOCK);
+      for (const v of l) peak = Math.max(peak, Math.abs(v));
+    }
+    expect(peak).toBe(0);
+  });
+});

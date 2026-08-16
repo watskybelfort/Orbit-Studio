@@ -50,6 +50,7 @@ export class KernelCore {
   playing = false;
   posBeats = 0;
   private tempo = 140;
+  private timeSigNum = 4;
   private loopEnabled = true;
   private loopStart = 0;
   private loopEnd = 4;
@@ -175,6 +176,7 @@ export class KernelCore {
   private setSnapshot(p: CompiledProject): void {
     this.project = p;
     this.tempo = p.tempo;
+    this.timeSigNum = p.timeSigNum ?? 4;
     const n = p.mixer.length;
     if (this.bufL.length !== n) {
       this.bufL = Array.from({ length: n }, () => new Float32Array(MAX_BLOCK));
@@ -489,26 +491,28 @@ export class KernelCore {
       }
     }
 
-    // Metrónomo
+    // Metrónomo: dispara cuando un beat ENTERO cae dentro de la ventana de un
+    // sample [b, b+spb). (La versión anterior exigía nearest > round(startBeat),
+    // que con bloques de 128 samples nunca se cumplía: no sonaba jamás.)
     if (this.metronome && this.playing) {
       const startBeat = this.posBeats - blockBeats;
+      const beatsPerBar = Math.max(1, this.timeSigNum);
       for (let i = 0; i < n; i++) {
         const b = startBeat + i * spb;
-        const nearest = Math.round(b);
-        if (Math.abs(b - nearest) < spb * 0.5 && nearest > Math.round(startBeat - spb)) {
-          if (Math.floor((b + spb) / 1) !== Math.floor(b / 1) || i === 0) {
-            // Flanco de beat: dispara click (agudo en el 1 del compás).
-            this.clickEnv = 1;
-            this.clickFreq = nearest % 4 === 0 ? 1760 : 1175;
-          }
+        const beatIdx = Math.ceil(b - 1e-9);
+        if (beatIdx >= 0 && beatIdx < b + spb - 1e-9) {
+          // Flanco de beat: click (agudo y más fuerte en el 1 del compás).
+          this.clickEnv = 1;
+          this.clickPhase = 0;
+          this.clickFreq = beatIdx % beatsPerBar === 0 ? 1760 : 1175;
         }
         if (this.clickEnv > 0.001) {
           this.clickPhase += this.clickFreq / this.sr;
           if (this.clickPhase >= 1) this.clickPhase -= 1;
-          const s = Math.sin(2 * Math.PI * this.clickPhase) * this.clickEnv * 0.25;
+          const s = Math.sin(2 * Math.PI * this.clickPhase) * this.clickEnv * 0.5;
           this.bufL[0]![i]! += s;
           this.bufR[0]![i]! += s;
-          this.clickEnv *= Math.exp(-1 / (0.01 * this.sr));
+          this.clickEnv *= Math.exp(-1 / (0.02 * this.sr));
         }
       }
     }
