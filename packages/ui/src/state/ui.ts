@@ -10,7 +10,8 @@ export type WindowId =
   | 'settings'
   | 'export'
   | 'automation'
-  | 'collab';
+  | 'collab'
+  | 'scope';
 
 export interface WindowState {
   open: boolean;
@@ -36,6 +37,8 @@ export interface UiState {
   clipped: boolean;
   cpu: number;
   trackPeaks: Float32Array | null;
+  /** Últimos samples del master para el Orbit Scope (solo con la ventana abierta). */
+  scopeFrame: Float32Array | null;
 
   activePatternId: string | null;
   /** Canal cuyo piano roll está abierto. */
@@ -65,6 +68,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   export: { open: false, x: 320, y: 100, w: 420, h: 500, z: 1 },
   automation: { open: false, x: 240, y: 140, w: 720, h: 380, z: 1 },
   collab: { open: false, x: 380, y: 140, w: 420, h: 380, z: 1 },
+  scope: { open: false, x: 300, y: 180, w: 560, h: 360, z: 1 },
 };
 
 export const useUiStore = create<UiState>((set) => ({
@@ -80,6 +84,7 @@ export const useUiStore = create<UiState>((set) => ({
   clipped: false,
   cpu: 0,
   trackPeaks: null,
+  scopeFrame: null,
 
   activePatternId: null,
   pianoRollChannelId: null,

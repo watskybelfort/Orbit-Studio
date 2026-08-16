@@ -16,6 +16,7 @@ import {
   IconPlaylist,
   IconSave,
   IconSettings,
+  IconWave,
 } from '../icons';
 import { store } from '../state/app';
 import { newProject, openProject, saveProject } from '../state/project-file';
@@ -66,6 +67,7 @@ export function MenuBar() {
       { label: 'Piano Roll', icon: <IconPianoRoll />, shortcut: 'F7', action: () => toggleWindow('pianoRoll') },
       { label: 'Mixer', icon: <IconMixer />, shortcut: 'F9', action: () => toggleWindow('mixer') },
       { label: 'Automatización', icon: <IconAutomation />, action: () => toggleWindow('automation') },
+      { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
       { label: '', separator: true },
       {
         label: 'Browser',

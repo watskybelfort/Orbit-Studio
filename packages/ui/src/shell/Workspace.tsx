@@ -8,6 +8,7 @@ import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
 import { Playlist } from '../editors/playlist';
 import { ExportPanel } from '../export';
+import { ScopePanel } from '../scope';
 import { SettingsPanel } from '../settings/SettingsPanel';
 import './shell.css';
 
@@ -37,6 +38,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="automation" title="Automatización" minW={520}>
         <AutomationEditor />
+      </InternalWindow>
+      <InternalWindow id="scope" title="Orbit Scope" minW={360} minH={240}>
+        <ScopePanel />
       </InternalWindow>
     </div>
   );

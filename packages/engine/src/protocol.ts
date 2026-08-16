@@ -101,6 +101,7 @@ export type ToKernel =
   | { type: 'seek'; beat: number }
   | { type: 'setLoop'; start: number; end: number; enabled: boolean }
   | { type: 'setMetronome'; enabled: boolean }
+  | { type: 'setScope'; enabled: boolean }
   | { type: 'setTempo'; tempo: number }
   | { type: 'channelParam'; channelIndex: number; key: string; value: number }
   | { type: 'channelMix'; channelIndex: number; volume: number; pan: number; audible: boolean }
@@ -119,6 +120,8 @@ export interface MeterFrame {
   peaks: Float32Array;
   /** RMS master L/R. */
   masterRms: [number, number];
+  /** Últimos samples del master (mono L+R/2) para el Orbit Scope; solo si está activado. */
+  scope?: Float32Array;
   /** Posición del playhead en beats. */
   positionBeats: number;
   playing: boolean;
