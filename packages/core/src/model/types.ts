@@ -165,7 +165,8 @@ export type EffectKind =
   | 'autofilter'
   | 'gate'
   | 'stereo'
-  | 'analyzer';
+  | 'analyzer'
+  | 'plugin';
 
 export interface EffectSlot {
   id: Id;
@@ -176,6 +177,8 @@ export interface EffectSlot {
   params: Record<string, number>;
   /** Pista de mixer que alimenta el detector (compresor sidechain). */
   sidechainSource?: number;
+  /** kind === 'plugin': id del plugin JS de usuario que ocupa el slot. */
+  pluginId?: string;
 }
 
 export const MIXER_SLOTS = 10;

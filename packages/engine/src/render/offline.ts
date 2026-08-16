@@ -13,6 +13,8 @@ export interface RenderOptions {
   /** Cola de reverb/delay tras el final, en segundos. */
   tailSeconds?: number;
   samples?: Map<string, SampleData>;
+  /** Plugins JS de usuario (pluginId → código fuente) usados por el proyecto. */
+  plugins?: Map<string, string>;
   onProgress?: (fraction: number) => void;
 }
 
@@ -38,6 +40,11 @@ export function renderProject(project: CompiledProject, opts: RenderOptions = {}
         right: s.right,
         sampleRate: s.rate,
       });
+    }
+  }
+  if (opts.plugins) {
+    for (const [id, code] of opts.plugins) {
+      core.handleMessage({ type: 'registerPlugin', pluginId: id, code });
     }
   }
   core.handleMessage({ type: 'snapshot', project });

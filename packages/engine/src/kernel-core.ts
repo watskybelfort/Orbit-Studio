@@ -29,6 +29,12 @@ interface ActiveVoice {
 
 const MAX_VOICES = 64;
 
+/** Instancia creada por la fábrica `createEffect(sampleRate)` de un plugin JS. */
+interface PluginInstance {
+  setParams?(params: Record<string, number>): void;
+  process(l: Float32Array, r: Float32Array, n: number): void;
+}
+
 export class KernelCore {
   private project: CompiledProject | null = null;
   private samples = new Map<string, SampleData>();
@@ -45,6 +51,11 @@ export class KernelCore {
 
   private voices: ActiveVoice[] = [];
   private voiceOrder = 0;
+
+  /** Plugins JS de usuario: fábricas compiladas por pluginId. */
+  private plugins = new Map<string, (sr: number) => PluginInstance>();
+  /** Snapshot en cola (vista Live): entra al terminar el loop actual. */
+  private pendingProject: CompiledProject | null = null;
 
   // Transport
   playing = false;
@@ -80,7 +91,16 @@ export class KernelCore {
   handleMessage(msg: ToKernel): void {
     switch (msg.type) {
       case 'snapshot':
+        this.pendingProject = null; // un snapshot directo cancela la cola
         this.setSnapshot(msg.project);
+        break;
+      case 'queueSnapshot':
+        // Sonando: entra al cerrar el loop (cambio cuantizado). Parado: ya.
+        if (this.playing) this.pendingProject = msg.project;
+        else this.applyQueued(msg.project);
+        break;
+      case 'registerPlugin':
+        this.registerPlugin(msg.pluginId, msg.code);
         break;
       case 'play':
         this.posBeats = msg.fromBeat;
@@ -194,11 +214,14 @@ export class KernelCore {
         alive.add(slot.id);
         let unit = this.effects.get(slot.id);
         if (!unit) {
-          unit = createEffect(slot.kind, this.sr);
-          this.effects.set(slot.id, unit);
+          unit =
+            slot.kind === 'plugin'
+              ? this.makePluginUnit(slot.pluginId)
+              : createEffect(slot.kind, this.sr);
+          if (unit) this.effects.set(slot.id, unit);
         }
-        unit.setParams(slot.params);
-        unit.setTempo?.(this.tempo);
+        unit?.setParams(slot.params);
+        unit?.setTempo?.(this.tempo);
       }
     }
     for (const id of this.effects.keys()) {
@@ -221,6 +244,65 @@ export class KernelCore {
         if (slot) this.effects.get(slot.id)?.setTempo?.(this.tempo);
       }
     }
+  }
+
+  // ── Plugins JS de usuario ─────────────────────────────────────────────────
+  // El archivo del plugin define `createEffect(sampleRate)` (y opcionalmente
+  // `name`/`params`). Se compila UNA vez por id; cada slot instancia la
+  // fábrica. Un plugin que lanza se desactiva solo (bypass), nunca tira el
+  // hilo de audio.
+
+  private registerPlugin(pluginId: string, code: string): void {
+    try {
+      const factory = new Function(
+        `${code}\n;return typeof createEffect === 'function' ? createEffect : null;`,
+      )() as ((sr: number) => PluginInstance) | null;
+      if (typeof factory !== 'function') return;
+      this.plugins.set(pluginId, factory);
+      // Si el proyecto ya referencia este plugin, re-instancia sus slots.
+      if (this.project) this.setSnapshot(this.project);
+    } catch {
+      // Código roto: el plugin no se registra (el slot queda en bypass).
+    }
+  }
+
+  private makePluginUnit(pluginId: string | undefined): EffectUnit | null {
+    const factory = pluginId ? this.plugins.get(pluginId) : undefined;
+    if (!factory) return null;
+    let inst: PluginInstance;
+    try {
+      inst = factory(this.sr);
+      if (!inst || typeof inst.process !== 'function') return null;
+    } catch {
+      return null;
+    }
+    let broken = false;
+    return {
+      setParams: (p) => {
+        if (broken) return;
+        try {
+          inst.setParams?.(p);
+        } catch {
+          broken = true;
+        }
+      },
+      process: (l, r, n) => {
+        if (broken) return;
+        try {
+          inst.process(l, r, n);
+        } catch {
+          broken = true; // bypass permanente: el audio sigue limpio
+        }
+      },
+    };
+  }
+
+  /** Aplica un snapshot en cola: loop completo del nuevo timeline, desde 0. */
+  private applyQueued(p: CompiledProject): void {
+    this.setSnapshot(p);
+    this.loopStart = 0;
+    this.loopEnd = p.lengthBeats;
+    this.loopEnabled = true;
   }
 
   // ── Scheduler ─────────────────────────────────────────────────────────────
@@ -406,6 +488,13 @@ export class KernelCore {
         const wrapSamples = Math.round((this.loopEnd - this.posBeats) / spb);
         this.triggerRange(this.posBeats, this.loopEnd, 0, spb);
         const remainBeats = end - this.loopEnd;
+        // Cambio cuantizado (vista Live): el snapshot en cola entra EXACTO
+        // en el cierre del loop, con precisión de sample.
+        if (this.pendingProject) {
+          this.applyQueued(this.pendingProject);
+          this.pendingProject = null;
+          this.releaseAllVoices();
+        }
         this.posBeats = this.loopStart;
         this.resyncCursor();
         this.triggerRange(this.loopStart, this.loopStart + remainBeats, wrapSamples, spb);

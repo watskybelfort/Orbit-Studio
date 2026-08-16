@@ -47,6 +47,7 @@ function compileEffect(slot: EffectSlot): CompiledEffect {
     mix: slot.mix,
     params: { ...slot.params },
     sidechainSource: slot.sidechainSource,
+    pluginId: slot.pluginId,
   };
 }
 

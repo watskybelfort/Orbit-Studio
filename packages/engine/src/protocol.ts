@@ -38,6 +38,8 @@ export interface CompiledEffect {
   mix: number;
   params: Record<string, number>;
   sidechainSource?: number;
+  /** kind === 'plugin': id del plugin JS registrado en el kernel. */
+  pluginId?: string;
 }
 
 export interface CompiledMixerTrack {
@@ -100,6 +102,10 @@ export interface CompiledProject {
 
 export type ToKernel =
   | { type: 'snapshot'; project: CompiledProject }
+  /** Cambio CUANTIZADO: el snapshot entra al terminar el loop actual (vista Live). */
+  | { type: 'queueSnapshot'; project: CompiledProject }
+  /** Registra (o actualiza) un plugin JS de usuario: código fuente del módulo. */
+  | { type: 'registerPlugin'; pluginId: string; code: string }
   | { type: 'play'; fromBeat: number }
   | { type: 'stop' }
   | { type: 'seek'; beat: number }
