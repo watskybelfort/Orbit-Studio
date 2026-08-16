@@ -8,9 +8,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SCALES,
+  arpeggiate,
+  chop,
+  humanize,
   inScale,
   midiToNote,
   newId,
+  strum,
   type Note,
 } from '@orbit/core';
 import { engine, store } from '../../state/app';
@@ -68,6 +72,8 @@ export function PianoRoll() {
   const [scaleRoot, setScaleRoot] = useState(5); // F
   const [scaleName, setScaleName] = useState<string>('Menor natural');
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  /** Qué edita el carril inferior: velocity o pan por nota. */
+  const [laneMode, setLaneMode] = useState<'velocity' | 'pan'>('velocity');
   const [lastDuration, setLastDuration] = useState(1);
   const drag = useRef<DragState | null>(null);
   /** Deltas visuales durante el gesto (sin tocar el store hasta soltar). */
@@ -241,19 +247,30 @@ export function PianoRoll() {
       ctx.setLineDash([]);
     }
 
-    // ── Velocity lane ──
+    // ── Carril inferior: velocity o pan por nota ──
     ctx.fillStyle = col('--pr-lane-bg');
     ctx.fillRect(0, gridH, w, VEL_LANE_H);
     ctx.fillStyle = col('--pr-row-line');
     ctx.fillRect(0, gridH, w, 1);
+    if (laneMode === 'pan') {
+      ctx.fillRect(0, gridH + VEL_LANE_H / 2, w, 1);
+    }
     for (const raw of notes) {
       const n = current?.get(raw.id) ?? raw;
       const x = beatToX(n.start);
       if (x < -4 || x > w) continue;
-      const vh = n.velocity * (VEL_LANE_H - 10);
       ctx.fillStyle = accent;
       ctx.globalAlpha = selection.size === 0 || selection.has(n.id) ? 0.95 : 0.35;
-      ctx.fillRect(x + 1, gridH + (VEL_LANE_H - vh) - 4, 4, vh);
+      if (laneMode === 'velocity') {
+        const vh = n.velocity * (VEL_LANE_H - 10);
+        ctx.fillRect(x + 1, gridH + (VEL_LANE_H - vh) - 4, 4, vh);
+      } else {
+        // Pan: barra desde la línea central (arriba = derecha, abajo = izquierda).
+        const mid = gridH + VEL_LANE_H / 2;
+        const ph = ((n.pan ?? 0) / 2) * (VEL_LANE_H - 10);
+        if (ph >= 0) ctx.fillRect(x + 1, mid - Math.max(2, ph), 4, Math.max(2, ph));
+        else ctx.fillRect(x + 1, mid, 4, Math.max(2, -ph));
+      }
       ctx.globalAlpha = 1;
     }
 
@@ -264,7 +281,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
+  }, [notes, pattern, channel, channelId, selection, laneMode, scrollX, scrollY, zoomX, scaleRoot, scale, project.timeSig.num, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -307,7 +324,8 @@ export function PianoRoll() {
         before.start !== after.start ||
         before.key !== after.key ||
         before.duration !== after.duration ||
-        before.velocity !== after.velocity
+        before.velocity !== after.velocity ||
+        (before.pan ?? 0) !== (after.pan ?? 0)
       ) {
         patches.push({
           id,
@@ -315,6 +333,7 @@ export function PianoRoll() {
           key: after.key,
           duration: after.duration,
           velocity: after.velocity,
+          pan: after.pan ?? 0,
         });
       }
     }
@@ -322,12 +341,21 @@ export function PianoRoll() {
     if (patches.length > 0) {
       store.dispatch(
         { type: 'patchNotes', patternId: activePatternId, channelId, patches },
-        { label: d.mode === 'resize' ? 'Redimensionar notas' : d.mode === 'velocity' ? 'Velocity' : 'Mover notas' },
+        {
+          label:
+            d.mode === 'resize'
+              ? 'Redimensionar notas'
+              : d.mode === 'velocity'
+                ? laneMode === 'pan'
+                  ? 'Pan por nota'
+                  : 'Velocity'
+                : 'Mover notas',
+        },
       );
     } else {
       draw();
     }
-  }, [activePatternId, channelId, draw]);
+  }, [activePatternId, channelId, laneMode, draw]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -419,15 +447,26 @@ export function PianoRoll() {
       const g = ghost.current;
       if (!g) return;
       const beat = xToBeat(x);
-      const vel = Math.min(1, Math.max(0.05, (canvasH - y - 4) / (VEL_LANE_H - 10)));
-      // Ajusta la nota más cercana en X (o todas las seleccionadas si hay selección)
-      const targets = selection.size > 0
+      // Ajusta las seleccionadas; sin selección (o con ids muertos), la más cercana en X.
+      let targets = selection.size > 0
         ? [...g.values()].filter((n) => selection.has(n.id))
-        : [...g.values()].sort((a, b) => Math.abs(a.start - beat) - Math.abs(b.start - beat)).slice(0, 1);
-      for (const t of targets) g.set(t.id, { ...t, velocity: vel });
+        : [];
+      if (targets.length === 0) {
+        targets = [...g.values()]
+          .sort((a, b) => Math.abs(a.start - beat) - Math.abs(b.start - beat))
+          .slice(0, 1);
+      }
+      if (laneMode === 'velocity') {
+        const vel = Math.min(1, Math.max(0.05, (canvasH - y - 4) / (VEL_LANE_H - 10)));
+        for (const t of targets) g.set(t.id, { ...t, velocity: vel });
+      } else {
+        const raw = ((canvasH - y - 4) / (VEL_LANE_H - 10)) * 2 - 1;
+        const pan = Math.min(1, Math.max(-1, raw));
+        for (const t of targets) g.set(t.id, { ...t, pan });
+      }
       draw();
     },
-    [selection, xToBeat, draw],
+    [selection, laneMode, xToBeat, draw],
   );
 
   const onPointerMove = useCallback(
@@ -557,10 +596,16 @@ export function PianoRoll() {
 
   // ── Herramientas de la toolbar ────────────────────────────────────────────
 
-  const affectedIds = useCallback(
-    () => (selection.size > 0 ? [...selection] : notes.map((n) => n.id)),
-    [selection, notes],
-  );
+  const affectedIds = useCallback(() => {
+    if (selection.size > 0) {
+      // La selección puede traer ids muertos (p. ej. tras deshacer una
+      // herramienta): se poda contra las notas vivas y, si no queda nada,
+      // se cae a todas — nunca un no-op silencioso.
+      const alive = notes.filter((n) => selection.has(n.id)).map((n) => n.id);
+      if (alive.length > 0) return alive;
+    }
+    return notes.map((n) => n.id);
+  }, [selection, notes]);
 
   const quantize = useCallback(() => {
     if (!activePatternId || !channelId || snap === null) return;
@@ -603,6 +648,124 @@ export function PianoRoll() {
       { label: allSlide ? 'Quitar slide' : 'Slide' },
     );
   }, [activePatternId, channelId, selection, notes]);
+
+  // ── Herramientas de composición (note-tools de core) ──────────────────────
+  // Cada una reemplaza las notas afectadas (selección o todo) en un solo undo.
+
+  const applyTools = useCallback(
+    (label: string, transform: (sel: Note[]) => Note[]) => {
+      if (!activePatternId || !channelId) return;
+      const ids = new Set(affectedIds());
+      const sel = notes.filter((n) => ids.has(n.id));
+      if (sel.length === 0) return;
+      const result = transform(sel);
+      store.dispatch(
+        {
+          type: 'batch',
+          label,
+          commands: [
+            { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: [...ids] },
+            { type: 'addNotes', patternId: activePatternId, channelId, notes: result },
+          ],
+        },
+        { label },
+      );
+      setSelection(new Set(result.map((n) => n.id)));
+    },
+    [activePatternId, channelId, notes, affectedIds],
+  );
+
+  const doArp = useCallback(() => {
+    applyTools('Arpegiar', (sel) => arpeggiate(sel, { rate: snap ?? 0.25, mode: 'up' }));
+  }, [applyTools, snap]);
+
+  const doStrum = useCallback(() => {
+    applyTools('Strum', (sel) => strum(sel, { spread: (snap ?? 0.25) / 2, direction: 'up' }));
+  }, [applyTools, snap]);
+
+  const doHumanize = useCallback(() => {
+    applyTools('Humanizar', (sel) =>
+      humanize(sel, { timing: 0.03, velocity: 0.1, seed: (Math.random() * 0xffffffff) >>> 0 }),
+    );
+  }, [applyTools]);
+
+  const doChop = useCallback(() => {
+    applyTools('Chop', (sel) => chop(sel, { grid: snap ?? 0.25 }));
+  }, [applyTools, snap]);
+
+  // ── Minimapa ──────────────────────────────────────────────────────────────
+  // Vista completa del patrón con las notas y el rectángulo del viewport;
+  // clic o arrastre = centrar la vista en ese punto.
+
+  const miniRef = useRef<HTMLCanvasElement>(null);
+
+  const drawMini = useCallback(() => {
+    const canvas = miniRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const css = getComputedStyle(canvas);
+    const col = (name: string) => css.getPropertyValue(name).trim();
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = col('--pr-lane-bg');
+    ctx.fillRect(0, 0, w, h);
+
+    const patLen = pattern?.length ?? 4;
+    let minKey = Infinity;
+    let maxKey = -Infinity;
+    for (const n of notes) {
+      if (n.key < minKey) minKey = n.key;
+      if (n.key > maxKey) maxKey = n.key;
+    }
+    if (!Number.isFinite(minKey)) {
+      minKey = 48;
+      maxKey = 72;
+    }
+    const span = Math.max(12, maxKey - minKey + 1);
+    ctx.fillStyle = col('--accent');
+    for (const n of notes) {
+      const x = (n.start / patLen) * w;
+      const nw = Math.max(1.5, (n.duration / patLen) * w);
+      const y = 2 + (1 - (n.key - minKey) / span) * (h - 6);
+      ctx.fillRect(x, y, nw, 2);
+    }
+
+    // Viewport actual
+    const viewW = wrapRef.current?.clientWidth ?? 0;
+    const v0 = (scrollX / patLen) * w;
+    const v1 = ((scrollX + viewW / zoomX) / patLen) * w;
+    ctx.strokeStyle = col('--pr-playhead');
+    ctx.globalAlpha = 0.8;
+    ctx.strokeRect(v0 + 0.5, 0.5, Math.max(6, v1 - v0) - 1, h - 1);
+    ctx.globalAlpha = 1;
+  }, [notes, pattern, scrollX, zoomX]);
+
+  useEffect(() => {
+    drawMini();
+  }, [drawMini, themeVersion]);
+
+  const onMiniPointer = useCallback(
+    (e: React.PointerEvent) => {
+      if (e.type === 'pointermove' && (e.buttons & 1) === 0) return;
+      const canvas = miniRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const patLen = pattern?.length ?? 4;
+      const beat = ((e.clientX - rect.left) / rect.width) * patLen;
+      const viewBeats = (wrapRef.current?.clientWidth ?? 0) / zoomX;
+      setScrollX(Math.max(0, beat - viewBeats / 2));
+    },
+    [pattern, zoomX],
+  );
 
   // ── Teclado lateral ───────────────────────────────────────────────────────
 
@@ -675,7 +838,29 @@ export function PianoRoll() {
           <button className="tbtn" onClick={toggleSlide} title="Slide (glide 808) en la selección">
             Slide
           </button>
+          <button className="tbtn" onClick={doArp} title="Arpegiar acordes (paso = snap)">Arp</button>
+          <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios (final fijo)">
+            Strum
+          </button>
+          <button className="tbtn" onClick={doHumanize} title="Humanizar timing y velocity">Hum</button>
+          <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap">Chop</button>
+          <button
+            className={`tbtn${laneMode === 'pan' ? ' active' : ''}`}
+            onClick={() => setLaneMode(laneMode === 'velocity' ? 'pan' : 'velocity')}
+            title="Carril inferior: velocity o pan por nota"
+          >
+            {laneMode === 'velocity' ? 'Vel' : 'Pan'}
+          </button>
         </div>
+      </div>
+      <div className="pr-minimap-wrap">
+        <canvas
+          ref={miniRef}
+          className="pr-minimap"
+          title="Minimapa — clic para centrar la vista"
+          onPointerDown={onMiniPointer}
+          onPointerMove={onMiniPointer}
+        />
       </div>
       <div className="pr-main">
         <div className="pr-keyboard" style={{ width: KEYBOARD_W, transform: `translateY(${-scrollY}px)` }}>
