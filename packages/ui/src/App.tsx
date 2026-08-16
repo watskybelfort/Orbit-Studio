@@ -20,6 +20,7 @@ import {
 import { initPresence } from './collab/presence';
 import { initClaudeBridge } from './state/claude';
 import { initLiveInput } from './state/live-input';
+import { initPlugins } from './state/plugins';
 import { CommandPalette } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
 import { useProjectFile } from './state/project-file';
@@ -43,6 +44,7 @@ export function App() {
     initClaudeBridge();
     initPresence();
     initLiveInput();
+    void initPlugins();
     registerDefaultCommands();
     // Recuperación: primero mirar si quedó un autosave pendiente, y solo
     // después arrancar el bucle (que no escribe hasta que algo cambie).
