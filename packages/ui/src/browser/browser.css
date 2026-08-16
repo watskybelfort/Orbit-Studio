@@ -205,3 +205,56 @@
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+
+/* Carpetas del usuario */
+.user-head {
+  display: flex;
+  align-items: center;
+}
+
+.user-folder-add {
+  margin-left: auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.user-folder-add:hover {
+  border-color: var(--accent);
+}
+
+.user-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.user-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-folder-count {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.user-folder-del {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.user-folder-del:hover {
+  color: var(--meter-clip);
+}

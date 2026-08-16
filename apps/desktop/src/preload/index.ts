@@ -56,6 +56,14 @@ export interface OrbitApi {
     /** Diálogo de apertura .mid; null si el usuario cancela. */
     open(): Promise<{ name: string; data: ArrayBuffer } | null>;
   };
+  readonly folder: {
+    /** Diálogo de carpeta; null si el usuario cancela. */
+    pick(): Promise<string | null>;
+    /** Archivos de audio de una carpeta registrada (recursivo, con límite). */
+    scan(dir: string): Promise<{ file: string; name: string }[]>;
+    /** Bytes de un archivo dentro de una carpeta registrada. */
+    read(file: string): Promise<ArrayBuffer>;
+  };
   readonly recording: {
     /** Guarda una toma en userData/recordings; devuelve el nombre de archivo. */
     save(name: string, data: Uint8Array): Promise<string>;
@@ -127,6 +135,11 @@ const api: OrbitApi = {
   },
   midi: {
     open: () => ipcRenderer.invoke('midi:open'),
+  },
+  folder: {
+    pick: () => ipcRenderer.invoke('folder:pick'),
+    scan: (dir) => ipcRenderer.invoke('folder:scan', dir),
+    read: (file) => ipcRenderer.invoke('folder:read', file),
   },
   recording: {
     save: (name, data) => ipcRenderer.invoke('recording:save', name, data),

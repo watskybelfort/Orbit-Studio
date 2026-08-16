@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { release } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -408,6 +408,70 @@ function registerIpc(): void {
     } catch {
       return null;
     }
+  });
+
+  // ── Carpetas del usuario (packs propios en el browser) ─────────────────────
+  // El renderer solo puede leer archivos DENTRO de carpetas que el usuario
+  // eligió con el diálogo (persistidas en settings.json → userFolders).
+
+  const AUDIO_EXT = new Set(['.wav', '.mp3', '.ogg', '.flac']);
+
+  function userFolders(): string[] {
+    const raw = readSettings()['userFolders'];
+    return Array.isArray(raw) ? raw.filter((f): f is string => typeof f === 'string') : [];
+  }
+
+  ipcMain.handle('folder:pick', async (event) => {
+    const win = windowOf(event.sender);
+    const options = {
+      title: 'Añadir carpeta de sonidos',
+      properties: ['openDirectory' as const],
+    };
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
+    const dir = result.filePaths[0];
+    return result.canceled || !dir ? null : resolvePath(dir);
+  });
+
+  ipcMain.handle('folder:scan', async (_event, dir: unknown) => {
+    if (typeof dir !== 'string') throw new Error('folder:scan requiere la ruta de la carpeta');
+    const base = resolvePath(dir);
+    if (!userFolders().some((f) => resolvePath(f) === base)) {
+      throw new Error('Carpeta no registrada en userFolders');
+    }
+    const found: { file: string; name: string }[] = [];
+    const walk = async (d: string, depth: number): Promise<void> => {
+      if (depth > 4 || found.length >= 500) return;
+      let items;
+      try {
+        items = await readdir(d, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const item of items) {
+        if (found.length >= 500) return;
+        const full = join(d, item.name);
+        if (item.isDirectory()) await walk(full, depth + 1);
+        else if (AUDIO_EXT.has(item.name.slice(item.name.lastIndexOf('.')).toLowerCase())) {
+          found.push({ file: full, name: item.name.replace(/\.[^.]+$/, '') });
+        }
+      }
+    };
+    await walk(base, 0);
+    return found;
+  });
+
+  ipcMain.handle('folder:read', async (_event, file: unknown) => {
+    if (typeof file !== 'string') throw new Error('folder:read requiere la ruta del archivo');
+    const target = resolvePath(file);
+    const allowed = userFolders().some((f) => {
+      const base = resolvePath(f);
+      return target.startsWith(base + '\\') || target.startsWith(base + '/');
+    });
+    if (!allowed) throw new Error('folder:read solo sirve archivos de tus carpetas registradas');
+    const buf = await readFile(target);
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   });
 
   // ── Import MIDI (diálogo + bytes) ──────────────────────────────────────────
