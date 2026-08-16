@@ -535,6 +535,33 @@ export function Playlist() {
     engine.setLoop(0, 0, false);
   }, []);
 
+  /** Corta un clip en el beat dado (dos clips, con offsets coherentes). */
+  const sliceClip = useCallback(
+    (clip: Clip, cut: number) => {
+      if (cut <= clip.start + 0.05 || cut >= clip.start + clip.length - 0.05) return;
+      const firstLen = cut - clip.start;
+      const second: Clip = { ...clip, id: newId(), start: cut, length: clip.length - firstLen };
+      if (clip.kind === 'pattern') {
+        second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
+      } else if (clip.kind === 'audio') {
+        second.audioOffset = (clip.audioOffset ?? 0) + firstLen * (60 / project.tempo);
+      }
+      const label = 'Cortar clip';
+      store.dispatch(
+        {
+          type: 'batch',
+          label,
+          commands: [
+            { type: 'patchClips', patches: [{ id: clip.id, length: firstLen }] },
+            { type: 'addClips', clips: [second] },
+          ],
+        },
+        { label },
+      );
+    },
+    [project],
+  );
+
   // ── Interacción en el canvas ──────────────────────────────────────────────
 
   const onPointerDown = useCallback(
@@ -576,6 +603,23 @@ export function Playlist() {
       }
 
       const hit = clipAt(x, y);
+
+      // Clic central: alternar mute del clip.
+      if (e.button === 1) {
+        if (hit) {
+          store.dispatch(
+            { type: 'patchClips', patches: [{ id: hit.clip.id, muted: !hit.clip.muted }] },
+            { label: hit.clip.muted ? 'Activar clip' : 'Mutear clip' },
+          );
+        }
+        return;
+      }
+
+      // Shift+clic: cortar el clip en el beat del cursor (patrón y audio).
+      if (e.button === 0 && e.shiftKey && hit && !hit.edge && hit.clip.kind !== 'automation') {
+        sliceClip(hit.clip, quant(xToBeat(x), snapOf(e), true));
+        return;
+      }
 
       // Clic derecho: borrar el clip bajo el cursor.
       if (e.button === 2) {
@@ -632,7 +676,7 @@ export function Playlist() {
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, activePattern, patternId, project, draw],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw],
   );
 
   const onPointerMove = useCallback(
@@ -852,22 +896,81 @@ export function Playlist() {
     );
   };
 
+  /** Nuevo arrangement (con sus pistas base) y salto a él, en un undo. */
+  const addArrangement = () => {
+    const n = project.arrangementOrder.length + 1;
+    const arrangement = { id: newId(), name: `Arrangement ${n}` };
+    const label = `Nuevo arrangement "${arrangement.name}"`;
+    const baseTracks = Array.from({ length: 6 }, (_, i) => createPlaylistTrack(arrangement.id, i));
+    store.dispatch(
+      {
+        type: 'batch',
+        label,
+        commands: [
+          { type: 'addArrangement', arrangement },
+          ...baseTracks.map((track) => ({ type: 'addPlaylistTrack' as const, track })),
+          { type: 'setActiveArrangement', arrangementId: arrangement.id },
+        ],
+      },
+      { label },
+    );
+  };
+
+  const [renamingArr, setRenamingArr] = useState(false);
+
   return (
     <div className="playlist">
       <div className="pl-toolbar">
         <label className="pl-field">
           Arrangement
-          <select
-            value={project.activeArrangementId}
-            onChange={(e) => changeArrangement(e.target.value)}
-          >
-            {project.arrangementOrder.map((id) => (
-              <option key={id} value={id}>
-                {project.arrangements[id]?.name ?? id}
-              </option>
-            ))}
-          </select>
+          {renamingArr ? (
+            <input
+              className="pl-name-input"
+              defaultValue={project.arrangements[project.activeArrangementId]?.name ?? ''}
+              autoFocus
+              onFocus={(e) => e.currentTarget.select()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
+                else if (e.key === 'Escape') setRenamingArr(false);
+              }}
+              onBlur={(e) => {
+                const name = e.currentTarget.value.trim();
+                if (name && name !== project.arrangements[project.activeArrangementId]?.name) {
+                  store.dispatch(
+                    {
+                      type: 'patchArrangement',
+                      arrangementId: project.activeArrangementId,
+                      patch: { name },
+                    },
+                    { label: 'Renombrar arrangement' },
+                  );
+                }
+                setRenamingArr(false);
+              }}
+            />
+          ) : (
+            <select
+              value={project.activeArrangementId}
+              onChange={(e) => changeArrangement(e.target.value)}
+            >
+              {project.arrangementOrder.map((id) => (
+                <option key={id} value={id}>
+                  {project.arrangements[id]?.name ?? id}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
+        <button className="pl-add" title="Nuevo arrangement" onClick={addArrangement}>
+          +
+        </button>
+        <button
+          className="pl-add"
+          title="Renombrar este arrangement"
+          onClick={() => setRenamingArr(true)}
+        >
+          ✎
+        </button>
         <label className="pl-field">
           Snap
           <select value={snapIdx} onChange={(e) => setSnapIdx(Number(e.target.value))}>
