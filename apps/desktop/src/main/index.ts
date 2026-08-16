@@ -112,6 +112,20 @@ function createWindow(): BrowserWindow {
   // color por defecto (y para que el acrílico ya esté compuesto al aparecer).
   applyWindowTheme(win, theme);
 
+  // Ventanas desacopladas: el renderer hace window.open('') y porta el editor
+  // ahí (mismo contexto JS). Frame nativo normal — mover/cerrar es del OS.
+  win.webContents.setWindowOpenHandler(() => ({
+    action: 'allow',
+    overrideBrowserWindowOptions: {
+      title: 'Orbit Studio',
+      icon: join(__dirname, '../../resources/icon.ico'),
+      minWidth: 320,
+      minHeight: 220,
+      autoHideMenuBar: true,
+      backgroundColor: theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark,
+    },
+  }));
+
   win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
   win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
 
