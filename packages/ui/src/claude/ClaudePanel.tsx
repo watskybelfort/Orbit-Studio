@@ -5,8 +5,8 @@
  * propia pila de undo (tool `undo`) sin tocar los cambios del usuario.
  */
 
-import { useEffect, useRef } from 'react';
-import { useClaudeStore } from '../state/claude';
+import { useEffect, useRef, useState } from 'react';
+import { setClaudeRequest, useClaudeStore } from '../state/claude';
 import './claude.css';
 
 function formatTime(at: number): string {
@@ -17,7 +17,15 @@ export function ClaudePanel() {
   const available = useClaudeStore((s) => s.available);
   const connected = useClaudeStore((s) => s.connected);
   const entries = useClaudeStore((s) => s.entries);
+  const pendingRequest = useClaudeStore((s) => s.pendingRequest);
+  const [draft, setDraft] = useState('');
   const feedRef = useRef<HTMLDivElement>(null);
+
+  const submit = () => {
+    if (draft.trim() === '') return;
+    setClaudeRequest(draft);
+    setDraft('');
+  };
 
   // Auto-scroll al fondo cuando entra actividad nueva.
   useEffect(() => {
@@ -68,6 +76,34 @@ export function ClaudePanel() {
           ))}
         </div>
       )}
+
+      <div className="claude-ask">
+        {pendingRequest && (
+          <div className="claude-pending" title={pendingRequest}>
+            Petición pendiente: {pendingRequest}
+            <button className="claude-pending-clear" onClick={() => setClaudeRequest(null)}>
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="claude-ask-row">
+          <input
+            className="claude-ask-input"
+            placeholder="Pídele algo a Claude (p. ej. súbeme la voz en el drop)"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') submit();
+            }}
+          />
+          <button className="claude-ask-send" disabled={draft.trim() === ''} onClick={submit}>
+            Dejar
+          </button>
+        </div>
+        <p className="claude-ask-note">
+          La petición viaja con el proyecto la próxima vez que Claude lo lea.
+        </p>
+      </div>
     </div>
   );
 }

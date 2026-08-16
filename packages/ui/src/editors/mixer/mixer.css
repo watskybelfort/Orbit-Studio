@@ -196,6 +196,23 @@
   color: var(--text-dim);
 }
 
+/* Botón de la cadena vocal de Orbit */
+.vocal-chain-btn {
+  margin-top: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.vocal-chain-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Sends de la pista seleccionada: destino + perilla de nivel + quitar */
 .mixer-sends {
   display: flex;

@@ -419,6 +419,45 @@ function ChainPanel({
     [trackIndex],
   );
 
+  // La cadena vocal de Orbit: EQ que limpia y da presencia, compresor que
+  // sujeta, saturación suave, slap 1/4 y cola corta — la voz por encima.
+  const freeSlots = track.slots.filter((s) => !s).length;
+  const applyVocalChain = useCallback(() => {
+    const free: number[] = [];
+    for (let i = 0; i < MIXER_SLOTS && free.length < 5; i++) {
+      if (!track.slots[i]) free.push(i);
+    }
+    if (free.length < 5) return;
+    const mk = (kind: EffectKind, overrides: Record<string, number>, mix = 1): EffectSlot => ({
+      id: newId(),
+      kind,
+      enabled: true,
+      mix,
+      params: { ...defaultEffectParams(kind), ...overrides },
+    });
+    const chain: [number, EffectSlot][] = [
+      [free[0]!, mk('eq', { hpFreq: 90, lowGain: -2, lowFreq: 250, midGain: 2.5, midFreq: 3200, midQ: 0.9, highGain: 2, highFreq: 11000 })],
+      [free[1]!, mk('compressor', { threshold: -18, ratio: 3, attack: 0.008, release: 0.12, makeup: 4 })],
+      [free[2]!, mk('distortion', { drive: 0.18, tone: 5500, mode: 0, output: 1 }, 0.22)],
+      [free[3]!, mk('delay', { time: 5, feedback: 0.28, pingpong: 1, filter: 3000 }, 0.15)],
+      [free[4]!, mk('reverb', { size: 0.55, damp: 0.5, predelay: 0.03 }, 0.16)],
+    ];
+    const label = `Cadena vocal en "${track.name}"`;
+    store.dispatch(
+      {
+        type: 'batch',
+        label,
+        commands: chain.map(([slotIndex, slot]) => ({
+          type: 'setEffect' as const,
+          trackIndex,
+          slotIndex,
+          slot,
+        })),
+      },
+      { label },
+    );
+  }, [track, trackIndex]);
+
   return (
     <div className="mixer-chain">
       <div className="mixer-chain-header">
@@ -430,6 +469,14 @@ function ChainPanel({
           {track.sends.length > 0 &&
             ` · ${track.sends.length} send${track.sends.length > 1 ? 's' : ''}`}
         </div>
+        <button
+          className="vocal-chain-btn"
+          title="Monta la cadena vocal de Orbit (EQ + compresor + saturación + delay 1/4 + reverb) en 5 slots libres"
+          disabled={freeSlots < 5}
+          onClick={applyVocalChain}
+        >
+          Cadena vocal
+        </button>
       </div>
       {track.sends.length > 0 && (
         <div className="mixer-sends">
