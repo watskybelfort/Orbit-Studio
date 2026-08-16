@@ -105,7 +105,9 @@ function FloatingMenu({
 /** Medidor aislado: solo él re-renderiza a ~20 fps con los peaks del kernel. */
 function StripMeter({ index }: { index: number }) {
   const peak = useUiStore((s) => (s.trackPeaks ? (s.trackPeaks[index] ?? 0) : 0));
-  return <LevelMeter peak={peak} height={FADER_H} />;
+  // El master lleva además la línea de RMS (el kernel solo lo mide ahí).
+  const rms = useUiStore((s) => (index === 0 ? s.masterRms : undefined));
+  return <LevelMeter peak={peak} rms={rms} height={FADER_H} />;
 }
 
 function StripName({ index, name }: { index: number; name: string }) {
@@ -428,6 +430,43 @@ function ChainPanel({
             ` · ${track.sends.length} send${track.sends.length > 1 ? 's' : ''}`}
         </div>
       </div>
+      {track.sends.length > 0 && (
+        <div className="mixer-sends">
+          {track.sends.map((s) => (
+            <div key={s.target} className="send-row">
+              <span className="send-label" title={`Send hacia ${trackLabel(s.target, mixer)}`}>
+                → {trackLabel(s.target, mixer)}
+              </span>
+              <Knob
+                value={s.level}
+                min={0}
+                max={2}
+                defaultValue={0.7}
+                size={18}
+                format={(v) => `Send ${Math.round(v * 100)}%`}
+                onChange={(v) =>
+                  store.dispatch(
+                    { type: 'setSend', trackIndex, target: s.target, level: v },
+                    { label: 'Nivel de send', mergeKey: `mx:send:${trackIndex}:${s.target}` },
+                  )
+                }
+              />
+              <button
+                className="send-del"
+                title="Quitar send"
+                onClick={() =>
+                  store.dispatch(
+                    { type: 'setSend', trackIndex, target: s.target, level: null },
+                    { label: 'Quitar send' },
+                  )
+                }
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="mixer-chain-slots">
         {Array.from({ length: MIXER_SLOTS }, (_, i) => {
           const slot = track.slots[i] ?? null;
