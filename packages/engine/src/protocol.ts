@@ -77,6 +77,8 @@ export interface CompiledAudioClip {
   offset: number;
   gain: number;
   mixerTrack: number;
+  /** Time-stretch: el sample se estira (pitch intacto) hasta llenar el clip. */
+  stretch: boolean;
 }
 
 export interface CompiledProject {

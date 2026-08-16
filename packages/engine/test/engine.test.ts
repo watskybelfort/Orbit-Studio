@@ -326,3 +326,77 @@ describe('kernel: metrónomo', () => {
     expect(peak).toBe(0);
   });
 });
+
+describe('kernel: time-stretch de clips de audio', () => {
+  /** Proyecto en modo SONG con un solo clip de audio del sample dado. */
+  function audioClipProject(stretch: boolean) {
+    const p = createEmptyProject('Stretch');
+    p.tempo = 120; // 0.5 s por beat
+    const trackId = Object.values(p.playlistTracks).find(
+      (t) => t.arrangementId === p.activeArrangementId,
+    )!.id;
+    applyCommand(p, {
+      type: 'registerSample',
+      sample: { id: 'tone', name: 'tone', path: 'qa:tone', hash: 'x', duration: 0.5 },
+    });
+    applyCommand(p, {
+      type: 'addClips',
+      clips: [
+        {
+          id: 'clip1',
+          kind: 'audio',
+          playlistTrackId: trackId,
+          start: 0,
+          length: 2, // 1.0 s a 120 BPM — el doble del sample
+          muted: false,
+          sampleId: 'tone',
+          audioStretch: stretch,
+        },
+      ],
+    });
+    return compileProject(p, { mode: 'song' });
+  }
+
+  /** Sample de 440 Hz, 0.5 s, con micro-fades para evitar clicks. */
+  function toneSample() {
+    const n = Math.round(0.5 * 44100);
+    const left = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const env = Math.min(1, i / 200) * Math.min(1, (n - i) / 200);
+      left[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / 44100) * env;
+    }
+    return new Map([['tone', { left, right: left.slice(), rate: 44100 }]]);
+  }
+
+  function rms(xs: Float32Array, from: number, to: number): number {
+    let s = 0;
+    for (let i = from; i < to; i++) s += xs[i]! * xs[i]!;
+    return Math.sqrt(s / Math.max(1, to - from));
+  }
+
+  /** Frecuencia estimada por cruces por cero ascendentes. */
+  function estimateFreq(xs: Float32Array, from: number, to: number, sr: number): number {
+    let crossings = 0;
+    for (let i = from + 1; i < to; i++) {
+      if (xs[i - 1]! <= 0 && xs[i]! > 0) crossings++;
+    }
+    return crossings / ((to - from) / sr);
+  }
+
+  it('con stretch el sample llena el clip y conserva el pitch (~440 Hz)', () => {
+    const res = renderProject(audioClipProject(true), { samples: toneSample(), tailSeconds: 0 });
+    const sr = res.sampleRate;
+    // Sin stretch esta ventana sería silencio (el sample dura 0.5 s).
+    expect(rms(res.left, Math.round(0.7 * sr), Math.round(0.9 * sr))).toBeGreaterThan(0.05);
+    const f = estimateFreq(res.left, Math.round(0.6 * sr), Math.round(0.9 * sr), sr);
+    expect(f).toBeGreaterThan(400);
+    expect(f).toBeLessThan(480);
+  });
+
+  it('sin stretch el sample suena a velocidad natural y termina a los 0.5 s', () => {
+    const res = renderProject(audioClipProject(false), { samples: toneSample(), tailSeconds: 0 });
+    const sr = res.sampleRate;
+    expect(rms(res.left, Math.round(0.1 * sr), Math.round(0.4 * sr))).toBeGreaterThan(0.05);
+    expect(rms(res.left, Math.round(0.7 * sr), Math.round(0.9 * sr))).toBeLessThan(0.001);
+  });
+});

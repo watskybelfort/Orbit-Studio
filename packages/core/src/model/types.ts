@@ -131,6 +131,8 @@ export interface Clip {
   audioOffset?: number;
   /** Ganancia lineal del clip. */
   audioGain?: number;
+  /** Time-stretch: el audio se estira (pitch intacto) para llenar el clip. */
+  audioStretch?: boolean;
 
   /** kind === 'automation' */
   target?: ParamRef;
