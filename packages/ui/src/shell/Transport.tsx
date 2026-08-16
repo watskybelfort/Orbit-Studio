@@ -1,9 +1,9 @@
 /** Barra de transporte: play/stop, PAT/SONG, BPM, swing, metrónomo, posición. */
 
-import { useCallback } from 'react';
-import { engine, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { useCallback, useRef } from 'react';
+import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
-import { IconMetronome, IconPlay, IconStop } from '../icons';
+import { IconMetronome, IconPause, IconPlay, IconStop } from '../icons';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import { Knob } from '../widgets/Knob';
@@ -32,6 +32,20 @@ export function Transport() {
     store.dispatch({ type: 'setSwing', swing }, { mergeKey: 'transport:swing' });
   }, []);
 
+  // Tap tempo: media de los últimos intervalos (se reinicia tras 2.5 s quieto).
+  const taps = useRef<number[]>([]);
+  const tapTempo = useCallback(() => {
+    const now = performance.now();
+    const list = taps.current;
+    if (list.length > 0 && now - list[list.length - 1]! > 2500) list.length = 0;
+    list.push(now);
+    if (list.length > 6) list.shift();
+    if (list.length < 2) return;
+    const avgMs = (list[list.length - 1]! - list[0]!) / (list.length - 1);
+    const bpm = Math.min(999, Math.max(20, Math.round(60000 / avgMs)));
+    store.dispatch({ type: 'setTempo', tempo: bpm }, { mergeKey: 'transport:tempo' });
+  }, []);
+
   const bar = Math.floor(positionBeats / project.timeSig.num) + 1;
   const beat = Math.floor(positionBeats % project.timeSig.num) + 1;
 
@@ -44,6 +58,14 @@ export function Transport() {
           onClick={() => void togglePlay()}
         >
           <IconPlay size={15} />
+        </button>
+        <button
+          className="tbtn"
+          title="Pausa (conserva la posición)"
+          disabled={!playing}
+          onClick={pausePlayback}
+        >
+          <IconPause size={15} />
         </button>
         <button className="tbtn" title="Detener" onClick={stopPlayback}>
           <IconStop size={15} />
@@ -102,6 +124,9 @@ export function Transport() {
           format={(v) => `${Math.round(v * 100)}%`}
           onChange={setSwing}
         />
+        <button className="tbtn tap" title="Tap tempo: marca el pulso con clics" onClick={tapTempo}>
+          TAP
+        </button>
       </div>
 
       <div className="transport-group pos" title="Compás : beat">
