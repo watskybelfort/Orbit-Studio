@@ -60,6 +60,11 @@
   opacity: 0.4;
 }
 
+/* El glifo ⧉ de clonar se ve mejor un punto más grande */
+.rack-nav.clone {
+  font-size: 12px;
+}
+
 .rack-dot {
   flex: none;
   width: 10px;
