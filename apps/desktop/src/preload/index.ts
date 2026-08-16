@@ -26,6 +26,26 @@ export interface OrbitApi {
     /** Merge superficial sobre settings.json; devuelve el resultado. */
     set(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
+  readonly claude: {
+    /** Tool calls entrantes del puente MCP (main); devuelve desuscripción. */
+    onToolCall(cb: (req: { id: string; tool: string; args: unknown }) => void): () => void;
+    /** Responde una tool call por id (el main la re-emite al canal por-id). */
+    sendToolResult(id: string, result: { text: string } | { error: string }): void;
+    /** Conexión del cliente MCP (para el indicador del panel de Claude). */
+    onBridgeStatus(cb: (s: { connected: boolean }) => void): () => void;
+  };
+  readonly file: {
+    /** Diálogo de guardado (filtro WAV); null si el usuario cancela. */
+    saveDialog(defaultName: string): Promise<string | null>;
+    /** Escribe bytes en una ruta permitida (elegida en diálogo o carpeta de usuario). */
+    write(path: string, data: Uint8Array): Promise<void>;
+  };
+  readonly library: {
+    /** JSON del manifest del pack de fábrica; null si aún no está generado. */
+    manifest(): Promise<string | null>;
+    /** Bytes de un archivo del pack (ruta relativa tal como viene en el manifest). */
+    read(file: string): Promise<ArrayBuffer>;
+  };
 }
 
 const api: OrbitApi = {
@@ -47,6 +67,30 @@ const api: OrbitApi = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
+  },
+  claude: {
+    onToolCall: (cb) => {
+      const listener = (
+        _event: IpcRendererEvent,
+        req: { id: string; tool: string; args: unknown },
+      ) => cb(req);
+      ipcRenderer.on('claude:tool-call', listener);
+      return () => ipcRenderer.removeListener('claude:tool-call', listener);
+    },
+    sendToolResult: (id, result) => ipcRenderer.send('claude:tool-result', id, result),
+    onBridgeStatus: (cb) => {
+      const listener = (_event: IpcRendererEvent, s: { connected: boolean }) => cb(s);
+      ipcRenderer.on('claude:bridge-status', listener);
+      return () => ipcRenderer.removeListener('claude:bridge-status', listener);
+    },
+  },
+  file: {
+    saveDialog: (defaultName) => ipcRenderer.invoke('file:save-dialog', defaultName),
+    write: (path, data) => ipcRenderer.invoke('file:write', path, data),
+  },
+  library: {
+    manifest: () => ipcRenderer.invoke('library:manifest'),
+    read: (file) => ipcRenderer.invoke('library:read', file),
   },
 };
 

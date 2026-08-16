@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "orbit-studio": {
+      "command": "npx",
+      "args": ["tsx", "packages/claude-bridge/src/node/mcp-stdio.ts"]
+    }
+  }
+}
