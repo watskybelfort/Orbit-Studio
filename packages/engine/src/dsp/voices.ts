@@ -652,6 +652,201 @@ export class NovaVoice extends Voice {
   }
 }
 
+// ── Orbit Vox (voz por formantes) ────────────────────────────────────────────
+
+/**
+ * Formantes de las cinco vocales: tres picos por vocal (Hz) con su ganancia
+ * relativa. Son los valores clásicos de voz masculina/neutra; con el filtro
+ * resonante encima ya se reconoce la vocal cantada.
+ */
+const VOWEL_FORMANTS: { f: number; g: number; q: number }[][] = [
+  // A
+  [
+    { f: 700, g: 1, q: 6 },
+    { f: 1220, g: 0.5, q: 8 },
+    { f: 2600, g: 0.28, q: 10 },
+  ],
+  // E
+  [
+    { f: 460, g: 1, q: 6 },
+    { f: 1900, g: 0.55, q: 9 },
+    { f: 2600, g: 0.3, q: 10 },
+  ],
+  // I
+  [
+    { f: 300, g: 1, q: 6 },
+    { f: 2200, g: 0.6, q: 10 },
+    { f: 3000, g: 0.32, q: 11 },
+  ],
+  // O
+  [
+    { f: 480, g: 1, q: 6 },
+    { f: 760, g: 0.5, q: 8 },
+    { f: 2400, g: 0.16, q: 10 },
+  ],
+  // U
+  [
+    { f: 320, g: 1, q: 6 },
+    { f: 700, g: 0.42, q: 8 },
+    { f: 2300, g: 0.12, q: 10 },
+  ],
+];
+
+/**
+ * Voz sintética por formantes: una fuente rica (pulso glotal aproximado por
+ * sierra suavizada + soplo de ruido) pasada por tres campanas resonantes que
+ * son las que "dicen" la vocal. Con vibrato lento la voz deja de sonar a
+ * máquina; sin él canta demasiado recto para ser creíble.
+ */
+export class VoxVoice extends Voice {
+  private phase = 0;
+  private freq: number;
+  private env = new ADSR();
+  private noise = new Noise();
+  private bands: Biquad[] = [];
+  private gains: number[] = [];
+  private breath: number;
+  private vibratoDepth: number;
+  private vibratoPhase = 0;
+
+  constructor(
+    channelIndex: number,
+    key: number,
+    order: number,
+    private velocity: number,
+    p: Record<string, number>,
+    private sr: number,
+  ) {
+    super(channelIndex, key, order);
+    this.freq = midiToHz(key + (p['octave'] ?? 0) * 12);
+    this.breath = p['breath'] ?? 0.25;
+    this.vibratoDepth = (p['vibrato'] ?? 0.3) * 0.03; // hasta ~3 % de altura
+    const vowel = Math.min(4, Math.max(0, Math.round(p['vowel'] ?? 0)));
+    for (const formant of VOWEL_FORMANTS[vowel]!) {
+      const biquad = new Biquad();
+      biquad.peaking(formant.f, 14, formant.q, sr);
+      this.bands.push(biquad);
+      this.gains.push(formant.g);
+    }
+    this.env.set(p['attack'] ?? 0.08, 0.3, 0.85, p['release'] ?? 0.4, sr);
+    this.env.on();
+  }
+
+  noteOff(): void {
+    this.releasing = true;
+    this.env.off();
+  }
+
+  override glideTo(key: number, _velocity: number): void {
+    super.glideTo(key, _velocity);
+    this.freq = midiToHz(key);
+  }
+
+  render(
+    outL: Float32Array,
+    outR: Float32Array,
+    from: number,
+    to: number,
+    gainL: number,
+    gainR: number,
+  ): boolean {
+    for (let i = from; i < to; i++) {
+      // Vibrato de 5.2 Hz sobre la altura.
+      this.vibratoPhase += (2 * Math.PI * 5.2) / this.sr;
+      if (this.vibratoPhase > TWO_PI) this.vibratoPhase -= TWO_PI;
+      const f = this.freq * (1 + Math.sin(this.vibratoPhase) * this.vibratoDepth);
+      this.phase += f / this.sr;
+      if (this.phase >= 1) this.phase -= 1;
+
+      // Pulso glotal: sierra con el filo redondeado (menos alias, más voz).
+      const saw = 2 * this.phase - 1;
+      const source = saw - saw * saw * saw * 0.3 + this.noise.tick() * this.breath * 0.5;
+
+      let voiced = 0;
+      for (let b = 0; b < this.bands.length; b++) {
+        voiced += this.bands[b]!.tick(source) * this.gains[b]!;
+      }
+      const s = voiced * 0.22 * this.env.tick() * this.velocity;
+      outL[i]! += s * gainL;
+      outR[i]! += s * gainR;
+    }
+    return this.env.active;
+  }
+}
+
+// ── Orbit Slicer (un trozo del sample por nota) ──────────────────────────────
+
+/**
+ * Trocea un sample en N partes iguales y dispara una por nota, empezando en
+ * C3 (36) como un drum rack: la tecla elige el trozo. Es el Fruity Slicer de
+ * toda la vida — el pegamento entre un loop y el step sequencer.
+ */
+export class SlicerVoice extends Voice {
+  private pos = 0;
+  private end = 0;
+  private rate: number;
+  private env = new ADSR();
+  private data: SampleData | null;
+  private reverse: boolean;
+
+  constructor(
+    channelIndex: number,
+    key: number,
+    order: number,
+    private velocity: number,
+    p: Record<string, number>,
+    ctx: VoiceContext,
+    sampleId: string | undefined,
+  ) {
+    super(channelIndex, key, order);
+    this.data = sampleId ? ctx.samples.get(sampleId) ?? null : null;
+    const len = this.data?.left.length ?? 0;
+    const slices = Math.max(2, Math.round(p['slices'] ?? 8));
+    // C3 = primer trozo; las teclas de arriba avanzan y se envuelven.
+    const index = ((Math.round(key) - 36) % slices + slices) % slices;
+    const sliceLen = len / slices;
+    this.reverse = (p['reverse'] ?? 0) >= 0.5;
+    const start = Math.floor(index * sliceLen);
+    const stop = Math.min(len, Math.floor((index + 1) * sliceLen));
+    this.pos = this.reverse ? stop - 1 : start;
+    this.end = this.reverse ? start : stop;
+    const srcRate = this.data?.rate ?? ctx.sr;
+    this.rate = (srcRate / ctx.sr) * Math.pow(2, (p['pitch'] ?? 0) / 12);
+    this.env.set(p['attack'] ?? 0.002, 1, 1, p['release'] ?? 0.06, ctx.sr);
+    this.env.on();
+  }
+
+  noteOff(): void {
+    this.releasing = true;
+    this.env.off();
+  }
+
+  render(
+    outL: Float32Array,
+    outR: Float32Array,
+    from: number,
+    to: number,
+    gainL: number,
+    gainR: number,
+  ): boolean {
+    const d = this.data;
+    if (!d) return false;
+    for (let i = from; i < to; i++) {
+      const idx = Math.floor(this.pos);
+      if (idx < 0 || idx >= d.left.length - 1) return false;
+      if (this.reverse ? idx <= this.end : idx >= this.end) return false;
+      const frac = this.pos - idx;
+      const sl = d.left[idx]! * (1 - frac) + d.left[idx + 1]! * frac;
+      const sr = d.right[idx]! * (1 - frac) + d.right[idx + 1]! * frac;
+      const e = this.env.tick() * this.velocity;
+      outL[i]! += sl * e * gainL;
+      outR[i]! += sr * e * gainR;
+      this.pos += this.reverse ? -this.rate : this.rate;
+    }
+    return this.env.active;
+  }
+}
+
 // ── Fábrica ──────────────────────────────────────────────────────────────────
 
 export function createVoice(
@@ -676,6 +871,8 @@ export function createVoice(
     case 'fm': return new FmVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'drums': return new DrumVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'sampler': return new SamplerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
+    case 'vox': return new VoxVoice(channelIndex, key, order, velocity, params, ctx.sr);
+    case 'slicer': return new SlicerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
     default: return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
   }
 }
