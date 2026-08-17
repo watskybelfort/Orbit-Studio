@@ -24,11 +24,13 @@ guardables con nombre).
 
 ## Los cinco pilares
 
-1. **Motor de audio propio** — DSP sample-accurate en un AudioWorklet: 6
+1. **Motor de audio propio** — DSP sample-accurate en un AudioWorklet: 10
    instrumentos (sustractivo, supersaw, FM, 808 con glide, drums sintetizados
-   en 3 kits, sampler) y 14 efectos (EQ paramétrico, compresor con sidechain
+   en 3 kits, sampler, slicer, formantes, y los dos de presets — Nova y Prisma)
+   y 14 efectos (EQ paramétrico, compresor con sidechain
    real, limiter lookahead, reverb, delay sync, auto-filter con LFO,
-   mono-maker…), mixer de 26 pistas con routing libre y sends. El ADN sonoro
+   mono-maker…), con **4 inserts propios por canal** además del mixer de 26
+   pistas con routing libre y sends. El ADN sonoro
    viene del engine con el que ya producimos el catálogo de El Doctor.
 2. **Flujo FL Studio completo** — Channel Rack con step sequencer (16/32/64),
    Piano Roll con slide notes, escalas y ghost notes, Playlist con clips y
@@ -72,8 +74,37 @@ Panel de Claude).
 
 ## Estado
 
-**v1.0.0 — "el estudio completo".** La update grande: cinco bloques cerrados a
-la vez.
+**v1.1.0 — "cada sonido a solas".** Lo que faltaba para trabajar un sonido sin
+salir de él, y tres bugs que hacían que el estudio pareciera caprichoso.
+
+**Orbit Prisma**, el instrumento grande de presets: **125 sonidos** en 16
+categorías, hasta cuatro capas por preset sobre **nueve motores propios** (tabla
+de ondas con morph, pulso PWM, ruido filtrado, FM con realimentación, cuerda
+pulsada, órgano aditivo, campana inarmónica, formantes vocales y sub), filtro
+con envolvente y keytrack, envolvente de modulación, LFO por voz, unísono, modo
+Poly/Mono/Legato y **ocho macros por preset**. Sus 38 perillas son absolutas: el
+preset las carga y a partir de ahí mandas tú.
+
+**Editor de sonido por canal** (doble clic en el rack): las perillas del
+instrumento, el recorte del sample con la onda y las marcas de start/end
+arrastrables —acortar, invertir el tiempo, invertir la fase, fades, loop— y
+**cuatro inserts propios del canal**, para bajarle el reverb a UN sonido sin
+tocar los demás de su pista.
+
+**Borrar patrones** desde cinco sitios (paleta, menú, atajo, vista Live y piano
+roll), diciendo cuántos clips se lleva y con el patrón activo saltando solo.
+
+**Tres bugs que se notaban a diario**: en colaboración viajaban los comandos
+pero **nunca los bytes de los sonidos**, así que lo que ponía uno sonaba o no
+según lo que el otro hubiera pinchado antes; los menús contextuales se
+recortaban dentro de los editores (siempre en la playlist, solo en tema acrílico
+en el resto) y el z-order de las ventanas crecía sin techo hasta tapar la paleta
+de comandos; y el shim de escala no se instalaba al 100 %, así que desacoplar un
+editor antes de tocar el zoom dejaba todos sus clics desplazados.
+
+### v1.0.0 — "el estudio completo"
+
+La update grande anterior: cinco bloques cerrados a la vez.
 
 **Orbit Nova**, el instrumento de presets — 26 sonidos en 8 categorías, cada
 uno una pila de capas sobre los motores propios (no hay samples que cargar: el
