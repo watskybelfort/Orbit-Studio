@@ -21,8 +21,21 @@ a la vez, sin pisarse y sin conflictos.
   Crear sesión = subir tu proyecto al room; unirse = recibir el doc completo.
 - Persistencia: snapshot del doc + updates incrementales en disco; si el host
   se cae, la sesión sobrevive.
-- Auth simple v0.1: token de room (el código) + nombre de usuario. Roles
-  (productor/invitado/oyente) en v0.x.
+- Auth simple v0.1: token de room (el código) + nombre de usuario.
+- **Roles (v1.0)**: productor (todo), invitado (edita pero no borra pistas ni
+  toca el master, ni dentro de un batch) y oyente (solo mira y escucha). El
+  control está en el log de comandos, que es por donde pasa TODO, con una
+  función pura y el rol sellado en la entrada: emisor y receptores dan el mismo
+  veredicto, así que la convergencia no se rompe. El rol es autodeclarado al
+  entrar (mismo modelo de confianza que el código de sala); que sea inviolable
+  exige que el servidor valide las entradas del log — backlog.
+- **Chat de sesión (v1.0)**: un `Y.Array` en el mismo documento, sin servidor
+  nuevo; quien llega tarde recibe la conversación entera. Un mensaje puede
+  llevar un beat y queda anclado al timeline. No pasa por el log de comandos:
+  no ensucia el undo y hasta un oyente puede hablar.
+- **Modo seguidor (v1.0)**: la presencia publica la "vista lógica" (editor
+  delante, patrón, canal, pista de mixer, playhead) y puedes seguir a alguien;
+  el caret solo te lo mueve con el transporte parado.
 
 ## Presencia (awareness)
 

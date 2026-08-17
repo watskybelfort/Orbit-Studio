@@ -36,6 +36,7 @@ Consecuencias de diseño (por qué es elegante):
 | `set_tempo` / `set_swing` | Transport |
 | `render` | Exportar WAV (master o stems) y devolver la ruta |
 | `analyze_mix` | Medidas reales del render: LUFS, peak, balance espectral por bandas, correlación estéreo |
+| `advise_mix` | Diagnóstico accionable de la mezcla (tilts entre bandas, fase, loudness contra -14 LUFS) y cadena propuesta con valores reales; con `apply` la monta en un solo undo |
 | `list_library` / `load_sample` | Buscar en la librería clasificada y cargar samples |
 
 Diseño de las tools: parámetros musicales (notas como `"F2"`, tiempos en beats,
