@@ -176,6 +176,10 @@ export function describeCommand(cmd: Command): string {
     case 'restoreArrangement': return 'Restaurar arrangement';
     case 'patchArrangement': return 'Renombrar arrangement';
     case 'setActiveArrangement': return 'Cambiar arrangement';
+    case 'addLfos': return `${cmd.lfos.length} LFO(s)`;
+    case 'removeLfos': return `Quitar ${cmd.lfoIds.length} LFO(s)`;
+    case 'restoreLfos': return 'Restaurar LFO(s)';
+    case 'patchLfo': return 'Ajustar LFO';
     case 'addMarker': return `Marcador "${cmd.marker.name}"`;
     case 'removeMarker': return 'Borrar marcador';
     case 'patchMarker': return 'Editar marcador';
