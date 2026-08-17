@@ -237,6 +237,7 @@ export function Transport() {
           size={26}
           format={(v) => `${Math.round(v * 100)}%`}
           onChange={setSwing}
+          paramRef={{ kind: 'transport', param: 'swing' }}
         />
         <button className="tbtn tap" title="Tap tempo: marca el pulso con clics" onClick={tapTempo}>
           TAP

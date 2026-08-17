@@ -638,6 +638,7 @@ function ChannelRow({
         size={22}
         format={(v) => `${gainToDb(v).toFixed(1)} dB`}
         onChange={setVolume}
+        paramRef={{ kind: 'channelMix', channelId: channel.id, param: 'volume' }}
       />
       <Knob
         value={channel.pan}
@@ -647,6 +648,7 @@ function ChannelRow({
         size={22}
         format={formatPan}
         onChange={setPan}
+        paramRef={{ kind: 'channelMix', channelId: channel.id, param: 'pan' }}
       />
       {renaming ? (
         <input

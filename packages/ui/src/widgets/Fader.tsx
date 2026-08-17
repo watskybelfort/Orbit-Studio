@@ -1,8 +1,14 @@
-/** Fader vertical del mixer: dB reales, doble clic = 0 dB. */
+/**
+ * Fader vertical del mixer: dB reales, doble clic = 0 dB.
+ * Con `paramRef` avisa del movimiento y abre el menú de automatización/LFO,
+ * igual que la perilla.
+ */
 
-import { useCallback, useRef } from 'react';
-import { gainToDb } from '@orbit/core';
+import { useCallback, useRef, useState } from 'react';
+import { gainToDb, type ParamRef } from '@orbit/core';
+import { touchParam } from '../state/param-touch';
 import { capturePointer } from './pointer';
+import { ParamMenu, clampMenuPosition } from './ParamMenu';
 import './widgets.css';
 
 export interface FaderProps {
@@ -11,6 +17,8 @@ export interface FaderProps {
   height?: number;
   onChange: (gain: number) => void;
   onCommit?: () => void;
+  /** Destino automatizable que mueve este fader. */
+  paramRef?: ParamRef;
 }
 
 /** Mapeo fader: posición 0..1 → ganancia con más recorrido útil arriba. */
@@ -22,9 +30,18 @@ function gainToPos(gain: number): number {
   return Math.pow(Math.min(2, Math.max(0, gain)) / 2, 1 / 1.8);
 }
 
-export function Fader({ value, height = 160, onChange, onCommit }: FaderProps) {
+export function Fader({ value, height = 160, onChange, onCommit, paramRef }: FaderProps) {
   const track = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const emit = useCallback(
+    (gain: number) => {
+      onChange(gain);
+      if (paramRef) touchParam(paramRef);
+    },
+    [onChange, paramRef],
+  );
 
   const setFromClientY = useCallback(
     (clientY: number) => {
@@ -32,9 +49,9 @@ export function Fader({ value, height = 160, onChange, onCommit }: FaderProps) {
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const pos = 1 - (clientY - rect.top) / rect.height;
-      onChange(posToGain(Math.min(1, Math.max(0, pos))));
+      emit(posToGain(Math.min(1, Math.max(0, pos))));
     },
-    [onChange],
+    [emit],
   );
 
   const pos = gainToPos(value);
@@ -59,12 +76,21 @@ export function Fader({ value, height = 160, onChange, onCommit }: FaderProps) {
         onCommit?.();
       }}
       onDoubleClick={() => {
-        onChange(1);
+        emit(1);
         onCommit?.();
+      }}
+      onContextMenu={(e) => {
+        if (!paramRef) return;
+        e.preventDefault();
+        e.stopPropagation();
+        setMenu(clampMenuPosition(e.clientX, e.clientY, e.currentTarget.ownerDocument.defaultView));
       }}
     >
       <div className="fader-track" />
       <div className="fader-thumb" style={{ bottom: `calc(${pos * 100}% - 7px)` }} />
+      {menu && paramRef && (
+        <ParamMenu target={paramRef} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }
