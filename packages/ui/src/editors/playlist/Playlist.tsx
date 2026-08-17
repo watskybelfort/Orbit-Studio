@@ -46,11 +46,13 @@ import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
-import { clampMenuPosition } from '../../widgets/ParamMenu';
+import { MenuPortal } from '../../widgets/MenuPortal';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
 const RULER_H = 26;
+/** Ancho de la caja de edición de marcador; debe coincidir con el CSS. */
+const MARKER_EDIT_W = 330;
 /** Zona sensible del borde derecho de un clip (resize), en px. */
 const RESIZE_EDGE = 7;
 /** Límites de la altura de pista (px) y valor al que vuelve con doble clic. */
@@ -123,8 +125,13 @@ export function Playlist() {
   const [scrollX, setScrollX] = useState(0); // beats
   const [scrollY, setScrollY] = useState(0); // px
   const [snapIdx, setSnapIdx] = useState(0);
-  /** Marcador en edición de nombre (input flotante sobre la regla). */
-  const [markerEdit, setMarkerEdit] = useState<{ id: Id; x: number; name: string } | null>(null);
+  /**
+   * Marcador en edición (caja flotante sobre la regla). NO guarda la x: la
+   * posición se deriva del beat del marcador en cada render. Guardarla dejaba
+   * la caja clavada donde se abrió mientras la bandera se iba con el scroll o
+   * el zoom.
+   */
+  const [markerEdit, setMarkerEdit] = useState<{ id: Id; name: string } | null>(null);
   /** Región de loop del transporte (estado de motor, no de proyecto). */
   // La región de loop vive en el estado global (el export la ofrece como fuente).
   const loopRegion = useUiStore((s) => s.loopRegion);
@@ -916,7 +923,7 @@ export function Playlist() {
       if (y < RULER_H) {
         const m = markerAt(x);
         if (m) {
-          setMarkerEdit({ id: m.id, x: beatToX(m.time), name: m.name });
+          setMarkerEdit({ id: m.id, name: m.name });
         } else {
           const count = Object.keys(project.markers).length;
           store.dispatch(
@@ -980,13 +987,16 @@ export function Playlist() {
         setZoom(next);
         setScrollX(Math.max(0, beatAt - x / next));
       } else if (e.shiftKey) {
-        setScrollX(Math.max(0, scrollX + (e.deltaY > 0 ? 2 : -2)));
+        // Actualización funcional: dos ruedas en el mismo tick (la rueda las
+        // agrupa) partían las dos del MISMO scroll y la segunda se perdía.
+        setScrollX((s) => Math.max(0, s + (e.deltaY > 0 ? 2 : -2)));
       } else {
         const viewH = (wrapRef.current?.clientHeight ?? 0) - RULER_H;
-        setScrollY(Math.min(Math.max(0, totalH - viewH), Math.max(0, scrollY + e.deltaY)));
+        const max = Math.max(0, totalH - viewH);
+        setScrollY((s) => Math.min(max, Math.max(0, s + e.deltaY)));
       }
     },
-    [zoom, scrollX, scrollY, totalH, xToBeat],
+    [zoom, totalH, xToBeat],
   );
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
@@ -1028,6 +1038,20 @@ export function Playlist() {
   };
 
   const [renamingArr, setRenamingArr] = useState(false);
+
+  /**
+   * Izquierda de la caja de edición del marcador, en px de .pl-canvas-wrap.
+   * Se recalcula en cada render a partir del beat del marcador, así que la
+   * caja va pegada a su bandera aunque se haga scroll o zoom con ella
+   * abierta; y se limita al ancho útil porque el contenedor es
+   * `overflow: hidden` y la recortaría sin avisar.
+   */
+  const markerEditX = (() => {
+    const marker = markerEdit ? project.markers[markerEdit.id] : undefined;
+    if (!marker) return 2;
+    const room = Math.max(2, (wrapRef.current?.clientWidth ?? 0) - MARKER_EDIT_W - 4);
+    return Math.min(room, Math.max(2, beatToX(marker.time) + 4));
+  })();
 
   return (
     <div className="playlist">
@@ -1118,7 +1142,7 @@ export function Playlist() {
           {markerEdit && (
             <div
               className="pl-marker-edit popup"
-              style={{ left: Math.max(2, markerEdit.x + 4), top: 2 }}
+              style={{ left: markerEditX, top: 2 }}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <input
@@ -1240,7 +1264,8 @@ interface TrackHeaderProps {
 
 function TrackHeader({ track }: TrackHeaderProps) {
   const [editing, setEditing] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // El ancla dice en qué documento se pinta el menú (ventana desacoplada).
+  const [menu, setMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
   const cancelName = useRef(false);
   /** Arrastre de la altura: alto y cursor al empezar. */
   const resize = useRef<{ y: number; height: number } | null>(null);
@@ -1284,8 +1309,9 @@ function TrackHeader({ track }: TrackHeaderProps) {
       style={{ height: track.height, borderLeftColor: track.color }}
       onContextMenu={(e) => {
         e.preventDefault();
-        const view = e.currentTarget.ownerDocument.defaultView;
-        setMenu(clampMenuPosition(e.clientX, e.clientY, view, 230, 90));
+        // Ni tamaño adivinado ni recorte a mano: MenuPortal lo mide de verdad
+        // y lo mete dentro de la ventana que toque.
+        setMenu({ x: e.clientX, y: e.clientY, anchor: e.currentTarget });
       }}
     >
       <button
@@ -1350,6 +1376,11 @@ function TrackHeader({ track }: TrackHeaderProps) {
         onPointerUp={() => {
           resize.current = null;
         }}
+        // Sin esto, un gesto cancelado dejaba el arrastre vivo y la pista
+        // cambiaba de altura con solo pasar el ratón por el tirador.
+        onPointerCancel={() => {
+          resize.current = null;
+        }}
         onDoubleClick={() =>
           store.dispatch(
             { type: 'patchPlaylistTrack', trackId: track.id, patch: { height: TRACK_H_DEFAULT } },
@@ -1358,7 +1389,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
         }
       />
       {menu && (
-        <TrackMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+        <TrackMenu x={menu.x} y={menu.y} anchor={menu.anchor} onClose={() => setMenu(null)}>
           <div className="pl-menu-icons" title="Icono de la pista">
             {TRACK_ICONS.map((kind) => (
               <button
@@ -1429,37 +1460,31 @@ function TrackHeader({ track }: TrackHeaderProps) {
   );
 }
 
-/** Menú flotante de la cabecera de pista (se cierra al clicar fuera o Esc). */
+/**
+ * Menú flotante de la cabecera de pista.
+ *
+ * Va por MenuPortal y no por un `position: fixed` a pelo: las cabeceras viven
+ * dentro de .pl-headers-inner, que lleva un transform de scroll, y eso lo
+ * convierte en el containing block del menú. Colocado contra una columna de
+ * 140 px con `overflow: hidden`, el menú se recortaba ENTERO: clic derecho en
+ * una cabecera de pista no hacía nada, nunca.
+ */
 function TrackMenu({
   x,
   y,
+  anchor,
   onClose,
   children,
 }: {
   x: number;
   y: number;
+  anchor: Element | null;
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('pointerdown', onClose);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onClose);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-
   return (
-    <div
-      className="popup param-menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
+    <MenuPortal anchor={anchor} x={x} y={y} onClose={onClose} className="param-menu">
       {children}
-    </div>
+    </MenuPortal>
   );
 }

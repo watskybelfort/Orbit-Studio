@@ -154,13 +154,24 @@ html[data-theme='acrylic'] .playlist {
   position: relative;
 }
 
-.pl-headers-inner {
-  will-change: transform;
-}
+/* .pl-headers-inner sigue el scroll vertical de la rejilla con un transform en
+   línea (lo pone el TSX) y NO lleva regla propia a posta: tenía
+   `will-change: transform`, que además de reservar una capa de composición
+   para siempre lo convertía en containing block de sus descendientes
+   `position: fixed` — y con el `overflow: hidden` de 140 px de
+   .pl-headers-scroll el menú de pista se colocaba contra esa caja y se
+   recortaba entero. Nada de `will-change`, `filter` ni `contain` aquí: todos
+   hacen lo mismo. (El transform en línea sigue siendo containing block, por
+   eso los menús salen por portal — ver widgets/MenuPortal.) */
 
-/* Cabecera de pista (borde izquierdo = color de la pista, inline) */
-
+/* Cabecera de pista (borde izquierdo = color de la pista, inline).
+   `position: relative` es obligatorio: es el ancla de .pl-track-resize. Sin
+   él los tiradores de altura se anclaban a .pl-headers-scroll y TODOS
+   acababan apilados en la misma franja de 5 px al fondo de la columna —
+   arrastrar entre dos pistas no hacía nada y quedaba una banda invisible al
+   final que se tragaba los clics. */
 .pl-track {
+  position: relative;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -277,18 +288,6 @@ html[data-theme='acrylic'] .playlist {
   pointer-events: none;
 }
 
-/* Input flotante para renombrar un marcador (doble clic sobre su bandera). */
-.pl-marker-edit {
-  position: absolute;
-  z-index: 5;
-  width: 130px;
-  height: 20px;
-  padding: 2px 6px;
-  font-size: 11px;
-  color: var(--text);
-  outline: none;
-}
-
 /* Icono de la pista, tirador de altura y selector de icono del menú */
 
 .pl-track-icon {
@@ -296,10 +295,6 @@ html[data-theme='acrylic'] .playlist {
   align-items: center;
   color: var(--text-dim);
   flex: none;
-}
-
-.pl-track {
-  position: relative;
 }
 
 .pl-track-resize {
@@ -348,15 +343,24 @@ html[data-theme='acrylic'] .playlist {
   border-color: var(--accent);
 }
 
-/* Editor del marcador: nombre + tempo y compás a partir de ahí */
+/* Editor del marcador: nombre + tempo y compás a partir de ahí.
+   Bloque ÚNICO a posta: había otro más arriba, de 130x20 px, que estrangulaba
+   este (el ancho y el alto de aquel seguían ganando porque este no los
+   redeclara) y dejaba los campos de BPM y compás fuera de la caja. */
 
 .pl-marker-edit {
   position: absolute;
   z-index: 20;
+  box-sizing: border-box;
+  /* Ancho fijo y explícito: el TSX lo necesita para no dejar la caja fuera
+     del área visible (MARKER_EDIT_W). Si cambia aquí, cambia allí. */
+  width: 330px;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 5px 7px;
+  font-size: 11px;
+  color: var(--text);
 }
 
 .pl-marker-name {

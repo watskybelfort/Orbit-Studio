@@ -67,7 +67,9 @@ export function NumberScrubber({
     <span
       className="scrubber"
       onPointerDown={(e) => {
-        capturePointer(e.target as HTMLElement, e.pointerId);
+        // currentTarget: e.target puede ser el <span> del sufijo, y capturar
+        // sobre un hijo que se repinta deja el arrastre a medias.
+        capturePointer(e.currentTarget, e.pointerId);
         drag.current = { startY: e.clientY, startValue: value };
       }}
       onPointerMove={(e) => {
@@ -76,6 +78,13 @@ export function NumberScrubber({
         onChange(clamp(drag.current.startValue + (drag.current.startY - e.clientY) * perPixel));
       }}
       onPointerUp={() => {
+        drag.current = null;
+        onCommit?.();
+      }}
+      // Gesto cancelado: soltar igual, o el número seguía moviéndose con el
+      // puntero sin ningún botón pulsado.
+      onPointerCancel={() => {
+        if (!drag.current) return;
         drag.current = null;
         onCommit?.();
       }}

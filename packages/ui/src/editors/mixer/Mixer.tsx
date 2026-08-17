@@ -41,6 +41,7 @@ import { useUiStore } from '../../state/ui';
 import { Fader } from '../../widgets/Fader';
 import { Knob } from '../../widgets/Knob';
 import { LevelMeter } from '../../widgets/LevelMeter';
+import { MenuPortal } from '../../widgets/MenuPortal';
 import './mixer.css';
 
 // Efectos nativos insertables; los slots 'plugin' se insertan desde la sección
@@ -83,34 +84,32 @@ function slotLabel(slot: EffectSlot, plugins: PluginInfo[]): string {
 
 // ── Menú flotante (efectos / routing) ────────────────────────────────────────
 
+/**
+ * Menús del mixer, por portal.
+ *
+ * Antes se colocaban a mano contra `window.innerWidth/innerHeight` de la
+ * ventana PRINCIPAL: con el mixer desacoplado en su propia ventana, el menú se
+ * recortaba contra un viewport que no era el suyo y podía acabar fuera de
+ * pantalla. MenuPortal lo mide dentro de la ventana del ancla y lo pinta en su
+ * <body>, fuera del `overflow: hidden` de la ventana interna.
+ */
 function FloatingMenu({
   x,
   y,
+  anchor,
   onClose,
   children,
 }: {
   x: number;
   y: number;
+  anchor: Element | null;
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    window.addEventListener('pointerdown', onClose);
-    window.addEventListener('blur', onClose);
-    return () => {
-      window.removeEventListener('pointerdown', onClose);
-      window.removeEventListener('blur', onClose);
-    };
-  }, [onClose]);
-
   return (
-    <div
-      className="popup mixer-menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
+    <MenuPortal anchor={anchor} x={x} y={y} onClose={onClose} className="mixer-menu">
       {children}
-    </div>
+    </MenuPortal>
   );
 }
 
@@ -732,7 +731,12 @@ function ChainPanel({
   mixer: MixerTrack[];
 }) {
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [fxMenu, setFxMenu] = useState<{ slot: number; x: number; y: number } | null>(null);
+  const [fxMenu, setFxMenu] = useState<{
+    slot: number;
+    x: number;
+    y: number;
+    anchor: Element;
+  } | null>(null);
   const plugins = usePluginsStore((s) => s.plugins);
   const capturing = useTrackCapture((s) => s.trackIndex === trackIndex);
   const captureSeconds = useTrackCapture((s) => s.seconds);
@@ -964,12 +968,10 @@ function ChainPanel({
                   className="fx-add"
                   title="Insertar efecto"
                   onClick={(e) => {
+                    // Se pide debajo del botón; meterlo dentro del viewport de
+                    // la ventana que toque ya lo hace MenuPortal midiéndolo.
                     const r = e.currentTarget.getBoundingClientRect();
-                    setFxMenu({
-                      slot: i,
-                      x: Math.min(r.left, window.innerWidth - 190),
-                      y: Math.min(r.bottom + 2, window.innerHeight - 330),
-                    });
+                    setFxMenu({ slot: i, x: r.left, y: r.bottom + 2, anchor: e.currentTarget });
                   }}
                 >
                   +
@@ -1041,7 +1043,12 @@ function ChainPanel({
         })}
       </div>
       {fxMenu && (
-        <FloatingMenu x={fxMenu.x} y={fxMenu.y} onClose={() => setFxMenu(null)}>
+        <FloatingMenu
+          x={fxMenu.x}
+          y={fxMenu.y}
+          anchor={fxMenu.anchor}
+          onClose={() => setFxMenu(null)}
+        >
           {EFFECT_KINDS.map((kind) => (
             <button
               key={kind}
@@ -1094,9 +1101,13 @@ function ChainPanel({
 export function Mixer() {
   const project = useProject();
   const selectedRaw = useUiStore((s) => s.selectedMixerTrack);
-  const [routeMenu, setRouteMenu] = useState<{ target: number; x: number; y: number } | null>(
-    null,
-  );
+  /** Menú del strip pulsado con el botón derecho (seleccionar / rutas). */
+  const [stripMenu, setStripMenu] = useState<{
+    target: number;
+    x: number;
+    y: number;
+    anchor: Element;
+  } | null>(null);
 
   const mixer = project.mixer;
   const selIndex = selectedRaw >= 0 && selectedRaw < mixer.length ? selectedRaw : 0;
@@ -1123,21 +1134,34 @@ export function Mixer() {
     [selIndex],
   );
 
-  const onStripContext = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>, i: number) => {
-      e.preventDefault();
-      // El master no se re-enruta; y una pista no puede enrutarse a sí misma.
-      if (i === selIndex || selIndex === 0) return;
-      setRouteMenu({
-        target: i,
-        x: Math.min(e.clientX, window.innerWidth - 190),
-        y: Math.min(e.clientY, window.innerHeight - 70),
-      });
-    },
-    [selIndex],
-  );
+  /**
+   * Clic derecho en un strip: SIEMPRE abre menú.
+   *
+   * Antes hacía `preventDefault()` y se marchaba cuando la pista pulsada era
+   * la seleccionada o cuando la seleccionada era el Master — que es el valor
+   * por defecto. Resultado: recién abierto el mixer, el clic derecho sobre
+   * cualquier strip mataba el menú del sistema y no abría el propio: no pasaba
+   * absolutamente nada. Ahora el menú se abre igual y son sus opciones las que
+   * se desactivan (con el porqué en el title) cuando no aplican.
+   */
+  const onStripContext = useCallback((e: React.MouseEvent<HTMLDivElement>, i: number) => {
+    e.preventDefault();
+    setStripMenu({ target: i, x: e.clientX, y: e.clientY, anchor: e.currentTarget });
+  }, []);
 
   if (!selTrack) return null;
+
+  // Opciones de ruta del menú: el Master no se re-enruta y una pista no puede
+  // enrutarse ni enviarse a sí misma.
+  const menuTarget = stripMenu?.target ?? -1;
+  const canRoute = stripMenu !== null && menuTarget !== selIndex && selIndex !== 0;
+  const sendActive = canRoute && selTrack.sends.some((s) => s.target === menuTarget);
+  const routeHint =
+    selIndex === 0
+      ? 'El Master es la salida final: no se enruta a ninguna pista'
+      : menuTarget === selIndex
+        ? 'Una pista no puede enrutarse a sí misma — selecciona antes la pista de origen'
+        : `Manda la salida de ${trackLabel(selIndex, mixer)} a esta pista`;
 
   return (
     <div className="mixer">
@@ -1158,19 +1182,54 @@ export function Mixer() {
         ))}
       </div>
       <ChainPanel trackIndex={selIndex} track={selTrack} mixer={mixer} />
-      {routeMenu && (
-        <FloatingMenu x={routeMenu.x} y={routeMenu.y} onClose={() => setRouteMenu(null)}>
+      {stripMenu && (
+        <FloatingMenu
+          x={stripMenu.x}
+          y={stripMenu.y}
+          anchor={stripMenu.anchor}
+          onClose={() => setStripMenu(null)}
+        >
+          {menuTarget !== selIndex && (
+            <button
+              className="menu-item"
+              onClick={() => {
+                onSelect(menuTarget);
+                setStripMenu(null);
+              }}
+            >
+              Seleccionar {trackLabel(menuTarget, mixer)}
+            </button>
+          )}
           <button
             className="menu-item"
+            disabled={!canRoute}
+            title={routeHint}
             onClick={() => {
               store.dispatch(
-                { type: 'setRoute', trackIndex: selIndex, routeTo: routeMenu.target },
-                { label: `Enrutar ${trackLabel(selIndex, mixer)} → ${trackLabel(routeMenu.target, mixer)}` },
+                { type: 'setRoute', trackIndex: selIndex, routeTo: menuTarget },
+                {
+                  label: `Enrutar ${trackLabel(selIndex, mixer)} → ${trackLabel(menuTarget, mixer)}`,
+                },
               );
-              setRouteMenu(null);
+              setStripMenu(null);
             }}
           >
-            Enrutar aquí ({trackLabel(routeMenu.target, mixer)})
+            Enrutar aquí ({trackLabel(menuTarget, mixer)})
+          </button>
+          <button
+            className="menu-item"
+            disabled={!canRoute}
+            title={
+              canRoute
+                ? 'Manda una copia con nivel propio (lo mismo que Ctrl+clic)'
+                : routeHint
+            }
+            onClick={() => {
+              onToggleSend(menuTarget);
+              setStripMenu(null);
+            }}
+          >
+            {sendActive ? 'Quitar send hacia aquí' : 'Send hacia aquí'}
           </button>
         </FloatingMenu>
       )}
