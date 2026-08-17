@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Orbit Prisma v1: el instrumento grande de presets (capas, macros, rangos de
  * tecla y pool de cuerdas pulsadas).
  *
@@ -323,7 +323,7 @@ describe('Orbit Prisma · canal y preset', () => {
    * Repro: el mismo proyecto con voiceMode 0 y con voiceMode 1 da EXACTAMENTE
    * el mismo audio (dos notas encabalgadas suenan a la vez en los dos casos).
    */
-  it.skip('el modo Mono corta la voz anterior en vez de apilarla', () => {
+  it('el modo Mono corta la voz anterior en vez de apilarla', () => {
     const id = presetFor([48]).id;
     const notas = { keys: [48, 48], duration: 1.5 };
     const poly = renderProject(prismaProject({ presetId: id, params: { voiceMode: 0 }, ...notas }), {
@@ -611,7 +611,7 @@ describe('Orbit Prisma · slide', () => {
    * altura sale ~110 Hz (la del 45) en vez de ~146.8 Hz.
    * Fuente: packages/engine/src/dsp/prisma-voice.ts:851-857.
    */
-  it.skip('una cadena de slides sigue clavando cada altura', () => {
+  it('una cadena de slides sigue clavando cada altura', () => {
     const voice = sineVoice(40);
     try {
       voice.glideTo(45, 0.9);
@@ -762,7 +762,7 @@ describe('Orbit Prisma · pool de la cuerda pulsada', () => {
    * `tailSeconds: 0` (o con release más larga que la cola) y comparar
    * `pluckLinesFree()` antes y después.
    */
-  it.skip('un render offline que acaba con voces vivas devuelve el pool', () => {
+  it('un render offline que acaba con voces vivas devuelve el pool', () => {
     const antes = pluckLinesFree();
     renderProject(densePluckProject({ attack: 0.001, decay: 1.5, sustain: 0.6, release: 2 }), {
       tailSeconds: 0,

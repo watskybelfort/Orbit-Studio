@@ -644,6 +644,14 @@ export class PrismaVoice extends Voice {
 
   /** Frecuencia de la nota con la que nació (base del glide). */
   private readonly bornFreq: number;
+  /**
+   * Transposición del canal (octava + semis + fino) como multiplicador, fijada
+   * UNA vez al nacer. Antes se recalculaba en cada `glideTo` dividiendo por
+   * `this.key`, que ya era la tecla del slide anterior: del segundo slide en
+   * adelante se aplicaba el intervalo previo como desafinación y la voz se
+   * quedaba clavada en la nota del primero.
+   */
+  private readonly tuneRatio: number;
   private freq: number;
   private targetFreq: number;
   private readonly glideCoef: number;
@@ -722,8 +730,8 @@ export class PrismaVoice extends Voice {
     const velSens = clamp01(p['velSens'] ?? 0.6);
     this.velGain = 1 - velSens + velSens * clamp01(velocity);
 
-    this.bornFreq =
-      midiToHz(key) * semiRatio(octave * 12 + (p['semi'] ?? 0) + (p['fine'] ?? 0) / 100);
+    this.tuneRatio = semiRatio(octave * 12 + (p['semi'] ?? 0) + (p['fine'] ?? 0) / 100);
+    this.bornFreq = midiToHz(key) * this.tuneRatio;
     this.freq = this.bornFreq;
     this.targetFreq = this.bornFreq;
     const glide = Math.max(0, p['glide'] ?? 0);
@@ -849,9 +857,8 @@ export class PrismaVoice extends Voice {
    * octava y el fino del canal siguen aplicando después del salto.
    */
   override glideTo(key: number, velocity: number): void {
-    const ratio = this.bornFreq / midiToHz(this.key);
     super.glideTo(key, velocity);
-    this.targetFreq = midiToHz(key) * ratio;
+    this.targetFreq = midiToHz(key) * this.tuneRatio;
     if (this.glideCoef === 0) this.freq = this.targetFreq;
     this.releasing = false;
   }

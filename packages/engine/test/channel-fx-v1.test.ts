@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Inserts POR CANAL (`Channel.fx`, CHANNEL_SLOTS = 4).
  *
  * La cadena de un canal suena entre sus voces y su pista de mixer, y existe
@@ -553,7 +553,7 @@ describe('inserts de canal · dos canales no se contaminan', () => {
    * Repro: canal muteado con un insert de vinyl (noise/crackle a 1) y
    * renderizar: sale ruido en el master.
    */
-  it.skip('un canal muteado no mete nada en la pista, ni con un insert que genera ruido', () => {
+  it('un canal muteado no mete nada en la pista, ni con un insert que genera ruido', () => {
     const res = render([
       {
         slots: [fxSlot('vinyl', { noise: 1, crackle: 1, wow: 0, flutter: 0 })],

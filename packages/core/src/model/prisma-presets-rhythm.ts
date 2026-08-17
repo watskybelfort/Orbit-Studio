@@ -511,7 +511,10 @@ export const PRISMA_RHYTHM: PrismaPreset[] = [
     },
     [
       macro('Vocal', 0.5, [on(0, 'wave', 0.2, 0.8)]),
-      macro('Deriva', 0.5, [chan('modAmount', 0, 0.5), chan('modAttack', 1, 5)]),
+      // El tope de Mod Atk es 4 s: barrer hasta 5 dejaba la perilla en un valor
+      // que la interfaz no puede mostrar y que salta al automatizarla. El
+      // rango se estrecha manteniendo los 3 s de fábrica en el centro.
+      macro('Deriva', 0.5, [chan('modAmount', 0, 0.5), chan('modAttack', 2, 4)]),
       macro('Apertura', 0.4, [chan('cutoff', 600, 5600)]),
       macro('Cola', 0.5, [chan('attack', 0.6, 3), chan('release', 1.2, 5.2)]),
     ],
@@ -740,7 +743,9 @@ export const PRISMA_RHYTHM: PrismaPreset[] = [
       wave: 0.5, treble: 5, width: 1.8, velSens: 0.4, level: 0.85,
     },
     [
-      macro('Subida', 0.5, [chan('attack', 0.6, 4.2), chan('modAttack', 0.6, 4.2)]),
+      // Attack y Mod Atk topan en 4 s: barrer hasta 4.2 dejaba la perilla
+      // fuera de su rango. Mismos 2.4 s de fábrica con el tope respetado.
+      macro('Subida', 0.5, [chan('attack', 0.8, 4), chan('modAttack', 0.8, 4)]),
       macro('Brillo', 0.5, [on(0, 'wave', 0.6, 1), on(1, 'wave', 0.9, 1)]),
       macro('Barrido', 0.5, [chan('modAmount', 0.1, 1)]),
       macro('Cuerpo', 0.5, [chan('cutoff', 1000, 5000), chan('bass', -6, 6)]),
