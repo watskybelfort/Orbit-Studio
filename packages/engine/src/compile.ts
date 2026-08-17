@@ -5,24 +5,27 @@
  */
 
 import {
-  EFFECT_PARAMS,
-  INSTRUMENT_PARAMS,
-  denormalizeParam,
-  findParamSpec,
+  LFO_SHAPES,
+  paramRefKey,
+  paramRefNorm,
+  paramRefValue,
   type AutomationPoint,
   type Clip,
   type EffectSlot,
+  type Lfo,
   type ParamRef,
   type Project,
 } from '@orbit/core';
-import type {
-  CompiledAudioClip,
-  CompiledAutomationEvent,
-  CompiledEffect,
-  CompiledMixerTrack,
-  CompiledNoteEvent,
-  CompiledParamTarget,
-  CompiledProject,
+import {
+  LFO_LUT_STEPS,
+  type CompiledAudioClip,
+  type CompiledAutomationEvent,
+  type CompiledEffect,
+  type CompiledLfo,
+  type CompiledMixerTrack,
+  type CompiledNoteEvent,
+  type CompiledParamTarget,
+  type CompiledProject,
 } from './protocol';
 
 export type PlayMode =
@@ -69,7 +72,7 @@ function sampleAutomation(
   const values = new Array<number>(steps + 1);
   for (let i = 0; i <= steps; i++) {
     const t = Math.min(clip.length, i * AUTOMATION_STEP);
-    values[i] = denormalizeTarget(evalCurve(sorted, t), target, project);
+    values[i] = paramRefValue(evalCurve(sorted, t), target, project);
   }
   return {
     startBeat: clip.start,
@@ -132,29 +135,33 @@ function compileParamTarget(
   }
 }
 
-/** 0..1 → valor real del parámetro destino. */
-function denormalizeTarget(norm: number, ref: ParamRef, project: Project): number {
-  switch (ref.kind) {
-    case 'channel': {
-      const ch = project.channels[ref.channelId];
-      if (!ch) return norm;
-      const spec = findParamSpec(INSTRUMENT_PARAMS[ch.kind], ref.param);
-      return spec ? denormalizeParam(spec, norm) : norm;
-    }
-    case 'channelMix':
-      return ref.param === 'volume' ? norm * 2 : norm * 2 - 1;
-    case 'mixer':
-      if (ref.param === 'pan') return norm * 2 - 1;
-      return norm * 2; // volume y stereoWidth 0..2
-    case 'effect': {
-      const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
-      if (!slot) return norm;
-      const spec = findParamSpec(EFFECT_PARAMS[slot.kind], ref.param);
-      return spec ? denormalizeParam(spec, norm) : norm;
-    }
-    case 'transport':
-      return ref.param === 'tempo' ? 20 + norm * (999 - 20) : norm;
+/**
+ * LFO del modelo → LFO compilado, con la LUT norm→valor real del destino.
+ * Devuelve null si el destino ya no existe (canal borrado, efecto quitado…).
+ */
+function compileLfo(
+  lfo: Lfo,
+  project: Project,
+  channelIndexOf: Map<string, number>,
+): CompiledLfo | null {
+  const target = compileParamTarget(lfo.target, channelIndexOf);
+  if (!target) return null;
+  const baseNorm = paramRefNorm(lfo.target, project);
+  if (baseNorm === null) return null;
+  const lut = new Float32Array(LFO_LUT_STEPS + 1);
+  for (let i = 0; i <= LFO_LUT_STEPS; i++) {
+    lut[i] = paramRefValue(i / LFO_LUT_STEPS, lfo.target, project);
   }
+  const shape = Math.max(0, LFO_SHAPES.indexOf(lfo.shape));
+  return {
+    target,
+    shape,
+    rateBeats: Math.max(1 / 16, lfo.rateBeats),
+    amount: Math.min(1, Math.max(-1, lfo.amount)),
+    phase: lfo.phase,
+    baseNorm,
+    lut,
+  };
 }
 
 /** Orden topológico del grafo de mixer (fuentes → master al final). */
@@ -307,6 +314,21 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
 
   events.sort((a, b) => a.start - b.start);
 
+  // LFOs: valen en los dos modos (PAT y SONG) porque no viven en la playlist.
+  // Dos LFOs sobre el MISMO destino se pelearían por el valor (cada uno vería
+  // la escritura del otro como un cambio externo), así que gana el primero.
+  const lfos: CompiledLfo[] = [];
+  const lfoTargets = new Set<string>();
+  for (const lfo of Object.values(project.lfos)) {
+    if (!lfo.enabled) continue;
+    const key = paramRefKey(lfo.target);
+    if (lfoTargets.has(key)) continue;
+    const compiled = compileLfo(lfo, project, channelIndexOf);
+    if (!compiled) continue;
+    lfoTargets.add(key);
+    lfos.push(compiled);
+  }
+
   return {
     tempo: project.tempo,
     timeSigNum: project.timeSig.num,
@@ -315,6 +337,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     events,
     audioClips,
     automation,
+    lfos,
     mixer,
     mixerOrder: topoOrder(mixer),
   };

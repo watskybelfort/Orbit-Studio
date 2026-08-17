@@ -62,6 +62,31 @@ export interface CompiledAutomationEvent {
   target: CompiledParamTarget;
 }
 
+/**
+ * LFO compilado. El kernel no conoce specs de parámetros: recibe una LUT
+ * monótona (norm 0..1 → valor real) para ir y volver entre ambos mundos, y
+ * la fase se deriva de la posición en beats para que el render offline dé
+ * exactamente lo mismo que la reproducción en vivo.
+ */
+export interface CompiledLfo {
+  target: CompiledParamTarget;
+  /** 0 seno · 1 triángulo · 2 sierra · 3 cuadrada · 4 sample & hold. */
+  shape: number;
+  /** Beats por ciclo. */
+  rateBeats: number;
+  /** Profundidad bipolar -1..1 en unidades normalizadas. */
+  amount: number;
+  /** Desfase inicial en ciclos (0..1). */
+  phase: number;
+  /** Valor normalizado del parámetro en el proyecto (base de la oscilación). */
+  baseNorm: number;
+  /** Tabla norm→valor real, `LFO_LUT_STEPS + 1` entradas equiespaciadas. */
+  lut: Float32Array;
+}
+
+/** Resolución de la LUT de los LFOs (el error de interpolación queda < 0.2 %). */
+export const LFO_LUT_STEPS = 64;
+
 export type CompiledParamTarget =
   | { scope: 'channelParam'; channelIndex: number; key: string }
   | { scope: 'channelMix'; channelIndex: number; key: 'volume' | 'pan' }
@@ -93,6 +118,8 @@ export interface CompiledProject {
   events: CompiledNoteEvent[];
   audioClips: CompiledAudioClip[];
   automation: CompiledAutomationEvent[];
+  /** Moduladores continuos; se aplican DESPUÉS de la automatización. */
+  lfos: CompiledLfo[];
   mixer: CompiledMixerTrack[];
   /** Orden topológico de proceso del mixer (hojas → master). */
   mixerOrder: number[];
