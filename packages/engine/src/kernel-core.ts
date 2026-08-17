@@ -506,6 +506,30 @@ export class KernelCore {
     if (!p) return;
     const ch = p.channels[channelIndex];
     if (!ch) return;
+
+    // Modo de voces del canal (0 Poly, 1 Mono, 2 Legato). Los instrumentos que
+    // no declaran el parámetro son polifónicos, que es como se ha comportado
+    // el motor siempre. Solo se aplica entre notas programadas: una audición
+    // no debe cortar lo que está sonando.
+    const voiceMode = Math.round(ch.params['voiceMode'] ?? 0);
+    if (voiceMode > 0 && previewKey === null) {
+      const existing = this.voices.find(
+        (v) => v.voice.channelIndex === channelIndex && !v.released && v.previewKey === null,
+      );
+      if (existing) {
+        if (voiceMode === 2) {
+          // Legato: la misma voz se lleva a la altura nueva sin re-atacar, así
+          // que la envolvente y el filtro no vuelven a empezar.
+          existing.voice.glideTo(key, velocity);
+          existing.offBeat = Math.max(existing.offBeat, offBeat);
+          return;
+        }
+        // Mono: la anterior suelta y la nueva ataca desde cero.
+        existing.voice.noteOff();
+        existing.released = true;
+      }
+    }
+
     if (this.voices.length >= MAX_VOICES) {
       // Roba la voz más antigua. `dispose` devuelve lo que tenga prestado de
       // un pool (las cuerdas pulsadas de Prisma): sin esto, un pasaje denso
@@ -934,8 +958,13 @@ export class KernelCore {
       } else {
         const track = Math.min(nTracks - 1, Math.max(0, ch.mixerTrack));
         const pan = ch.pan;
-        const gainL = ch.volume * Math.cos(((pan + 1) / 4) * Math.PI) * 1.414;
-        const gainR = ch.volume * Math.sin(((pan + 1) / 4) * Math.PI) * 1.414;
+        // Mute del canal: la voz sigue viva (y su envolvente avanza) pero no
+        // llega nada al bus, igual que hace el mixer con una pista muteada.
+        // Antes solo se miraba `audible` al lanzar notas nuevas, así que
+        // silenciar un canal dejaba sonando lo que ya estaba sonando.
+        const vol = ch.audible ? ch.volume : 0;
+        const gainL = vol * Math.cos(((pan + 1) / 4) * Math.PI) * 1.414;
+        const gainR = vol * Math.sin(((pan + 1) / 4) * Math.PI) * 1.414;
         alive = av.voice.render(this.bufL[track]!, this.bufR[track]!, from, n, gainL, gainR);
       }
       if (!alive) {
@@ -949,6 +978,10 @@ export class KernelCore {
       const chIndex = this.fxChannels[c]!;
       const ch = p.channels[chIndex];
       if (!ch) continue;
+      // Canal muteado: ni se procesa la cadena ni se suma nada. Sin esto, un
+      // insert que se inventa señal (vinyl, ruido, un delay con cola) seguía
+      // metiendo audio en la pista con el canal silenciado.
+      if (!ch.audible) continue;
       const bl = this.chBufL[c]!;
       const br = this.chBufR[c]!;
       const slots = ch.fx;
@@ -1270,6 +1303,22 @@ export class KernelCore {
     this.trackSumSq.fill(0);
     this.meterSamples = 0;
     return frame;
+  }
+
+  /**
+   * Suelta lo que las voces tengan prestado y las descarta.
+   *
+   * En vivo el kernel no muere nunca, pero el render offline crea uno por
+   * export y lo tira al acabar — con voces todavía sonando la cola. Como el
+   * pool de líneas de cuerda pulsada de Prisma es de módulo (compartido por
+   * todos los kernels del proceso), un solo export lo dejaba a cero PARA
+   * SIEMPRE: a partir de ahí las capas `pluck` caían al oscilador de tabla y
+   * el proyecto sonaba distinto según cuántas veces hubieras exportado.
+   */
+  dispose(): void {
+    for (const v of this.voices) v.voice.dispose();
+    this.voices.length = 0;
+    this.effects.clear();
   }
 }
 

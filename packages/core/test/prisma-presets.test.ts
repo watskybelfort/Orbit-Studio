@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Catálogo de presets de Orbit Prisma: validación ESTRUCTURAL.
  *
  * Los presets se escriben a mano y son muchos, así que aquí no se juzga el
@@ -424,7 +424,7 @@ describe('catálogo de Prisma · macros', () => {
    *   · prisma-presets-rhythm.ts:743 — fx/barrido-inverso, "Subida":
    *     chan('attack', 0.6, 4.2) y chan('modAttack', 0.6, 4.2), ambas 0.001..4 s.
    */
-  it.skip('los barridos de macro sobre el canal caben en su perilla', () => {
+  it('los barridos de macro sobre el canal caben en su perilla', () => {
     const malas: string[] = [];
     for (const p of PRISMA_PRESETS) {
       p.macros.forEach((m, mi) => {

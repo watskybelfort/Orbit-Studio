@@ -96,6 +96,12 @@ export function renderProject(
     }
   }
 
+  // El kernel se tira aquí, pero sus voces pueden seguir vivas (cola cortada,
+  // tope duro alcanzado). Hay que soltarlas: los pools de recursos que usan
+  // algunos instrumentos son de módulo, así que lo que no se devuelva se
+  // pierde para el resto del proceso, no solo para este render.
+  core.dispose();
+
   const left = new Float32Array(written);
   const right = new Float32Array(written);
   for (let i = 0; i < chunks.length; i++) {
