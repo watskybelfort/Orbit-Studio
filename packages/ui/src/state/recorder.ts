@@ -93,7 +93,9 @@ async function runCountIn(bars: number, target: number): Promise<boolean> {
   while (!cancelCountIn) {
     const beat = currentBeat();
     if (beat >= target - 1e-3) break;
-    const left = Math.max(1, Math.ceil((target - beat) / beatsPerBar));
+    // Tope en `bars`: el primer frame de medidores puede llegar con la
+    // posición vieja y la cuenta arrancaría con un compás de más.
+    const left = Math.min(bars, Math.max(1, Math.ceil((target - beat) / beatsPerBar)));
     if (left !== useRecorderStore.getState().countdown) {
       useRecorderStore.setState({ countdown: left });
     }
