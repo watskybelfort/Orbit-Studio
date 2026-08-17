@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Inserts POR CANAL (`Channel.fx`, CHANNEL_SLOTS = 4).
  *
  * La cadena de un canal suena entre sus voces y su pista de mixer, y existe

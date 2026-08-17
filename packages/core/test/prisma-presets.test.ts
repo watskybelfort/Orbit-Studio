@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Catálogo de presets de Orbit Prisma: validación ESTRUCTURAL.
  *
  * Los presets se escriben a mano y son muchos, así que aquí no se juzga el
