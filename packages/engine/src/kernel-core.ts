@@ -94,6 +94,9 @@ export class KernelCore {
   posBeats = 0;
   private tempo = 140;
   private timeSigNum = 4;
+  /** Índices de tramo actuales en los mapas de tempo/compás (avanzan solos). */
+  private tempoIdx = 0;
+  private meterIdx = 0;
   private loopEnabled = true;
   private loopStart = 0;
   private loopEnd = 4;
@@ -153,6 +156,7 @@ export class KernelCore {
         this.posBeats = msg.fromBeat;
         this.playing = true;
         this.resyncCursor();
+        this.applyMaps();
         break;
       case 'stop':
         this.playing = false;
@@ -161,6 +165,7 @@ export class KernelCore {
       case 'seek':
         this.posBeats = msg.beat;
         this.resyncCursor();
+        this.applyMaps();
         break;
       case 'setLoop':
         this.loopEnabled = msg.enabled;
@@ -290,6 +295,7 @@ export class KernelCore {
     this.eventCursor = 0;
     this.resyncCursor();
     this.resetLfoState(p);
+    this.applyMaps();
   }
 
   private updateEffectTempos(): void {
@@ -533,6 +539,40 @@ export class KernelCore {
     this.previewSampleGain = gain;
   }
 
+  /**
+   * Tempo y compás del punto en el que está el transporte.
+   *
+   * Los marcadores pueden cambiar los dos a mitad de canción; el kernel lleva
+   * un índice por mapa que avanza o retrocede desde donde estaba (buscar de
+   * cero en cada bloque sería tirar trabajo, y saltar hacia atrás con un seek
+   * también tiene que funcionar). Se llama ANTES de la automatización, así una
+   * curva sobre el tempo sigue mandando por encima del mapa.
+   */
+  private applyMaps(): void {
+    const p = this.project;
+    if (!p) return;
+    const tempoMap = p.tempoMap;
+    if (tempoMap && tempoMap.length > 0) {
+      let i = Math.min(this.tempoIdx, tempoMap.length - 1);
+      while (i > 0 && tempoMap[i]!.beat > this.posBeats + 1e-9) i--;
+      while (i + 1 < tempoMap.length && tempoMap[i + 1]!.beat <= this.posBeats + 1e-9) i++;
+      this.tempoIdx = i;
+      const tempo = tempoMap[i]!.tempo;
+      if (tempo !== this.tempo) {
+        this.tempo = tempo;
+        this.updateEffectTempos();
+      }
+    }
+    const meterMap = p.meterMap;
+    if (meterMap && meterMap.length > 0) {
+      let i = Math.min(this.meterIdx, meterMap.length - 1);
+      while (i > 0 && meterMap[i]!.beat > this.posBeats + 1e-9) i--;
+      while (i + 1 < meterMap.length && meterMap[i + 1]!.beat <= this.posBeats + 1e-9) i++;
+      this.meterIdx = i;
+      this.timeSigNum = meterMap[i]!.num;
+    }
+  }
+
   // ── Automatización ────────────────────────────────────────────────────────
 
   private applyAutomation(): void {
@@ -708,6 +748,7 @@ export class KernelCore {
       this.bufR[t]!.fill(0, 0, n);
     }
 
+    this.applyMaps();
     this.applyAutomation();
     this.applyLfos();
 

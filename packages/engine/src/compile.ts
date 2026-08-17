@@ -29,6 +29,8 @@ import {
   type CompiledNoteEvent,
   type CompiledParamTarget,
   type CompiledProject,
+  type MeterChange,
+  type TempoChange,
 } from './protocol';
 
 export type PlayMode =
@@ -370,9 +372,35 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     lfos.push(compiled);
   }
 
+  // Mapas de tempo y compás: el valor del proyecto en el 0 y un tramo por
+  // marcador que los cambie. Se ordenan por beat y se quitan los repetidos.
+  const markers = Object.values(project.markers).sort((a, b) => a.time - b.time);
+  const tempoMap: TempoChange[] = [{ beat: 0, tempo: project.tempo }];
+  const meterMap: MeterChange[] = [{ beat: 0, num: Math.max(1, project.timeSig.num) }];
+  for (const marker of markers) {
+    if (marker.time <= 0) {
+      // Un marcador en el arranque redefine el valor inicial.
+      if (marker.tempo && marker.tempo > 0) tempoMap[0]!.tempo = marker.tempo;
+      if (marker.timeSigNum && marker.timeSigNum > 0) meterMap[0]!.num = Math.round(marker.timeSigNum);
+      continue;
+    }
+    if (marker.tempo && marker.tempo > 0 && marker.tempo !== tempoMap[tempoMap.length - 1]!.tempo) {
+      tempoMap.push({ beat: marker.time, tempo: marker.tempo });
+    }
+    if (
+      marker.timeSigNum &&
+      marker.timeSigNum > 0 &&
+      Math.round(marker.timeSigNum) !== meterMap[meterMap.length - 1]!.num
+    ) {
+      meterMap.push({ beat: marker.time, num: Math.round(marker.timeSigNum) });
+    }
+  }
+
   return {
-    tempo: project.tempo,
-    timeSigNum: project.timeSig.num,
+    tempo: tempoMap[0]!.tempo,
+    tempoMap,
+    meterMap,
+    timeSigNum: meterMap[0]!.num,
     lengthBeats,
     channels,
     events,

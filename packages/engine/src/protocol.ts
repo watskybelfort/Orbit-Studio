@@ -136,10 +136,29 @@ export interface CompiledAudioClip {
   pitch?: number;
 }
 
+/** Cambio de tempo o de compás a partir de un beat (viene de un marcador). */
+export interface TempoChange {
+  beat: number;
+  tempo: number;
+}
+
+export interface MeterChange {
+  beat: number;
+  /** Pulsos por compás desde ese beat. */
+  num: number;
+}
+
 export interface CompiledProject {
   tempo: number;
   /** Pulsos por compás (acento del metrónomo); ausente = 4. */
   timeSigNum?: number;
+  /**
+   * Mapas de tempo y compás por marcador, ordenados y con el valor del
+   * proyecto en el beat 0. Con un solo tramo el kernel se comporta igual que
+   * antes: tempo constante y compás fijo.
+   */
+  tempoMap?: TempoChange[];
+  meterMap?: MeterChange[];
   /** Longitud del timeline en beats (para loop de canción y render). */
   lengthBeats: number;
   channels: CompiledChannel[];

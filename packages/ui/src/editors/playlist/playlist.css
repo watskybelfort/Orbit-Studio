@@ -347,3 +347,58 @@ html[data-theme='acrylic'] .playlist {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* Editor del marcador: nombre + tempo y compás a partir de ahí */
+
+.pl-marker-edit {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+}
+
+.pl-marker-name {
+  width: 130px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.pl-marker-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.pl-marker-field input {
+  width: 58px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+}
+
+.pl-marker-close {
+  background: transparent;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pl-marker-close:hover {
+  color: var(--text);
+}
