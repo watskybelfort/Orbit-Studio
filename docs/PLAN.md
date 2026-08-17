@@ -6,7 +6,29 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 16-08-2026: v0.5.0
+## Estado — 17-08-2026: v0.8.0
+
+v0.8, "la mezcla se mueve sola": **LFO por parámetro** (5 formas, velocidad en
+beats, cantidad bipolar y fase; oscila sobre el valor actual y sobre la curva
+automatizada si la hay, con la fase derivada de la posición de la canción para
+que el export salga idéntico al directo), **menú de automatización en cada
+perilla y fader** (crear su clip o colgarle un LFO sin buscar el destino en tres
+desplegables) y **grabación de movimientos de perillas** en vivo: al parar,
+cada mando movido cae como clip con la curva simplificada por Douglas-Peucker,
+todo en un solo undo. 137 tests.
+
+## Estado anterior — v0.7.0
+
+v0.6, "backlog fino + paridad FL": FLAC con encoder propio, sample rates y cola
+configurables en el export, snap magnético y bloqueo a escala, atajos FL del
+piano roll, menú de canal en el rack, espectro y curva RBJ dentro del EQ, RMS
+por strip, color por pista, BPM decimal y compás editable, fix del metrónomo,
+**ventanas desacoplables** y toolbar rehecha con modo Zen. v0.7, "el horizonte":
+**time-stretch** de clips por SOLA en el kernel, **SDK de plugins JS** de
+usuario (carpeta propia, sandbox con bypass, también en el export) y **vista
+Live por escenas** (F8) con lanzamiento cuantizado con precisión de sample.
+
+## Estado anterior — v0.5.0
 
 v0.5, "toca y despacha": **tocable en vivo** (Web MIDI + teclado del PC,
 grabación MIDI armada al patrón con cuantización, pause real y tap tempo),
@@ -41,10 +63,12 @@ colaborador en la presencia) y **mixer fino** (nivel por send con perilla,
 línea de RMS + LED de clip enclavado, Orbit Scope real con forma de onda y
 espectro del master). 65 tests en verde. Instalador NSIS por release.
 
-Backlog v0.x (detalle en [FEATURES.md](FEATURES.md)): pause/tap tempo,
-slice/mute por clip, gestión de arrangements desde la UI, paleta de comandos
-Ctrl+K, export de selección y sample rates, carpetas del usuario en el
-browser, snap magnético y bloqueo a escala, graph editor del rack.
+Backlog v0.x restante tras v0.8 (detalle en [FEATURES.md](FEATURES.md)):
+graph editor del rack, compases variables y
+tempo por marcador, historial de undo navegable, consolidar a audio (bounce),
+grabar la salida de una pista, altura e icono por pista, stereo sep y EQ de 3
+bandas en el strip, filtros y favoritos del browser, plugins JS de instrumento,
+layouts por proyecto, Ctrl+E export directo, escala de UI y export a OGG.
 
 ---
 
