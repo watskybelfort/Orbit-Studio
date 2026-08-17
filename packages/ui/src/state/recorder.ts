@@ -43,6 +43,8 @@ export function cycleCountIn(): void {
   useRecorderStore.setState({ countInBars: bars >= 2 ? 0 : bars + 1 });
 }
 
+/** Pista donde cayó la última toma: la siguiente se apila ahí en otro carril. */
+let lastTakeTrackId: string | null = null;
 let media: MediaStream | null = null;
 let recorder: MediaRecorder | null = null;
 let chunks: Blob[] = [];
@@ -204,26 +206,43 @@ async function stopRecording(): Promise<void> {
       .filter((t) => t.arrangementId === arrangementId)
       .sort((a, b) => a.order - b.order);
     const clips = Object.values(project.clips);
-    const free = tracks.find(
-      (t) =>
-        !clips.some(
-          (c) =>
-            c.playlistTrackId === t.id &&
-            c.start < startBeat + lengthBeats &&
-            c.start + c.length > startBeat,
-        ),
-    );
+    const overlaps = (c: Clip) =>
+      c.start < startBeat + lengthBeats && c.start + c.length > startBeat;
 
     const commands: Command[] = [];
     let trackId: string;
-    if (free) {
-      trackId = free.id;
+    let lane = 0;
+
+    // Comping: si ya grabaste ahí, la toma nueva se apila en el carril
+    // siguiente de la MISMA pista (y calla a las que pisa, que la buena es la
+    // última). Si no, pista libre; y si no hay, una nueva.
+    const previous = lastTakeTrackId ? project.playlistTracks[lastTakeTrackId] : undefined;
+    const previousTakes =
+      previous && previous.arrangementId === arrangementId
+        ? clips.filter((c) => c.playlistTrackId === previous.id && overlaps(c))
+        : [];
+
+    if (previous && previousTakes.length > 0) {
+      trackId = previous.id;
+      lane = Math.max(...previousTakes.map((c) => c.lane ?? 0)) + 1;
+      commands.push({
+        type: 'patchClips',
+        patches: previousTakes.filter((c) => !c.muted).map((c) => ({ id: c.id, muted: true })),
+      });
     } else {
-      const track = createPlaylistTrack(arrangementId, tracks.length);
-      track.name = 'Grabaciones';
-      commands.push({ type: 'addPlaylistTrack', track });
-      trackId = track.id;
+      const free = tracks.find(
+        (t) => !clips.some((c) => c.playlistTrackId === t.id && overlaps(c)),
+      );
+      if (free) {
+        trackId = free.id;
+      } else {
+        const track = createPlaylistTrack(arrangementId, tracks.length);
+        track.name = 'Grabaciones';
+        commands.push({ type: 'addPlaylistTrack', track });
+        trackId = track.id;
+      }
     }
+    lastTakeTrackId = trackId;
 
     const sample: SampleRef = {
       id: sampleId,
@@ -244,6 +263,7 @@ async function stopRecording(): Promise<void> {
       sampleId,
       audioOffset: 0,
       audioGain: 1,
+      ...(lane > 0 ? { lane } : null),
     };
     commands.push({ type: 'addClips', clips: [clip] });
 
