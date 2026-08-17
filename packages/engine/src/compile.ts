@@ -6,6 +6,7 @@
 
 import {
   LFO_SHAPES,
+  findFluxPreset,
   paramRefKey,
   paramRefNorm,
   paramRefValue,
@@ -20,6 +21,7 @@ import {
   LFO_LUT_STEPS,
   type CompiledAudioClip,
   type CompiledAutomationEvent,
+  type CompiledChannel,
   type CompiledEffect,
   type CompiledLfo,
   type CompiledMixerTrack,
@@ -207,9 +209,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
 
   // Solo/mute de canales
   const anyChannelSolo = channelIds.some((id) => project.channels[id]?.solo);
-  const channels = channelIds.map((id) => {
+  const channels: CompiledChannel[] = channelIds.map((id) => {
     const ch = project.channels[id]!;
-    return {
+    const compiled: CompiledChannel = {
       id: ch.id,
       kind: ch.kind,
       params: { ...ch.params },
@@ -219,6 +221,20 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       mixerTrack: ch.mixerTrack,
       sampleId: ch.sampleId,
     };
+    const preset = ch.kind === 'flux' ? findFluxPreset(ch.fluxPreset) : undefined;
+    if (preset) {
+      compiled.flux = {
+        layers: preset.layers.map((l) => ({
+          engine: l.engine,
+          params: { ...l.params },
+          gain: l.gain,
+          pan: l.pan,
+          transpose: l.transpose,
+        })),
+        macros: preset.macros.map((m) => ({ targets: m.targets.map((t) => ({ ...t })) })),
+      };
+    }
+    return compiled;
   });
 
   // Solo/mute del mixer (master siempre audible)

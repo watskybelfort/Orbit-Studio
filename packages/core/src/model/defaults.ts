@@ -1,6 +1,7 @@
 /** Fábricas de entidades y proyecto vacío. */
 
 import { newId } from '../ids';
+import { DEFAULT_FLUX_PRESET, findFluxPreset } from './flux';
 import {
   defaultInstrumentParams,
   INSTRUMENT_LABELS,
@@ -33,12 +34,25 @@ export function createChannel(
   index: number,
   name?: string,
 ): Channel {
+  // Un canal Flux nace con un preset cargado y sus macros en el valor que el
+  // preset propone: abrirlo y que no suene a nada sería un mal recibimiento.
+  const params = defaultInstrumentParams(kind);
+  let fluxPreset: string | undefined;
+  if (kind === 'flux') {
+    fluxPreset = DEFAULT_FLUX_PRESET;
+    const preset = findFluxPreset(fluxPreset);
+    if (preset) {
+      params['macro1'] = preset.macros[0].value;
+      params['macro2'] = preset.macros[1].value;
+    }
+  }
   return {
     id: newId(),
-    name: name ?? INSTRUMENT_LABELS[kind],
+    name: name ?? (kind === 'flux' ? (findFluxPreset(fluxPreset)?.name ?? 'Orbit Flux') : INSTRUMENT_LABELS[kind]),
     color: pickColor(index),
     kind,
-    params: defaultInstrumentParams(kind),
+    ...(fluxPreset ? { fluxPreset } : null),
+    params,
     volume: 0.78, // ≈ -2.2 dB, margen de mezcla
     pan: 0,
     mute: false,

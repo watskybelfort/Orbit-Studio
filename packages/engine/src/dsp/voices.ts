@@ -18,6 +18,13 @@ export interface SampleData {
 export interface VoiceContext {
   sr: number;
   samples: Map<string, SampleData>;
+  /**
+   * Buffers de trabajo del kernel, compartidos por todas las voces (se
+   * renderiza una detrás de otra en el mismo hilo). Los usa Flux para saturar
+   * la suma de sus capas sin alocar nada por nota.
+   */
+  scratchL?: Float32Array;
+  scratchR?: Float32Array;
 }
 
 export abstract class Voice {
@@ -516,6 +523,135 @@ export class SamplerVoice extends Voice {
   }
 }
 
+// ── Orbit Flux (instrumento de presets) ──────────────────────────────────────
+
+/** Capa de un preset ya resuelta para el kernel. */
+export interface FluxLayerDef {
+  engine: string;
+  params: Record<string, number>;
+  gain: number;
+  pan: number;
+  transpose: number;
+}
+
+/** Macro del preset: qué parámetros mueve y entre qué valores. */
+export interface FluxMacroDef {
+  targets: { layer: number; param: string; min: number; max: number }[];
+}
+
+/**
+ * Voz de Flux: apila las voces de sus capas y las mezcla.
+ *
+ * Las perillas fijas del canal (filtro, ataque, release, drive, width, octava)
+ * y las dos macros del preset se resuelven AQUÍ, al disparar la nota, sobre
+ * una copia de los params de cada capa — el preset nunca se modifica y dos
+ * canales con el mismo sonido no se pisan.
+ */
+export class FluxVoice extends Voice {
+  private layers: { voice: Voice; gainL: number; gainR: number }[] = [];
+  private drive: number;
+  private driveK = 1;
+  private driveComp = 1;
+
+  constructor(
+    channelIndex: number,
+    key: number,
+    order: number,
+    velocity: number,
+    p: Record<string, number>,
+    private ctx: VoiceContext,
+    defs: FluxLayerDef[],
+    macros: FluxMacroDef[],
+  ) {
+    super(channelIndex, key, order);
+    const filter = p['filter'] ?? 0.5;
+    const attack = p['attack'] ?? 0.5;
+    const release = p['release'] ?? 0.5;
+    const width = p['width'] ?? 0.5;
+    const octave = Math.round(p['octave'] ?? 0);
+    this.drive = p['drive'] ?? 0;
+    if (this.drive > 0.001) {
+      this.driveK = 1 + this.drive * 9;
+      this.driveComp = 1 / Math.tanh(this.driveK);
+    }
+    // Factores exponenciales: 0.5 (centro) = tal cual lo dejó el preset.
+    const filterMul = Math.pow(2, (filter - 0.5) * 4);
+    const attackMul = Math.pow(2, (attack - 0.5) * 4);
+    const releaseMul = Math.pow(2, (release - 0.5) * 4);
+    const panScale = width * 2;
+
+    for (let i = 0; i < defs.length; i++) {
+      const def = defs[i]!;
+      const params: Record<string, number> = { ...def.params };
+      // Macros del preset (macro1, macro2) antes que las perillas fijas: así
+      // el filtro del canal sigue mandando sobre lo que la macro deje.
+      for (let m = 0; m < macros.length; m++) {
+        const value = p[`macro${m + 1}`] ?? 0.5;
+        for (const t of macros[m]!.targets) {
+          if (t.layer !== -1 && t.layer !== i) continue;
+          params[t.param] = t.min + (t.max - t.min) * value;
+        }
+      }
+      if (params['cutoff'] !== undefined) params['cutoff'] *= filterMul;
+      if (params['tone'] !== undefined) params['tone'] *= filterMul;
+      if (params['attack'] !== undefined) params['attack'] *= attackMul;
+      if (params['release'] !== undefined) params['release'] *= releaseMul;
+      else if (params['decay'] !== undefined) params['decay'] *= releaseMul;
+
+      const layerKey = key + def.transpose + octave * 12;
+      const voice = createVoice(def.engine, channelIndex, layerKey, order, velocity, params, ctx);
+      const pan = Math.max(-1, Math.min(1, def.pan * panScale));
+      this.layers.push({
+        voice,
+        gainL: def.gain * Math.cos(((pan + 1) / 4) * Math.PI) * 1.414,
+        gainR: def.gain * Math.sin(((pan + 1) / 4) * Math.PI) * 1.414,
+      });
+    }
+  }
+
+  noteOff(): void {
+    this.releasing = true;
+    for (const l of this.layers) l.voice.noteOff();
+  }
+
+  override glideTo(key: number, velocity: number): void {
+    super.glideTo(key, velocity);
+    for (const l of this.layers) l.voice.glideTo(key, velocity);
+  }
+
+  render(
+    outL: Float32Array,
+    outR: Float32Array,
+    from: number,
+    to: number,
+    gainL: number,
+    gainR: number,
+  ): boolean {
+    let alive = false;
+    const sl = this.ctx.scratchL;
+    const sr = this.ctx.scratchR;
+    // Sin drive las capas suman directas al bus: ni copia ni buffer intermedio.
+    if (this.drive <= 0.001 || !sl || !sr) {
+      for (const l of this.layers) {
+        alive = l.voice.render(outL, outR, from, to, gainL * l.gainL, gainR * l.gainR) || alive;
+      }
+      return alive;
+    }
+    sl.fill(0, from, to);
+    sr.fill(0, from, to);
+    for (const l of this.layers) {
+      alive = l.voice.render(sl, sr, from, to, l.gainL, l.gainR) || alive;
+    }
+    const k = this.driveK;
+    const comp = this.driveComp;
+    for (let i = from; i < to; i++) {
+      outL[i]! += Math.tanh(sl[i]! * k) * comp * gainL;
+      outR[i]! += Math.tanh(sr[i]! * k) * comp * gainR;
+    }
+    return alive;
+  }
+}
+
 // ── Fábrica ──────────────────────────────────────────────────────────────────
 
 export function createVoice(
@@ -527,8 +663,13 @@ export function createVoice(
   params: Record<string, number>,
   ctx: VoiceContext,
   sampleId?: string,
+  flux?: { layers: FluxLayerDef[]; macros: FluxMacroDef[] },
 ): Voice {
   switch (kind) {
+    case 'flux':
+      return flux
+        ? new FluxVoice(channelIndex, key, order, velocity, params, ctx, flux.layers, flux.macros)
+        : new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'sub808': return new Sub808Voice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'synth': return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'supersaw': return new SupersawVoice(channelIndex, key, order, velocity, params, ctx.sr);

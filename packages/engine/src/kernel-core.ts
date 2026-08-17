@@ -98,7 +98,14 @@ export class KernelCore {
   private capturePos = 0;
 
   constructor(public readonly sr: number) {
-    this.voiceCtx = { sr, samples: this.samples };
+    // Los buffers de trabajo se crean UNA vez y los comparten todas las voces
+    // (Flux los usa para saturar la suma de sus capas sin alocar por nota).
+    this.voiceCtx = {
+      sr,
+      samples: this.samples,
+      scratchL: new Float32Array(MAX_BLOCK),
+      scratchR: new Float32Array(MAX_BLOCK),
+    };
   }
 
   // ── Mensajes ──────────────────────────────────────────────────────────────
@@ -396,7 +403,8 @@ export class KernelCore {
       this.voices.splice(oldest, 1);
     }
     const voice = createVoice(
-      ch.kind, channelIndex, key, this.voiceOrder++, velocity, ch.params, this.voiceCtx, ch.sampleId,
+      ch.kind, channelIndex, key, this.voiceOrder++, velocity, ch.params, this.voiceCtx,
+      ch.sampleId, ch.flux,
     );
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey });
   }

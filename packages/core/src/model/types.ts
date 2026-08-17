@@ -37,7 +37,8 @@ export type InstrumentKind =
   | 'supersaw'
   | 'fm'
   | 'drums'
-  | 'sampler';
+  | 'sampler'
+  | 'flux';
 
 export interface Channel {
   id: Id;
@@ -48,6 +49,8 @@ export interface Channel {
   params: Record<string, number>;
   /** Sample cargado (solo sampler). */
   sampleId?: Id;
+  /** Preset cargado (solo kind='flux'); ver model/flux.ts. */
+  fluxPreset?: string;
   /** Ganancia lineal 0..2. */
   volume: number;
   /** -1..1 */

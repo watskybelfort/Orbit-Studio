@@ -79,6 +79,18 @@ export const INSTRUMENT_PARAMS: Record<InstrumentKind, ParamSpec[]> = {
     p('decay', 'Decay', 0.2, 2, 1),
     p('punch', 'Punch', 0, 1, 0.5),
   ],
+  // Orbit Flux: perillas FIJAS que valen para cualquier preset. Las dos
+  // macros toman su etiqueta del preset cargado (la UI la lee de ahí).
+  flux: [
+    p('octave', 'Octave', -2, 2, 0),
+    p('filter', 'Filter', 0, 1, 0.5),
+    p('attack', 'Attack', 0, 1, 0.5),
+    p('release', 'Release', 0, 1, 0.5),
+    p('drive', 'Drive', 0, 1, 0),
+    p('width', 'Width', 0, 1, 0.5),
+    p('macro1', 'Macro 1', 0, 1, 0.5),
+    p('macro2', 'Macro 2', 0, 1, 0.5),
+  ],
   sampler: [
     p('pitch', 'Pitch', -24, 24, 0, { unit: 'st' }),
     p('attack', 'Attack', 0.001, 2, 0.001, { unit: 's', curve: 'exp' }),
@@ -222,6 +234,7 @@ export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {
   fm: 'Orbit FM',
   drums: 'Orbit Drums',
   sampler: 'Orbit Sampler',
+  flux: 'Orbit Flux',
 };
 
 /** Params por defecto de un instrumento. */

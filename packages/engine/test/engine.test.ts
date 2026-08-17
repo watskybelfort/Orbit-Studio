@@ -6,6 +6,8 @@ import {
   createLfo,
   createPattern,
   defaultEffectParams,
+  FLUX_CATEGORIES,
+  FLUX_PRESETS,
   newId,
   type Lfo,
   type Note,
@@ -794,5 +796,101 @@ describe('kernel: EQ de 3 bandas por pista', () => {
     const a = renderProject(noiseProject({}), { tailSeconds: 0 });
     const b = renderProject(noiseProject({ eqLow: 0, eqMid: 0, eqHigh: 0 }), { tailSeconds: 0 });
     expect(Buffer.from(a.left.buffer).equals(Buffer.from(b.left.buffer))).toBe(true);
+  });
+});
+
+describe('Orbit Flux: instrumento de presets', () => {
+  /** Canal Flux con el preset dado y las perillas que se le pasen. */
+  function fluxProject(presetId: string, params: Record<string, number> = {}) {
+    const p = createEmptyProject('Flux');
+    p.tempo = 120;
+    const patternId = p.patternOrder[0]!;
+    const ch = createChannel('flux', 0, 'Flux');
+    ch.mixerTrack = 1;
+    ch.fluxPreset = presetId;
+    Object.assign(ch.params, params);
+    applyCommand(p, { type: 'addChannel', channel: ch });
+    applyCommand(p, {
+      type: 'addNotes',
+      patternId,
+      channelId: ch.id,
+      notes: [note(0, 2, 60)],
+    });
+    return compileProject(p, { mode: 'pattern', patternId });
+  }
+
+  function peakOf(xs: Float32Array): number {
+    let peak = 0;
+    for (const s of xs) peak = Math.max(peak, Math.abs(s));
+    return peak;
+  }
+
+  it('el catálogo de fábrica está bien formado (ids únicos, capas y 2 macros)', () => {
+    const ids = new Set<string>();
+    for (const preset of FLUX_PRESETS) {
+      expect(ids.has(preset.id)).toBe(false);
+      ids.add(preset.id);
+      expect(preset.layers.length).toBeGreaterThan(0);
+      expect(preset.macros).toHaveLength(2);
+      expect(FLUX_CATEGORIES).toContain(preset.category);
+      for (const macro of preset.macros) {
+        expect(macro.targets.length).toBeGreaterThan(0);
+        for (const t of macro.targets) {
+          // Un destino que apunte a una capa inexistente no sonaría a nada.
+          expect(t.layer).toBeLessThan(preset.layers.length);
+          expect(t.max).not.toBe(t.min);
+        }
+      }
+    }
+    expect(FLUX_PRESETS.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('un canal Flux suena, y cada preset del catálogo da señal', () => {
+    for (const preset of FLUX_PRESETS) {
+      const res = renderProject(fluxProject(preset.id), { tailSeconds: 0.2 });
+      const peak = peakOf(res.left);
+      expect(peak, `preset ${preset.id}`).toBeGreaterThan(0.001);
+      expect(Number.isNaN(peak), `preset ${preset.id}`).toBe(false);
+    }
+  });
+
+  it('la macro del preset cambia el sonido y el filtro del canal manda encima', () => {
+    const bajo = renderProject(fluxProject('leads/saw-ancho', { macro2: 0 }), { tailSeconds: 0 });
+    const alto = renderProject(fluxProject('leads/saw-ancho', { macro2: 1 }), { tailSeconds: 0 });
+    // macro2 = Brillo (cutoff 900..18000): más brillo, más energía arriba.
+    const energy = (xs: Float32Array) => {
+      let s = 0;
+      for (let i = 1; i < xs.length; i++) {
+        const d = xs[i]! - xs[i - 1]!; // diferencia = realza agudos
+        s += d * d;
+      }
+      return s;
+    };
+    expect(energy(alto.left)).toBeGreaterThan(energy(bajo.left) * 1.5);
+
+    // Y con el filtro del canal cerrado, el mismo preset pierde agudos.
+    const cerrado = renderProject(fluxProject('leads/saw-ancho', { macro2: 1, filter: 0 }), {
+      tailSeconds: 0,
+    });
+    expect(energy(cerrado.left)).toBeLessThan(energy(alto.left));
+  });
+
+  it('un preset sin resolver (id inventado) no rompe el render', () => {
+    const res = renderProject(fluxProject('no/existe'), { tailSeconds: 0 });
+    expect(Number.isNaN(peakOf(res.left))).toBe(false);
+  });
+
+  it('el drive engorda la señal sin disparar el pico', () => {
+    const rms = (xs: Float32Array) => {
+      let s = 0;
+      for (const x of xs) s += x * x;
+      return Math.sqrt(s / xs.length);
+    };
+    const seco = renderProject(fluxProject('bass/reese', { drive: 0 }), { tailSeconds: 0 });
+    const sucio = renderProject(fluxProject('bass/reese', { drive: 1 }), { tailSeconds: 0 });
+    // Saturar sube el cuerpo (RMS) y NO el pico: el tanh normalizado aplasta
+    // lo que ya estaba arriba y levanta lo de en medio.
+    expect(rms(sucio.left)).toBeGreaterThan(rms(seco.left) * 1.15);
+    expect(peakOf(sucio.left)).toBeLessThanOrEqual(Math.max(1.0, peakOf(seco.left)));
   });
 });
