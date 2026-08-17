@@ -59,7 +59,7 @@ regenerarlo: `npm run dist` en `apps/desktop`.
 npm install
 npm run dev        # Electron + Vite (la app)
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 137 tests (core, engine, collab, claude-bridge, ui)
+npm test           # 145 tests (core, engine, collab, claude-bridge, ui)
 ```
 
 > Si tras `npm install` Electron no arranca (allow-scripts se salta su
@@ -72,20 +72,18 @@ Panel de Claude).
 
 ## Estado
 
-**v0.8.0 — "la mezcla se mueve sola".** La automatización deja de vivir solo en
-el editor de curvas: cada perilla y cada fader traen su menú (clic derecho) para
-crear su clip o colgarles un **LFO** —5 formas, velocidad en beats (1/16 a 8
-compases), cantidad bipolar y fase— que oscila alrededor del valor actual, y
-sobre la curva automatizada si la hay. La fase sale de la posición de la
-canción, así que el export suena idéntico al directo. Y se pueden **grabar los
-movimientos de perillas**: armas, mueves mandos mientras suena y al parar cada
-uno cae como clip con la curva simplificada, en un solo undo.
+**v0.9.0 — "cierra la pista".** Ya se puede terminar un tema sin salir de
+Orbit: **consolidar a audio** (los clips de una pista se renderizan con sus
+efectos y quedan como un solo clip, en un undo), **grabar la salida de una
+pista** del mixer mientras suena —con las perillas que muevas en esa pasada— a
+WAV y a la playlist, **EQ rápido de 3 bandas y separación estéreo** por pista
+(automatizables y con LFO como todo lo demás), y **altura arrastrable e icono**
+por pista de la playlist.
 
-Antes: el backlog fino (FLAC propio, sample rates de export, snap magnético,
-espectro en el EQ, RMS por strip…), la paridad FL de diario (toolbar con plays
-PAT/SONG, ventanas desacoplables, metrónomo con acento real, menú de canal con
-fills, atajos FL del piano roll) y el horizonte grande de v0.7: **time-stretch**
-de clips, **SDK de plugins JS** ([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista
+Antes, v0.8 "la mezcla se mueve sola": menú de automatización y **LFO** en cada
+perilla y fader, panel de LFOs y **grabación de movimientos de perillas** a
+clips con la curva simplificada. Y el horizonte de v0.7: **time-stretch** de
+clips, **SDK de plugins JS** ([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista
 Live por escenas** con lanzamiento cuantizado (F8). Qué entró en cada versión
 está auditado línea a línea en [docs/FEATURES.md](docs/FEATURES.md).
 
