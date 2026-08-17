@@ -6,9 +6,12 @@
  *   useSyncExternalStore y componentes memoizados.
  * - `mergeKey` fusiona ráfagas (arrastre de una perilla) en un solo undo.
  * - `subscribeCommands` alimenta colaboración y el feed de actividad.
+ * - `historyView` + `jumpTo` dan el historial navegable del panel: la lista
+ *   completa (pasado + futuro) y el salto a cualquier punto.
  */
 
 import { applyCommand, type Command } from './commands';
+import { newId } from './ids';
 import { createEmptyProject } from './model/defaults';
 import type { Project } from './model/types';
 
@@ -22,12 +25,42 @@ export interface DispatchOptions {
 }
 
 export interface HistoryEntry {
+  /**
+   * Identidad estable de la entrada. Sobrevive a undo/redo (la entrada viaja
+   * entre stacks conservando su id), así el panel puede pedir "salta AQUÍ" sin
+   * depender de índices que se mueven con cada Ctrl+Z.
+   */
+  id: string;
   label: string;
   command: Command;
   inverse: Command;
   origin: string;
   mergeKey?: string;
   at: number;
+}
+
+/** Una entrada tal como la ve el panel de historial (sin comandos crudos). */
+export interface HistoryItem {
+  id: string;
+  label: string;
+  /** 'local' | 'remote:<user>' | 'claude'. */
+  origin: string;
+  at: number;
+  /** true = su cambio está aplicado ahora; false = está en el futuro (rehacible). */
+  done: boolean;
+}
+
+/** El historial completo con el presente marcado. */
+export interface HistoryView {
+  /**
+   * Pasado en orden de aplicación seguido del futuro en el orden en que se
+   * rehará. Es el orden de los stacks, no el del reloj: con varios orígenes
+   * mezclados el `at` puede ir a saltos, pero así cada fila corresponde 1:1
+   * con el punto al que salta.
+   */
+  entries: HistoryItem[];
+  /** Cuántas entradas están aplicadas: el presente va justo antes de `entries[present]`. */
+  present: number;
 }
 
 export type StoreListener = () => void;
@@ -91,6 +124,7 @@ export class ProjectStore {
       top.at = now;
     } else {
       this.undoStack.push({
+        id: newId(),
         label,
         command: cmd,
         inverse,
@@ -133,6 +167,85 @@ export class ProjectStore {
     return this.undoStack;
   }
 
+  // ── Historial navegable (panel de historial) ──────────────────────────────
+
+  /**
+   * El historial entero para pintarlo: lo hecho (undoStack, del más viejo al
+   * más nuevo) seguido de lo rehacible (redoStack al revés, que es el orden en
+   * que `redo()` lo irá recuperando). `present` marca la frontera.
+   */
+  historyView(): HistoryView {
+    const entries: HistoryItem[] = [];
+    for (const e of this.undoStack) entries.push(toItem(e, true));
+    for (let i = this.redoStack.length - 1; i >= 0; i--) {
+      entries.push(toItem(this.redoStack[i]!, false));
+    }
+    return { entries, present: this.undoStack.length };
+  }
+
+  /**
+   * Salta al estado justo DESPUÉS de la entrada `id` (`null` = antes de todo).
+   *
+   * Semántica por origen, igual que `undo()`: solo mueve las entradas de
+   * `origin`; lo de los demás se queda donde está (clicar un cambio remoto
+   * lleva TUS cambios hasta ese punto de la lista, sin tocar los suyos).
+   *
+   * La coherencia sale gratis porque el salto no manipula los stacks a mano:
+   * cuenta cuántos pasos de este origen hay entre el presente y el destino y
+   * encadena `undo()`/`redo()`, que ya mueven cada entrada de un stack al otro
+   * invirtiendo command/inverse. Al terminar, un Ctrl+Z posterior sigue siendo
+   * un undo normal desde el punto nuevo.
+   *
+   * Devuelve cuántos pasos se aplicaron (0 = ya estábamos ahí, o `id` no está).
+   */
+  jumpTo(id: string | null, origin = 'local'): number {
+    const boundary = this.boundaryOf(id);
+    if (boundary === null) return 0;
+    const present = this.undoStack.length;
+    let steps = 0;
+
+    if (boundary < present) {
+      // Atrás: deshacer las entradas de este origen que queden por encima del
+      // destino. El conteo se hace ANTES porque undo() encoge el stack.
+      let pending = 0;
+      for (let i = boundary; i < present; i++) {
+        if (this.undoStack[i]!.origin === origin) pending++;
+      }
+      while (pending > 0 && this.undo(origin)) {
+        pending--;
+        steps++;
+      }
+    } else if (boundary > present) {
+      // Adelante: rehacer hasta el destino. El futuro en orden es el redoStack
+      // al revés, así que las `boundary - present` primeras posiciones desde el
+      // tope son justo el tramo que hay que recuperar.
+      let pending = 0;
+      for (let i = 0; i < boundary - present; i++) {
+        if (this.redoStack[this.redoStack.length - 1 - i]!.origin === origin) pending++;
+      }
+      while (pending > 0 && this.redo(origin)) {
+        pending--;
+        steps++;
+      }
+    }
+    return steps;
+  }
+
+  /**
+   * Cuántas entradas quedan aplicadas si el presente se pone justo tras `id`
+   * (0 para `null` = proyecto virgen). null si ese id ya no existe.
+   */
+  private boundaryOf(id: string | null): number | null {
+    if (id === null) return 0;
+    for (let i = 0; i < this.undoStack.length; i++) {
+      if (this.undoStack[i]!.id === id) return i + 1;
+    }
+    for (let i = this.redoStack.length - 1, pos = this.undoStack.length; i >= 0; i--, pos++) {
+      if (this.redoStack[i]!.id === id) return pos + 1;
+    }
+    return null;
+  }
+
   /** Sustituye el proyecto entero (cargar archivo). Limpia el historial. */
   replaceProject(project: Project): void {
     this.project = project;
@@ -141,6 +254,10 @@ export class ProjectStore {
     this.version++;
     for (const l of this.listeners) l();
   }
+}
+
+function toItem(e: HistoryEntry, done: boolean): HistoryItem {
+  return { id: e.id, label: e.label, origin: e.origin, at: e.at, done };
 }
 
 /** Etiqueta humana por defecto para el historial. */
