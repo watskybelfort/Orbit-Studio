@@ -24,9 +24,24 @@ function queueSync(): void {
 
 store.subscribe(queueSync);
 
+/** Último frame del kernel (para interpolar la posición entre frames). */
+let meterStamp = { beats: 0, at: 0, playing: false };
+
+/**
+ * Posición del playhead AHORA, no la del último frame: los medidores llegan
+ * cada ~46 ms y eso, grabando movimientos de perilla, se nota como escalones.
+ * Entre frames se extrapola con el tempo del proyecto.
+ */
+export function currentBeat(): number {
+  if (!meterStamp.playing) return meterStamp.beats;
+  const dt = (performance.now() - meterStamp.at) / 1000;
+  return meterStamp.beats + (dt * store.project.tempo) / 60;
+}
+
 // Medidores del kernel → estado UI (~20 fps)
 engine.onMeters = (frame) => {
   const peak = frame.peaks[0] ?? 0;
+  meterStamp = { beats: frame.positionBeats, at: performance.now(), playing: frame.playing };
   useUiStore.setState({
     playing: frame.playing,
     positionBeats: frame.positionBeats,

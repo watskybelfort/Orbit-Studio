@@ -9,6 +9,7 @@ import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } f
 import { playDirect } from '../shell/Transport';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { addLfoFor, createAutomationClipFor, findLfoFor } from '../state/param-actions';
+import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { useParamTouch } from '../state/param-touch';
 import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
@@ -40,6 +41,7 @@ export function registerDefaultCommands(): void {
     const rec = useRecorderStore.getState();
     const live = useLiveInputStore.getState();
     const touched = useParamTouch.getState().last;
+    const paramRec = useParamRecord.getState();
     return [
       // Archivo
       { id: 'archivo.nuevo', title: 'Nuevo proyecto', group: 'Archivo', run: () => newProject() },
@@ -130,6 +132,15 @@ export function registerDefaultCommands(): void {
         group: 'Transporte',
         keywords: 'teclado tocar en vivo',
         run: () => toggleMidiArmed(),
+      },
+      {
+        id: 'transporte.grabar-perillas',
+        title: paramRec.armed
+          ? 'Desarmar la grabación de perillas'
+          : 'Armar la grabación de perillas',
+        group: 'Transporte',
+        keywords: 'automatizacion movimientos mandos knob',
+        run: () => toggleParamRecordArmed(),
       },
       // Automatización del último parámetro tocado (el atajo de FL).
       ...(touched

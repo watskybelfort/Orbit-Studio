@@ -3,6 +3,7 @@
 import { useCallback, useRef, type ReactNode } from 'react';
 import { engine, pausePlayback, play, setPlayMode, stopPlayback, store } from '../state/app';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
+import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
 import {
   IconAutomation,
@@ -10,6 +11,7 @@ import {
   IconChannelRack,
   IconClaude,
   IconExport,
+  IconKnobRec,
   IconLfo,
   IconLive,
   IconMetronome,
@@ -74,6 +76,9 @@ export function Transport() {
   const recError = useRecorderStore((s) => s.error);
   const midiArmed = useLiveInputStore((s) => s.armed);
   const midiInputs = useLiveInputStore((s) => s.midiInputs);
+  const paramArmed = useParamRecord((s) => s.armed);
+  const paramRecording = useParamRecord((s) => s.recording);
+  const paramLanes = useParamRecord((s) => s.lanes);
 
   const setTempo = useCallback((tempo: number) => {
     store.dispatch({ type: 'setTempo', tempo }, { mergeKey: 'transport:tempo' });
@@ -185,6 +190,17 @@ export function Transport() {
           onClick={toggleMidiArmed}
         >
           <IconPianoRoll size={15} />
+        </button>
+        <button
+          className={`tbtn${paramArmed ? ' active' : ''}${paramRecording ? ' rec-live' : ''}`}
+          title={
+            paramArmed
+              ? `Grabación de perillas armada — mueve mandos mientras suena y al parar caen como clips de automatización${paramLanes > 0 ? ` · ${paramLanes} parámetro(s) en esta pasada` : ''}`
+              : 'Grabar movimientos de perillas a clips de automatización'
+          }
+          onClick={toggleParamRecordArmed}
+        >
+          <IconKnobRec size={15} />
         </button>
         <button
           className={`tbtn${metronome ? ' active' : ''}`}
