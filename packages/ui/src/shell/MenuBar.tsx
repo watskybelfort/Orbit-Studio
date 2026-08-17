@@ -25,6 +25,7 @@ import {
 import { PROJECT_TEMPLATES } from '@orbit/core';
 import { store } from '../state/app';
 import { importMidi, newProject, newProjectFromTemplate, openProject, saveProject } from '../state/project-file';
+import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
@@ -72,6 +73,8 @@ export function MenuBar() {
     Editar: [
       { label: 'Deshacer', shortcut: 'Ctrl+Z', action: () => store.undo() },
       { label: 'Rehacer', shortcut: 'Ctrl+Y', action: () => store.redo() },
+      { label: '', separator: true },
+      { label: 'Historial…', action: () => toggleWindow('history') },
     ],
     Ver: [
       { label: 'Playlist', icon: <IconPlaylist />, shortcut: 'F5', action: () => toggleWindow('playlist') },
@@ -83,6 +86,20 @@ export function MenuBar() {
       { label: 'LFOs', icon: <IconLfo />, action: () => toggleWindow('lfo') },
       { label: 'Orbit Nova', icon: <IconTrack kind="keys" />, action: () => toggleWindow('nova') },
       { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
+      { label: 'Historial', action: () => toggleWindow('history') },
+      { label: '', separator: true },
+      // Layouts: los tres predefinidos y los que el usuario guarde en el proyecto.
+      ...LAYOUT_PRESETS.map((preset) => ({
+        label: `Layout: ${preset.name}`,
+        action: () => applyPreset(preset.id),
+      })),
+      {
+        label: 'Guardar layout actual…',
+        action: () => {
+          const name = window.prompt('Nombre del layout', 'Mi layout');
+          if (name) saveLayout(name.trim());
+        },
+      },
       { label: '', separator: true },
       {
         label: 'Browser',

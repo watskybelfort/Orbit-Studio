@@ -8,6 +8,7 @@ import { describeParamRef } from '@orbit/core';
 import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
 import { playDirect } from '../shell/Transport';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
+import { LAYOUT_PRESETS, applyLayout, applyPreset, listLayouts } from '../state/layouts';
 import { addLfoFor, createAutomationClipFor, findLfoFor } from '../state/param-actions';
 import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { useParamTouch } from '../state/param-touch';
@@ -25,6 +26,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'automation', title: 'Automatización' },
   { id: 'lfo', title: 'LFOs' },
   { id: 'nova', title: 'Orbit Nova' },
+  { id: 'history', title: 'Historial' },
   { id: 'scope', title: 'Orbit Scope' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },
@@ -143,6 +145,21 @@ export function registerDefaultCommands(): void {
         keywords: 'automatizacion movimientos mandos knob',
         run: () => toggleParamRecordArmed(),
       },
+      // Layouts de ventanas: predefinidos y los guardados en el proyecto.
+      ...LAYOUT_PRESETS.map((preset) => ({
+        id: `layout.${preset.id}`,
+        title: `Layout: ${preset.name}`,
+        group: 'Ver',
+        keywords: `ventanas disposicion ${preset.hint}`,
+        run: () => applyPreset(preset.id),
+      })),
+      ...listLayouts().map((name) => ({
+        id: `layout.guardado.${name}`,
+        title: `Layout guardado: ${name}`,
+        group: 'Ver',
+        keywords: 'ventanas disposicion proyecto',
+        run: () => applyLayout(name),
+      })),
       // Automatización del último parámetro tocado (el atajo de FL).
       ...(touched
         ? [
