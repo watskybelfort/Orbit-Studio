@@ -2,24 +2,32 @@
  * Channel Rack — step sequencer estilo FL Studio.
  *
  * Cabecera: selector de patrón (◀ ▶, punto de color, nombre editable con
- * doble clic, contador, botón +), conmutador del graph editor de velocity y
- * selector de pasos visibles (16/32/64 → length 4/8/16 beats). Debajo, la
- * barra de filtros (Todos · Drums · 808/Bajos · Melódicos · Sampler · Voces)
- * con buscador por nombre: estado de VISTA local, no toca el proyecto.
+ * doble clic y con menú contextual propio —renombrar, color, clonar, borrar—,
+ * contador, botón +), conmutador del graph editor de velocity y selector de
+ * pasos visibles (16/32/64 → length 4/8/16 beats). Debajo, la barra de filtros
+ * (Todos · Drums · 808/Bajos · Melódicos · Sampler · Voces) con buscador por
+ * nombre: estado de VISTA local, no toca el proyecto.
  *
  * Una fila por canal: LED de mute (Ctrl+clic = solo), perillas mini de
- * volumen/pan, nombre (clic = seleccionar, doble clic = Piano Roll, mantener
- * pulsado = preview), número de pista de mixer y los pasos agrupados de 4 en
- * 4. Un canal con melodía del Piano Roll (notas fuera de rejilla o duration >
- * 1/16) muestra una franja mini-preview EN VEZ de los pasos, que abre el
- * Piano Roll — como hace FL.
+ * volumen/pan, nombre (clic = seleccionar, doble clic = editor de sonido,
+ * mantener pulsado = preview), número de pista de mixer y los pasos agrupados
+ * de 4 en 4. Un canal con melodía del Piano Roll (notas fuera de rejilla o
+ * duration > 1/16) muestra una franja mini-preview EN VEZ de los pasos, que
+ * abre el Piano Roll — como hace FL.
  *
  * Bajo las filas, el graph editor de velocity del canal seleccionado
  * (VelocityGraph): una barra por paso, se pinta arrastrando.
  *
  * ▶ en la cabecera reproduce SOLO este patrón (modo PAT desde 0). Clic
- * derecho en el nombre de un canal abre su menú: llenar cada 2/4/todos los
- * pasos, vaciar, randomizar, humanizar, renombrar, color y borrar canal.
+ * derecho en el nombre de un canal abre su menú: editor de sonido, Piano Roll,
+ * llenar cada 2/4/todos los pasos, vaciar, randomizar, humanizar, renombrar,
+ * color y borrar canal.
+ *
+ * Todos los menús flotantes van por MenuPortal: un `position: fixed` dentro de
+ * una ventana con blur o transform se recorta, y el backdrop a pantalla
+ * completa que los cerraba se comía el primer clic en cualquier parte de la
+ * app. MenuPortal cierra con el pointerdown de SU ventana y se clampa contra
+ * ella, así que el rack desacoplado se comporta igual que el acoplado.
  *
  * Toda mutación pasa por store.dispatch (bus de comandos de @orbit/core).
  */
@@ -27,7 +35,6 @@
 import { useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   createChannel,
-  createPattern,
   gainToDb,
   INSTRUMENT_LABELS,
   newId,
@@ -35,10 +42,20 @@ import {
   type Id,
   type InstrumentKind,
   type Note,
-  type Pattern,
 } from '@orbit/core';
 import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
 import { reportActivity } from '../../collab/presence';
+// Las acciones de patrón viven en un solo sitio a propósito: el guard del
+// último patrón, el realineo del patrón activo y el aviso de cuántos clips se
+// lleva por delante no pueden divergir entre la paleta, el MenuBar y este menú.
+import {
+  addPattern,
+  canRemovePattern,
+  clonePattern,
+  patternClipCount,
+  removePattern,
+  setPatternColor,
+} from '../../palette/default-commands';
 import {
   engine,
   ensureAudioReady,
@@ -52,6 +69,7 @@ import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
+import { MenuPortal } from '../../widgets/MenuPortal';
 import {
   DEFAULT_FILTER_ID,
   matchesChannel,
@@ -78,6 +96,32 @@ function formatPan(v: number): string {
   return v < 0 ? `${Math.round(-v * 100)}L` : `${Math.round(v * 100)}R`;
 }
 
+/** Estado de un menú flotante: dónde va y en qué ventana vive (MenuPortal). */
+interface MenuAt {
+  x: number;
+  y: number;
+  anchor: Element;
+}
+
+/** Posición de menú a partir del evento que lo abre. */
+function menuAtEvent(e: ReactMouseEvent<HTMLElement>): MenuAt {
+  return { x: e.clientX, y: e.clientY, anchor: e.currentTarget };
+}
+
+/**
+ * Estado de UI al seleccionar un canal. Nova y Prisma tienen panel propio de
+ * presets: hay que apuntarlo también, o "abrir presets" enseñaría el sonido
+ * del último canal de ese tipo que se tocara, no el que acabas de elegir.
+ */
+function selectionFor(
+  kind: InstrumentKind,
+  id: Id,
+): { pianoRollChannelId: Id; novaChannelId?: Id; prismaChannelId?: Id } {
+  if (kind === 'nova') return { pianoRollChannelId: id, novaChannelId: id };
+  if (kind === 'prisma') return { pianoRollChannelId: id, prismaChannelId: id };
+  return { pianoRollChannelId: id };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ChannelRack() {
@@ -87,11 +131,14 @@ export function ChannelRack() {
   const playingPattern = useUiStore((s) => s.playing && s.playMode === 'pattern');
 
   const [editingName, setEditingName] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
+  /** Menú de "+ Añadir canal" (desplegable bajo el botón). */
+  const [addMenu, setAddMenu] = useState<MenuAt | null>(null);
   const instrumentPlugins = usePluginsStore((s) => s.plugins).filter((p) => p.instrument);
   const cancelName = useRef(false);
   /** Menú contextual de canal (clic derecho en el nombre): id + posición. */
-  const [chanMenu, setChanMenu] = useState<{ id: Id; x: number; y: number } | null>(null);
+  const [chanMenu, setChanMenu] = useState<(MenuAt & { id: Id }) | null>(null);
+  /** Menú contextual del PATRÓN activo (clic derecho en su nombre). */
+  const [patMenu, setPatMenu] = useState<MenuAt | null>(null);
   /** Canal cuyo nombre se está renombrando (desde el menú contextual). */
   const [renamingId, setRenamingId] = useState<Id | null>(null);
   /** Graph editor de velocity abierto (vista local, como en FL). */
@@ -148,31 +195,8 @@ export function ChannelRack() {
     if (next) setActivePattern(next);
   };
 
-  const addNewPattern = () => {
-    const p = createPattern(project.patternOrder.length);
-    store.dispatch({ type: 'addPattern', pattern: p }, { label: `Añadir "${p.name}"` });
-    setActivePattern(p.id);
-  };
-
-  /** Clona el patrón activo (notas incluidas, con ids nuevos) justo después. */
-  const clonePattern = () => {
-    const notes: Record<Id, Note[]> = {};
-    for (const [channelId, list] of Object.entries(pattern.notes)) {
-      notes[channelId] = list.map((n) => ({ ...n, id: newId() }));
-    }
-    const clon: Pattern = {
-      id: newId(),
-      name: `${pattern.name} (copia)`,
-      color: pattern.color,
-      length: pattern.length,
-      notes,
-    };
-    store.dispatch(
-      { type: 'addPattern', pattern: clon, index: patternIndex + 1 },
-      { label: `Clonar "${pattern.name}"` },
-    );
-    setActivePattern(clon.id);
-  };
+  /** Clips de la playlist que viven de este patrón (se van con él al borrarlo). */
+  const clipsOfPattern = patternClipCount(patternId);
 
   /** Play del propio rack: suena SOLO este patrón, desde el principio. */
   const playRack = () => {
@@ -269,6 +293,25 @@ export function ChannelRack() {
     if (!ch) return;
     store.dispatch({ type: 'removeChannel', channelId }, { label: `Borrar canal "${ch.name}"` });
     if (selectedChannelId === channelId) useUiStore.setState({ pianoRollChannelId: null });
+    // El editor de sonido se queda apuntando a un canal que ya no existe: se
+    // suelta para que muestre su placeholder en vez de un panel fantasma.
+    if (useUiStore.getState().channelEditorId === channelId) {
+      useUiStore.setState({ channelEditorId: null });
+    }
+  };
+
+  /** Editor de sonido del canal (lo mismo que el doble clic en su nombre). */
+  const openSoundEditor = (channelId: Id) => {
+    const ch = project.channels[channelId];
+    if (!ch) return;
+    useUiStore.setState({ ...selectionFor(ch.kind, channelId), channelEditorId: channelId });
+    useUiStore.getState().openWindow('channelEditor');
+  };
+
+  /** Piano Roll del canal: sigue a un clic del menú, no lo perdemos. */
+  const openPianoRollFor = (channelId: Id) => {
+    useUiStore.setState({ pianoRollChannelId: channelId });
+    useUiStore.getState().openWindow('pianoRoll');
   };
 
   const setChannelColor = (channelId: Id, color: string) => {
@@ -313,18 +356,18 @@ export function ChannelRack() {
       { type: 'addChannel', channel },
       { label: `Añadir "${plugin.name}" (plugin JS)` },
     );
-    setAddOpen(false);
+    setAddMenu(null);
   };
 
   const addChannel = (kind: InstrumentKind) => {
     const channel = createChannel(kind, project.channelOrder.length);
     store.dispatch({ type: 'addChannel', channel }, { label: `Añadir canal "${channel.name}"` });
-    useUiStore.setState({ pianoRollChannelId: channel.id });
-    setAddOpen(false);
+    // Nova y Prisma llegan con preset cargado: además de seleccionarlos, se
+    // apunta su panel al canal nuevo para que "Presets" abra el suyo y no el
+    // del último canal que se tocara.
+    useUiStore.setState(selectionFor(channel.kind, channel.id));
+    setAddMenu(null);
   };
-
-  // El menú abre hacia arriba cuando hay filas que lo tapen; hacia abajo si no.
-  const menuUp = project.channelOrder.length >= 4;
 
   return (
     <div
@@ -387,8 +430,12 @@ export function ChannelRack() {
           ) : (
             <span
               className="rack-pattern-name"
-              title="Doble clic para renombrar"
+              title="Doble clic: renombrar · clic derecho: menú del patrón (clonar, borrar…)"
               onDoubleClick={() => setEditingName(true)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setPatMenu(menuAtEvent(e));
+              }}
             >
               {pattern.name}
             </span>
@@ -396,12 +443,12 @@ export function ChannelRack() {
           <span className="rack-pattern-count">
             {patternIndex + 1}/{project.patternOrder.length}
           </span>
-          <button className="rack-nav" onClick={addNewPattern} title="Nuevo patrón">
+          <button className="rack-nav" onClick={addPattern} title="Nuevo patrón">
             +
           </button>
           <button
             className="rack-nav clone"
-            onClick={clonePattern}
+            onClick={() => clonePattern(patternId)}
             title="Clonar patrón (notas incluidas)"
           >
             ⧉
@@ -500,11 +547,10 @@ export function ChannelRack() {
             onRenameDone={() => setRenamingId(null)}
             onContextMenu={(e) => {
               e.preventDefault();
-              setChanMenu({
-                id,
-                x: Math.min(e.clientX, window.innerWidth - 210),
-                y: Math.min(e.clientY, window.innerHeight - 340),
-              });
+              // Sin clamp a mano: MenuPortal mide el menú y lo mete en la
+              // ventana que de verdad lo contiene (también si el rack está
+              // desacoplado, donde window.innerWidth era el de la principal).
+              setChanMenu({ id, ...menuAtEvent(e) });
             }}
           />
         ))}
@@ -520,140 +566,237 @@ export function ChannelRack() {
         />
       )}
 
+      {patMenu && (
+        <MenuPortal
+          anchor={patMenu.anchor}
+          x={patMenu.x}
+          y={patMenu.y}
+          className="rack-pat-menu"
+          onClose={() => setPatMenu(null)}
+        >
+          <div className="rack-chan-menu-title" style={{ borderLeftColor: pattern.color }}>
+            {pattern.name}
+          </div>
+          <button
+            className="menu-item"
+            onClick={() => {
+              setEditingName(true);
+              setPatMenu(null);
+            }}
+          >
+            Renombrar…
+          </button>
+          <label className="menu-item rack-chan-color">
+            Cambiar color
+            <input
+              type="color"
+              value={pattern.color}
+              onChange={(e) => setPatternColor(patternId, e.target.value)}
+            />
+          </label>
+          <button
+            className="menu-item"
+            title="Copia el patrón con sus notas justo después de este"
+            onClick={() => {
+              clonePattern(patternId);
+              setPatMenu(null);
+            }}
+          >
+            Clonar patrón
+          </button>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            // El core LANZA al borrar el último patrón: la opción se apaga
+            // antes de que el usuario se coma la excepción.
+            disabled={!canRemovePattern()}
+            title={
+              !canRemovePattern()
+                ? 'Siempre tiene que quedar un patrón'
+                : clipsOfPattern > 0
+                  ? `Se lleva ${clipsOfPattern} clip(s) de la playlist — Ctrl+Z lo devuelve todo`
+                  : 'Ctrl+Z lo devuelve'
+            }
+            onClick={() => {
+              removePattern(patternId);
+              setPatMenu(null);
+            }}
+          >
+            Borrar patrón
+            {clipsOfPattern > 0 && (
+              <span className="menu-shortcut">{clipsOfPattern} clip(s)</span>
+            )}
+          </button>
+        </MenuPortal>
+      )}
+
       {chanMenu && menuChannel && (
-        <>
-          <div
-            className="rack-backdrop"
-            onClick={() => setChanMenu(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
+        <MenuPortal
+          anchor={chanMenu.anchor}
+          x={chanMenu.x}
+          y={chanMenu.y}
+          className="rack-chan-menu"
+          onClose={() => setChanMenu(null)}
+        >
+          <div className="rack-chan-menu-title" style={{ borderLeftColor: menuChannel.color }}>
+            {menuChannel.name}
+          </div>
+          <button
+            className="menu-item"
+            title="Todo lo que se le puede hacer a este sonido: perillas, recorte, efectos propios y mezcla"
+            onClick={() => {
+              openSoundEditor(chanMenu.id);
               setChanMenu(null);
             }}
-          />
-          <div className="popup rack-chan-menu" style={{ left: chanMenu.x, top: chanMenu.y }}>
-            <div className="rack-chan-menu-title" style={{ borderLeftColor: menuChannel.color }}>
-              {menuChannel.name}
-            </div>
-            <button
-              className="menu-item"
-              onClick={() => {
-                fillEvery(chanMenu.id, 2);
-                setChanMenu(null);
-              }}
-            >
-              Llenar cada 2 pasos
-            </button>
-            <button
-              className="menu-item"
-              onClick={() => {
-                fillEvery(chanMenu.id, 4);
-                setChanMenu(null);
-              }}
-            >
-              Llenar cada 4 pasos
-            </button>
-            <button
-              className="menu-item"
-              onClick={() => {
-                fillEvery(chanMenu.id, 1);
-                setChanMenu(null);
-              }}
-            >
-              Llenar todos los pasos
-            </button>
-            <button
-              className="menu-item"
-              onClick={() => {
-                clearChannel(chanMenu.id);
-                setChanMenu(null);
-              }}
-            >
-              Vaciar canal en este patrón
-            </button>
-            <div className="menu-sep" />
-            <button
-              className="menu-item"
-              title="Reparte pasos al azar (los pulsos pesan más) con velocity variada"
-              onClick={() => {
-                randomizeSteps(chanMenu.id);
-                setChanMenu(null);
-              }}
-            >
-              Randomizar pasos
-            </button>
-            <button
-              className="menu-item"
-              disabled={(pattern.notes[chanMenu.id] ?? EMPTY_NOTES).length === 0}
-              title="Corre un pelín el timing y varía la velocity de lo que ya hay"
-              onClick={() => {
-                humanizeSteps(chanMenu.id);
-                setChanMenu(null);
-              }}
-            >
-              Humanizar
-            </button>
-            <div className="menu-sep" />
-            <button
-              className="menu-item"
-              onClick={() => {
-                setRenamingId(chanMenu.id);
-                setChanMenu(null);
-              }}
-            >
-              Renombrar…
-            </button>
-            <label className="menu-item rack-chan-color">
-              Cambiar color
-              <input
-                type="color"
-                value={menuChannel.color}
-                onChange={(e) => setChannelColor(chanMenu.id, e.target.value)}
-              />
-            </label>
-            <div className="menu-sep" />
-            <button
-              className="menu-item"
-              onClick={() => {
-                deleteChannel(chanMenu.id);
-                setChanMenu(null);
-              }}
-            >
-              Borrar canal
-            </button>
-          </div>
-        </>
+          >
+            Editor de sonido…
+          </button>
+          <button
+            className="menu-item"
+            title="Editar las notas de este canal en el patrón activo"
+            onClick={() => {
+              openPianoRollFor(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Piano Roll
+          </button>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            onClick={() => {
+              fillEvery(chanMenu.id, 2);
+              setChanMenu(null);
+            }}
+          >
+            Llenar cada 2 pasos
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              fillEvery(chanMenu.id, 4);
+              setChanMenu(null);
+            }}
+          >
+            Llenar cada 4 pasos
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              fillEvery(chanMenu.id, 1);
+              setChanMenu(null);
+            }}
+          >
+            Llenar todos los pasos
+          </button>
+          <button
+            className="menu-item"
+            onClick={() => {
+              clearChannel(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Vaciar canal en este patrón
+          </button>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            title="Reparte pasos al azar (los pulsos pesan más) con velocity variada"
+            onClick={() => {
+              randomizeSteps(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Randomizar pasos
+          </button>
+          <button
+            className="menu-item"
+            disabled={(pattern.notes[chanMenu.id] ?? EMPTY_NOTES).length === 0}
+            title="Corre un pelín el timing y varía la velocity de lo que ya hay"
+            onClick={() => {
+              humanizeSteps(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Humanizar
+          </button>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            onClick={() => {
+              setRenamingId(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Renombrar…
+          </button>
+          <label className="menu-item rack-chan-color">
+            Cambiar color
+            <input
+              type="color"
+              value={menuChannel.color}
+              onChange={(e) => setChannelColor(chanMenu.id, e.target.value)}
+            />
+          </label>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            onClick={() => {
+              deleteChannel(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Borrar canal
+          </button>
+        </MenuPortal>
       )}
 
       <div className="rack-addrow">
         <div className="rack-add">
-          <button className="rack-add-btn" onClick={() => setAddOpen((v) => !v)}>
+          <button
+            className="rack-add-btn"
+            onPointerDown={(e) => {
+              // Abre en pointerdown y CORTA la propagación: MenuPortal escucha
+              // el cierre en la ventana, así que sin esto el mismo clic que
+              // abre el menú lo cerraría acto seguido.
+              e.stopPropagation();
+              // El elemento se guarda ANTES del updater: React vacía
+              // currentTarget en cuanto el manejador vuelve.
+              const el = e.currentTarget;
+              const r = el.getBoundingClientRect();
+              setAddMenu((open) => (open ? null : { x: r.left, y: r.bottom + 4, anchor: el }));
+            }}
+          >
             + Añadir canal
           </button>
-          {addOpen && (
-            <>
-              <div className="rack-backdrop" onClick={() => setAddOpen(false)} />
-              <div className={`popup rack-add-menu ${menuUp ? 'up' : 'down'}`}>
-                {INSTRUMENT_KINDS.map((kind) => (
-                  <button key={kind} className="menu-item" onClick={() => addChannel(kind)}>
-                    {INSTRUMENT_LABELS[kind]}
-                  </button>
-                ))}
-                {instrumentPlugins.length > 0 && (
-                  <>
-                    <div className="rack-add-sep">Plugins JS</div>
-                    {instrumentPlugins.map((plugin) => (
-                      <button
-                        key={plugin.id}
-                        className="menu-item"
-                        onClick={() => addPluginChannel(plugin)}
-                      >
-                        {plugin.name}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
-            </>
+          {addMenu && (
+            <MenuPortal
+              anchor={addMenu.anchor}
+              x={addMenu.x}
+              y={addMenu.y}
+              className="rack-add-menu"
+              onClose={() => setAddMenu(null)}
+            >
+              {INSTRUMENT_KINDS.map((kind) => (
+                <button key={kind} className="menu-item" onClick={() => addChannel(kind)}>
+                  {INSTRUMENT_LABELS[kind]}
+                </button>
+              ))}
+              {instrumentPlugins.length > 0 && (
+                <>
+                  <div className="rack-add-sep">Plugins JS</div>
+                  {instrumentPlugins.map((plugin) => (
+                    <button
+                      key={plugin.id}
+                      className="menu-item"
+                      onClick={() => addPluginChannel(plugin)}
+                    >
+                      {plugin.name}
+                    </button>
+                  ))}
+                </>
+              )}
+            </MenuPortal>
           )}
         </div>
       </div>
@@ -754,16 +897,25 @@ function ChannelRow({
       { label: `Pan de ${channel.name}`, mergeKey: `rack:${channel.id}:pan` },
     );
 
-  const select = () =>
-    useUiStore.setState(
-      channel.kind === 'nova'
-        ? { pianoRollChannelId: channel.id, novaChannelId: channel.id }
-        : { pianoRollChannelId: channel.id },
-    );
+  const select = () => useUiStore.setState(selectionFor(channel.kind, channel.id));
 
   const openPianoRoll = () => {
     useUiStore.setState({ pianoRollChannelId: channel.id });
     useUiStore.getState().openWindow('pianoRoll');
+  };
+
+  /**
+   * Editor de sonido del canal. Es lo que abre el doble clic desde ahora: al
+   * hacerlo sobre un sonido lo que se quiere es TOCARLO (bajarle el reverb,
+   * acortarlo, invertirlo), no escribir notas — el Piano Roll sigue a un clic
+   * en el menú contextual y en la franja de melodía.
+   */
+  const openSoundEditor = () => {
+    useUiStore.setState({
+      ...selectionFor(channel.kind, channel.id),
+      channelEditorId: channel.id,
+    });
+    useUiStore.getState().openWindow('channelEditor');
   };
 
   const preview = (on: boolean) => {
@@ -862,9 +1014,9 @@ function ChannelRow({
         <button
           className={`rack-name${selected ? ' sel' : ''}`}
           style={{ borderLeftColor: channel.color }}
-          title={`${channel.name} — clic: seleccionar · doble clic: Piano Roll · mantener: escuchar · clic derecho: menú`}
+          title={`${channel.name} — clic: seleccionar · doble clic: editor de sonido · mantener: escuchar · clic derecho: menú (Piano Roll incluido)`}
           onClick={select}
-          onDoubleClick={openPianoRoll}
+          onDoubleClick={openSoundEditor}
           onContextMenu={onContextMenu}
           onPointerDown={(e) => {
             if (e.button === 0) preview(true);
