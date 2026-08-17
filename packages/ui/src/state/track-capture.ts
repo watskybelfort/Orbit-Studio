@@ -161,6 +161,14 @@ export async function stopTrackCapture(): Promise<void> {
   }
 }
 
+// Gancho de QA solo-dev: inspeccionar/controlar la captura desde CDP sin
+// importar el módulo (un import por /@fs crea OTRA instancia y engaña).
+const env = (import.meta as { env?: { DEV?: boolean } }).env;
+if (env?.DEV === true && typeof window !== 'undefined') {
+  const w = window as unknown as Record<string, unknown>;
+  w['__orbitTrackCapture'] = { useTrackCapture, toggleTrackCapture, stopTrackCapture };
+}
+
 function concat(chunks: Float32Array[], length: number): Float32Array {
   const out = new Float32Array(length);
   let at = 0;
