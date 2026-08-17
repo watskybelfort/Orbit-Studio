@@ -566,7 +566,12 @@ function ChannelRow({
       { label: `Pan de ${channel.name}`, mergeKey: `rack:${channel.id}:pan` },
     );
 
-  const select = () => useUiStore.setState({ pianoRollChannelId: channel.id });
+  const select = () =>
+    useUiStore.setState(
+      channel.kind === 'flux'
+        ? { pianoRollChannelId: channel.id, fluxChannelId: channel.id }
+        : { pianoRollChannelId: channel.id },
+    );
 
   const openPianoRoll = () => {
     useUiStore.setState({ pianoRollChannelId: channel.id });

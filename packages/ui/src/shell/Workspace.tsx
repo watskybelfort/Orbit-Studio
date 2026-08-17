@@ -5,6 +5,7 @@ import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
 import { ChannelRack } from '../editors/rack';
+import { FluxPanel } from '../editors/flux';
 import { LfoPanel } from '../editors/lfo';
 import { LiveView } from '../editors/live';
 import { PianoRoll } from '../editors/pianoroll';
@@ -44,6 +45,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="lfo" title="LFOs" minW={520} minH={200}>
         <LfoPanel />
+      </InternalWindow>
+      <InternalWindow id="flux" title="Orbit Flux" minW={560} minH={340}>
+        <FluxPanel />
       </InternalWindow>
       <InternalWindow id="scope" title="Orbit Scope" minW={360} minH={240}>
         <ScopePanel />
