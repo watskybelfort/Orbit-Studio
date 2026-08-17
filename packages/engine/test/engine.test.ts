@@ -602,3 +602,81 @@ describe('kernel: LFOs por parametro', () => {
     expect(core.meterFrame().rms[1]!).toBeLessThan(loud * 0.2);
   });
 });
+
+describe('render: consolidar clips a audio (bounce)', () => {
+  /** Dos clips del mismo patrón en compases distintos, en dos pistas. */
+  function twoClipsProject() {
+    const p = createEmptyProject('Bounce');
+    p.tempo = 120; // 1 beat = 0.5 s
+    const patternId = p.patternOrder[0]!;
+    const ch = createChannel('synth', 0, 'Lead');
+    ch.mixerTrack = 1;
+    applyCommand(p, { type: 'addChannel', channel: ch });
+    applyCommand(p, { type: 'addNotes', patternId, channelId: ch.id, notes: [note(0, 2, 60)] });
+    const tracks = Object.values(p.playlistTracks)
+      .filter((t) => t.arrangementId === p.activeArrangementId)
+      .sort((a, b) => a.order - b.order);
+    applyCommand(p, {
+      type: 'addClips',
+      clips: [
+        { id: 'a', kind: 'pattern', playlistTrackId: tracks[0]!.id, start: 0, length: 4, muted: false, patternId, patternOffset: 0 },
+        { id: 'b', kind: 'pattern', playlistTrackId: tracks[1]!.id, start: 8, length: 4, muted: false, patternId, patternOffset: 0 },
+      ],
+    });
+    return p;
+  }
+
+  function rmsOf(xs: Float32Array, from: number, to: number): number {
+    let s = 0;
+    const hi = Math.min(to, xs.length);
+    for (let i = Math.max(0, from); i < hi; i++) s += xs[i]! * xs[i]!;
+    return Math.sqrt(s / Math.max(1, hi - Math.max(0, from)));
+  }
+
+  it('compilar con clipIds deja fuera al resto del arreglo', () => {
+    const p = twoClipsProject();
+    const all = compileProject(p, { mode: 'song' });
+    const onlyB = compileProject(p, { mode: 'song', clipIds: ['b'] });
+    expect(all.events.length).toBe(2);
+    expect(onlyB.events.length).toBe(1);
+    expect(onlyB.events[0]!.start).toBe(8);
+  });
+
+  it('el tramo renderizado empieza en startBeat y acaba en endBeat', () => {
+    const p = twoClipsProject();
+    const compiled = compileProject(p, { mode: 'song', clipIds: ['b'] });
+    // Clip B: beats 8..12 → 4..6 s. Se pide justo ese tramo.
+    const res = renderProject(compiled, { startBeat: 8, endBeat: 12, tailSeconds: 0 });
+    const sr = res.sampleRate;
+    // Suena desde el primer instante del render (la nota cae en el beat 8).
+    expect(rmsOf(res.left, 0, Math.round(0.4 * sr))).toBeGreaterThan(0.02);
+    // Y dura lo que el tramo (4 beats = 2 s), no la canción entera.
+    expect(res.left.length / sr).toBeGreaterThan(1.9);
+    expect(res.left.length / sr).toBeLessThan(2.3);
+  });
+
+  // NO es bit-exacto y no puede serlo: el beat 8 no cae en frontera de bloque,
+  // así que el ataque de la nota arranca con una fracción de sample de
+  // diferencia y los osciladores quedan desfasados esa fracción. Lo que sí
+  // debe cumplirse es que la energía sea la misma ventana a ventana.
+  it('bouncear un clip suena igual que ese clip dentro de la canción completa', () => {
+    const p = twoClipsProject();
+    const full = renderProject(compileProject(p, { mode: 'song' }), { tailSeconds: 0 });
+    const part = renderProject(compileProject(p, { mode: 'song', clipIds: ['b'] }), {
+      startBeat: 8,
+      endBeat: 12,
+      tailSeconds: 0,
+    });
+    const sr = part.sampleRate;
+    const offset = Math.round(4 * sr); // beat 8 a 120 BPM = 4 s
+    const win = Math.round(0.01 * sr); // ventanas de 10 ms
+    let windows = 0;
+    for (let i = 0; i + win < part.left.length; i += win) {
+      const a = rmsOf(part.left, i, i + win);
+      const b = rmsOf(full.left, offset + i, offset + i + win);
+      expect(Math.abs(a - b)).toBeLessThan(0.005 + 0.02 * b);
+      windows++;
+    }
+    expect(windows).toBeGreaterThan(150);
+  });
+});
