@@ -5,6 +5,7 @@
  */
 
 import { describeParamRef } from '@orbit/core';
+import { repeatLastExport } from '../export';
 import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
 import { playDirect } from '../shell/Transport';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
@@ -54,6 +55,14 @@ export function registerDefaultCommands(): void {
       { id: 'archivo.guardar-como', title: 'Guardar proyecto como…', group: 'Archivo', run: () => void saveProject(true) },
       { id: 'archivo.importar-midi', title: 'Importar MIDI…', group: 'Archivo', keywords: 'mid smf', run: () => void importMidi() },
       { id: 'archivo.exportar', title: 'Exportar…', group: 'Archivo', keywords: 'wav mp3 stems render', run: () => ui.openWindow('export') },
+      {
+        id: 'archivo.repetir-export',
+        title: 'Repetir el último export',
+        group: 'Archivo',
+        shortcut: 'Ctrl+E',
+        keywords: 'render wav rapido otra vez',
+        run: () => void repeatLastExport(),
+      },
       // Ventanas
       ...WINDOWS.map((w) => ({
         id: `ver.${w.id}`,
