@@ -507,3 +507,18 @@ html[data-theme='acrylic'] .iw-title {
 .menu-item:hover .menu-icon {
   color: var(--text);
 }
+
+/* Cuenta atrás de grabación: selector de compases y número durante la cuenta */
+
+.tbtn.countin {
+  min-width: 26px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.countin-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--meter-clip);
+  font-variant-numeric: tabular-nums;
+}

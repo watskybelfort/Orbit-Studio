@@ -4,7 +4,7 @@ import { useCallback, useRef, type ReactNode } from 'react';
 import { engine, pausePlayback, play, setPlayMode, stopPlayback, store } from '../state/app';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
-import { toggleRecording, useRecorderStore } from '../state/recorder';
+import { cycleCountIn, toggleRecording, useRecorderStore } from '../state/recorder';
 import {
   IconAutomation,
   IconBrowser,
@@ -74,6 +74,8 @@ export function Transport() {
   const compact = useUiStore((s) => s.compact);
   const recPhase = useRecorderStore((s) => s.phase);
   const recError = useRecorderStore((s) => s.error);
+  const countInBars = useRecorderStore((s) => s.countInBars);
+  const countdown = useRecorderStore((s) => s.countdown);
   const midiArmed = useLiveInputStore((s) => s.armed);
   const midiInputs = useLiveInputStore((s) => s.midiInputs);
   const paramArmed = useParamRecord((s) => s.armed);
@@ -171,18 +173,35 @@ export function Transport() {
           <IconStop size={15} />
         </button>
         <button
-          className={`tbtn rec${recPhase === 'recording' ? ' active' : ''}`}
+          className={`tbtn rec${recPhase === 'recording' ? ' active' : ''}${recPhase === 'countin' ? ' rec-live' : ''}`}
           title={
             recError
               ? `Grabación: ${recError}`
-              : recPhase === 'recording'
-                ? 'Grabando — clic para parar y colocar la toma'
-                : 'Grabar el micro a la playlist'
+              : recPhase === 'countin'
+                ? 'Cuenta atrás — clic para cancelar'
+                : recPhase === 'recording'
+                  ? 'Grabando — clic para parar y colocar la toma'
+                  : 'Grabar el micro a la playlist'
           }
           disabled={recPhase === 'saving'}
           onClick={() => void toggleRecording()}
         >
-          <span className="rec-dot" />
+          {recPhase === 'countin' ? (
+            <span className="countin-num">{countdown}</span>
+          ) : (
+            <span className="rec-dot" />
+          )}
+        </button>
+        <button
+          className={`tbtn countin${countInBars > 0 ? ' active' : ''}`}
+          title={
+            countInBars === 0
+              ? 'Sin cuenta atrás: la grabación entra al instante'
+              : `Cuenta atrás de ${countInBars} compás(es) con metrónomo antes de grabar`
+          }
+          onClick={cycleCountIn}
+        >
+          {countInBars === 0 ? '—' : `${countInBars}·`}
         </button>
         <button
           className={`tbtn${midiArmed ? ' active' : ''}`}

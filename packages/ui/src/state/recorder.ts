@@ -16,15 +16,32 @@ import {
 import { encodeWav } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
-import { engine, ensureAudioReady, store, togglePlay } from './app';
+import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store, togglePlay } from './app';
 import { useUiStore } from './ui';
 
-export type RecorderPhase = 'idle' | 'recording' | 'saving';
+export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
 
-export const useRecorderStore = create<{ phase: RecorderPhase; error: string | null }>(() => ({
+interface RecorderState {
+  phase: RecorderPhase;
+  error: string | null;
+  /** Compases de cuenta atrás antes de grabar (0 = sin cuenta). */
+  countInBars: number;
+  /** Compases que faltan durante la cuenta (para el rótulo del botón). */
+  countdown: number;
+}
+
+export const useRecorderStore = create<RecorderState>(() => ({
   phase: 'idle',
   error: null,
+  countInBars: 1,
+  countdown: 0,
 }));
+
+/** Cambia la cuenta atrás: 0 (sin cuenta) → 1 → 2 compases. */
+export function cycleCountIn(): void {
+  const bars = useRecorderStore.getState().countInBars;
+  useRecorderStore.setState({ countInBars: bars >= 2 ? 0 : bars + 1 });
+}
 
 let media: MediaStream | null = null;
 let recorder: MediaRecorder | null = null;
@@ -44,7 +61,55 @@ export function setRecorderStreamFactory(f: () => Promise<MediaStream>): void {
 export async function toggleRecording(): Promise<void> {
   const { phase } = useRecorderStore.getState();
   if (phase === 'recording') return stopRecording();
+  if (phase === 'countin') {
+    // Cancelar durante la cuenta: ni toma ni clip.
+    cancelCountIn = true;
+    return;
+  }
   if (phase === 'idle') return startRecording();
+}
+
+/** Bandera de cancelación mientras corre la cuenta atrás. */
+let cancelCountIn = false;
+
+/**
+ * Cuenta atrás antes de grabar: el transporte arranca un par de compases
+ * antes con el metrónomo puesto y la toma empieza EXACTA en el beat donde
+ * estaba el caret, que es donde el usuario quería empezar a cantar.
+ */
+async function runCountIn(bars: number, target: number): Promise<boolean> {
+  const beatsPerBar = Math.max(1, store.project.timeSig.num);
+  const from = Math.max(0, target - bars * beatsPerBar);
+  const wasMetronome = useUiStore.getState().metronome;
+  cancelCountIn = false;
+  useUiStore.setState({ metronome: true, positionBeats: from });
+  engine.setMetronome(true);
+  engine.seek(from);
+  useRecorderStore.setState({ phase: 'countin', countdown: bars, error: null });
+  await play();
+
+  while (!cancelCountIn) {
+    const beat = currentBeat();
+    if (beat >= target - 1e-3) break;
+    const left = Math.max(1, Math.ceil((target - beat) / beatsPerBar));
+    if (left !== useRecorderStore.getState().countdown) {
+      useRecorderStore.setState({ countdown: left });
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+
+  if (!wasMetronome) {
+    useUiStore.setState({ metronome: false });
+    engine.setMetronome(false);
+  }
+  useRecorderStore.setState({ countdown: 0 });
+  if (cancelCountIn) {
+    cancelCountIn = false;
+    stopPlayback();
+    useRecorderStore.setState({ phase: 'idle' });
+    return false;
+  }
+  return true;
 }
 
 async function startRecording(): Promise<void> {
@@ -61,6 +126,23 @@ async function startRecording(): Promise<void> {
       if (e.data.size > 0) chunks.push(e.data);
     };
     startBeat = useUiStore.getState().positionBeats;
+
+    const bars = useRecorderStore.getState().countInBars;
+    if (bars > 0 && !useUiStore.getState().playing) {
+      const go = await runCountIn(bars, startBeat);
+      if (!go) {
+        media?.getTracks().forEach((t) => t.stop());
+        media = null;
+        recorder = null;
+        return;
+      }
+      // El transporte ya viene rodando desde la cuenta: la toma entra aquí.
+      startBeat = currentBeat();
+      recorder.start();
+      useRecorderStore.setState({ phase: 'recording', error: null });
+      return;
+    }
+
     recorder.start();
     useRecorderStore.setState({ phase: 'recording', error: null });
     // Con el transporte parado, arranca para grabar encima del beat.
