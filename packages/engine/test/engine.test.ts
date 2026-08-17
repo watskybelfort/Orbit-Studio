@@ -720,3 +720,79 @@ describe('kernel: grabar la salida de una pista', () => {
     expect(peak).toBe(0);
   });
 });
+
+describe('kernel: EQ de 3 bandas por pista', () => {
+  /** Ruido reproducible por la pista 1, sin efectos ni limiter. */
+  function noiseProject(eq: { eqLow?: number; eqMid?: number; eqHigh?: number }) {
+    const p = createEmptyProject('EQ');
+    p.tempo = 120;
+    const patternId = p.patternOrder[0]!;
+    const ch = createChannel('drums', 0, 'Hats');
+    ch.mixerTrack = 1;
+    applyCommand(p, { type: 'addChannel', channel: ch });
+    // Hats = ruido filtrado: energía en todo el espectro útil.
+    applyCommand(p, {
+      type: 'addNotes',
+      patternId,
+      channelId: ch.id,
+      notes: Array.from({ length: 16 }, (_, i) => note(i * 0.25, 0.2, 42)),
+    });
+    applyCommand(p, { type: 'patchMixerTrack', trackIndex: 1, patch: eq });
+    return compileProject(p, { mode: 'pattern', patternId });
+  }
+
+  /**
+   * Energía en una banda por DFT directa. La ventana de Hann es obligatoria:
+   * sin ella, realzar agudos sobre un transitorio se derrama por fuga
+   * espectral hasta los graves y la medida miente.
+   */
+  function bandEnergy(xs: Float32Array, sr: number, f0: number, f1: number): number {
+    const n = 4096;
+    const from = Math.min(xs.length - n, Math.round(sr * 0.05));
+    const win = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      win[i] = (xs[from + i]! * (1 - Math.cos((2 * Math.PI * i) / (n - 1)))) / 2;
+    }
+    let total = 0;
+    const kFrom = Math.max(1, Math.round((f0 * n) / sr));
+    const kTo = Math.min(n / 2, Math.round((f1 * n) / sr));
+    for (let k = kFrom; k < kTo; k += 2) {
+      let re = 0;
+      let im = 0;
+      const w = (2 * Math.PI * k) / n;
+      for (let i = 0; i < n; i++) {
+        re += win[i]! * Math.cos(w * i);
+        im -= win[i]! * Math.sin(w * i);
+      }
+      total += re * re + im * im;
+    }
+    return total;
+  }
+
+  it('+12 dB en agudos sube esa banda y deja los graves donde estaban', () => {
+    const flat = renderProject(noiseProject({}), { tailSeconds: 0 });
+    const bright = renderProject(noiseProject({ eqHigh: 12 }), { tailSeconds: 0 });
+    const sr = flat.sampleRate;
+    const highFlat = bandEnergy(flat.left, sr, 8000, 14000);
+    const highEq = bandEnergy(bright.left, sr, 8000, 14000);
+    const lowFlat = bandEnergy(flat.left, sr, 60, 200);
+    const lowEq = bandEnergy(bright.left, sr, 60, 200);
+    expect(highEq).toBeGreaterThan(highFlat * 4); // ~+12 dB = x16 en energía
+    expect(lowEq).toBeCloseTo(lowFlat, 5);
+  });
+
+  it('-18 dB en medios agacha la campana de 1 kHz', () => {
+    const flat = renderProject(noiseProject({}), { tailSeconds: 0 });
+    const scooped = renderProject(noiseProject({ eqMid: -18 }), { tailSeconds: 0 });
+    const sr = flat.sampleRate;
+    expect(bandEnergy(scooped.left, sr, 800, 1300)).toBeLessThan(
+      bandEnergy(flat.left, sr, 800, 1300) * 0.5,
+    );
+  });
+
+  it('plano no toca el audio (bit a bit)', () => {
+    const a = renderProject(noiseProject({}), { tailSeconds: 0 });
+    const b = renderProject(noiseProject({ eqLow: 0, eqMid: 0, eqHigh: 0 }), { tailSeconds: 0 });
+    expect(Buffer.from(a.left.buffer).equals(Buffer.from(b.left.buffer))).toBe(true);
+  });
+});

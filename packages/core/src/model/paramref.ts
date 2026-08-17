@@ -17,6 +17,14 @@ import type { ParamRef, Project } from './types';
 export const TEMPO_MIN = 20;
 export const TEMPO_MAX = 999;
 
+/** Rango del EQ de pista (dB). */
+export const EQ_MIN = -18;
+export const EQ_MAX = 18;
+
+function isEqParam(param: string): boolean {
+  return param === 'eqLow' || param === 'eqMid' || param === 'eqHigh';
+}
+
 const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
 
 /**
@@ -94,7 +102,9 @@ export function paramRefValue(norm: number, ref: ParamRef, project: Project): nu
     case 'channelMix':
       return ref.param === 'volume' ? t * 2 : t * 2 - 1;
     case 'mixer':
-      return ref.param === 'pan' ? t * 2 - 1 : t * 2;
+      if (ref.param === 'pan') return t * 2 - 1;
+      if (isEqParam(ref.param)) return EQ_MIN + t * (EQ_MAX - EQ_MIN);
+      return t * 2; // volume y stereoWidth 0..2
     case 'effect': {
       const spec = paramSpecOf(ref, project);
       return spec ? denormalizeParam(spec, t) : t;
@@ -115,7 +125,9 @@ export function paramValueNorm(value: number, ref: ParamRef, project: Project): 
     case 'channelMix':
       return ref.param === 'volume' ? clamp01(value / 2) : clamp01((value + 1) / 2);
     case 'mixer':
-      return ref.param === 'pan' ? clamp01((value + 1) / 2) : clamp01(value / 2);
+      if (ref.param === 'pan') return clamp01((value + 1) / 2);
+      if (isEqParam(ref.param)) return clamp01((value - EQ_MIN) / (EQ_MAX - EQ_MIN));
+      return clamp01(value / 2);
     case 'transport':
       return ref.param === 'tempo'
         ? clamp01((value - TEMPO_MIN) / (TEMPO_MAX - TEMPO_MIN))
@@ -139,8 +151,7 @@ export function paramRefNorm(ref: ParamRef, project: Project): number | null {
     case 'mixer': {
       const t = project.mixer[ref.trackIndex];
       if (!t) return null;
-      const value = ref.param === 'pan' ? t.pan : ref.param === 'volume' ? t.volume : t.stereoWidth;
-      return paramValueNorm(value, ref, project);
+      return paramValueNorm(t[ref.param], ref, project);
     }
     case 'effect': {
       const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
@@ -158,6 +169,7 @@ export function formatParamRef(ref: ParamRef, project: Project, norm: number): s
   if (!spec) {
     const real = paramRefValue(norm, ref, project);
     if (ref.kind === 'transport' && ref.param === 'tempo') return `${real.toFixed(1)} BPM`;
+    if (ref.kind === 'mixer' && isEqParam(ref.param)) return `${real.toFixed(1)} dB`;
     if (ref.kind === 'mixer' || ref.kind === 'channelMix') {
       return ref.param === 'pan' ? formatPanValue(real) : real.toFixed(2);
     }

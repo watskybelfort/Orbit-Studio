@@ -105,7 +105,11 @@ export interface AutomationPoint {
 export type ParamRef =
   | { kind: 'channel'; channelId: Id; param: string }
   | { kind: 'channelMix'; channelId: Id; param: 'volume' | 'pan' }
-  | { kind: 'mixer'; trackIndex: number; param: 'volume' | 'pan' | 'stereoWidth' }
+  | {
+      kind: 'mixer';
+      trackIndex: number;
+      param: 'volume' | 'pan' | 'stereoWidth' | 'eqLow' | 'eqMid' | 'eqHigh';
+    }
   | { kind: 'effect'; trackIndex: number; slotIndex: number; param: string }
   | { kind: 'transport'; param: 'tempo' | 'swing' };
 
@@ -231,6 +235,15 @@ export interface MixerTrack {
   solo: boolean;
   /** 0 = mono, 1 = normal, 2 = extra ancho. */
   stereoWidth: number;
+  /**
+   * EQ rápido del strip (dB, -18..18), como el de FL: shelf grave en 120 Hz,
+   * campana media en 1 kHz y shelf agudo en 6 kHz. Va DESPUÉS de los slots de
+   * efectos y antes de width/pan/fader. Los .orbit anteriores a v0.9 no lo
+   * traen y arrancan planos.
+   */
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
   /** Slots de efectos; longitud fija MIXER_SLOTS, huecos = null. */
   slots: (EffectSlot | null)[];
   /** Pista a la que desemboca (null solo en el master). */

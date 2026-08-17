@@ -18,6 +18,8 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  EQ_MAX,
+  EQ_MIN,
   EFFECT_LABELS,
   EFFECT_PARAMS,
   MIXER_SLOTS,
@@ -736,6 +738,17 @@ function ChainPanel({
   const captureSeconds = useTrackCapture((s) => s.seconds);
   const captureError = useTrackCapture((s) => s.error);
 
+  /** patchMixerTrack con mergeKey: el arrastre de la perilla es un solo undo. */
+  const patchTrack = useCallback(
+    (patch: Partial<MixerTrack>, label: string, key: string) => {
+      store.dispatch(
+        { type: 'patchMixerTrack', trackIndex, patch },
+        { label, mergeKey: `mixer:${trackIndex}:${key}` },
+      );
+    },
+    [trackIndex],
+  );
+
   // Cambiar de pista cierra editor y menú (los slots son de otra cadena).
   useEffect(() => {
     setExpanded(null);
@@ -853,6 +866,56 @@ function ChainPanel({
           <span className="rec-dot" />
           {capturing ? `${captureSeconds.toFixed(1)} s` : 'Grabar salida'}
         </button>
+      </div>
+      {/* EQ rápido del strip + separación estéreo (post-efectos, pre-fader). */}
+      <div className="strip-eq">
+        <span className="strip-eq-label" title="EQ de la pista: 120 Hz · 1 kHz · 6 kHz">
+          EQ
+        </span>
+        <Knob
+          value={track.eqLow ?? 0}
+          min={EQ_MIN}
+          max={EQ_MAX}
+          defaultValue={0}
+          size={26}
+          label="Low"
+          format={(v) => `${v.toFixed(1)} dB`}
+          onChange={(v) => patchTrack({ eqLow: v }, 'EQ de pista: graves', 'eqLow')}
+          paramRef={{ kind: 'mixer', trackIndex, param: 'eqLow' }}
+        />
+        <Knob
+          value={track.eqMid ?? 0}
+          min={EQ_MIN}
+          max={EQ_MAX}
+          defaultValue={0}
+          size={26}
+          label="Mid"
+          format={(v) => `${v.toFixed(1)} dB`}
+          onChange={(v) => patchTrack({ eqMid: v }, 'EQ de pista: medios', 'eqMid')}
+          paramRef={{ kind: 'mixer', trackIndex, param: 'eqMid' }}
+        />
+        <Knob
+          value={track.eqHigh ?? 0}
+          min={EQ_MIN}
+          max={EQ_MAX}
+          defaultValue={0}
+          size={26}
+          label="High"
+          format={(v) => `${v.toFixed(1)} dB`}
+          onChange={(v) => patchTrack({ eqHigh: v }, 'EQ de pista: agudos', 'eqHigh')}
+          paramRef={{ kind: 'mixer', trackIndex, param: 'eqHigh' }}
+        />
+        <Knob
+          value={track.stereoWidth}
+          min={0}
+          max={2}
+          defaultValue={1}
+          size={26}
+          label="Width"
+          format={(v) => (v === 0 ? 'Mono' : `${Math.round(v * 100)}%`)}
+          onChange={(v) => patchTrack({ stereoWidth: v }, 'Separación estéreo', 'width')}
+          paramRef={{ kind: 'mixer', trackIndex, param: 'stereoWidth' }}
+        />
       </div>
       {track.sends.length > 0 && (
         <div className="mixer-sends">
