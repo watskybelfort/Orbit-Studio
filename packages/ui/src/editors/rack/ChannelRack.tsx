@@ -48,6 +48,7 @@ import {
   stopPlayback,
   store,
 } from '../../state/app';
+import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
@@ -87,6 +88,7 @@ export function ChannelRack() {
 
   const [editingName, setEditingName] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const instrumentPlugins = usePluginsStore((s) => s.plugins).filter((p) => p.instrument);
   const cancelName = useRef(false);
   /** Menú contextual de canal (clic derecho en el nombre): id + posición. */
   const [chanMenu, setChanMenu] = useState<{ id: Id; x: number; y: number } | null>(null);
@@ -296,6 +298,22 @@ export function ChannelRack() {
       { type: 'patchPattern', patternId, patch: { length: beats } },
       { label: `Patrón a ${Math.round(beats / STEP)} pasos` },
     );
+  };
+
+  /**
+   * Canal tocado por un plugin JS de instrumento: el kind interno da igual
+   * (el plugin sustituye a la voz), pero se guardan sus perillas declaradas
+   * para que el motor se las pase con setParams.
+   */
+  const addPluginChannel = (plugin: PluginInfo) => {
+    const channel = createChannel('synth', project.channelOrder.length, plugin.name);
+    channel.instrumentPluginId = plugin.id;
+    for (const spec of plugin.params) channel.params[spec.key] = spec.default;
+    store.dispatch(
+      { type: 'addChannel', channel },
+      { label: `Añadir "${plugin.name}" (plugin JS)` },
+    );
+    setAddOpen(false);
   };
 
   const addChannel = (kind: InstrumentKind) => {
@@ -620,6 +638,20 @@ export function ChannelRack() {
                     {INSTRUMENT_LABELS[kind]}
                   </button>
                 ))}
+                {instrumentPlugins.length > 0 && (
+                  <>
+                    <div className="rack-add-sep">Plugins JS</div>
+                    {instrumentPlugins.map((plugin) => (
+                      <button
+                        key={plugin.id}
+                        className="menu-item"
+                        onClick={() => addPluginChannel(plugin)}
+                      >
+                        {plugin.name}
+                      </button>
+                    ))}
+                  </>
+                )}
               </div>
             </>
           )}
