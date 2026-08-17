@@ -107,13 +107,15 @@
   border-color: var(--accent);
 }
 
-/* Menú contextual de canal (fixed; el backdrop ya es fixed) */
-.rack-chan-menu {
-  position: fixed;
-  z-index: 1000;
+/* Menús contextuales de canal y de patrón. Van por MenuPortal, que ya pone
+   position/left/top/z-index inline: aquí solo la forma de la caja. */
+.rack-chan-menu,
+.rack-pat-menu {
   display: flex;
   flex-direction: column;
   min-width: 190px;
+  max-height: 80vh;
+  overflow-y: auto;
   padding: 5px;
 }
 
@@ -170,12 +172,20 @@
   border: 1px solid var(--border);
 }
 
+/* Lleva menú contextual propio (renombrar, color, clonar, borrar): el hover
+   lo delata, porque un texto suelto no invita a probar el clic derecho. */
 .rack-pattern-name {
+  padding: 2px 6px;
+  border-radius: 4px;
   font-weight: 600;
   max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.rack-pattern-name:hover {
+  background: var(--surface-2);
 }
 
 .rack-pattern-count {
@@ -690,28 +700,16 @@
   border-color: var(--accent);
 }
 
-.rack-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-}
-
+/* Desplegable de "+ Añadir canal": también por MenuPortal. Ya no hay backdrop
+   a pantalla completa — el de antes se tragaba el primer clic en cualquier
+   parte de la app mientras hubiera un menú abierto. */
 .rack-add-menu {
-  position: absolute;
-  left: 0;
-  z-index: 1000;
   display: flex;
   flex-direction: column;
   min-width: 160px;
+  max-height: 80vh;
+  overflow-y: auto;
   padding: 5px;
-}
-
-.rack-add-menu.up {
-  bottom: calc(100% + 4px);
-}
-
-.rack-add-menu.down {
-  top: calc(100% + 4px);
 }
 
 /* Separador de sección dentro del menú de añadir canal (Plugins JS) */
