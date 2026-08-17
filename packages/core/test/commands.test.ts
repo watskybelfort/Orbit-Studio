@@ -103,6 +103,76 @@ describe('comandos: apply + inverso = identidad', () => {
     expectInvertible(p, { type: 'removePattern', patternId: pat.id });
   });
 
+  it('borrar el ÚLTIMO patrón lanza y no deja el proyecto a medias', () => {
+    const p = createEmptyProject();
+    expect(p.patternOrder).toHaveLength(1);
+    const only = p.patternOrder[0]!;
+    // Sin patrones, el rack, el modo PAT y la grabación en vivo se quedan sin
+    // destino: core lo prohíbe igual que con el último arrangement. Toda la UI
+    // que ofrezca borrar tiene que preguntar ANTES en vez de comerse esto.
+    expect(() => applyCommand(p, { type: 'removePattern', patternId: only })).toThrow(
+      /último patrón/,
+    );
+    expect(p.patternOrder).toEqual([only]);
+    expect(p.patterns[only]).toBeDefined();
+  });
+
+  it('borrar un patrón con notas y varios clips: cascada e inverso exacto', () => {
+    const p = createEmptyProject();
+    const kick = createChannel('drums', 0);
+    const bass = createChannel('sub808', 1);
+    applyCommand(p, { type: 'addChannel', channel: kick });
+    applyCommand(p, { type: 'addChannel', channel: bass });
+
+    const pat = createPattern(1);
+    applyCommand(p, { type: 'addPattern', pattern: pat });
+    applyCommand(p, {
+      type: 'addNotes',
+      patternId: pat.id,
+      channelId: kick.id,
+      notes: [makeNote(0, 36), makeNote(2, 36)],
+    });
+    applyCommand(p, {
+      type: 'addNotes',
+      patternId: pat.id,
+      channelId: bass.id,
+      notes: [makeNote(0, 28)],
+    });
+
+    // Tres clips del patrón repartidos por la playlist + uno de OTRO patrón,
+    // que la cascada no puede tocar. El ajeno va PRIMERO porque restorePattern
+    // reinserta los suyos al final y el snapshot compara JSON (y el JSON de un
+    // objeto sí depende del orden de las claves, aunque el modelo no).
+    const trackId = Object.keys(p.playlistTracks)[0]!;
+    const ajeno = {
+      id: newId(), kind: 'pattern' as const, playlistTrackId: trackId,
+      start: 16, length: 4, muted: false, patternId: p.patternOrder[0]!,
+    };
+    const mine = [0, 4, 8].map((start) => ({
+      id: newId(), kind: 'pattern' as const, playlistTrackId: trackId,
+      start, length: 4, muted: false, patternId: pat.id,
+    }));
+    applyCommand(p, { type: 'addClips', clips: [ajeno, ...mine] });
+
+    // Es expectInvertible desplegado: hace falta mirar el estado intermedio.
+    const before = snapshot(p);
+    const inverse = applyCommand(p, { type: 'removePattern', patternId: pat.id });
+
+    expect(p.patterns[pat.id]).toBeUndefined();
+    expect(p.patternOrder).not.toContain(pat.id);
+    for (const c of mine) expect(p.clips[c.id]).toBeUndefined();
+    expect(p.clips[ajeno.id]).toBeDefined(); // el del otro patrón sigue ahí
+    expect(p.channels[kick.id]).toBeDefined(); // los canales no son del patrón
+    expect(p.channels[bass.id]).toBeDefined();
+
+    // El inverso devuelve el patrón entero (notas incluidas), sus clips en su
+    // sitio y el patrón en su MISMA posición del orden.
+    applyCommand(p, inverse);
+    expect(snapshot(p)).toBe(before);
+    expect(p.patterns[pat.id]!.notes[kick.id]).toHaveLength(2);
+    expect(p.patterns[pat.id]!.notes[bass.id]).toHaveLength(1);
+  });
+
   it('playlist: pistas y clips', () => {
     const p = createEmptyProject();
     const arrId = p.activeArrangementId;

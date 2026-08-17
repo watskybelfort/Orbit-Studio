@@ -1,13 +1,21 @@
 /**
- * Comandos por defecto de la paleta (Ctrl+K): archivo, ventanas y
- * transporte. Se registran una vez desde App; el proveedor se evalúa al
- * abrir la paleta, así que los títulos condicionales salen frescos.
+ * Comandos por defecto de la paleta (Ctrl+K): archivo, ventanas, transporte y
+ * patrones. Se registran una vez desde App; el proveedor se evalúa al abrir la
+ * paleta, así que los títulos condicionales salen frescos.
+ *
+ * Aquí viven también las ACCIONES DE PATRÓN (crear, clonar, renombrar, color y
+ * borrar). Son exportadas porque las comparten cinco superficies —esta paleta,
+ * el menú Patrón del MenuBar, el atajo global, el menú contextual de los pads
+ * de la Vista Live y el botón del Piano Roll— y el borrado tiene reglas que no
+ * pueden divergir: el guard del último patrón, el realineo del patrón activo y
+ * el aviso de cuántos clips se lleva por delante.
  */
 
-import { describeParamRef } from '@orbit/core';
+import { createPattern, describeParamRef, newId, type Id, type Note, type Pattern } from '@orbit/core';
 import { repeatLastExport } from '../export';
-import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { engine, pausePlayback, setActivePattern, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
 import { playDirect } from '../shell/Transport';
+import { useBounceStore } from '../state/bounce';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 import { LAYOUT_PRESETS, applyLayout, applyPreset, listLayouts } from '../state/layouts';
 import { addLfoFor, createAutomationClipFor, findLfoFor } from '../state/param-actions';
@@ -36,6 +44,146 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'settings', title: 'Ajustes', shortcut: 'F10' },
 ];
 
+// ── Acciones de patrón ───────────────────────────────────────────────────────
+
+/**
+ * Aviso efímero por el canal de `bounce` (App lo pinta como `.app-notice`).
+ * Timer propio porque el de `bounce.ts` es privado de ese módulo.
+ */
+let patternNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
+function patternNotice(notice: string): void {
+  if (patternNoticeTimer) clearTimeout(patternNoticeTimer);
+  useBounceStore.setState({ notice });
+  patternNoticeTimer = setTimeout(() => useBounceStore.setState({ notice: null }), 5000);
+}
+
+/**
+ * Patrón activo DE VERDAD: `activePatternId` es estado de UI y nadie lo limpia
+ * al borrar, así que puede apuntar a un patrón que ya no existe. Cae al primero
+ * de la lista, igual que hacen el rack y la Vista Live.
+ */
+export function activePattern(): Pattern | undefined {
+  const project = store.project;
+  const id = useUiStore.getState().activePatternId;
+  if (id !== null && project.patterns[id]) return project.patterns[id];
+  const first = project.patternOrder[0];
+  return first ? project.patterns[first] : undefined;
+}
+
+/** Clips de la playlist que se lleva por delante borrar ese patrón. */
+export function patternClipCount(patternId: Id): number {
+  return Object.values(store.project.clips).filter((c) => c.patternId === patternId).length;
+}
+
+/**
+ * Falso cuando solo queda un patrón: core LANZA en ese caso (sin patrones el
+ * rack, el modo PAT y la grabación en vivo se quedan sin destino), así que
+ * toda superficie que ofrezca el borrado tiene que preguntar antes.
+ */
+export function canRemovePattern(): boolean {
+  return store.project.patternOrder.length > 1;
+}
+
+/** Coletilla de aviso: " (y 3 clips de la playlist)" o cadena vacía. */
+export function patternClipsHint(patternId: Id): string {
+  const clips = patternClipCount(patternId);
+  if (clips === 0) return '';
+  return ` (y ${clips} ${clips === 1 ? 'clip' : 'clips'} de la playlist)`;
+}
+
+/** Crea un patrón vacío al final y lo deja activo. */
+export function addPattern(): void {
+  const p = createPattern(store.project.patternOrder.length);
+  store.dispatch({ type: 'addPattern', pattern: p }, { label: `Añadir "${p.name}"` });
+  setActivePattern(p.id);
+}
+
+/** Clona un patrón (notas incluidas, con ids nuevos) justo detrás y lo activa. */
+export function clonePattern(patternId?: Id): void {
+  const pattern = patternId ? store.project.patterns[patternId] : activePattern();
+  if (!pattern) return;
+  const notes: Record<Id, Note[]> = {};
+  for (const [channelId, list] of Object.entries(pattern.notes)) {
+    notes[channelId] = list.map((n) => ({ ...n, id: newId() }));
+  }
+  const clon: Pattern = {
+    id: newId(),
+    name: `${pattern.name} (copia)`,
+    color: pattern.color,
+    length: pattern.length,
+    notes,
+  };
+  const index = store.project.patternOrder.indexOf(pattern.id);
+  store.dispatch(
+    { type: 'addPattern', pattern: clon, index: index + 1 },
+    { label: `Clonar "${pattern.name}"` },
+  );
+  setActivePattern(clon.id);
+}
+
+/** Renombra pidiendo el nombre (mismo prompt que el resto del shell). */
+export function renamePattern(patternId?: Id): void {
+  const pattern = patternId ? store.project.patterns[patternId] : activePattern();
+  if (!pattern) return;
+  const raw = window.prompt('Nombre del patrón', pattern.name);
+  if (raw === null) return;
+  const name = raw.trim();
+  if (!name || name === pattern.name) return;
+  store.dispatch(
+    { type: 'patchPattern', patternId: pattern.id, patch: { name } },
+    { label: `Renombrar patrón a "${name}"` },
+  );
+}
+
+/** Color del patrón (el de sus pads en Live y el de sus clips en la playlist). */
+export function setPatternColor(patternId: Id, color: string): void {
+  const pattern = store.project.patterns[patternId];
+  if (!pattern || pattern.color === color) return;
+  store.dispatch(
+    { type: 'patchPattern', patternId, patch: { color } },
+    { label: `Color de "${pattern.name}"`, mergeKey: `pattern:${patternId}:color` },
+  );
+}
+
+/**
+ * Borra un patrón con todo lo que arrastra —sus notas y sus clips de la
+ * playlist— en UN paso de undo, y deja el patrón activo en un sitio válido.
+ *
+ * Sin confirmación a propósito: el aviso dice qué se llevó y Ctrl+Z lo devuelve
+ * entero (core guarda el patrón completo y sus clips en el comando inverso).
+ */
+export function removePattern(patternId: Id): void {
+  const pattern = store.project.patterns[patternId];
+  if (!pattern) return;
+  if (!canRemovePattern()) {
+    patternNotice('No se puede borrar el último patrón: el proyecto siempre tiene uno.');
+    return;
+  }
+  const index = store.project.patternOrder.indexOf(patternId);
+  const hint = patternClipsHint(patternId);
+  store.dispatch({ type: 'removePattern', patternId }, { label: `Borrar "${pattern.name}"` });
+
+  // El patrón activo es estado de UI y core no lo toca: si apuntaba al que se
+  // acaba de borrar, salta al vecino de abajo (o al último si era el final).
+  // Sin esto, addNotes y compañía tirarían por el `must` de core.
+  const active = useUiStore.getState().activePatternId;
+  if (active === null || !store.project.patterns[active]) {
+    const order = store.project.patternOrder;
+    const next = order[Math.min(index, order.length - 1)];
+    if (next) setActivePattern(next);
+  }
+  patternNotice(`Borrado "${pattern.name}"${hint} · Ctrl+Z lo devuelve entero.`);
+}
+
+/** Borra el patrón activo (paleta, menú Patrón y Ctrl+Shift+Supr). */
+export function removeActivePattern(): void {
+  const pattern = activePattern();
+  if (pattern) removePattern(pattern.id);
+}
+
+// ── Registro de la paleta ────────────────────────────────────────────────────
+
 let registered = false;
 
 export function registerDefaultCommands(): void {
@@ -47,6 +195,7 @@ export function registerDefaultCommands(): void {
     const live = useLiveInputStore.getState();
     const touched = useParamTouch.getState().last;
     const paramRec = useParamRecord.getState();
+    const pattern = activePattern();
     return [
       // Archivo
       { id: 'archivo.nuevo', title: 'Nuevo proyecto', group: 'Archivo', run: () => newProject() },
@@ -63,6 +212,47 @@ export function registerDefaultCommands(): void {
         keywords: 'render wav rapido otra vez',
         run: () => void repeatLastExport(),
       },
+      // Patrón (sobre el activo; los títulos llevan su nombre para que no
+      // haya duda de a cuál le vas a dar).
+      ...(pattern
+        ? [
+            {
+              id: 'patron.nuevo',
+              title: 'Nuevo patrón',
+              group: 'Patrón',
+              keywords: 'pattern escena crear anadir vacio',
+              run: () => addPattern(),
+            },
+            {
+              id: 'patron.clonar',
+              title: `Clonar "${pattern.name}"`,
+              group: 'Patrón',
+              keywords: 'pattern duplicar copia',
+              run: () => clonePattern(),
+            },
+            {
+              id: 'patron.renombrar',
+              title: `Renombrar "${pattern.name}"…`,
+              group: 'Patrón',
+              keywords: 'pattern nombre',
+              run: () => renamePattern(),
+            },
+            // Con un solo patrón el comando NO aparece: core lanza si se
+            // intenta y la paleta no sabe pintar comandos deshabilitados.
+            ...(canRemovePattern()
+              ? [
+                  {
+                    id: 'patron.borrar',
+                    title: `Borrar "${pattern.name}"${patternClipsHint(pattern.id)}`,
+                    group: 'Patrón',
+                    shortcut: 'Ctrl+Shift+Supr',
+                    keywords: 'pattern eliminar quitar suprimir',
+                    run: () => removeActivePattern(),
+                  },
+                ]
+              : []),
+          ]
+        : []),
       // Ventanas
       ...WINDOWS.map((w) => ({
         id: `ver.${w.id}`,

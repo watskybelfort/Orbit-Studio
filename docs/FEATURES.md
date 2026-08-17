@@ -44,6 +44,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Mute + solo (Ctrl+clic), volumen y pan por canal | v0.1 |
 | Selector de patrones (◀▶, añadir, renombrar, color) | v0.1 |
 | Clonar patrón (notas incluidas, ⧉ en la cabecera) | v0.6 |
+| **Borrar patrón** con su cascada: se lleva sus notas y sus clips de la playlist en UN paso de undo, avisando de cuántos clips se llevó | v1.1 |
+| Borrar patrón desde donde estés: menú **Patrón** del MenuBar, paleta Ctrl+K (grupo "Patrón"), atajo **Ctrl+Shift+Supr**, clic derecho en un pad de la Vista Live y ✕ en la toolbar del Piano Roll | v1.1 |
+| El último patrón nunca se borra (la opción se deshabilita sola) y el patrón activo salta al vecino en vez de quedarse colgando | v1.1 |
 | ▶ propio del rack: escuchar SOLO el patrón activo | v0.6 |
 | Menú de canal (clic derecho): llenar cada 2/4/todos, vaciar, renombrar, color, borrar | v0.6 |
 | Filas y pasos más grandes y aireados (pase visual) | v0.6 |
@@ -68,7 +71,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Escala resaltada (tónica + 10 modos) | v0.1 |
 | Bloqueo a escala al dibujar y mover (botón Bloq) | v0.6 |
 | Ghost notes de otros canales del patrón | v0.1 |
-| Toggle de ghost notes + selector de patrón en la toolbar | v0.6 |
+| Toggle de ghost notes + selector de patrón en la toolbar, con ✕ para borrar el patrón que estás editando | v0.6 |
 | Mover selección contra el borde conserva posiciones (clamp de grupo) | v0.6 |
 | Zoom H (Ctrl+rueda) + scroll, preview audible al arrastrar | v0.1 |
 | Minimapa clicable (vista completa del patrón + viewport) | v0.3 |
@@ -100,6 +103,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | **Consolidar a audio (bounce)**: los clips de la pista se renderizan CON sus efectos y quedan como un solo clip de audio, en un undo | v0.9 |
 | **Vista Live por escenas** (F8): pads por patrón, lanzamiento cuantizado al cierre del loop | v0.7 |
+| Menú de la escena (clic derecho en un pad): renombrar, color, clonar y borrar — borrar una escena en cola la cancela antes de irse | v1.1 |
 | **Carriles de toma (comping)**: las tomas se apilan en la pista y el clic central elige la buena | v1.0 |
 
 ## 5. Mixer
@@ -282,7 +286,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | P / B / C herramientas del piano roll · Alt+G riff machine | v1.0 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
 | **Ctrl+E**: repite el último export sin diálogo, con sufijo incremental | v1.0 |
+| **Ctrl+Shift+Supr**: borra el patrón activo (Supr a secas sigue siendo el de las notas del Piano Roll) | v1.1 |
+| Menú **Patrón** en el MenuBar: nuevo, clonar, renombrar y borrar el activo | v1.1 |
 | Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
+| Grupo "Patrón" en la paleta: nuevo, clonar, renombrar y borrar (con el nombre del patrón y los clips que se lleva en el propio título) | v1.1 |
 | Multi-ventana (mixer en segundo monitor) | v1+ |
 
 ## 16. Plugins de terceros

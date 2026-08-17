@@ -92,8 +92,15 @@ function commitRecording(): void {
   recorded = [];
   recordChannelId = null;
   if (notes.length === 0 || !channelId) return;
-  const patternId = useUiStore.getState().activePatternId ?? store.project.patternOrder[0];
-  if (!patternId || !store.project.channels[channelId]) return;
+  // El patrón activo es estado de UI y NADIE lo limpia al borrarlo: si apunta a
+  // uno que ya no existe hay que caer al primero, o el addNotes de abajo tiraría
+  // por el `must` de core y la toma se perdería con una excepción.
+  const active = useUiStore.getState().activePatternId;
+  const patternId =
+    active !== null && store.project.patterns[active] ? active : store.project.patternOrder[0];
+  if (!patternId || !store.project.patterns[patternId] || !store.project.channels[channelId]) {
+    return;
+  }
   const out: Note[] = notes.map((n) => ({
     id: newId(),
     key: n.key,

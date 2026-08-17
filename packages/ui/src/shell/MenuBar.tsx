@@ -15,6 +15,7 @@ import {
   IconMixer,
   IconNew,
   IconOpen,
+  IconPattern,
   IconPianoRoll,
   IconPlaylist,
   IconSave,
@@ -24,6 +25,15 @@ import {
 } from '../icons';
 import { PROJECT_TEMPLATES } from '@orbit/core';
 import { store } from '../state/app';
+import {
+  activePattern,
+  addPattern,
+  canRemovePattern,
+  clonePattern,
+  patternClipsHint,
+  removeActivePattern,
+  renamePattern,
+} from '../palette/default-commands';
 import { importMidi, newProject, newProjectFromTemplate, openProject, saveProject } from '../state/project-file';
 import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
 import { useUiStore } from '../state/ui';
@@ -52,6 +62,12 @@ export function MenuBar() {
     return () => window.removeEventListener('pointerdown', onDown);
   }, [open]);
 
+  // Los menús se construyen en el mismo render que los abre (el clic cambia
+  // `open`), así que leer `store.project` directo aquí sale siempre fresco: el
+  // patrón que se nombra y el disabled del borrado son los de ese instante.
+  const pattern = activePattern();
+  const canRemove = canRemovePattern();
+
   const menus: Record<string, MenuItem[]> = {
     Archivo: [
       { label: 'Nuevo proyecto', icon: <IconNew />, action: () => newProject() },
@@ -77,6 +93,32 @@ export function MenuBar() {
       { label: 'Rehacer', shortcut: 'Ctrl+Y', action: () => store.redo() },
       { label: '', separator: true },
       { label: 'Historial…', action: () => toggleWindow('history') },
+    ],
+    Patrón: [
+      { label: 'Nuevo patrón', icon: <IconPattern />, action: () => addPattern() },
+      {
+        label: pattern ? `Clonar "${pattern.name}"` : 'Clonar patrón',
+        icon: <IconPattern />,
+        disabled: !pattern,
+        action: () => clonePattern(),
+      },
+      {
+        label: pattern ? `Renombrar "${pattern.name}"…` : 'Renombrar patrón…',
+        disabled: !pattern,
+        action: () => renamePattern(),
+      },
+      { label: '', separator: true },
+      {
+        // Deshabilitado con un solo patrón: core lanza en vez de dejar el
+        // proyecto sin ninguno, así que ni se ofrece.
+        label: pattern
+          ? `Borrar "${pattern.name}"${patternClipsHint(pattern.id)}`
+          : 'Borrar el patrón activo',
+        icon: <IconClose />,
+        shortcut: 'Ctrl+Shift+Supr',
+        disabled: !pattern || !canRemove,
+        action: () => removeActivePattern(),
+      },
     ],
     Ver: [
       { label: 'Playlist', icon: <IconPlaylist />, shortcut: 'F5', action: () => toggleWindow('playlist') },
