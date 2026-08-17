@@ -2,10 +2,17 @@
  * Perilla estándar de Orbit Studio.
  * Arrastre vertical (Shift = fino), doble clic = valor por defecto,
  * rueda = pasos. Soporta curva exponencial para frecuencias/tiempos.
+ *
+ * Con `paramRef` la perilla queda enlazada a un destino automatizable: avisa
+ * al registro de "último parámetro tocado" en cada movimiento y ofrece su
+ * menú contextual (crear clip de automatización, poner LFO).
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import type { ParamRef } from '@orbit/core';
+import { touchParam } from '../state/param-touch';
 import { capturePointer } from './pointer';
+import { ParamMenu, clampMenuPosition } from './ParamMenu';
 import './widgets.css';
 
 export interface KnobProps {
@@ -21,6 +28,8 @@ export interface KnobProps {
   onChange: (v: number) => void;
   /** Se llama al soltar (para cerrar el mergeKey del undo). */
   onCommit?: () => void;
+  /** Destino automatizable que mueve esta perilla (habilita el menú y el registro). */
+  paramRef?: ParamRef;
 }
 
 function toNorm(v: number, min: number, max: number, curve: 'lin' | 'exp'): number {
@@ -46,12 +55,23 @@ export function Knob({
   format,
   onChange,
   onCommit,
+  paramRef,
 }: KnobProps) {
   const drag = useRef<{ startY: number; startNorm: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   const norm = toNorm(Math.min(max, Math.max(min, value)), min, max, curve);
   // Arco de 270° empezando abajo-izquierda.
   const angle = -135 + norm * 270;
+
+  /** El aviso va DESPUÉS del dispatch: el proyecto ya tiene el valor nuevo. */
+  const emit = useCallback(
+    (v: number) => {
+      onChange(v);
+      if (paramRef) touchParam(paramRef);
+    },
+    [onChange, paramRef],
+  );
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -67,9 +87,9 @@ export function Knob({
       if (!drag.current) return;
       const range = e.shiftKey ? 1200 : 200;
       const delta = (drag.current.startY - e.clientY) / range;
-      onChange(fromNorm(drag.current.startNorm + delta, min, max, curve));
+      emit(fromNorm(drag.current.startNorm + delta, min, max, curve));
     },
-    [onChange, min, max, curve],
+    [emit, min, max, curve],
   );
 
   const onPointerUp = useCallback(() => {
@@ -79,25 +99,41 @@ export function Knob({
 
   const onDoubleClick = useCallback(() => {
     if (defaultValue !== undefined) {
-      onChange(defaultValue);
+      emit(defaultValue);
       onCommit?.();
     }
-  }, [defaultValue, onChange, onCommit]);
+  }, [defaultValue, emit, onCommit]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
       const step = e.shiftKey ? 0.005 : 0.03;
-      onChange(fromNorm(norm + (e.deltaY < 0 ? step : -step), min, max, curve));
+      emit(fromNorm(norm + (e.deltaY < 0 ? step : -step), min, max, curve));
       onCommit?.();
     },
-    [norm, onChange, onCommit, min, max, curve],
+    [norm, emit, onCommit, min, max, curve],
+  );
+
+  const onContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      if (!paramRef) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setMenu(clampMenuPosition(e.clientX, e.clientY, e.currentTarget.ownerDocument.defaultView));
+    },
+    [paramRef],
   );
 
   const shown = format ? format(value) : `${round3(value)}${unit ? ` ${unit}` : ''}`;
   const r = size / 2 - 3;
 
+  const hint = paramRef ? ' · clic derecho: automatización / LFO' : '';
+
   return (
-    <div className="knob" style={{ width: size + 8 }} title={`${label ?? ''} ${shown}`.trim()}>
+    <div
+      className="knob"
+      style={{ width: size + 8 }}
+      title={`${`${label ?? ''} ${shown}`.trim()}${hint}`}
+    >
       <svg
         width={size}
         height={size}
@@ -106,6 +142,7 @@ export function Knob({
         onPointerUp={onPointerUp}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
+        onContextMenu={onContextMenu}
         className="knob-svg"
       >
         <circle cx={size / 2} cy={size / 2} r={r} className="knob-body" />
@@ -119,6 +156,9 @@ export function Knob({
         />
       </svg>
       {label && <span className="knob-label">{label}</span>}
+      {menu && paramRef && (
+        <ParamMenu target={paramRef} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }

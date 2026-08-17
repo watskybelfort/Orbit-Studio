@@ -4,9 +4,12 @@
  * abrir la paleta, así que los títulos condicionales salen frescos.
  */
 
-import { engine, pausePlayback, setPlayMode, stopPlayback, togglePlay } from '../state/app';
+import { describeParamRef } from '@orbit/core';
+import { engine, pausePlayback, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
 import { playDirect } from '../shell/Transport';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
+import { addLfoFor, createAutomationClipFor, findLfoFor } from '../state/param-actions';
+import { useParamTouch } from '../state/param-touch';
 import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
 import { useUiStore, type WindowId } from '../state/ui';
@@ -36,6 +39,7 @@ export function registerDefaultCommands(): void {
     const ui = useUiStore.getState();
     const rec = useRecorderStore.getState();
     const live = useLiveInputStore.getState();
+    const touched = useParamTouch.getState().last;
     return [
       // Archivo
       { id: 'archivo.nuevo', title: 'Nuevo proyecto', group: 'Archivo', run: () => newProject() },
@@ -127,6 +131,25 @@ export function registerDefaultCommands(): void {
         keywords: 'teclado tocar en vivo',
         run: () => toggleMidiArmed(),
       },
+      // Automatización del último parámetro tocado (el atajo de FL).
+      ...(touched
+        ? [
+            {
+              id: 'auto.clip-ultimo',
+              title: `Automatizar ${describeParamRef(touched, store.project)}`,
+              group: 'Automatización',
+              keywords: 'ultimo parametro tocado perilla clip curva',
+              run: () => createAutomationClipFor(touched),
+            },
+            {
+              id: 'auto.lfo-ultimo',
+              title: `${findLfoFor(touched, store.project) ? 'Ajustar' : 'Añadir'} LFO en ${describeParamRef(touched, store.project)}`,
+              group: 'Automatización',
+              keywords: 'ultimo parametro tocado modulacion',
+              run: () => addLfoFor(touched),
+            },
+          ]
+        : []),
     ];
   });
 }

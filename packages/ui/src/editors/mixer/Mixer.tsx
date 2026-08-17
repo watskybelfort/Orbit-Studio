@@ -255,10 +255,16 @@ function Strip({
         size={22}
         format={formatPan}
         onChange={setPan}
+        paramRef={{ kind: 'mixer', trackIndex: index, param: 'pan' }}
       />
       <div className="strip-fader-row">
         <StripMeter index={index} />
-        <Fader value={track.volume} height={FADER_H} onChange={setVolume} />
+        <Fader
+          value={track.volume}
+          height={FADER_H}
+          onChange={setVolume}
+          paramRef={{ kind: 'mixer', trackIndex: index, param: 'volume' }}
+        />
       </div>
       <div className="strip-db">{db <= -96 ? '-∞' : db.toFixed(1)}</div>
       <div className="strip-ms">
@@ -666,6 +672,13 @@ function EffectEditor({
                 { type: 'setEffectParam', trackIndex, slotIndex, key: spec.key, value: v },
                 { mergeKey: `fx:${trackIndex}:${slotIndex}:${spec.key}`, label: spec.label },
               )
+            }
+            // Los plugins JS declaran sus rangos fuera del registro de params:
+            // sin spec, automatización y LFO no sabrían desnormalizar.
+            paramRef={
+              slot.kind === 'plugin'
+                ? undefined
+                : { kind: 'effect', trackIndex, slotIndex, param: spec.key }
             }
           />
         ),
