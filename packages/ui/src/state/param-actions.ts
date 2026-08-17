@@ -39,6 +39,8 @@ export function pickFreeTrack(
   length: number,
   commands: Command[],
   newTrackName = 'Automatización',
+  /** Pistas ya asignadas en este mismo lote (aún no están en project.clips). */
+  exclude?: Set<string>,
 ): string {
   const tracks = Object.values(project.playlistTracks)
     .filter((t) => t.arrangementId === project.activeArrangementId)
@@ -46,14 +48,21 @@ export function pickFreeTrack(
   const clips = Object.values(project.clips);
   const free = tracks.find(
     (t) =>
+      !exclude?.has(t.id) &&
       !clips.some(
         (c) =>
           c.playlistTrackId === t.id && c.start < start + length && c.start + c.length > start,
       ),
   );
-  if (free) return free.id;
-  const track = createPlaylistTrack(project.activeArrangementId, tracks.length, newTrackName);
+  if (free) {
+    exclude?.add(free.id);
+    return free.id;
+  }
+  // Varias pistas nuevas en el mismo lote van una detrás de otra.
+  const order = tracks.length + commands.filter((c) => c.type === 'addPlaylistTrack').length;
+  const track = createPlaylistTrack(project.activeArrangementId, order, newTrackName);
   commands.push({ type: 'addPlaylistTrack', track });
+  exclude?.add(track.id);
   return track.id;
 }
 

@@ -232,6 +232,17 @@ export function IconCollab(props: IconProps) {
   );
 }
 
+/** Grabar perillas: un mando con su índice y el punto de rec arriba a la derecha. */
+export function IconKnobRec(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="11" cy="13" r="6.5" />
+      <path d="M11 13 L11 8.2" />
+      <circle cx="19" cy="5.5" r="2.4" fill="currentColor" stroke="none" />
+    </Icon>
+  );
+}
+
 /** LFO: un ciclo de seno entero (modulación que no para). */
 export function IconLfo(props: IconProps) {
   return (

@@ -238,6 +238,13 @@
   }
 }
 
+/* Grabación de perillas: armada se ve con .active; capturando, late igual
+   que el rec de micro para que se distinga de un simple "armado". */
+.tbtn.rec-live {
+  border-color: var(--meter-clip);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
 /* LED de clipping enclavado, junto al medidor master */
 .clip-led {
   width: 8px;
