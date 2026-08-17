@@ -84,6 +84,16 @@ export class AudioEngine {
     this.send({ type: 'registerPlugin', pluginId, code });
   }
 
+  /**
+   * Registra (o actualiza) un plugin JS de INSTRUMENTO: el archivo declara
+   * `createInstrument(sampleRate)` y un canal lo usa por su id. El kernel se
+   * queda con las fábricas que traiga el módulo, así que un archivo que
+   * exporte las dos (efecto + instrumento) vale para ambos sitios.
+   */
+  registerInstrument(pluginId: string, code: string): void {
+    this.send({ type: 'registerInstrument', pluginId, code });
+  }
+
   play(fromBeat = 0): void {
     this.send({ type: 'play', fromBeat });
   }

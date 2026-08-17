@@ -7,6 +7,7 @@
  */
 
 import type {
+  CompiledChannel,
   CompiledParamTarget,
   CompiledProject,
   FromKernel,
@@ -15,7 +16,7 @@ import type {
 } from './protocol';
 import { createEffect, type EffectUnit } from './dsp/effects';
 import { Biquad } from './dsp/filters';
-import { createVoice, type SampleData, type Voice, type VoiceContext } from './dsp/voices';
+import { Voice, createVoice, type SampleData, type VoiceContext } from './dsp/voices';
 
 export const MAX_BLOCK = 128;
 
@@ -43,6 +44,25 @@ interface PluginInstance {
   process(l: Float32Array, r: Float32Array, n: number): void;
 }
 
+/**
+ * Instancia creada por `createInstrument(sampleRate)` de un plugin JS: una por
+ * nota, con la misma forma que las voces internas (suma al buffer y devuelve
+ * false al terminar), así el kernel no distingue entre unas y otras.
+ */
+interface InstrumentInstance {
+  setParams?(params: Record<string, number>): void;
+  noteOn(key: number, velocity: number): void;
+  noteOff(): void;
+  render(
+    outL: Float32Array,
+    outR: Float32Array,
+    from: number,
+    to: number,
+    gainL: number,
+    gainR: number,
+  ): boolean;
+}
+
 export class KernelCore {
   private project: CompiledProject | null = null;
   private samples = new Map<string, SampleData>();
@@ -62,8 +82,10 @@ export class KernelCore {
   private voices: ActiveVoice[] = [];
   private voiceOrder = 0;
 
-  /** Plugins JS de usuario: fábricas compiladas por pluginId. */
+  /** Plugins JS de usuario (efectos): fábricas compiladas por pluginId. */
   private plugins = new Map<string, (sr: number) => PluginInstance>();
+  /** Plugins JS de usuario (instrumentos): fábricas compiladas por pluginId. */
+  private instruments = new Map<string, (sr: number) => InstrumentInstance>();
   /** Snapshot en cola (vista Live): entra al terminar el loop actual. */
   private pendingProject: CompiledProject | null = null;
 
@@ -122,6 +144,9 @@ export class KernelCore {
         else this.applyQueued(msg.project);
         break;
       case 'registerPlugin':
+      case 'registerInstrument':
+        // El módulo se compila igual en los dos casos: lo que decide qué es un
+        // plugin son las fábricas que exporta, no el mensaje que lo trajo.
         this.registerPlugin(msg.pluginId, msg.code);
         break;
       case 'play':
@@ -160,7 +185,10 @@ export class KernelCore {
         break;
       case 'channelParam': {
         const ch = this.project?.channels[msg.channelIndex];
-        if (ch) ch.params[msg.key] = msg.value;
+        if (ch) {
+          ch.params[msg.key] = msg.value;
+          this.pushInstrumentParams(msg.channelIndex);
+        }
         break;
       }
       case 'channelMix': {
@@ -275,20 +303,36 @@ export class KernelCore {
   }
 
   // ── Plugins JS de usuario ─────────────────────────────────────────────────
-  // El archivo del plugin define `createEffect(sampleRate)` (y opcionalmente
-  // `name`/`params`). Se compila UNA vez por id; cada slot instancia la
-  // fábrica. Un plugin que lanza se desactiva solo (bypass), nunca tira el
-  // hilo de audio.
+  // El archivo del plugin define `createEffect(sampleRate)` y/o
+  // `createInstrument(sampleRate)` (y opcionalmente `name`/`params`). Se
+  // compila UNA vez por id; cada slot —o cada nota, en los instrumentos—
+  // instancia la fábrica. Un plugin que lanza se desactiva solo (bypass),
+  // nunca tira el hilo de audio.
 
   private registerPlugin(pluginId: string, code: string): void {
     try {
-      const factory = new Function(
-        `${code}\n;return typeof createEffect === 'function' ? createEffect : null;`,
-      )() as ((sr: number) => PluginInstance) | null;
-      if (typeof factory !== 'function') return;
-      this.plugins.set(pluginId, factory);
-      // Si el proyecto ya referencia este plugin, re-instancia sus slots.
-      if (this.project) this.setSnapshot(this.project);
+      // `typeof` sobre un identificador no declarado no lanza, así que el
+      // mismo preámbulo sirve para archivos que solo traen una de las dos.
+      const mod = new Function(
+        `${code}\n;return {` +
+          `effect: typeof createEffect === 'function' ? createEffect : null,` +
+          `instrument: typeof createInstrument === 'function' ? createInstrument : null };`,
+      )() as {
+        effect: ((sr: number) => PluginInstance) | null;
+        instrument: ((sr: number) => InstrumentInstance) | null;
+      };
+      let found = false;
+      if (typeof mod.effect === 'function') {
+        this.plugins.set(pluginId, mod.effect);
+        found = true;
+      }
+      if (typeof mod.instrument === 'function') {
+        this.instruments.set(pluginId, mod.instrument);
+        found = true;
+      }
+      // Si el proyecto ya referencia este plugin, re-instancia sus slots (las
+      // voces no hace falta: la fábrica nueva entra en la siguiente nota).
+      if (found && this.project) this.setSnapshot(this.project);
     } catch {
       // Código roto: el plugin no se registra (el slot queda en bypass).
     }
@@ -402,11 +446,58 @@ export class KernelCore {
       }
       this.voices.splice(oldest, 1);
     }
-    const voice = createVoice(
-      ch.kind, channelIndex, key, this.voiceOrder++, velocity, ch.params, this.voiceCtx,
-      ch.sampleId, ch.nova,
-    );
+    const order = this.voiceOrder++;
+    const voice =
+      this.makeInstrumentVoice(ch, channelIndex, key, order, velocity) ??
+      createVoice(
+        ch.kind, channelIndex, key, order, velocity, ch.params, this.voiceCtx,
+        ch.sampleId, ch.nova,
+      );
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey });
+  }
+
+  /**
+   * Voz de plugin JS de instrumento, o null si el canal no usa ninguno, el id
+   * no está registrado o la fábrica falla — en esos casos el canal cae a su
+   * motor interno, la misma degradación amable que un slot con plugin ausente.
+   */
+  private makeInstrumentVoice(
+    ch: CompiledChannel,
+    channelIndex: number,
+    key: number,
+    order: number,
+    velocity: number,
+  ): Voice | null {
+    const id = ch.instrumentPluginId;
+    if (id === undefined) return null;
+    const factory = this.instruments.get(id);
+    if (!factory) return null;
+    try {
+      const inst = factory(this.sr);
+      if (!inst || typeof inst.render !== 'function' || typeof inst.noteOn !== 'function') {
+        return null;
+      }
+      inst.setParams?.(ch.params);
+      inst.noteOn(key, velocity);
+      return new PluginVoice(channelIndex, key, order, inst);
+    } catch {
+      return null; // el plugin revienta al nacer: suena el motor interno
+    }
+  }
+
+  /**
+   * Empuja los params del canal a las voces vivas de su plugin (perilla,
+   * automatización o LFO sobre un canal con instrumento JS). Sale enseguida
+   * para los canales normales, que son la inmensa mayoría.
+   */
+  private pushInstrumentParams(channelIndex: number): void {
+    const ch = this.project?.channels[channelIndex];
+    if (!ch || ch.instrumentPluginId === undefined) return;
+    for (const v of this.voices) {
+      if (v.voice.channelIndex === channelIndex && v.voice instanceof PluginVoice) {
+        v.voice.setParams(ch.params);
+      }
+    }
   }
 
   private releaseAllVoices(): void {
@@ -460,7 +551,10 @@ export class KernelCore {
       switch (t.scope) {
         case 'channelParam': {
           const ch = p.channels[t.channelIndex];
-          if (ch) ch.params[t.key] = value;
+          if (ch) {
+            ch.params[t.key] = value;
+            this.pushInstrumentParams(t.channelIndex);
+          }
           break;
         }
         case 'channelMix': {
@@ -547,7 +641,10 @@ export class KernelCore {
     switch (t.scope) {
       case 'channelParam': {
         const ch = p.channels[t.channelIndex];
-        if (ch) ch.params[t.key] = value;
+        if (ch) {
+          ch.params[t.key] = value;
+          this.pushInstrumentParams(t.channelIndex);
+        }
         break;
       }
       case 'channelMix': {
@@ -685,12 +782,23 @@ export class KernelCore {
 
         // Time-stretch SOLA: dos grains solapados con crossfade triangular,
         // leídos a velocidad natural (pitch intacto) pero re-posicionados para
-        // que el sample llene exactamente la longitud del clip. Sin stretch,
-        // lectura directa como siempre. Cero alocaciones en ambos caminos.
+        // que el sample llene exactamente la longitud del clip. Sin stretch ni
+        // pitch, lectura directa como siempre. Cero alocaciones en los dos
+        // caminos: todo son escalares.
         const srcSec = data.left.length / data.rate - clip.offset;
         const clipSec = clip.length * secPerBeat;
         const doStretch = clip.stretch && srcSec > 0.01 && clipSec > 0.01;
-        const ratio = srcSec / clipSec; // avance de la fuente por sample de salida
+        // Pitch-shift = resample + stretch inverso, con el MISMO motor de
+        // grains: `speed` es lo rápido que se lee DENTRO del grain (eso sube o
+        // baja el tono y de paso acortaría el clip) y `ratio` lo rápido que
+        // avanzan los arranques de grain (eso devuelve la duración a su sitio).
+        // Separando las dos velocidades el tono y el tiempo dejan de ir atados.
+        const semitones = clip.pitch ?? 0;
+        const speed = semitones === 0 ? 1 : Math.pow(2, semitones / 12);
+        const useGrains = doStretch || speed !== 1;
+        // Avance de la fuente por sample de salida: con stretch, el que haga
+        // falta para llenar el clip; sin él, tiempo natural (1).
+        const ratio = doStretch ? srcSec / clipSec : 1;
         const hop = Math.max(64, Math.round(0.022 * this.sr)); // medio grain ~22 ms
         const natRate = data.rate / this.sr;
         const srcBase = clip.offset * data.rate;
@@ -701,13 +809,13 @@ export class KernelCore {
           if (beatAt < 0 || beatAt >= clip.length) continue;
           let l = 0;
           let r = 0;
-          if (doStretch) {
+          if (useGrains) {
             const tOut = beatAt * secPerBeat * this.sr;
             const g = Math.floor(tOut / hop);
             const inGrain = tOut - g * hop;
             // Grain g (sube 0→1) + grain g-1 (baja 1→0); en el arranque solo g.
             const w = g === 0 ? 1 : inGrain / hop;
-            const posA = srcBase + (g * hop * ratio + inGrain) * natRate;
+            const posA = srcBase + (g * hop * ratio + inGrain * speed) * natRate;
             const idxA = Math.floor(posA);
             if (idxA >= 0 && idxA < lastIdx) {
               const fA = posA - idxA;
@@ -715,7 +823,7 @@ export class KernelCore {
               r += (data.right[idxA]! * (1 - fA) + data.right[idxA + 1]! * fA) * w;
             }
             if (g > 0 && w < 1) {
-              const posB = srcBase + ((g - 1) * hop * ratio + inGrain + hop) * natRate;
+              const posB = srcBase + ((g - 1) * hop * ratio + (inGrain + hop) * speed) * natRate;
               const idxB = Math.floor(posB);
               if (idxB >= 0 && idxB < lastIdx) {
                 const fB = posB - idxB;
@@ -945,6 +1053,77 @@ export class KernelCore {
 }
 
 export type { FromKernel };
+
+// ── Voz de plugin JS de instrumento ──────────────────────────────────────────
+
+/**
+ * Envuelve una instancia de `createInstrument(sampleRate)` como una voz más.
+ * Cualquier excepción del código de usuario la deja muda PARA SIEMPRE y la da
+ * por terminada (el kernel la recicla en el acto): el bloque se sigue
+ * renderizando y el resto de la mezcla ni se entera, igual que el bypass de
+ * los efectos.
+ */
+class PluginVoice extends Voice {
+  private broken = false;
+
+  constructor(
+    channelIndex: number,
+    key: number,
+    order: number,
+    private readonly inst: InstrumentInstance,
+  ) {
+    super(channelIndex, key, order);
+  }
+
+  setParams(params: Record<string, number>): void {
+    if (this.broken) return;
+    try {
+      this.inst.setParams?.(params);
+    } catch {
+      this.broken = true;
+    }
+  }
+
+  noteOff(): void {
+    this.releasing = true;
+    if (this.broken) return;
+    try {
+      this.inst.noteOff();
+    } catch {
+      this.broken = true;
+    }
+  }
+
+  /** Slide: sin API de glide en el contrato, lo más cercano es re-atacar. */
+  override glideTo(key: number, velocity: number): void {
+    super.glideTo(key, velocity);
+    if (this.broken) return;
+    try {
+      this.inst.noteOn(key, velocity);
+    } catch {
+      this.broken = true;
+    }
+  }
+
+  render(
+    outL: Float32Array,
+    outR: Float32Array,
+    from: number,
+    to: number,
+    gainL: number,
+    gainR: number,
+  ): boolean {
+    if (this.broken) return false;
+    try {
+      // Solo un `false` explícito mata la voz; si el plugin se olvida de
+      // devolver nada se queda viva hasta que el robo de voces la recicle.
+      return this.inst.render(outL, outR, from, to, gainL, gainR) !== false;
+    } catch {
+      this.broken = true;
+      return false;
+    }
+  }
+}
 
 // ── EQ de strip ──────────────────────────────────────────────────────────────
 
