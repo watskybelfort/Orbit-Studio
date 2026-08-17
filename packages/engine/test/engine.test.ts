@@ -680,3 +680,43 @@ describe('render: consolidar clips a audio (bounce)', () => {
     expect(windows).toBeGreaterThan(150);
   });
 });
+
+describe('kernel: grabar la salida de una pista', () => {
+  it('el tap entrega el audio post-fader de la pista pedida, y nada al apagarlo', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: singleTrackProject(1) });
+    core.handleMessage({ type: 'setTrackCapture', trackIndex: 1, enabled: true });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(core, 16);
+
+    const frame = core.meterFrame();
+    expect(frame.captureL).toBeDefined();
+    expect(frame.captureL!.length).toBe(16 * MAX_BLOCK);
+    expect(frame.captureR!.length).toBe(frame.captureL!.length);
+    // Es la señal de la pista, no silencio ni el master.
+    let peak = 0;
+    for (const s of frame.captureL!) peak = Math.max(peak, Math.abs(s));
+    expect(peak).toBeGreaterThan(0.01);
+
+    // El frame vacía el buffer: sin procesar nada más, no hay audio nuevo.
+    expect(core.meterFrame().captureL).toBeUndefined();
+
+    // Y al apagarlo deja de llegar.
+    core.handleMessage({ type: 'setTrackCapture', trackIndex: 1, enabled: false });
+    runBlocks(core, 16);
+    expect(core.meterFrame().captureL).toBeUndefined();
+  });
+
+  it('grabar una pista muda no captura señal', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: singleTrackProject(1) });
+    core.handleMessage({ type: 'mixerAudible', audible: [true, false] });
+    core.handleMessage({ type: 'setTrackCapture', trackIndex: 1, enabled: true });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(core, 16);
+    const frame = core.meterFrame();
+    let peak = 0;
+    for (const s of frame.captureL ?? []) peak = Math.max(peak, Math.abs(s));
+    expect(peak).toBe(0);
+  });
+});

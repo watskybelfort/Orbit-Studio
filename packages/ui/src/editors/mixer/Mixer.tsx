@@ -33,6 +33,7 @@ import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
+import { toggleTrackCapture, useTrackCapture } from '../../state/track-capture';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Fader } from '../../widgets/Fader';
@@ -731,6 +732,9 @@ function ChainPanel({
   const [expanded, setExpanded] = useState<number | null>(null);
   const [fxMenu, setFxMenu] = useState<{ slot: number; x: number; y: number } | null>(null);
   const plugins = usePluginsStore((s) => s.plugins);
+  const capturing = useTrackCapture((s) => s.trackIndex === trackIndex);
+  const captureSeconds = useTrackCapture((s) => s.seconds);
+  const captureError = useTrackCapture((s) => s.error);
 
   // Cambiar de pista cierra editor y menú (los slots son de otra cadena).
   useEffect(() => {
@@ -834,6 +838,20 @@ function ChainPanel({
           onClick={applyVocalChain}
         >
           Cadena vocal
+        </button>
+        <button
+          className={`track-rec-btn${capturing ? ' on' : ''}`}
+          title={
+            captureError
+              ? `Grabación de pista: ${captureError}`
+              : capturing
+                ? 'Grabando la salida de esta pista — clic para parar y colocar la toma'
+                : 'Graba la salida de esta pista (post-fader) a un WAV y la coloca en la playlist'
+          }
+          onClick={() => void toggleTrackCapture(trackIndex)}
+        >
+          <span className="rec-dot" />
+          {capturing ? `${captureSeconds.toFixed(1)} s` : 'Grabar salida'}
         </button>
       </div>
       {track.sends.length > 0 && (

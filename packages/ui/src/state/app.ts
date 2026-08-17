@@ -6,6 +6,7 @@
 
 import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
+import { pushCaptureChunk } from './track-capture';
 import { useUiStore } from './ui';
 
 export const store = new ProjectStore();
@@ -54,6 +55,9 @@ engine.onMeters = (frame) => {
     trackRms: frame.rms,
     scopeFrame: frame.scope ?? null,
   });
+  if (frame.captureL && frame.captureR) {
+    pushCaptureChunk(frame.captureL, frame.captureR);
+  }
 };
 
 /** Ajusta el modo de reproducción (PAT/SONG) y resincroniza el kernel. */
