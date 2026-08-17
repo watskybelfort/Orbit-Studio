@@ -120,6 +120,28 @@
   cursor: default;
 }
 
+/* Repetir el último export (mismo gesto que Ctrl+E): secundario, sin acento. */
+.exp-repeat {
+  padding: 7px 14px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.exp-repeat:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.exp-repeat:disabled {
+  color: var(--text-dim);
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Estado / resumen */
 .exp-status {
   font-size: 12px;

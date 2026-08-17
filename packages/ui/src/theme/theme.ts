@@ -2,6 +2,12 @@
 // El tema vive en dos sitios que hay que conmutar a la vez:
 //   1. CSS: data-theme en <html> + overrides de variables (las perillas).
 //   2. Ventana: el main conmuta el backgroundMaterial DWM (via window.orbit).
+//
+// Los ajustes de apariencia que NO son de color (escala de UI, tipografía y
+// radio) viven en theme/appearance.ts; se cargan aquí, en el mismo arranque,
+// para que la primera pintada ya salga con el tamaño y la fuente del usuario.
+
+import { appearanceFromSettings, applyAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance';
 
 export type ThemeId = 'dark' | 'light' | 'acrylic';
 
@@ -19,6 +25,8 @@ export interface ThemeOverrides {
 export interface ThemeState {
   theme: ThemeId;
   overrides: ThemeOverrides;
+  /** Escala, tipografía y radio (ver theme/appearance.ts). */
+  appearance: Appearance;
 }
 
 export function isThemeId(value: unknown): value is ThemeId {
@@ -61,9 +69,14 @@ export async function applyTheme(themeId: ThemeId, overrides?: ThemeOverrides): 
 
 /** Lee el tema persistido (fallback: oscuro), lo aplica y lo devuelve. */
 export async function loadThemeFromSettings(): Promise<ThemeState> {
-  const fallback: ThemeState = { theme: 'dark', overrides: {} };
+  const fallback: ThemeState = {
+    theme: 'dark',
+    overrides: {},
+    appearance: { ...DEFAULT_APPEARANCE },
+  };
   const api = orbit();
   if (!api) {
+    applyAppearance(fallback.appearance);
     await applyTheme(fallback.theme);
     return fallback;
   }
@@ -77,9 +90,14 @@ export async function loadThemeFromSettings(): Promise<ThemeState> {
       glassTint: typeof settings['glassTint'] === 'string' ? settings['glassTint'] : undefined,
       trafficLights: typeof settings['trafficLights'] === 'boolean' ? settings['trafficLights'] : undefined,
     };
+    const appearance = appearanceFromSettings(settings);
+    // La apariencia primero: si hay escala, el shim ya está puesto cuando el
+    // resto de la UI empieza a medir.
+    applyAppearance(appearance);
     await applyTheme(theme, overrides);
-    return { theme, overrides };
+    return { theme, overrides, appearance };
   } catch {
+    applyAppearance(fallback.appearance);
     await applyTheme(fallback.theme);
     return fallback;
   }

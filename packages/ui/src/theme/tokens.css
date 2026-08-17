@@ -8,6 +8,14 @@
                     1 = opaco). Solo tiene efecto con el tema acrílico.
      --glass-tint   el color que vela el vidrio (picker).
      --accent       el color de marca (picker + paleta).
+
+   Y tres ajustes de "el estudio a mi manera" (Ajustes → A mi manera), que se
+   escriben como estilo en línea de <html> desde theme/appearance.ts:
+     --ui-scale     escala global 0.8–1.5 (informativa: quien escala de verdad
+                    es el `zoom` de <html>, ver theme/ui-scale.ts).
+     --font-ui      familia tipográfica de toda la interfaz (y de los canvas,
+                    que leen getComputedStyle().fontFamily).
+     --radius       radio de esquinas.
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -20,6 +28,10 @@
   --radius: 8px;
   --blur-popup: 24px;
   --titlebar-h: 38px;
+
+  /* Apariencia configurable */
+  --ui-scale: 1;
+  --font-ui: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 
   /* ── Paleta oscura (defecto: también aplica sin data-theme) ── */
   --bg: #141518;
