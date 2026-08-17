@@ -9,4 +9,10 @@ export { renderProject, renderStems, type RenderOptions, type RenderResult } fro
 export { encodeWav, type WavDepth } from './render/wav';
 export { encodeFlac, type FlacDepth } from './render/flac';
 export { analyzeMix, gainToTarget, type MixAnalysis } from './render/analysis';
+export {
+  detectTransients,
+  evenSlices,
+  type TransientOptions,
+  type TransientResult,
+} from './render/transients';
 export type { SampleData } from './dsp/voices';

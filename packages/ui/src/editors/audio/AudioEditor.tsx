@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { newId, type SampleRef } from '@orbit/core';
-import { encodeWav } from '@orbit/engine';
+import { newId, type Clip, type SampleRef } from '@orbit/core';
+import { detectTransients, encodeWav } from '@orbit/engine';
 import { readSampleBytes, sha1Hex } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
@@ -101,11 +101,14 @@ export function AudioEditor() {
   const drag = useRef<'start' | 'end' | null>(null);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Transientes detectados (segundos desde el inicio del sample). */
+  const [slices, setSlices] = useState<number[] | null>(null);
 
   // Carga (cacheada) del PCM al cambiar de sample.
   useEffect(() => {
     let alive = true;
     setChannels(null);
+    setSlices(null);
     if (!sample) return;
     void loadChannels(sample).then((ch) => {
       if (alive) setChannels(ch);
@@ -191,7 +194,22 @@ export function AudioEditor() {
     ctx.fillRect(x1 - 2, 0, 2, h);
     ctx.fillRect(x0, 0, 8, 8);
     ctx.fillRect(x1 - 8, h - 8, 8, 8);
-  }, [channels, offsetSec, clipSec, themeVersion]);
+
+    // Transientes detectados: línea punteada por corte.
+    if (slices && slices.length > 0) {
+      ctx.strokeStyle = col('--meter');
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      for (const t of slices) {
+        const x = (t / dur) * w;
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }, [channels, offsetSec, clipSec, themeVersion, slices]);
 
   useEffect(() => {
     draw();
@@ -310,6 +328,59 @@ export function AudioEditor() {
     [channels, clip, sample, busy],
   );
 
+  /** Busca los golpes del sample y los deja marcados sobre la onda. */
+  const findTransients = useCallback(() => {
+    if (!channels) return;
+    const found = detectTransients(channels.left, channels.right, channels.rate, {
+      sensitivity: 0.5,
+      minSpacingSec: 0.04,
+    });
+    setSlices(found.times);
+  }, [channels]);
+
+  /**
+   * Trocea el clip por las marcas: un clip por trozo, en la misma pista y
+   * empezando donde estaba, todo en un solo undo. No toca el sample — cada
+   * trozo es el mismo audio con su offset y su largo.
+   */
+  const sliceClip = useCallback(() => {
+    if (!clip || !channels || !slices || slices.length === 0) return;
+    const dur = channels.duration;
+    const from = offsetSec;
+    const to = Math.min(dur, offsetSec + clipSec);
+    // Solo las marcas dentro de la región audible del clip.
+    const cuts = slices.filter((t) => t > from + 0.01 && t < to - 0.01).sort((a, b) => a - b);
+    if (cuts.length === 0) return;
+
+    const bounds = [from, ...cuts, to];
+    const clips: Clip[] = [];
+    for (let i = 1; i < bounds.length; i++) {
+      const start = bounds[i - 1]!;
+      const end = bounds[i]!;
+      clips.push({
+        ...clip,
+        id: newId(),
+        start: clip.start + (start - from) / secPerBeat,
+        length: (end - start) / secPerBeat,
+        audioOffset: start,
+      });
+    }
+    const label = `Trocear "${sample?.name ?? 'audio'}" en ${clips.length}`;
+    store.dispatch(
+      {
+        type: 'batch',
+        label,
+        commands: [
+          { type: 'removeClips', clipIds: [clip.id] },
+          { type: 'addClips', clips },
+        ],
+      },
+      { label },
+    );
+    useUiStore.setState({ audioClipId: clips[0]!.id });
+    setSlices(null);
+  }, [clip, channels, slices, offsetSec, clipSec, secPerBeat, sample]);
+
   const listen = useCallback(() => {
     if (!clip?.sampleId) return;
     ensureAudioReady();
@@ -359,6 +430,22 @@ export function AudioEditor() {
           }
         >
           Stretch
+        </button>
+        <button
+          className={`tbtn${slices ? ' active' : ''}`}
+          disabled={!channels}
+          title="Detecta dónde empieza cada golpe y lo marca sobre la onda"
+          onClick={findTransients}
+        >
+          Transientes
+        </button>
+        <button
+          className="tbtn"
+          disabled={!slices || slices.length === 0}
+          title="Parte el clip por las marcas: un clip por trozo, en un solo undo"
+          onClick={sliceClip}
+        >
+          Trocear{slices && slices.length > 0 ? ` (${slices.length})` : ''}
         </button>
         <div className="ae-ops">
           {(Object.keys(OP_LABELS) as AudioOp[]).map((op) => (
