@@ -2,6 +2,7 @@
    Solo tokens (var(--…)); ningún color hardcodeado. */
 
 .browser {
+  position: relative; /* ancla del menú de colecciones */
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -55,6 +56,189 @@
 
 .browser-search:focus {
   border-color: var(--accent);
+}
+
+/* Buscador + perilla de volumen del preview. */
+.browser-search-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-search-row .browser-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.browser-search-row .knob {
+  flex: none;
+}
+
+/* ── Barra de filtros ── */
+
+.browser-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.browser-fbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.browser-fbtn:hover,
+.browser-fbtn.open {
+  border-color: var(--accent);
+}
+
+.browser-fbadge {
+  min-width: 14px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.browser-view {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.browser-view:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Contador de resultados: siempre visible, es el que dice si el filtro cuela. */
+.browser-count {
+  flex: none;
+  min-width: 24px;
+  color: var(--text-dim);
+  font-size: 11px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.browser-clear {
+  flex: none;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.browser-clear:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ── Panel de filtros desplegable ── */
+
+.browser-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.browser-frow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Los grupos de chips apilan el rótulo encima: la sidebar es estrecha y en
+   dos columnas las etiquetas se rompían a una palabra por línea. */
+.browser-frow.stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.browser-flabel {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.browser-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+}
+
+.browser-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.browser-chip:hover {
+  color: var(--text);
+}
+
+.browser-chip.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.browser-bpm {
+  width: 52px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.browser-bpm:disabled {
+  opacity: 0.45;
+}
+
+.browser-fdash {
+  color: var(--text-dim);
+  line-height: 22px;
 }
 
 /* ── Cuerpo: árbol con scroll ── */
@@ -134,9 +318,9 @@
 .browser-entry {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
-  padding: 3px 8px 3px 26px;
+  padding: 3px 6px 3px 24px;
   background: none;
   border: none;
   color: var(--text);
@@ -147,6 +331,11 @@
 
 .browser-entry:hover {
   background: var(--surface-2);
+}
+
+.browser-entry:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 /* Punto de estado: invisible en reposo, acento cuando suena. */
@@ -176,7 +365,7 @@
 
 .browser-badge {
   flex: none;
-  padding: 0 5px;
+  padding: 0 4px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface-2);
@@ -193,6 +382,116 @@
   font-size: 11px;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Estrella y "+": discretos hasta que se pasa por encima de la fila. */
+.browser-star,
+.browser-collect {
+  flex: none;
+  width: 13px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.browser-entry:hover .browser-star,
+.browser-entry:hover .browser-collect,
+.browser-star.on {
+  opacity: 1;
+}
+
+.browser-star.on {
+  color: var(--accent);
+}
+
+.browser-star:hover,
+.browser-collect:hover {
+  color: var(--accent);
+}
+
+/* ── Menú de colecciones ── */
+
+.browser-menu-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.browser-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-popup);
+  backdrop-filter: blur(var(--blur-popup));
+}
+
+.browser-menu-title {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 4px 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-menu-empty {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 4px 6px;
+}
+
+.browser-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.browser-menu-item:hover {
+  background: var(--surface-2);
+}
+
+.browser-menu-item.on {
+  color: var(--accent);
+}
+
+.browser-menu-check {
+  flex: none;
+  width: 12px;
+}
+
+.browser-menu-new {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.browser-collection-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ── Pie: estado de carga / errores discretos ── */
