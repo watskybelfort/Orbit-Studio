@@ -14,6 +14,7 @@ import type {
   ToKernel,
 } from './protocol';
 import { createEffect, type EffectUnit } from './dsp/effects';
+import { Biquad } from './dsp/filters';
 import { createVoice, type SampleData, type Voice, type VoiceContext } from './dsp/voices';
 
 export const MAX_BLOCK = 128;
@@ -55,6 +56,8 @@ export class KernelCore {
   private dryL = new Float32Array(MAX_BLOCK);
   private dryR = new Float32Array(MAX_BLOCK);
   private effects = new Map<string, EffectUnit>();
+  /** EQ de strip por pista (se crea con los buffers, uno por pista). */
+  private trackEq: StripEq[] = [];
 
   private voices: ActiveVoice[] = [];
   private voiceOrder = 0;
@@ -221,6 +224,7 @@ export class KernelCore {
       this.lastR = Array.from({ length: n }, () => new Float32Array(MAX_BLOCK));
       this.peaks = new Float32Array(n);
       this.trackSumSq = new Float32Array(n);
+      this.trackEq = Array.from({ length: n }, () => new StripEq());
     }
     // Instancias de efecto: reusar por id (conserva colas), crear nuevas, purgar.
     const alive = new Set<string>();
@@ -805,6 +809,14 @@ export class KernelCore {
             }
           }
         }
+        // EQ del strip (post-efectos, pre-fader). Plano = ni se toca el audio:
+        // los coeficientes solo se recalculan cuando cambian las ganancias.
+        const eq = this.trackEq[t];
+        if (eq && (track.eqLow !== 0 || track.eqMid !== 0 || track.eqHigh !== 0)) {
+          eq.update(track.eqLow, track.eqMid, track.eqHigh, this.sr);
+          eq.process(bl, br, n);
+        }
+
         // Width / pan / volumen
         const width = track.stereoWidth;
         const pan = track.pan;
@@ -925,6 +937,51 @@ export class KernelCore {
 }
 
 export type { FromKernel };
+
+// ── EQ de strip ──────────────────────────────────────────────────────────────
+
+/** Frecuencias fijas del EQ rápido de pista (shelf · campana · shelf). */
+const EQ_LOW_HZ = 120;
+const EQ_MID_HZ = 1000;
+const EQ_MID_Q = 0.9;
+const EQ_HIGH_HZ = 6000;
+
+/**
+ * EQ de 3 bandas por pista: dos shelves y una campana, en estéreo. Los
+ * coeficientes se recalculan SOLO cuando cambia alguna ganancia (moverlos por
+ * bloque con un LFO encima costaría más que filtrar).
+ */
+class StripEq {
+  private lowL = new Biquad();
+  private lowR = new Biquad();
+  private midL = new Biquad();
+  private midR = new Biquad();
+  private highL = new Biquad();
+  private highR = new Biquad();
+  private low = NaN;
+  private mid = NaN;
+  private high = NaN;
+
+  update(low: number, mid: number, high: number, sr: number): void {
+    if (low === this.low && mid === this.mid && high === this.high) return;
+    this.low = low;
+    this.mid = mid;
+    this.high = high;
+    this.lowL.lowShelf(EQ_LOW_HZ, low, sr);
+    this.lowR.copyFrom(this.lowL);
+    this.midL.peaking(EQ_MID_HZ, mid, EQ_MID_Q, sr);
+    this.midR.copyFrom(this.midL);
+    this.highL.highShelf(EQ_HIGH_HZ, high, sr);
+    this.highR.copyFrom(this.highL);
+  }
+
+  process(l: Float32Array, r: Float32Array, n: number): void {
+    for (let i = 0; i < n; i++) {
+      l[i] = this.highL.tick(this.midL.tick(this.lowL.tick(l[i]!)));
+      r[i] = this.highR.tick(this.midR.tick(this.lowR.tick(r[i]!)));
+    }
+  }
+}
 
 // ── Matemáticas de los LFOs ──────────────────────────────────────────────────
 

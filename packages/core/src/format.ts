@@ -33,7 +33,12 @@ export function parseProject(json: string): Project {
     }
   }
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
-  // anteriores simplemente no los traen y arrancan vacíos.
+  // anteriores simplemente no los traen y arrancan vacíos/planos.
   p.lfos ??= {};
+  for (const track of p.mixer ?? []) {
+    track.eqLow ??= 0;
+    track.eqMid ??= 0;
+    track.eqHigh ??= 0;
+  }
   return p as Project;
 }

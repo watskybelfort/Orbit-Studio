@@ -47,6 +47,10 @@ export interface CompiledMixerTrack {
   volume: number;
   pan: number;
   stereoWidth: number;
+  /** EQ del strip en dB (0 = plano; si los tres lo están, el filtro ni corre). */
+  eqLow: number;
+  eqMid: number;
+  eqHigh: number;
   audible: boolean; // mute/solo resueltos
   slots: (CompiledEffect | null)[];
   routeTo: number | null;
@@ -90,7 +94,11 @@ export const LFO_LUT_STEPS = 64;
 export type CompiledParamTarget =
   | { scope: 'channelParam'; channelIndex: number; key: string }
   | { scope: 'channelMix'; channelIndex: number; key: 'volume' | 'pan' }
-  | { scope: 'mixer'; trackIndex: number; key: 'volume' | 'pan' | 'stereoWidth' }
+  | {
+      scope: 'mixer';
+      trackIndex: number;
+      key: 'volume' | 'pan' | 'stereoWidth' | 'eqLow' | 'eqMid' | 'eqHigh';
+    }
   | { scope: 'effect'; trackIndex: number; slotIndex: number; key: string }
   | { scope: 'transport'; key: 'tempo' | 'swing' };
 
@@ -145,7 +153,12 @@ export type ToKernel =
   | { type: 'setTempo'; tempo: number }
   | { type: 'channelParam'; channelIndex: number; key: string; value: number }
   | { type: 'channelMix'; channelIndex: number; volume: number; pan: number; audible: boolean }
-  | { type: 'mixerParam'; trackIndex: number; key: 'volume' | 'pan' | 'stereoWidth'; value: number }
+  | {
+      type: 'mixerParam';
+      trackIndex: number;
+      key: 'volume' | 'pan' | 'stereoWidth' | 'eqLow' | 'eqMid' | 'eqHigh';
+      value: number;
+    }
   | { type: 'mixerAudible'; audible: boolean[] }
   | { type: 'effectParam'; trackIndex: number; slotIndex: number; key: string; value: number }
   | { type: 'effectState'; trackIndex: number; slotIndex: number; enabled: boolean; mix: number }

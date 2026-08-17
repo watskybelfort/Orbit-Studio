@@ -489,3 +489,22 @@
   border-color: var(--meter-clip);
   animation: rec-pulse 1s ease-in-out infinite;
 }
+
+/* EQ rápido + separación estéreo de la pista seleccionada */
+
+.strip-eq {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.strip-eq-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  margin-right: 2px;
+}
