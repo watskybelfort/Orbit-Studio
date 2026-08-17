@@ -215,10 +215,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Tail configurable desde la UI (0–8 s) | v0.6 |
 | Normalización a **-14 LUFS** opcional (flujo streaming Orbit) | v0.1 |
 | Fuente: canción completa o patrón | v0.1 |
-| Export de la selección de playlist / solo el loop | v0.x |
+| Export de la **selección** de la playlist (la región marcada en ese momento) | v1.0 |
 | MP3 a 192 kbps junto al WAV | v0.5 |
 | FLAC sin pérdida (codificador propio: FIXED + Rice, bit-exacto vs ffmpeg) | v0.6 |
-| OGG | v1+ |
+| OGG — **descartado**: en este Electron `MediaRecorder` no soporta ningún contenedor Ogg y además graba en tiempo real; el camino sensato sería un encoder Opus propio, como el FLAC | v1+ |
 | Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real
@@ -261,10 +261,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Controles de ventana estilo Windows o **semáforo macOS** (opción) | v0.1 |
 | Customizador: acento (paleta + picker), transparencia y tinte del vidrio | v0.1 |
 | Guardar/borrar temas custom con nombre (persisten en settings) | v0.1 |
-| Exportar/importar tema como archivo | v0.x |
+| **Exportar/importar tema** como `.orbittheme.json`, con validación que dice qué falla | v1.0 |
 | Iconografía SVG propia minimalista estilo Mac (26 iconos) | v0.1 |
-| Escala de UI (zoom global) | v0.x |
-| Fuentes y radios configurables | v0.x |
+| **Escala de UI 80–150 %** (incluye el shim que devuelve las coordenadas de canvas a px de layout: sin él los clics caen desplazados) | v1.0 |
+| Fuente de interfaz (6 pilas del sistema) y radio de esquinas por token | v1.0 |
 
 ## 15. Sistema de ventanas y atajos
 
@@ -281,7 +281,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
 | P / B / C herramientas del piano roll · Alt+G riff machine | v1.0 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
-| Ctrl+E export directo | v0.x |
+| **Ctrl+E**: repite el último export sin diálogo, con sufijo incremental | v1.0 |
 | Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
 | Multi-ventana (mixer en segundo monitor) | v1+ |
 

@@ -6,59 +6,49 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## En curso — v1.0 "el estudio completo"
+## Estado — 17-08-2026: v1.0.0
 
-Update grande: cinco bloques, un solo release al final (los commits van
-subiendo según se cierra cada entrega). Marcar aquí lo que se va cerrando.
+v1.0, "el estudio completo". Cinco bloques cerrados de una tacada, con el
+trabajo repartido en agentes en paralelo sobre archivos exclusivos y los
+commits granulares de siempre.
 
-**E · Orbit Nova** — el instrumento de presets (equivalente de FLEX): una
-librería de sonidos separados por packs y categorías, cada preset con sus
-capas de síntesis y sus macros, más su browser dentro del propio instrumento.
-- [ ] Modelo del preset y del canal Nova (core) + catálogo de presets
-- [ ] Voz por capas en el kernel con macros aplicadas por nota
-- [ ] Panel de Nova: categorías, buscador, lista de presets y macros
-- [ ] Integración en el rack (crear canal, cambiar preset, preview)
+**Orbit Nova** — el instrumento de presets (el equivalente de FLEX): 26 sonidos
+en 8 categorías, cada preset una pila de capas sobre los motores que ya
+existían (nada de samples: el canal guarda el id y sus macros), 8 perillas
+fijas y 2 macros que toman su nombre del preset, con su browser dentro.
 
-**A · Paridad FL**
-- [ ] Compases variables y cambios de tempo por marcador (motor + regla)
-- [ ] Historial de undo navegable
-- [ ] Herramientas brush / slice en el piano roll
-- [ ] Graph editor de velocity en el rack
-- [ ] Riff machine (generador de motivos)
-- [ ] Randomizar / humanizar pasos y agrupación de canales por filtros
-- [ ] Count-in de grabación
+**Paridad FL** — compases variables y tempo por marcador (mapas en el
+compilador y un índice por mapa en el kernel que avanza *y* retrocede),
+historial de undo navegable que no rompe el undo por origen, herramientas
+Pincel/Cortar (P·B·C), riff machine determinista por semilla (Alt+G), graph
+editor de velocity, randomizar/humanizar, filtros de canal y count-in.
 
-**B · Audio pro**
-- [ ] Pitch-shift de clips (sobre el time-stretch SOLA de v0.7)
-- [ ] Corrección de tono de las tomas (tipo autotune)
-- [ ] Detección de transientes y slice de clips
-- [ ] Convolución con IRs
-- [ ] Vinyl / lo-fi (crujido + wow/flutter)
-- [ ] Carriles de toma (comping) en la playlist
-- [ ] Freeze de pista apoyado en el bounce
+**Audio pro** — pitch-shift de clips sobre el mismo motor SOLA del
+time-stretch, afinador de tomas por PSOLA con escala, detección de transientes
+y troceado, convolución particionada no uniforme con IR sintética, vinyl/lo-fi
+determinista, carriles de toma (comping) y congelar/descongelar pista.
 
-**C · Instrumentos y librería**
-- [ ] Orbit Keys (Rhodes FM), Orbit Vox (formantes), Orbit Slicer
-- [ ] Plugins JS de instrumento (el SDK hoy solo hace efectos)
-- [ ] Browser: filtros combinables, favoritos y volumen de preview
-- [ ] Detección automática de BPM/tonalidad al indexar
-- [ ] Plantillas de proyecto (trap, boom bap, reggaetón)
+**Instrumentos y librería** — Orbit Vox (formantes) y Orbit Slicer, plugins JS
+de instrumento de punta a punta, browser con filtros combinables, favoritos y
+colecciones, volumen de preview y detección automática de BPM y tonalidad al
+indexar, y plantillas de proyecto (trap, boom bap, reggaetón, voz sobre beat).
 
-**D · Estudio y entrega**
-- [ ] Layouts de ventanas por proyecto y predefinidos
-- [ ] Escala de UI, fuentes/radios, exportar/importar tema
-- [ ] Ctrl+E export directo, export de la selección y OGG
-- [ ] Info del proyecto
-- [ ] Colaboración: modo seguidor, chat con notas ancladas, permisos por rol
-- [ ] Asistente de mezcla con Claude (analiza y propone cadena)
+**Estudio y entrega** — layouts de ventanas (tres predefinidos + los del
+proyecto), escala de UI 80–150 % con su shim de coordenadas, fuentes y radios,
+tema exportable a archivo, Ctrl+E, export de la selección, info del proyecto,
+colaboración con modo seguidor, chat anclado al timeline y permisos por rol, y
+el asistente de mezcla de Claude (`advise_mix`).
 
-**Fuera de la v1.0 (proyecto aparte)**: puente CLAP/VST3 (necesita host
-nativo con GUI embebida y sandbox de crashes) y galería de plugins de la
-comunidad (necesita backend).
+De regalo, dos bugs viejos que salieron por el camino: el reverb metía 250 ms
+de retardo con predelay 0 (leía el anillo antes de escribirlo) y `add_channel`
+del bridge rechazaba instrumentos que su propio esquema anunciaba.
 
----
+**Fuera, con motivo escrito**: OGG (en este Electron `MediaRecorder` no admite
+contenedor Ogg y grabaría en tiempo real; haría falta un encoder Opus propio),
+puente CLAP/VST3 (necesita host nativo con GUI embebida) y galería de plugins
+de la comunidad (necesita backend). 280 tests.
 
-## Estado — 17-08-2026: v0.9.0
+## Estado anterior — v0.9.0
 
 v0.9, "cierra la pista": **consolidar a audio** (render de los clips de una
 pista por la cadena de mixer completa → un clip de audio en su sitio, con el
@@ -124,11 +114,11 @@ colaborador en la presencia) y **mixer fino** (nivel por send con perilla,
 línea de RMS + LED de clip enclavado, Orbit Scope real con forma de onda y
 espectro del master). 65 tests en verde. Instalador NSIS por release.
 
-Backlog v0.x restante tras v0.9 (detalle en [FEATURES.md](FEATURES.md)):
-graph editor del rack, compases variables y tempo por marcador, historial de
-undo navegable, filtros y favoritos del browser, plugins JS de instrumento,
-layouts por proyecto, Ctrl+E export directo, escala de UI, exportar/importar
-tema, modo seguidor y permisos por rol en collab, y export a OGG.
+Backlog tras v1.0 (detalle en [FEATURES.md](FEATURES.md)): graph editor del
+rack por nodos, pre-count visual, agrupación de canales por carpetas, slice por
+transientes dentro del Slicer, packs de sonidos generados por Claude, y el
+horizonte v1+: puente CLAP/VST3, galería de plugins de la comunidad, streaming
+de audio de la sesión y multi-ventana real.
 
 ---
 

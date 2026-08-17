@@ -59,7 +59,7 @@ regenerarlo: `npm run dist` en `apps/desktop`.
 npm install
 npm run dev        # Electron + Vite (la app)
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 145 tests (core, engine, collab, claude-bridge, ui)
+npm test           # 280 tests (core, engine, collab, claude-bridge, sound-library, ui)
 ```
 
 > Si tras `npm install` Electron no arranca (allow-scripts se salta su
@@ -72,20 +72,39 @@ Panel de Claude).
 
 ## Estado
 
-**v0.9.0 — "cierra la pista".** Ya se puede terminar un tema sin salir de
-Orbit: **consolidar a audio** (los clips de una pista se renderizan con sus
-efectos y quedan como un solo clip, en un undo), **grabar la salida de una
-pista** del mixer mientras suena —con las perillas que muevas en esa pasada— a
-WAV y a la playlist, **EQ rápido de 3 bandas y separación estéreo** por pista
-(automatizables y con LFO como todo lo demás), y **altura arrastrable e icono**
-por pista de la playlist.
+**v1.0.0 — "el estudio completo".** La update grande: cinco bloques cerrados a
+la vez.
 
-Antes, v0.8 "la mezcla se mueve sola": menú de automatización y **LFO** en cada
-perilla y fader, panel de LFOs y **grabación de movimientos de perillas** a
-clips con la curva simplificada. Y el horizonte de v0.7: **time-stretch** de
-clips, **SDK de plugins JS** ([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista
-Live por escenas** con lanzamiento cuantizado (F8). Qué entró en cada versión
-está auditado línea a línea en [docs/FEATURES.md](docs/FEATURES.md).
+**Orbit Nova**, el instrumento de presets — 26 sonidos en 8 categorías, cada
+uno una pila de capas sobre los motores propios (no hay samples que cargar: el
+canal guarda el id del preset y sus macros), con 8 perillas fijas, 2 macros que
+toman su nombre del preset y su browser dentro del instrumento.
+
+**Paridad FL**: compases variables y **tempo por marcador**, **historial de undo
+navegable** (saltas a cualquier punto sin romper el undo por origen),
+herramientas **Pincel / Cortar** en el piano roll, **riff machine** determinista
+por semilla, **graph editor de velocity**, randomizar/humanizar, filtros de
+canal y **count-in**.
+
+**Audio pro**: **pitch-shift de clips** (mismo motor SOLA que el time-stretch, y
+se combinan), **afinador de tomas** por PSOLA con escala, **transientes y
+troceado**, **convolución** particionada con IR sintética, **vinyl/lo-fi**,
+**carriles de toma** para comping y **congelar pista**.
+
+**Instrumentos y librería**: **Orbit Vox** (formantes) y **Orbit Slicer**,
+**plugins JS de instrumento**, browser con filtros combinables, favoritos,
+volumen de preview y **detección automática de BPM y tonalidad**, y
+**plantillas** de trap, boom bap, reggaetón y voz sobre beat.
+
+**Estudio y entrega**: layouts de ventanas, **escala de UI 80–150 %**, fuentes y
+radios, tema exportable a archivo, **Ctrl+E**, export de la selección, info del
+proyecto, colaboración con **modo seguidor**, **chat anclado al timeline** y
+**permisos por rol**, y el **asistente de mezcla de Claude** (`advise_mix`), que
+diagnostica LUFS, bandas y fase y propone la cadena con valores reales.
+
+Qué entró en cada versión está auditado línea a línea en
+[docs/FEATURES.md](docs/FEATURES.md); lo que se quedó fuera, con su motivo, en
+[docs/PLAN.md](docs/PLAN.md).
 
 ## Documentación
 
