@@ -19,6 +19,7 @@ import {
   IconPlaylist,
   IconSave,
   IconSettings,
+  IconTrack,
   IconWave,
 } from '../icons';
 import { store } from '../state/app';
@@ -73,6 +74,7 @@ export function MenuBar() {
       { label: 'Mixer', icon: <IconMixer />, shortcut: 'F9', action: () => toggleWindow('mixer') },
       { label: 'Automatización', icon: <IconAutomation />, action: () => toggleWindow('automation') },
       { label: 'LFOs', icon: <IconLfo />, action: () => toggleWindow('lfo') },
+      { label: 'Orbit Flux', icon: <IconTrack kind="keys" />, action: () => toggleWindow('flux') },
       { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
       { label: '', separator: true },
       {

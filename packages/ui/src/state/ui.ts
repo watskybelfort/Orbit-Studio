@@ -11,6 +11,7 @@ export type WindowId =
   | 'export'
   | 'automation'
   | 'lfo'
+  | 'flux'
   | 'collab'
   | 'scope'
   | 'audioEditor'
@@ -54,6 +55,8 @@ export interface UiState {
   automationClipId: string | null;
   /** Clip de audio abierto en el editor de audio. */
   audioClipId: string | null;
+  /** Canal de Orbit Flux que edita su panel. */
+  fluxChannelId: string | null;
   selectedMixerTrack: number;
   browserOpen: boolean;
   claudePanelOpen: boolean;
@@ -79,6 +82,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   export: { open: false, x: 320, y: 100, w: 420, h: 500, z: 1 },
   automation: { open: false, x: 240, y: 140, w: 720, h: 380, z: 1 },
   lfo: { open: false, x: 280, y: 200, w: 780, h: 300, z: 1 },
+  flux: { open: false, x: 200, y: 90, w: 760, h: 470, z: 1 },
   collab: { open: false, x: 380, y: 140, w: 420, h: 380, z: 1 },
   scope: { open: false, x: 300, y: 180, w: 560, h: 360, z: 1 },
   audioEditor: { open: false, x: 260, y: 160, w: 720, h: 340, z: 1 },
@@ -106,6 +110,7 @@ export const useUiStore = create<UiState>((set) => ({
   pianoRollChannelId: null,
   automationClipId: null,
   audioClipId: null,
+  fluxChannelId: null,
   selectedMixerTrack: 0,
   browserOpen: true,
   claudePanelOpen: false,
