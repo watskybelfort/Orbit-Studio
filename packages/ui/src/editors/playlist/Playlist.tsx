@@ -34,7 +34,14 @@ import { IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
-import { bounceTrack, bounceableClipsOfTrack, useBounceStore } from '../../state/bounce';
+import {
+  bounceTrack,
+  bounceableClipsOfTrack,
+  freezeTrack,
+  frozenClipOfTrack,
+  unfreezeTrack,
+  useBounceStore,
+} from '../../state/bounce';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -1269,6 +1276,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
   };
 
   const clipCount = bounceableClipsOfTrack(track.id).length;
+  const frozen = frozenClipOfTrack(track.id) !== undefined;
 
   return (
     <div
@@ -1386,6 +1394,22 @@ function TrackHeader({ track }: TrackHeaderProps) {
             }}
           >
             Consolidar a audio{clipCount > 0 ? ` (${clipCount} clip${clipCount > 1 ? 's' : ''})` : ''}
+          </button>
+          <button
+            className="param-menu-item"
+            disabled={busy || (!frozen && clipCount === 0)}
+            title={
+              frozen
+                ? 'Quita el audio congelado y devuelve los clips originales'
+                : 'Renderiza la pista a audio SIN borrar nada: los clips originales se quedan muteados debajo'
+            }
+            onClick={() => {
+              setMenu(null);
+              if (frozen) unfreezeTrack(track.id);
+              else void freezeTrack(track.id);
+            }}
+          >
+            {frozen ? 'Descongelar pista' : 'Congelar pista'}
           </button>
           <button
             className="param-menu-item"

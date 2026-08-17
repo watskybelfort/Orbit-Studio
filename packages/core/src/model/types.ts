@@ -217,6 +217,12 @@ export interface Clip {
    * misma pista, solo suena la elegida. 0 = carril principal.
    */
   lane?: number;
+  /**
+   * Clip de audio nacido de CONGELAR una pista: guarda los clips que
+   * sustituye (que siguen ahí, muteados y en el carril de abajo) para poder
+   * descongelar sin haber perdido nada.
+   */
+  frozenFrom?: Id[];
 
   /** kind === 'automation' */
   target?: ParamRef;

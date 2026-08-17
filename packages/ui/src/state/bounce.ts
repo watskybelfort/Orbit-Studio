@@ -55,6 +55,55 @@ export async function bounceTrack(trackId: string): Promise<void> {
   await bounceClips(bounceableClipsOfTrack(trackId), `pista "${track.name}"`);
 }
 
+/**
+ * Congela una pista: la renderiza como el bounce, pero **sin borrar nada**.
+ * Los clips originales se quedan muteados en el carril de abajo y el audio
+ * manda arriba; descongelar quita el audio y los devuelve a su sitio. Es el
+ * cambio que ahorra CPU en un proyecto grande sin perder la posibilidad de
+ * volver a editar.
+ */
+export async function freezeTrack(trackId: string): Promise<void> {
+  const track = store.project.playlistTracks[trackId];
+  if (!track) return;
+  const clips = bounceableClipsOfTrack(trackId);
+  if (clips.length === 0) {
+    notify('Esa pista no tiene nada que congelar.');
+    return;
+  }
+  await bounceClips(clips, `pista "${track.name}"`, { freeze: true });
+}
+
+/** Clip congelado de una pista, si lo hay. */
+export function frozenClipOfTrack(trackId: string): Clip | undefined {
+  return Object.values(store.project.clips).find(
+    (c) => c.playlistTrackId === trackId && c.frozenFrom !== undefined,
+  );
+}
+
+/** Descongela: quita el audio y devuelve los clips originales a su carril. */
+export function unfreezeTrack(trackId: string): void {
+  const frozen = frozenClipOfTrack(trackId);
+  if (!frozen) return;
+  const sources = (frozen.frozenFrom ?? [])
+    .map((id) => store.project.clips[id])
+    .filter((c): c is Clip => c !== undefined);
+  const label = 'Descongelar pista';
+  store.dispatch(
+    {
+      type: 'batch',
+      label,
+      commands: [
+        { type: 'removeClips', clipIds: [frozen.id] },
+        {
+          type: 'patchClips',
+          patches: sources.map((c) => ({ id: c.id, muted: false, lane: 0 })),
+        },
+      ],
+    },
+    { label },
+  );
+}
+
 /** Consolida un clip suelto. */
 export async function bounceClip(clipId: string): Promise<void> {
   const clip = store.project.clips[clipId];
@@ -62,7 +111,11 @@ export async function bounceClip(clipId: string): Promise<void> {
   await bounceClips([clip], 'clip');
 }
 
-async function bounceClips(clips: Clip[], what: string): Promise<void> {
+async function bounceClips(
+  clips: Clip[],
+  what: string,
+  opts: { freeze?: boolean } = {},
+): Promise<void> {
   if (useBounceStore.getState().busy) return;
   if (clips.length === 0) {
     notify('No hay nada que consolidar ahí.');
@@ -79,7 +132,7 @@ async function bounceClips(clips: Clip[], what: string): Promise<void> {
   const length = end - start;
   const trackId = clips[0]!.playlistTrackId;
 
-  useBounceStore.setState({ busy: `Consolidando ${what}…` });
+  useBounceStore.setState({ busy: `${opts.freeze ? 'Congelando' : 'Consolidando'} ${what}…` });
   try {
     // Ceder un frame para que la UI pinte el estado antes del render (bloquea).
     await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -124,12 +177,20 @@ async function bounceClips(clips: Clip[], what: string): Promise<void> {
       audioGain: 1,
     };
 
-    const commands: Command[] = [
-      { type: 'registerSample', sample },
-      { type: 'removeClips', clipIds: clips.map((c) => c.id) },
-      { type: 'addClips', clips: [audioClip] },
-    ];
-    const label = `Consolidar ${what} a audio`;
+    // Congelar conserva los clips originales (muteados y un carril más abajo);
+    // consolidar los sustituye.
+    const commands: Command[] = [{ type: 'registerSample', sample }];
+    if (opts.freeze) {
+      audioClip.frozenFrom = clips.map((c) => c.id);
+      commands.push({
+        type: 'patchClips',
+        patches: clips.map((c) => ({ id: c.id, muted: true, lane: (c.lane ?? 0) + 1 })),
+      });
+    } else {
+      commands.push({ type: 'removeClips', clipIds: clips.map((c) => c.id) });
+    }
+    commands.push({ type: 'addClips', clips: [audioClip] });
+    const label = opts.freeze ? `Congelar ${what}` : `Consolidar ${what} a audio`;
     store.dispatch({ type: 'batch', label, commands }, { label });
 
     const warn = [
@@ -137,7 +198,7 @@ async function bounceClips(clips: Clip[], what: string): Promise<void> {
       ...(missingPlugins.length ? [`plugins en bypass: ${missingPlugins.join(', ')}`] : []),
     ];
     notify(
-      `Consolidado ${what}: ${clips.length} clip(s) → ${sample.name}` +
+      `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${clips.length} clip(s) → ${sample.name}` +
         (warn.length ? ` (${warn.join('; ')})` : ''),
     );
   } catch (err) {
