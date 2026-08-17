@@ -141,10 +141,12 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
           notes: [
             n(0, KICK), n(1.5, KICK), n(2.5, KICK),
             n(1, CLAP), n(3, CLAP),
-            ...Array.from({ length: 16 }, (_, i) => n(i * 0.25, HAT, 0.45)),
-            // Roll de hats al final del compás (el sello del trap).
-            n(3.5, HAT, 0.5, 0.125), n(3.625, HAT, 0.55, 0.125),
-            n(3.75, HAT, 0.6, 0.125), n(3.875, HAT, 0.65, 0.125),
+            // Hats a 1/16 con el final acentuado (el empujón del trap). Se
+            // quedan EN la rejilla a propósito: un roll de 1/32 marcaría el
+            // canal como melódico y la batería dejaría de editarse por pasos.
+            ...Array.from({ length: 16 }, (_, i) =>
+              n(i * 0.25, HAT, i >= 13 ? 0.45 + (i - 12) * 0.08 : 0.45),
+            ),
           ],
         },
         {
