@@ -181,15 +181,15 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Árbol por categorías: Drums, 808s, Percusión latina, Melódicos, FX | v0.1 |
 | Tags por género/mood/tonalidad/BPM en manifest JSON | v0.1 |
 | Búsqueda instantánea (nombre, tags, subcategoría; ignora acentos) | v0.1 |
-| Filtros combinables por género/BPM/tonalidad | v0.x |
+| **Filtros combinables** por género/tag, tonalidad y rango de BPM, con facetas sacadas del catálogo real | v1.0 |
 | Preview al clic (renderizado por el propio kernel) | v0.1 |
-| Volumen de preview ajustable | v0.x |
+| Volumen de preview ajustable (persistente) | v1.0 |
 | Doble clic = añade canal sampler con el sonido | v0.1 |
 | Drag & drop: al Channel Rack (canal sampler) o a la Playlist (clip de audio) | v0.2 |
 | Contenido de fábrica generado por síntesis propia (pack Orbit Essentials, 60 sonidos) | v0.1 |
 | Carpetas del usuario (elige carpetas propias; se escanean y funcionan igual) | v0.5 |
-| Favoritos y colecciones | v0.x |
-| Detección automática de BPM/tonalidad al indexar | v1+ |
+| **Favoritos y colecciones** con nombre, guardados en los ajustes | v1.0 |
+| **Detección automática de BPM y tonalidad** al indexar (141/141 tempos sintéticos ±2 BPM; 39/40 tonalidades del pack) | v1.0 |
 
 ## 10. Grabación y edición de audio
 
