@@ -110,7 +110,11 @@ html[data-theme='acrylic'] .pianoroll {
 
 .pr-keyboard {
   flex: none;
-  will-change: transform;
+  /* Aquí NO va `will-change: transform`. Convertiría al teclado en containing
+     block de sus descendientes `position: fixed` y, como `.pr-main` es
+     `overflow: hidden`, cualquier menú que colgara de una tecla saldría
+     recortado — que es justo lo que le pasaba a las cabeceras de la playlist
+     y por lo que su menú contextual no aparecía nunca. */
 }
 
 .pr-key {
