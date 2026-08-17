@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.9** = ya publicado en
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v1.0** = ya publicado en
 esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.9 (17-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v1.0 (17-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -20,18 +20,18 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Pause (conserva la posición; play reanuda desde el caret) y tap tempo | v0.5 |
 | BPM con decimales (arrastre entero, Shift o teclado para décimas) | v0.6 |
 | Compás editable (num/den) en la barra de transporte | v0.6 |
-| Compases variables y cambios de tempo por marcador (el modelo ya los tiene) | v0.x |
+| **Compases variables y cambios de tempo por marcador**: el kernel sigue los mapas y la regla dibuja cada compás con su medida | v1.0 |
 | Metrónomo (click sintetizado en el kernel) | v0.1 |
 | Metrónomo AUDIBLE con acento según el compás (fix: antes no disparaba nunca) | v0.6 |
-| Pre-count / count-in de grabación | v0.x |
+| Count-in de 1 o 2 compases con metrónomo antes de grabar (la toma entra exacta en el caret) | v1.0 |
 | Loop de reproducción (región desde la regla de la playlist) | v0.1 |
 | Swing global (perilla como FL) | v0.1 |
 | Undo/redo por origen (500 niveles, fusión de ráfagas de perilla) | v0.1 |
-| Historial de undo navegable | v0.x |
+| **Historial de undo navegable**: panel con quién hizo qué y salto a cualquier punto, sin romper el undo por origen | v1.0 |
 | Autosave por minuto + anillo de 5 backups + recuperación tras crash | v0.2 |
 | Formato `.orbit` (JSON versionado), abrir/guardar/guardar como (Ctrl+O/S) | v0.1 |
 | Import MIDI (Archivo → Importar: canales + patrón + tempo, en un undo) | v0.4 |
-| Info del proyecto (título, autor, notas — el modelo ya lo tiene) | v0.x |
+| Info del proyecto: título, autor, notas y recuento de todo lo que hay dentro | v1.0 |
 
 ## 2. Channel Rack
 
@@ -40,7 +40,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Canales ilimitados: sintes internos o sampler | v0.1 |
 | Step sequencer 16/32/64 pasos, pintado con arrastre, clic der = quitar | v0.1 |
 | Velocity por paso visible en el rack (se edita en el carril del Piano Roll) | v0.1 |
-| Graph editor de velocity en el propio rack | v0.x |
+| **Graph editor de velocity** en el propio rack (arrastre continuo; el derecho devuelve al valor normal) | v1.0 |
 | Mute + solo (Ctrl+clic), volumen y pan por canal | v0.1 |
 | Selector de patrones (◀▶, añadir, renombrar, color) | v0.1 |
 | Clonar patrón (notas incluidas, ⧉ en la cabecera) | v0.6 |
@@ -50,8 +50,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Asignación de canal → pista de mixer (número como FL) | v0.1 |
 | Mini-preview de melodía que abre el Piano Roll (doble clic también) | v0.1 |
 | Mantener pulsado el icono = escuchar el canal | v0.1 |
-| Agrupación por filtros (All, Drums, Melódicos…) | v0.x |
-| Randomizar/humanizar pasos | v0.x |
+| Filtros de canal (Todos, Drums, 808/Bajos, Melódicos, Sampler, Voces) + buscador | v1.0 |
+| Randomizar y humanizar pasos desde el menú del canal, en un solo undo | v1.0 |
 
 ## 3. Piano Roll
 
@@ -59,7 +59,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 |---|---|
 | Dibujar, borrar, mover, redimensionar por bordes, drag multi-nota | v0.1 |
 | Selección marquee (Ctrl+arrastre), Ctrl+A, duplicar (Ctrl+B), Supr | v0.1 |
-| Modos de herramienta brush / cortar (slice) | v0.x |
+| Herramientas **Dibujar / Pincel / Cortar** (P, B, C), con el pincel borrando en arrastre con el botón derecho | v1.0 |
 | Velocity por nota (carril inferior) | v0.1 |
 | Pan por nota (carril inferior conmutable Vel/Pan) | v0.3 |
 | **Slide notes** (glide real del 808, como FL) | v0.1 |
@@ -76,7 +76,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Herramientas: Arpegiar, Strum, Humanize, Chop (sobre la selección o todo) | v0.3 |
 | Atajos FL de herramientas: Alt+A/S/U/R, Ctrl+Q, Ctrl+Shift+↑↓ | v0.6 |
 | Stamp de acordes (mayor, menor, 7ªs, sus4, power, octava) | v0.6 |
-| Riff machine (generador de motivos) | v1+ |
+| **Riff machine** (Alt+G): motivos sobre la escala, deterministas por semilla, con densidad, rango y carácter | v1.0 |
 | Tocar en vivo con controlador MIDI o el teclado del PC (filas Z y Q) | v0.5 |
 | Grabación MIDI armada al patrón (cuantización de inicios a 1/16, un undo) | v0.5 |
 
@@ -100,7 +100,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | **Consolidar a audio (bounce)**: los clips de la pista se renderizan CON sus efectos y quedan como un solo clip de audio, en un undo | v0.9 |
 | **Vista Live por escenas** (F8): pads por patrón, lanzamiento cuantizado al cierre del loop | v0.7 |
-| Pistas apiladas / carriles de toma | v1+ |
+| **Carriles de toma (comping)**: las tomas se apilan en la pista y el clic central elige la buena | v1.0 |
 
 ## 5. Mixer
 
@@ -133,10 +133,11 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Orbit FM** | FM 2-op (bells, keys, bajos metálicos) | v0.1 |
 | **Orbit Drums** | Caja de ritmos sintetizada, 3 kits: kick, snare, clap, hats, tom, conga, rim, shaker, crash | v0.1 |
 | **Orbit Sampler** | Reproduce WAV con pitch, keytrack, punto de inicio y reverse | v0.1 |
+| **Orbit Keys** | Cubierto por los presets de teclas de Orbit Nova (Rhodes, EP oscuro, piano lo-fi, clavi) | v1.0 |
 | **Pack Instrumentos** | 24 instrumentos con altura por síntesis (pianos, EPs, guitarras Karplus-Strong, bajos, órganos, pads, campanas, leads — 3-4 variantes por familia), tocables por nota vía sampler + keytrack | v0.5 |
-| **Orbit Keys** | EP tipo Rhodes (FM) para boom bap / lo-fi | v0.x |
-| **Orbit Slicer** | Trocea loops por transientes (estilo Fruity Slicer) | v0.x |
-| **Orbit Vox** | Texturas vocales por formantes (ah/ooh/eh) | v0.x |
+| **Orbit Nova** | Instrumento de presets (estilo FLEX): 26 sonidos en 8 categorías con capas de síntesis, 8 perillas y 2 macros por preset, con su browser | v1.0 |
+| **Orbit Slicer** | Trocea un sample en N partes y dispara una por nota desde C3 | v1.0 |
+| **Orbit Vox** | Voz sintética por formantes (A/E/I/O/U) con soplo y vibrato | v1.0 |
 
 ## 7. Efectos incluidos (14 tipos en v0.1)
 
@@ -156,9 +157,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Utilidades estéreo: width, gain, mono-maker (low-end mono) | v0.1 |
 | Medidor LUFS + análisis de mezcla (offline, en el export y `analyze_mix`) | v0.1 |
 | **Orbit Scope** en tiempo real: forma de onda + espectro del master (Ver → Orbit Scope) | v0.3 |
-| Vinyl/lo-fi (crujido + wow/flutter) | v0.x |
+| **Orbit Vinyl**: crujido, siseo con rumble y wow/flutter (33⅓ rpm), determinista | v1.0 |
 | Pitch shifter / vocoder | v1+ |
-| Convolución (IRs) | v1+ |
+| **Orbit Convolver**: convolución particionada no uniforme con IR sintética (size, decay, damp, predelay, width) | v1.0 |
 
 ## 8. Automatización
 
@@ -198,8 +199,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Grabación de micro a la playlist (botón en el transport; toma → WAV + clip) | v0.4 |
 | Editor de audio estilo Edison: recorte por asas, ganancia, normalizar, reverse, fades | v0.4 |
 | Time-stretch de clips (SOLA por grains, pitch intacto, toggle Stretch) | v0.7 |
-| Pitch-shift de clips | v1+ |
-| Detección de transientes y slice | v0.x |
+| **Afinador de tomas** (PSOLA): lleva cada nota a la más cercana o a una escala, con fuerza y transposición | v1.0 |
+| **Pitch-shift de clips** (semitonos, sin tocar la duración; se combina con el time-stretch) | v1.0 |
+| **Detección de transientes** y troceado del clip en un solo undo | v1.0 |
 
 ## 11. Export / render
 
@@ -231,9 +233,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | "Está editando X" en el panel (Playlist, Piano Roll · canal, Mixer · pista…) | v0.3 |
 | Undo **por usuario** (tu Ctrl+Z no deshace lo del otro) | v0.1 |
 | Servidor propio (`apps/server`) con persistencia de sesiones y /health | v0.1 |
-| Modo seguidor (ver la pantalla lógica de otro) | v0.x |
-| Chat de sesión (texto), notas ancladas al timeline | v0.x |
-| Permisos por rol (productor/invitado/oyente) | v0.x |
+| **Modo seguidor**: tu vista sigue la de otro (editor, patrón, canal, caret) | v1.0 |
+| **Chat de sesión** por el mismo documento Yjs, con notas ancladas a un compás | v1.0 |
+| **Permisos por rol** (productor / invitado / oyente) aplicados en el log de comandos | v1.0 |
 | Audio streaming de la sesión (escuchar el master remoto) | v1+ |
 
 ## 13. Claude integrado
@@ -247,6 +249,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
 | Claude en la lista de presencia de la sesión (fila propia bajo su usuario) | v0.3 |
 | Campo de petición en el panel (viaja adjunta al siguiente get_project de Claude) | v0.5 |
+| **Asistente de mezcla** (`advise_mix`): diagnóstico por tilts de banda, LUFS y fase, con cadena propuesta y opción de aplicarla | v1.0 |
 | Claude genera contenido a la librería (packs a demanda) | v0.x |
 
 ## 14. Apariencia y temas
@@ -271,11 +274,12 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Ventanas desacoplables**: sacar cualquier editor a una ventana nativa del OS | v0.6 |
 | Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
 | Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
-| Recordar layout por proyecto; layouts predefinidos | v0.x |
+| **Layouts de ventanas**: tres predefinidos (Componer, Mezclar, Arreglar) y los que guardes en el proyecto | v1.0 |
 | Ventana de LFOs (toolbar, menú Ver y paleta) | v0.8 |
 | Botón de grabación de perillas en el transporte (armar / capturando) | v0.8 |
 | F5 Playlist · F6 Channel Rack · F7 Piano Roll · F9 Mixer · F10 Ajustes | v0.1 |
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
+| P / B / C herramientas del piano roll · Alt+G riff machine | v1.0 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
 | Ctrl+E export directo | v0.x |
 | Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
@@ -286,9 +290,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | **SDK de plugins JS** (efectos): carpeta de usuario, perillas propias, sandbox del worklet con bypass anti-crash, en vivo y en el export (docs/PLUGINS.md) | v0.7 |
-| Plugins JS de instrumento | v0.x |
+| **Plugins JS de instrumento** (`createInstrument`): canal propio en el rack, con bypass si falla | v1.0 |
 | Galería de plugins de la comunidad en el browser | v1+ |
-| Puente CLAP / VST3 vía proceso host nativo | v1+ |
+| Puente CLAP / VST3 vía proceso host nativo (necesita host nativo con GUI embebida: proyecto aparte) | v1+ |
 
 ## 17. Rendimiento y fiabilidad
 
