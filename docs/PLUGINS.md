@@ -1,8 +1,9 @@
 # SDK de plugins JS — Orbit Studio
 
-Efectos de audio escritos por el usuario en JavaScript plano, sin build ni
-dependencias: un `.js` en la carpeta de plugins y aparece en el mixer como un
-efecto más, con sus perillas.
+Efectos **e instrumentos** escritos por el usuario en JavaScript plano, sin
+build ni dependencias: un `.js` en la carpeta de plugins y aparece en el mixer
+como un efecto más —o en el Channel Rack como un instrumento más— con sus
+perillas.
 
 ## Dónde va la carpeta
 
@@ -47,8 +48,9 @@ los proyectos que lo usan (mostrarán «Plugin no encontrado»).
 - Si el plugin **lanza una excepción** (al instanciarse, en `setParams` o en
   `process`), el slot pasa a **bypass automático**: el audio sigue limpio y el
   resto de la cadena no se entera.
-- Un archivo que no compila o no define `createEffect` se ignora en el
-  arranque (aviso en la consola), y sus `params` inválidos se sanean:
+- Un archivo que no compila o no define ninguna fábrica (`createEffect` /
+  `createInstrument`) se ignora en el arranque (aviso en la consola), y sus
+  `params` inválidos se sanean:
   entradas sin `key` o con números no finitos se descartan, y el `default`
   se recorta a `[min, max]`.
 - Al **exportar**, las fuentes de los plugins usados viajan al render offline:
@@ -96,3 +98,74 @@ function createEffect(sampleRate) {
 En el mixer: «+» en un slot libre → sección **Plugins JS** → **Tremolo**.
 Las perillas Rate y Depth salen del propio archivo, y el knob Mix del slot
 hace el dry/wet como en cualquier efecto nativo.
+
+
+## Instrumentos (v1.0)
+
+El mismo archivo puede traer un instrumento además del efecto — o solo el
+instrumento. La fábrica es `createInstrument(sampleRate)` y devuelve un objeto
+con el ciclo de vida de una voz: **se crea una instancia por nota**, igual que
+las voces internas del motor.
+
+```js
+const name = 'Mono Saw';
+const params = [
+  { key: 'cutoff', label: 'Cutoff', min: 200, max: 12000, default: 4000, curve: 'exp', unit: 'Hz' },
+  { key: 'decay', label: 'Decay', min: 0.05, max: 4, default: 0.6, unit: 's' },
+];
+
+function createInstrument(sampleRate) {
+  let freq = 440;
+  let phase = 0;
+  let env = 0;
+  let releasing = false;
+  let cutoff = 4000;
+  let decay = 0.6;
+  let lp = 0;
+
+  return {
+    setParams(p) {
+      if (typeof p.cutoff === 'number') cutoff = p.cutoff;
+      if (typeof p.decay === 'number') decay = p.decay;
+    },
+    noteOn(key, velocity) {
+      freq = 440 * Math.pow(2, (key - 69) / 12);
+      env = velocity;
+      releasing = false;
+    },
+    noteOff() {
+      releasing = true;
+    },
+    // SUMA al buffer y devuelve false cuando la voz ha terminado.
+    render(outL, outR, from, to, gainL, gainR) {
+      const a = 1 - Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+      for (let i = from; i < to; i++) {
+        phase += freq / sampleRate;
+        if (phase >= 1) phase -= 1;
+        const saw = 2 * phase - 1;
+        lp += a * (saw - lp);
+        const s = lp * env;
+        outL[i] += s * gainL;
+        outR[i] += s * gainR;
+        env *= Math.exp(-1 / ((releasing ? decay * 0.3 : decay) * sampleRate));
+      }
+      return env > 0.0005;
+    },
+  };
+}
+```
+
+**Cómo se usa**: reinicia la app y en el Channel Rack, «+ Añadir canal» trae
+una sección **Plugins JS** con los archivos que declaran `createInstrument`.
+El canal guarda el id del plugin y los valores de sus perillas, que llegan por
+`setParams` (también cuando los mueve la automatización o un LFO).
+
+**Reglas del contrato**:
+
+- `render` **suma** al buffer (nunca lo pisa) y devuelve `false` cuando la voz
+  terminó: el kernel la recicla en ese momento.
+- Los fallos se aíslan en tres niveles: si el plugin no está registrado o su
+  fábrica revienta, el canal cae a su motor interno; si revienta en
+  `noteOn`/`noteOff`/`setParams`/`render`, esa voz queda muda y se recicla, sin
+  tocar el resto de la mezcla.
+- Una nota *slide* re-ataca con `noteOn` (el contrato todavía no tiene glide).
