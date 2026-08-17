@@ -416,6 +416,55 @@ export const TOOLS: ToolDef[] = [
     inputSchema: { type: 'object', properties: {} },
   },
   {
+    name: 'advise_mix',
+    description:
+      'Analiza la mezcla (mismo render y medidas que analyze_mix) y devuelve un DIAGNÓSTICO ' +
+      'ACCIONABLE más una cadena de efectos concreta con valores reales. Dice qué banda sobra o ' +
+      'falta (por la diferencia entre bandas, no por su valor absoluto), si hay problema de fase, y ' +
+      'si el master pega o se queda corto para los -14 LUFS de streaming. Criterio de género: trap, ' +
+      'boombap, reggaeton o generico (por defecto se deduce del tempo). Detecta sola la pista de voz, ' +
+      'la del 808/sub y la del beat por su nombre; se pueden forzar con voiceTrack/lowTrack/beatTrack. ' +
+      'Con apply=true aplica la cadena por el bus de comandos en UN solo paso de undo (inserta los ' +
+      'efectos en slots libres, reajusta los que ya estén y mueve los faders propuestos); sin apply ' +
+      'solo aconseja. La voz se trata para que mande por encima del beat y el grave se deja mono ' +
+      'por debajo de 110 Hz.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        apply: {
+          type: 'boolean',
+          description: 'true = aplica la cadena propuesta (un paso de undo). Por defecto false.',
+        },
+        genre: {
+          type: 'string',
+          enum: ['trap', 'boombap', 'reggaeton', 'generico', 'auto'],
+          description: 'Criterio de balance. "auto" (por defecto) lo deduce del tempo.',
+        },
+        targetLufs: {
+          type: 'number',
+          minimum: -30,
+          maximum: -6,
+          description: 'LUFS objetivo (por defecto -14, streaming).',
+        },
+        voiceTrack: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Pista de mixer de la voz (si no, se busca por nombre).',
+        },
+        beatTrack: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Pista del beat/instrumental (para el sidechain de la voz).',
+        },
+        lowTrack: {
+          type: 'integer',
+          minimum: 1,
+          description: 'Pista del 808/sub (si no, se busca por nombre).',
+        },
+      },
+    },
+  },
+  {
     name: 'undo',
     description: 'Deshace el último cambio hecho por Claude (no toca los cambios del usuario).',
     inputSchema: { type: 'object', properties: {} },

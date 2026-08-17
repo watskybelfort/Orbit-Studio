@@ -19,7 +19,9 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import type { ProjectStore } from '@orbit/core';
-import { CommandLogBinding, type CollabUser } from './command-log';
+import { CommandLogBinding, type CollabUser, type DeniedInfo } from './command-log';
+import { ChatBinding, type ChatMessage } from './chat';
+import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
 import { normalizeRoomCode } from './room-code';
 
 const MESSAGE_SYNC = 0;
@@ -38,11 +40,32 @@ export interface PeerActivity {
   key?: number;
 }
 
+/**
+ * Vista LÓGICA de un peer: qué tiene delante y por dónde va. Es lo que copia
+ * el modo seguidor (a diferencia de `PeerActivity`, que es el cursor físico).
+ */
+export interface PeerView {
+  /** Editor con el foco: 'playlist' | 'pianoRoll' | 'mixer' | 'channelRack'… */
+  editor: string;
+  /** Patrón activo. */
+  patternId?: string;
+  /** Canal cuyo piano roll está abierto. */
+  channelId?: string;
+  /** Pista de mixer seleccionada (el canal abierto en el mixer). */
+  mixerTrack?: number;
+  /** Posición en la playlist, en beats. */
+  playhead?: number;
+}
+
 /** Un conectado al room (según awareness), incluido uno mismo. */
 export interface PeerInfo {
   clientId: number;
   user: CollabUser;
   activity?: PeerActivity;
+  /** Vista lógica publicada por ese peer (para seguirle). */
+  view?: PeerView;
+  /** Rol declarado en la sala (productor si no declara nada). */
+  role: CollabRole;
   /** Este usuario tiene a Claude conectado trabajando en la sesión. */
   claudeActive?: boolean;
   isSelf: boolean;
@@ -52,6 +75,10 @@ export interface CollabSessionOptions {
   user: CollabUser;
   /** Umbral de compactación del log (por defecto 2000 entradas). */
   compactThreshold?: number;
+  /** Rol con el que entramos a la sala (por defecto productor). */
+  role?: CollabRole;
+  /** Aviso de comando rechazado por permisos (propio o de un remoto). */
+  onDenied?: (info: DeniedInfo) => void;
 }
 
 export class CollabSession {
@@ -61,7 +88,10 @@ export class CollabSession {
   private readonly store: ProjectStore;
   private readonly user: CollabUser;
   private readonly compactThreshold: number | undefined;
+  private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
+  private currentRole: CollabRole;
 
+  private readonly chatBinding: ChatBinding;
   private binding: CommandLogBinding | null = null;
   private ws: WebSocket | null = null;
   private url = '';
@@ -78,12 +108,19 @@ export class CollabSession {
     this.store = store;
     this.user = opts.user;
     this.compactThreshold = opts.compactThreshold;
+    this.currentRole = opts.role ?? DEFAULT_ROLE;
+    this.onDenied = opts.onDenied;
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
+    this.awareness.setLocalStateField('role', this.currentRole);
     this.awareness.on('update', this.handleAwarenessUpdate);
     this.awareness.on('change', this.handleAwarenessChange);
     this.doc.on('update', this.handleDocUpdate);
+    // El chat vive en el doc desde el minuto uno: no necesita esperar al
+    // binding del proyecto (y así lo que escribas antes de sincronizar viaja
+    // igualmente cuando llegue la sala).
+    this.chatBinding = new ChatBinding(this.doc, opts.user, { isHost: () => this.isHost() });
   }
 
   // ── API pública ────────────────────────────────────────────────────────────
@@ -106,6 +143,7 @@ export class CollabSession {
     // Si venimos de un disconnect(), recupera la presencia propia.
     if (this.awareness.getLocalState() === null) {
       this.awareness.setLocalStateField('user', this.user);
+      this.awareness.setLocalStateField('role', this.currentRole);
     }
     return new Promise<void>((resolve, reject) => {
       this.firstSync = { resolve, reject };
@@ -152,13 +190,17 @@ export class CollabSession {
     for (const [clientId, state] of this.awareness.getStates()) {
       const user = state['user'] as CollabUser | undefined;
       if (!user) continue;
+      const rawRole = state['role'];
       const info: PeerInfo = {
         clientId,
         user,
+        role: isCollabRole(rawRole) ? rawRole : DEFAULT_ROLE,
         isSelf: clientId === this.doc.clientID,
       };
       const activity = state['activity'] as PeerActivity | undefined;
       if (activity) info.activity = activity;
+      const view = state['view'] as PeerView | undefined;
+      if (view) info.view = view;
       if (state['claude'] === true) info.claudeActive = true;
       peers.push(info);
     }
@@ -176,9 +218,58 @@ export class CollabSession {
     this.awareness.setLocalStateField('activity', activity);
   }
 
+  /**
+   * Publica nuestra vista lógica (editor delante, patrón, canal, playhead)
+   * para que quien nos siga pueda replicarla.
+   */
+  setView(view: PeerView): void {
+    this.awareness.setLocalStateField('view', view);
+  }
+
+  // ── Rol ────────────────────────────────────────────────────────────────────
+
+  /** Rol propio en la sala. */
+  get role(): CollabRole {
+    return this.currentRole;
+  }
+
+  /** Cambia el rol propio en caliente (se publica y filtra desde ya). */
+  setRole(role: CollabRole): void {
+    this.currentRole = role;
+    this.awareness.setLocalStateField('role', role);
+  }
+
+  // ── Chat de sala ───────────────────────────────────────────────────────────
+
+  /** Conversación completa de la sala (vive en el doc Yjs). */
+  get chat(): ChatMessage[] {
+    return this.chatBinding.messages;
+  }
+
+  /** Notas ancladas al timeline, ordenadas por beat. */
+  get pinnedNotes(): ChatMessage[] {
+    return this.chatBinding.pinned;
+  }
+
+  /** Manda un mensaje; con `beat` queda anclado a esa posición del timeline. */
+  sendChat(text: string, opts: { beat?: number } = {}): ChatMessage | null {
+    return this.chatBinding.send(text, opts);
+  }
+
+  /** Borra un mensaje/nota anclada por id. */
+  removeChat(id: string): boolean {
+    return this.chatBinding.remove(id);
+  }
+
+  /** Suscripción al chat. Devuelve el unsubscribe. */
+  onChatChanged(cb: (messages: ChatMessage[]) => void): () => void {
+    return this.chatBinding.onChanged(cb);
+  }
+
   /** Teardown completo (para cerrar el proyecto). */
   destroy(): void {
     this.disconnect();
+    this.chatBinding.destroy();
     this.awareness.destroy();
     this.doc.destroy();
   }
@@ -262,6 +353,8 @@ export class CollabSession {
       this.binding = new CommandLogBinding(this.store, this.doc, this.user, {
         compactThreshold: this.compactThreshold,
         isHost: () => this.isHost(),
+        getRole: () => this.currentRole,
+        ...(this.onDenied ? { onDenied: this.onDenied } : null),
       });
       this.binding.start();
     }

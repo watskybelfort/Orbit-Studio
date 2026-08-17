@@ -25,9 +25,17 @@ import {
   parseProject,
   serializeProject,
   type Command,
+  type Id,
   type Project,
   type ProjectStore,
 } from '@orbit/core';
+import {
+  checkRole,
+  isCollabRole,
+  trackDeletionTargets,
+  DEFAULT_ROLE,
+  type CollabRole,
+} from './roles';
 
 /** Identidad visible de un colaborador. */
 export interface CollabUser {
@@ -47,6 +55,21 @@ export interface LogEntry {
   client: number;
   /** Contador monótono por cliente. */
   seq: number;
+  /** Rol del emisor al emitir (lo validan TODOS los clientes por igual). */
+  role?: CollabRole;
+  /** El emisor borra algo que él mismo creó en esta sesión (ver roles.ts). */
+  own?: boolean;
+}
+
+/** Aviso de comando rechazado por permisos (para que la UI lo enseñe). */
+export interface DeniedInfo {
+  cmd: Command;
+  role: CollabRole;
+  reason: string;
+  /** Nombre del emisor: uno mismo si `local`, o el colaborador remoto. */
+  user: string;
+  /** ¿Lo rechazamos nuestro (true) o veníamos de la red (false)? */
+  local: boolean;
 }
 
 export interface CommandLogOptions {
@@ -58,6 +81,13 @@ export interface CommandLogOptions {
    * cliente o tests) el valor por defecto `true` es el correcto.
    */
   isHost?: () => boolean;
+  /**
+   * Rol de ESTE cliente en la sala. Es una función para que cambiarlo en
+   * caliente (el productor te asciende) no obligue a rehacer el binding.
+   */
+  getRole?: () => CollabRole;
+  /** Se llama cuando un comando se rechaza por permisos (no rompe la sesión). */
+  onDenied?: (info: DeniedInfo) => void;
 }
 
 /** Umbral de compactación por defecto. */
@@ -66,6 +96,14 @@ export const DEFAULT_COMPACT_THRESHOLD = 2000;
 /** Clave de idempotencia de una entrada. */
 function entryKey(client: number, seq: number): string {
   return `${client}:${seq}`;
+}
+
+/** Ids de pistas que borra un comando, entrando también en los lotes. */
+function collectTrackDeletions(cmd: Command): Id[] {
+  if (cmd.type === 'batch') {
+    return cmd.commands.flatMap((sub) => collectTrackDeletions(sub));
+  }
+  return trackDeletionTargets(cmd);
 }
 
 /**
@@ -81,9 +119,15 @@ export class CommandLogBinding {
   private readonly meta: Y.Map<string | number>;
   private readonly compactThreshold: number;
   private readonly isHost: () => boolean;
+  private readonly getRole: () => CollabRole;
+  private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
 
   /** Entradas ya aplicadas a (u originadas por) nuestro store. */
   private applied = new Set<string>();
+  /** Ids de pistas creadas por NOSOTROS en esta sesión (ver roles.ts). */
+  private ownCreations = new Set<Id>();
+  /** Estamos revirtiendo un comando denegado: no re-anexar el inverso. */
+  private reverting = false;
   /** Contador propio para numerar entradas. */
   private seq = 0;
   private unsubscribeCommands: (() => void) | null = null;
@@ -105,6 +149,8 @@ export class CommandLogBinding {
     this.meta = doc.getMap<string | number>('meta');
     this.compactThreshold = opts.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD;
     this.isHost = opts.isHost ?? (() => true);
+    this.getRole = opts.getRole ?? (() => DEFAULT_ROLE);
+    this.onDenied = opts.onDenied;
   }
 
   /**
@@ -134,6 +180,8 @@ export class CommandLogBinding {
     // nosotros desde el log llegan con origin 'remote:*' y no se re-anexan.
     this.unsubscribeCommands = this.store.subscribeCommands((cmd, origin) => {
       if (origin.startsWith('remote:')) return;
+      // El inverso de un comando denegado que estamos revirtiendo: ni al log.
+      if (this.reverting) return;
       this.append(cmd, origin);
     });
 
@@ -159,7 +207,7 @@ export class CommandLogBinding {
     const project = parseProject(snapshotJson);
     for (const entry of this.log.toArray()) {
       // Clonamos: el objeto del log pertenece a Yjs y no debe mutar.
-      this.safeApply(project, structuredClone(entry.cmd));
+      if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
       this.applied.add(entryKey(entry.client, entry.seq));
     }
     this.store.replaceProject(project);
@@ -176,6 +224,15 @@ export class CommandLogBinding {
   // ── Local → log ────────────────────────────────────────────────────────────
 
   private append(cmd: Command, origin: string): void {
+    const role = this.getRole();
+    const own = this.deletesOnlyOwnTracks(cmd);
+    const verdict = checkRole(role, cmd, { ownCreation: own });
+    if (!verdict.allowed) {
+      this.revertLocal(cmd, origin, role, verdict.reason ?? 'Tu rol no permite este cambio.');
+      return;
+    }
+    this.rememberOwnCreations(cmd);
+
     const entry: LogEntry = {
       // Clon profundo: congela los valores en el momento del append (los
       // objetos del comando siguen vivos dentro del proyecto y mutarían el
@@ -185,6 +242,8 @@ export class CommandLogBinding {
       user: this.user.name,
       client: this.doc.clientID,
       seq: this.seq++,
+      role,
+      ...(own ? { own: true } : null),
     };
     // Ya está aplicado localmente (dispatch ocurrió antes de emitir).
     this.applied.add(entryKey(entry.client, entry.seq));
@@ -192,6 +251,70 @@ export class CommandLogBinding {
       this.log.push([entry]);
     }, this);
     this.maybeCompact();
+  }
+
+  // ── Permisos ───────────────────────────────────────────────────────────────
+
+  /**
+   * Comando local denegado: ya se aplicó al store (dispatch avisa DESPUÉS de
+   * mutar), así que lo deshacemos por su propio origen para volver al estado
+   * que ve la sala. Nunca llega al log, así que nadie más lo ve. La sesión
+   * sigue viva: solo se avisa.
+   */
+  private revertLocal(cmd: Command, origin: string, role: CollabRole, reason: string): void {
+    this.reverting = true;
+    let reverted = false;
+    try {
+      reverted = this.store.undo(origin);
+    } finally {
+      this.reverting = false;
+    }
+    if (!reverted) {
+      // No debería pasar (dispatch siempre deja su entrada en el historial),
+      // pero si pasa conviene verlo: el local quedaría por delante de la sala.
+      console.warn('[collab] comando denegado sin poder revertirse en local:', cmd.type);
+    }
+    this.onDenied?.({ cmd, role, reason, user: this.user.name, local: true });
+  }
+
+  /**
+   * ¿Permite el rol del EMISOR esta entrada? Se evalúa igual en todos los
+   * clientes (rol y `own` viajan sellados en la entrada), así que un comando
+   * rechazado se rechaza en todas partes y la convergencia se mantiene.
+   */
+  private entryAllowed(entry: LogEntry): boolean {
+    const role = isCollabRole(entry.role) ? entry.role : DEFAULT_ROLE;
+    return checkRole(role, entry.cmd, { ownCreation: entry.own === true }).allowed;
+  }
+
+  /** Apunta las pistas que creamos nosotros (para poder deshacer su creación). */
+  private rememberOwnCreations(cmd: Command): void {
+    switch (cmd.type) {
+      case 'addChannel':
+      case 'restoreChannel':
+        this.ownCreations.add(cmd.channel.id);
+        break;
+      case 'addPlaylistTrack':
+      case 'restorePlaylistTrack':
+        this.ownCreations.add(cmd.track.id);
+        break;
+      case 'addArrangement':
+      case 'restoreArrangement':
+        this.ownCreations.add(cmd.arrangement.id);
+        break;
+      case 'batch':
+        for (const sub of cmd.commands) this.rememberOwnCreations(sub);
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** ¿El comando borra pistas y TODAS son nuestras de esta sesión? */
+  private deletesOnlyOwnTracks(cmd: Command): boolean {
+    const targets = collectTrackDeletions(cmd);
+    if (targets.length === 0) return false;
+    return targets.every((id) => this.ownCreations.has(id));
   }
 
   // ── Log → store ────────────────────────────────────────────────────────────
@@ -223,6 +346,19 @@ export class CommandLogBinding {
     } else {
       for (const entry of pending) {
         this.applied.add(entryKey(entry.client, entry.seq));
+        if (!this.entryAllowed(entry)) {
+          // Un cliente con permisos caducados (o manipulado) mandó algo que su
+          // rol no permite: se descarta en TODOS los clientes por igual.
+          const role = isCollabRole(entry.role) ? entry.role : DEFAULT_ROLE;
+          this.onDenied?.({
+            cmd: entry.cmd,
+            role,
+            reason: checkRole(role, entry.cmd, { ownCreation: entry.own === true }).reason ?? '',
+            user: entry.user,
+            local: false,
+          });
+          continue;
+        }
         try {
           this.store.dispatch(structuredClone(entry.cmd), {
             origin: `remote:${entry.user}`,
@@ -249,6 +385,7 @@ export class CommandLogBinding {
         const key = entryKey(entry.client, entry.seq);
         if (this.applied.has(key)) continue;
         this.applied.add(key);
+        if (!this.entryAllowed(entry)) continue;
         try {
           this.store.dispatch(structuredClone(entry.cmd), {
             origin: `remote:${entry.user}`,
@@ -262,7 +399,7 @@ export class CommandLogBinding {
     const project = parseProject(snapshotJson);
     this.applied = new Set();
     for (const entry of entries) {
-      this.safeApply(project, structuredClone(entry.cmd));
+      if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
       this.applied.add(entryKey(entry.client, entry.seq));
     }
     this.store.replaceProject(project);
