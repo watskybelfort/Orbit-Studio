@@ -6,8 +6,8 @@ import {
   createLfo,
   createPattern,
   defaultEffectParams,
-  FLUX_CATEGORIES,
-  FLUX_PRESETS,
+  NOVA_CATEGORIES,
+  NOVA_PRESETS,
   newId,
   type Lfo,
   type Note,
@@ -799,15 +799,15 @@ describe('kernel: EQ de 3 bandas por pista', () => {
   });
 });
 
-describe('Orbit Flux: instrumento de presets', () => {
-  /** Canal Flux con el preset dado y las perillas que se le pasen. */
-  function fluxProject(presetId: string, params: Record<string, number> = {}) {
-    const p = createEmptyProject('Flux');
+describe('Orbit Nova: instrumento de presets', () => {
+  /** Canal Nova con el preset dado y las perillas que se le pasen. */
+  function novaProject(presetId: string, params: Record<string, number> = {}) {
+    const p = createEmptyProject('Nova');
     p.tempo = 120;
     const patternId = p.patternOrder[0]!;
-    const ch = createChannel('flux', 0, 'Flux');
+    const ch = createChannel('nova', 0, 'Nova');
     ch.mixerTrack = 1;
-    ch.fluxPreset = presetId;
+    ch.novaPreset = presetId;
     Object.assign(ch.params, params);
     applyCommand(p, { type: 'addChannel', channel: ch });
     applyCommand(p, {
@@ -827,12 +827,12 @@ describe('Orbit Flux: instrumento de presets', () => {
 
   it('el catálogo de fábrica está bien formado (ids únicos, capas y 2 macros)', () => {
     const ids = new Set<string>();
-    for (const preset of FLUX_PRESETS) {
+    for (const preset of NOVA_PRESETS) {
       expect(ids.has(preset.id)).toBe(false);
       ids.add(preset.id);
       expect(preset.layers.length).toBeGreaterThan(0);
       expect(preset.macros).toHaveLength(2);
-      expect(FLUX_CATEGORIES).toContain(preset.category);
+      expect(NOVA_CATEGORIES).toContain(preset.category);
       for (const macro of preset.macros) {
         expect(macro.targets.length).toBeGreaterThan(0);
         for (const t of macro.targets) {
@@ -842,12 +842,12 @@ describe('Orbit Flux: instrumento de presets', () => {
         }
       }
     }
-    expect(FLUX_PRESETS.length).toBeGreaterThanOrEqual(20);
+    expect(NOVA_PRESETS.length).toBeGreaterThanOrEqual(20);
   });
 
-  it('un canal Flux suena, y cada preset del catálogo da señal', () => {
-    for (const preset of FLUX_PRESETS) {
-      const res = renderProject(fluxProject(preset.id), { tailSeconds: 0.2 });
+  it('un canal Nova suena, y cada preset del catálogo da señal', () => {
+    for (const preset of NOVA_PRESETS) {
+      const res = renderProject(novaProject(preset.id), { tailSeconds: 0.2 });
       const peak = peakOf(res.left);
       expect(peak, `preset ${preset.id}`).toBeGreaterThan(0.001);
       expect(Number.isNaN(peak), `preset ${preset.id}`).toBe(false);
@@ -855,8 +855,8 @@ describe('Orbit Flux: instrumento de presets', () => {
   });
 
   it('la macro del preset cambia el sonido y el filtro del canal manda encima', () => {
-    const bajo = renderProject(fluxProject('leads/saw-ancho', { macro2: 0 }), { tailSeconds: 0 });
-    const alto = renderProject(fluxProject('leads/saw-ancho', { macro2: 1 }), { tailSeconds: 0 });
+    const bajo = renderProject(novaProject('leads/saw-ancho', { macro2: 0 }), { tailSeconds: 0 });
+    const alto = renderProject(novaProject('leads/saw-ancho', { macro2: 1 }), { tailSeconds: 0 });
     // macro2 = Brillo (cutoff 900..18000): más brillo, más energía arriba.
     const energy = (xs: Float32Array) => {
       let s = 0;
@@ -869,14 +869,14 @@ describe('Orbit Flux: instrumento de presets', () => {
     expect(energy(alto.left)).toBeGreaterThan(energy(bajo.left) * 1.5);
 
     // Y con el filtro del canal cerrado, el mismo preset pierde agudos.
-    const cerrado = renderProject(fluxProject('leads/saw-ancho', { macro2: 1, filter: 0 }), {
+    const cerrado = renderProject(novaProject('leads/saw-ancho', { macro2: 1, filter: 0 }), {
       tailSeconds: 0,
     });
     expect(energy(cerrado.left)).toBeLessThan(energy(alto.left));
   });
 
   it('un preset sin resolver (id inventado) no rompe el render', () => {
-    const res = renderProject(fluxProject('no/existe'), { tailSeconds: 0 });
+    const res = renderProject(novaProject('no/existe'), { tailSeconds: 0 });
     expect(Number.isNaN(peakOf(res.left))).toBe(false);
   });
 
@@ -886,8 +886,8 @@ describe('Orbit Flux: instrumento de presets', () => {
       for (const x of xs) s += x * x;
       return Math.sqrt(s / xs.length);
     };
-    const seco = renderProject(fluxProject('bass/reese', { drive: 0 }), { tailSeconds: 0 });
-    const sucio = renderProject(fluxProject('bass/reese', { drive: 1 }), { tailSeconds: 0 });
+    const seco = renderProject(novaProject('bass/reese', { drive: 0 }), { tailSeconds: 0 });
+    const sucio = renderProject(novaProject('bass/reese', { drive: 1 }), { tailSeconds: 0 });
     // Saturar sube el cuerpo (RMS) y NO el pico: el tanh normalizado aplasta
     // lo que ya estaba arriba y levanta lo de en medio.
     expect(rms(sucio.left)).toBeGreaterThan(rms(seco.left) * 1.15);

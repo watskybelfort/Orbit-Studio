@@ -79,9 +79,9 @@ export const INSTRUMENT_PARAMS: Record<InstrumentKind, ParamSpec[]> = {
     p('decay', 'Decay', 0.2, 2, 1),
     p('punch', 'Punch', 0, 1, 0.5),
   ],
-  // Orbit Flux: perillas FIJAS que valen para cualquier preset. Las dos
+  // Orbit Nova: perillas FIJAS que valen para cualquier preset. Las dos
   // macros toman su etiqueta del preset cargado (la UI la lee de ahí).
-  flux: [
+  nova: [
     p('octave', 'Octave', -2, 2, 0),
     p('filter', 'Filter', 0, 1, 0.5),
     p('attack', 'Attack', 0, 1, 0.5),
@@ -90,6 +90,23 @@ export const INSTRUMENT_PARAMS: Record<InstrumentKind, ParamSpec[]> = {
     p('width', 'Width', 0, 1, 0.5),
     p('macro1', 'Macro 1', 0, 1, 0.5),
     p('macro2', 'Macro 2', 0, 1, 0.5),
+  ],
+  // Orbit Vox: síntesis de formantes (vocal sintética por vocal).
+  vox: [
+    p('vowel', 'Vocal', 0, 4, 0, { options: ['A', 'E', 'I', 'O', 'U'] }),
+    p('breath', 'Aire', 0, 1, 0.25),
+    p('vibrato', 'Vibrato', 0, 1, 0.3),
+    p('attack', 'Attack', 0.001, 2, 0.08, { unit: 's', curve: 'exp' }),
+    p('release', 'Release', 0.01, 4, 0.4, { unit: 's', curve: 'exp' }),
+    p('octave', 'Octave', -2, 2, 0),
+  ],
+  // Orbit Slicer: trocea un sample y dispara un trozo por nota.
+  slicer: [
+    p('slices', 'Trozos', 2, 32, 8),
+    p('attack', 'Attack', 0.0005, 0.5, 0.002, { unit: 's', curve: 'exp' }),
+    p('release', 'Release', 0.005, 2, 0.06, { unit: 's', curve: 'exp' }),
+    p('pitch', 'Pitch', -24, 24, 0, { unit: 'st' }),
+    p('reverse', 'Reverse', 0, 1, 0, { options: ['Off', 'On'] }),
   ],
   sampler: [
     p('pitch', 'Pitch', -24, 24, 0, { unit: 'st' }),
@@ -234,7 +251,9 @@ export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {
   fm: 'Orbit FM',
   drums: 'Orbit Drums',
   sampler: 'Orbit Sampler',
-  flux: 'Orbit Flux',
+  nova: 'Orbit Nova',
+  vox: 'Orbit Vox',
+  slicer: 'Orbit Slicer',
 };
 
 /** Params por defecto de un instrumento. */

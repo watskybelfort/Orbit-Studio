@@ -568,8 +568,8 @@ function ChannelRow({
 
   const select = () =>
     useUiStore.setState(
-      channel.kind === 'flux'
-        ? { pianoRollChannelId: channel.id, fluxChannelId: channel.id }
+      channel.kind === 'nova'
+        ? { pianoRollChannelId: channel.id, novaChannelId: channel.id }
         : { pianoRollChannelId: channel.id },
     );
 

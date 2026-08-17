@@ -176,6 +176,7 @@ export function describeCommand(cmd: Command): string {
     case 'restoreArrangement': return 'Restaurar arrangement';
     case 'patchArrangement': return 'Renombrar arrangement';
     case 'setActiveArrangement': return 'Cambiar arrangement';
+    case 'setLayout': return cmd.windows ? `Guardar layout "${cmd.name}"` : `Borrar layout "${cmd.name}"`;
     case 'addLfos': return `${cmd.lfos.length} LFO(s)`;
     case 'removeLfos': return `Quitar ${cmd.lfoIds.length} LFO(s)`;
     case 'restoreLfos': return 'Restaurar LFO(s)';

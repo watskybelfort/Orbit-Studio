@@ -11,6 +11,7 @@ import type {
   Clip,
   EffectSlot,
   Id,
+  LayoutWindow,
   Lfo,
   Marker,
   MixerTrack,
@@ -76,6 +77,8 @@ export type Command =
     }
   | { type: 'patchArrangement'; arrangementId: Id; patch: Partial<Omit<Arrangement, 'id'>> }
   | { type: 'setActiveArrangement'; arrangementId: Id }
+  // Layouts de ventanas guardados en el proyecto
+  | { type: 'setLayout'; name: string; windows: Record<string, LayoutWindow> | null }
   // LFOs
   | { type: 'addLfos'; lfos: Lfo[] }
   | { type: 'removeLfos'; lfoIds: Id[] }
@@ -403,6 +406,15 @@ export function applyCommand(project: Project, cmd: Command): Command {
       };
       project.activeArrangementId = cmd.arrangementId;
       return inverse;
+    }
+
+    // Layouts de ventanas
+    case 'setLayout': {
+      const layouts = (project.layouts ??= {});
+      const old = layouts[cmd.name] ?? null;
+      if (cmd.windows === null) delete layouts[cmd.name];
+      else layouts[cmd.name] = cmd.windows;
+      return { type: 'setLayout', name: cmd.name, windows: old };
     }
 
     // LFOs

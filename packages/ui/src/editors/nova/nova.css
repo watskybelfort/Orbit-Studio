@@ -1,6 +1,6 @@
-/* Orbit Flux: browser de presets + perillas del canal. Solo tokens globales. */
+/* Orbit Nova: browser de presets + perillas del canal. Solo tokens globales. */
 
-.flux {
+.nova {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -9,7 +9,7 @@
   color: var(--text);
 }
 
-.flux-empty {
+.nova-empty {
   margin: 0;
   padding: 16px;
   max-width: 520px;
@@ -20,7 +20,7 @@
 
 /* ── Cabecera ── */
 
-.flux-head {
+.nova-head {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -29,7 +29,7 @@
   flex: none;
 }
 
-.flux-channel {
+.nova-channel {
   font-weight: 600;
   border-left: 3px solid var(--accent);
   padding-left: 8px;
@@ -39,7 +39,7 @@
   white-space: nowrap;
 }
 
-.flux-preset {
+.nova-preset {
   color: var(--text-dim);
   font-size: 11px;
   overflow: hidden;
@@ -47,7 +47,7 @@
   white-space: nowrap;
 }
 
-.flux-audition {
+.nova-audition {
   margin-left: auto;
   height: 22px;
   padding: 0 10px;
@@ -61,21 +61,21 @@
   flex: none;
 }
 
-.flux-audition:hover {
+.nova-audition:hover {
   color: var(--text);
   border-color: var(--accent);
 }
 
 /* ── Cuerpo: categorías + lista ── */
 
-.flux-body {
+.nova-body {
   flex: 1;
   min-height: 0;
   display: grid;
   grid-template-columns: 170px 1fr;
 }
 
-.flux-cats {
+.nova-cats {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -84,7 +84,7 @@
   overflow-y: auto;
 }
 
-.flux-search {
+.nova-search {
   margin-bottom: 6px;
   height: 26px;
   padding: 0 8px;
@@ -97,11 +97,11 @@
   outline: none;
 }
 
-.flux-search:focus {
+.nova-search:focus {
   border-color: var(--accent);
 }
 
-.flux-cat {
+.nova-cat {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -118,23 +118,23 @@
   cursor: pointer;
 }
 
-.flux-cat:hover {
+.nova-cat:hover {
   background: var(--surface-2);
   color: var(--text);
 }
 
-.flux-cat.on {
+.nova-cat.on {
   color: var(--text);
   border-color: var(--accent);
   background: var(--surface-2);
 }
 
-.flux-count {
+.nova-count {
   font-size: 10px;
   opacity: 0.7;
 }
 
-.flux-list {
+.nova-list {
   overflow-y: auto;
   padding: 8px;
   display: grid;
@@ -143,13 +143,13 @@
   align-content: start;
 }
 
-.flux-none {
+.nova-none {
   color: var(--text-dim);
   font-size: 11px;
   padding: 6px;
 }
 
-.flux-item {
+.nova-item {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -164,23 +164,23 @@
   overflow: hidden;
 }
 
-.flux-item:hover {
+.nova-item:hover {
   border-color: var(--accent);
 }
 
-.flux-item.on {
+.nova-item.on {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
 }
 
-.flux-item-name {
+.nova-item-name {
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.flux-item-tags {
+.nova-item-tags {
   font-size: 10px;
   color: var(--text-dim);
   overflow: hidden;
@@ -190,7 +190,7 @@
 
 /* ── Perillas del canal ── */
 
-.flux-knobs {
+.nova-knobs {
   display: flex;
   align-items: center;
   gap: 10px;
