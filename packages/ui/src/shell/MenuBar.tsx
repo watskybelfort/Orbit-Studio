@@ -129,6 +129,8 @@ export function MenuBar() {
       { label: 'Automatización', icon: <IconAutomation />, action: () => toggleWindow('automation') },
       { label: 'LFOs', icon: <IconLfo />, action: () => toggleWindow('lfo') },
       { label: 'Orbit Nova', icon: <IconTrack kind="keys" />, action: () => toggleWindow('nova') },
+      { label: 'Orbit Prisma', icon: <IconTrack kind="synth" />, action: () => toggleWindow('prisma') },
+      { label: 'Editor de sonido', icon: <IconTrack kind="fx" />, action: () => toggleWindow('channelEditor') },
       { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
       { label: 'Historial', action: () => toggleWindow('history') },
       { label: '', separator: true },

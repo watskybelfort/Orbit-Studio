@@ -1,0 +1,716 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Orbit Prisma — browser de sonidos, macros, capas, perillas y teclado.
+
+   Solo tokens globales: ni un color a mano, así el panel sale bien en oscuro,
+   en claro y en acrílico. Regla del tema acrílico: los contenedores grandes
+   van transparentes (las opacidades se acumularían y taparían el vidrio) y el
+   `--surface-2` se reserva para lo que se toca — chips, fichas y perillas.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.prisma {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+  container-type: inline-size;
+}
+
+.prisma-empty {
+  margin: 0;
+  padding: 16px;
+  max-width: 560px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.prisma-warn {
+  margin: 0;
+  padding: 4px 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ── Cabecera ─────────────────────────────────────────────────────────────── */
+
+.prisma-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.prisma-channel {
+  font-weight: 600;
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: none;
+}
+
+.prisma-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.prisma-title b {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-title em {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+
+.prisma-btn {
+  height: 22px;
+  padding: 0 9px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  flex: none;
+}
+
+.prisma-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.prisma-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.prisma-btn.accent {
+  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+}
+
+/* ── Cuerpo: filtro · lista · sonido cargado ──────────────────────────────── */
+
+.prisma-main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 158px minmax(0, 1fr) minmax(300px, 360px);
+}
+
+/* Ventana estrecha: el sonido cargado baja debajo del browser en vez de
+   estrujar la lista hasta que no quepa ni el nombre de un preset. */
+@container (max-width: 760px) {
+  .prisma-main {
+    grid-template-columns: 148px minmax(0, 1fr);
+    grid-template-rows: minmax(150px, 1.1fr) minmax(0, 1fr);
+  }
+
+  .prisma-edit {
+    grid-column: 1 / -1;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* ── Filtro ───────────────────────────────────────────────────────────────── */
+
+.prisma-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-right: 1px solid var(--border);
+  min-height: 0;
+}
+
+.prisma-search {
+  height: 26px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+  flex: none;
+}
+
+.prisma-search:focus {
+  border-color: var(--accent);
+}
+
+.prisma-pack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  flex: none;
+  overflow: hidden;
+}
+
+.prisma-pack:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.prisma-pack span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-caret {
+  font-size: 9px;
+  opacity: 0.8;
+}
+
+.prisma-cats {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.prisma-cat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  height: 23px;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  flex: none;
+}
+
+.prisma-cat:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.prisma-cat:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.prisma-cat.on {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.prisma-count {
+  font-size: 10px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.prisma-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.prisma-toggle input {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+/* ── Lista de presets ─────────────────────────────────────────────────────── */
+
+.prisma-list {
+  overflow-y: auto;
+  padding: 8px;
+  min-height: 0;
+}
+
+.prisma-none {
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 6px;
+}
+
+.prisma-group + .prisma-group {
+  margin-top: 10px;
+}
+
+/* Sin `position: sticky` a propósito: en acrílico la cabecera necesitaría un
+   fondo opaco para tapar lo que pasa por debajo, y cualquier fondo opaco en un
+   contenedor anidado es justo lo que rompe el vidrio. */
+.prisma-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 5px;
+  padding: 2px 2px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.prisma-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 5px;
+  align-content: start;
+}
+
+.prisma-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  /* Con más de cien sonidos, lo que no se ve tampoco se maqueta. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
+}
+
+.prisma-item:hover,
+.prisma-item:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.prisma-item.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+}
+
+.prisma-item-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-item-tags {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── El sonido cargado ────────────────────────────────────────────────────── */
+
+.prisma-edit {
+  overflow-y: auto;
+  padding: 8px 10px 12px;
+  border-left: 1px solid var(--border);
+  min-height: 0;
+}
+
+.prisma-block + .prisma-block {
+  margin-top: 10px;
+}
+
+.prisma-block-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 6px;
+  padding-bottom: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.prisma-block-hint {
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Destello al cargar un preset: las perillas son ABSOLUTAS y se acaban de
+   mover todas: si no se avisa, parece que el panel no ha hecho nada. */
+@keyframes prisma-flash {
+  from {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.flash {
+  animation: prisma-flash 700ms ease-out;
+  border-radius: var(--radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+  }
+}
+
+/* Macros */
+
+.prisma-macros {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(66px, 1fr));
+  gap: 6px 2px;
+  padding: 4px 2px;
+}
+
+.prisma-macro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.prisma-macro .knob-label {
+  max-width: 74px;
+  color: var(--text);
+  font-size: 10px;
+}
+
+.prisma-macro.free {
+  opacity: 0.4;
+}
+
+/* Una macro que el preset no usa no mueve nada: dejarla girar sería mentir. */
+.prisma-macro.free .knob-svg {
+  pointer-events: none;
+}
+
+.prisma-macro.free .knob-label {
+  color: var(--text-dim);
+}
+
+/* Capas */
+
+.prisma-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.prisma-layer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.prisma-layer-n {
+  width: 12px;
+  text-align: center;
+  opacity: 0.6;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.prisma-layer-engine {
+  width: 62px;
+  flex: none;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-layer-bar {
+  flex: 1;
+  min-width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+  overflow: hidden;
+}
+
+.prisma-layer-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.prisma-layer-num {
+  width: 30px;
+  flex: none;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.prisma-layer-tune,
+.prisma-layer-range {
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-layer-range {
+  opacity: 0.7;
+}
+
+/* Perillas */
+
+.prisma-knobs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px 4px;
+  padding: 4px 2px;
+}
+
+/* Alto fijo para que una fila mezcle perillas y selectores sin quedar dentada. */
+.prisma-param {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0;
+  width: 52px;
+  min-height: 58px;
+}
+
+.prisma-param.wide {
+  width: 76px;
+  gap: 2px;
+  cursor: pointer;
+  justify-content: center;
+}
+
+.prisma-param .knob-label {
+  max-width: 52px;
+}
+
+.prisma-param.wide .knob-label {
+  max-width: 76px;
+}
+
+.prisma-value {
+  font-size: 9px;
+  color: var(--text);
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prisma-select {
+  width: 100%;
+  height: 22px;
+  padding: 0 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+
+.prisma-select:focus,
+.prisma-select:hover {
+  border-color: var(--accent);
+}
+
+/* ── Menú de packs ────────────────────────────────────────────────────────── */
+
+.prisma-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-width: 180px;
+  height: 24px;
+  padding: 0 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prisma-menu-item:first-child {
+  margin-top: 4px;
+}
+
+.prisma-menu-item:last-child {
+  margin-bottom: 4px;
+}
+
+.prisma-menu-item:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+}
+
+.prisma-menu-item.on {
+  color: var(--text);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* ── Teclado de audición ──────────────────────────────────────────────────── */
+
+.prisma-keys {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  flex: none;
+  height: 62px;
+}
+
+.prisma-keys-side {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.prisma-keys-range {
+  font-size: 10px;
+  color: var(--text-dim);
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.prisma-piano {
+  position: relative;
+  flex: 1;
+  min-width: 120px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  touch-action: none;
+}
+
+/* Mismo criterio que el teclado del piano roll (editors/pianoroll/pianoroll.css),
+   pero con el orden que pide un piano: la blanca es la superficie MÁS clara del
+   tema y la negra la más oscura. En el tema claro las dos son claras, así que
+   ahí la pareja se fija a mano, exactamente como hace el piano roll. */
+.prisma-key {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--surface-2);
+  /* El borde normal casi no se ve contra la tecla: se le mete texto para que
+     la separación entre blancas exista en los tres temas. */
+  border-right: 1px solid color-mix(in srgb, var(--text) 24%, var(--border));
+  cursor: pointer;
+}
+
+.prisma-key.black {
+  bottom: 38%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0 0 3px 3px;
+  z-index: 1;
+}
+
+html[data-theme='light'] .prisma-key {
+  background: #ffffff;
+}
+
+html[data-theme='light'] .prisma-key.black {
+  background: #2a2c32;
+}
+
+/* En acrílico `--bg` es translúcido: la negra dejaría ver el escritorio a
+   través, así que se le da el tinte del vidrio casi opaco. */
+html[data-theme='acrylic'] .prisma-key.black {
+  background: color-mix(in srgb, var(--glass-tint) 88%, transparent);
+}
+
+.prisma-key:hover,
+.prisma-key:active {
+  background: var(--accent);
+}
+
+.prisma-key-label {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--text-dim);
+  pointer-events: none;
+}
