@@ -90,6 +90,14 @@ html[data-theme='acrylic'] .pianoroll {
   margin-left: auto;
 }
 
+/* Selector de herramienta (Dibujar / Pincel / Cortar): botonera pegada */
+.pr-toolmodes {
+  display: flex;
+  gap: 3px;
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+
 /* ── Área principal ── */
 
 .pr-main {
@@ -148,6 +156,102 @@ html[data-theme='light'] .pr-key.black {
   display: block;
   touch-action: none;
   cursor: crosshair;
+}
+
+/* El cursor delata la herramienta activa */
+.pr-canvas.tool-brush {
+  cursor: cell;
+}
+
+.pr-canvas.tool-slice {
+  cursor: col-resize;
+}
+
+/* ── Riff machine ── */
+
+.pr-riff {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  width: 268px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--popup-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popup);
+}
+
+.pr-riff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pr-riff-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pr-riff-scale {
+  margin: 0;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.pr-riff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 8px;
+}
+
+.pr-riff-grid .pr-field {
+  justify-content: space-between;
+}
+
+.pr-riff-grid .pr-field select,
+.pr-riff input[type='number'] {
+  min-width: 0;
+  flex: 1;
+}
+
+.pr-riff-wide {
+  grid-column: 1 / -1;
+}
+
+.pr-riff input[type='number'] {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+  width: 100%;
+}
+
+.pr-riff-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.pr-riff-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pr-riff-actions .tbtn {
+  flex: 1;
 }
 
 /* Minimapa: vista completa del patron, clic = centrar el viewport */

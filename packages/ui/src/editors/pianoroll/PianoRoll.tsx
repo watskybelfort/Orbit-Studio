@@ -2,7 +2,8 @@
  * Piano Roll de Orbit Studio (canvas).
  * Dibujar/mover/redimensionar/seleccionar notas, slide (808), velocity lane,
  * escala resaltada, ghost notes, snap, zoom, quantize y transponer.
- * Cada gesto completo = UN dispatch (undo limpio).
+ * Herramientas estilo FL: Dibujar (P), Pincel (B) y Cortar (C), más la Riff
+ * machine (Alt+G). Cada gesto completo = UN dispatch (undo limpio).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -15,6 +16,7 @@ import {
   midiToNote,
   newId,
   strum,
+  type Command,
   type Note,
 } from '@orbit/core';
 import { useCollabStore } from '../../collab/collab-state';
@@ -24,6 +26,8 @@ import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
+import { RiffDialog } from './RiffDialog';
+import { TOOLS, applySliceCuts, occupied, sliceCuts, type PianoRollTool } from './tools';
 import './pianoroll.css';
 
 const KEY_H = 14;
@@ -65,7 +69,7 @@ const CHORDS: { label: string; intervals: number[] | null }[] = [
 ];
 
 interface DragState {
-  mode: 'move' | 'resize' | 'marquee' | 'velocity' | 'create';
+  mode: 'move' | 'resize' | 'marquee' | 'velocity' | 'create' | 'paint' | 'erase' | 'slice';
   startX: number;
   startY: number;
   /** Copia de las notas al empezar el gesto (por id). */
@@ -73,7 +77,14 @@ interface DragState {
   createdId?: string;
   moved: boolean;
   lastPreviewKey?: number;
+  /** Fin del gesto de área: marquee y línea de corte comparten puntero. */
   marqueeEnd?: { x: number; y: number };
+  /** Pincel: notas pintadas en este gesto (aún NO están en el store). */
+  painted?: Note[];
+  /** Pincel-borrador: notas tocadas, se borran todas juntas al soltar. */
+  erased?: Set<string>;
+  /** Última celda pintada (fila:beat) para no repintarla en cada mousemove. */
+  lastCell?: string;
 }
 
 export function PianoRoll() {
@@ -85,12 +96,19 @@ export function PianoRoll() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** El ratón está encima del piano roll: los atajos de una tecla solo van aquí. */
+  const hovering = useRef(false);
 
   // Vista
   const [zoomX, setZoomX] = useState(48); // px por beat
   const [scrollX, setScrollX] = useState(0); // beats
   const [scrollY, setScrollY] = useState(52 * KEY_H); // px desde arriba (C6 visible)
   const [snapIdx, setSnapIdx] = useState(0);
+  /** Herramienta activa (paridad FL): dibujar, pincel o cortar. */
+  const [tool, setTool] = useState<PianoRollTool>('draw');
+  /** Panel de la Riff machine (Alt+G). */
+  const [riffOpen, setRiffOpen] = useState(false);
   const [scaleRoot, setScaleRoot] = useState(5); // F
   const [scaleName, setScaleName] = useState<string>('Menor natural');
   /** Bloqueo a escala: crear/mover notas se ajusta a la escala activa. */
@@ -121,6 +139,8 @@ export function PianoRoll() {
   /** Paso numérico del snap para herramientas (Q, resize, arp...): el
    *  magnético cuenta como su rejilla fija; 'Nada' queda en null. */
   const snapStep: number | null = typeof snap === 'number' ? snap : snap === 'magnet' ? MAGNET_GRID : null;
+  /** Paso del pincel: la rejilla del snap y, sin snap, la duración por defecto. */
+  const brushStep = snapStep ?? lastDuration;
 
   const doSnap = useCallback(
     (beat: number, floor = true) => {
@@ -254,10 +274,12 @@ export function PianoRoll() {
       }
     }
 
-    // Notas del canal
+    // Notas del canal (las que borra el pincel-borrador se ocultan ya)
     const accent = channel?.color ?? col('--accent');
     const current = ghost.current;
+    const d = drag.current;
     for (const raw of notes) {
+      if (d?.erased?.has(raw.id)) continue;
       const n = current?.get(raw.id) ?? raw;
       const y = keyToY(n.key);
       const x = beatToX(n.start);
@@ -287,8 +309,36 @@ export function PianoRoll() {
       }
     }
 
+    // Notas del pincel: aún no están en el store, se pintan igual que las vivas.
+    if (d?.painted) {
+      for (const n of d.painted) {
+        const y = keyToY(n.key);
+        const x = beatToX(n.start);
+        const nw = Math.max(3, n.duration * zoomX - 1);
+        if (y + KEY_H < 0 || y > gridH || x + nw < 0 || x > w) continue;
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.35 + n.velocity * 0.6;
+        ctx.beginPath();
+        ctx.roundRect(x + 1, y + 1.5, nw, KEY_H - 3, 3);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Línea de corte (herramienta Cortar): el tajo que se va a dar al soltar.
+    if (d?.mode === 'slice' && d.marqueeEnd) {
+      ctx.strokeStyle = col('--pr-playhead');
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 3]);
+      ctx.beginPath();
+      ctx.moveTo(d.startX, d.startY);
+      ctx.lineTo(d.marqueeEnd.x, d.marqueeEnd.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
+
     // Marquee
-    const d = drag.current;
     if (d?.mode === 'marquee' && d.marqueeEnd) {
       ctx.strokeStyle = col('--accent');
       ctx.setLineDash([4, 3]);
@@ -310,6 +360,7 @@ export function PianoRoll() {
       ctx.fillRect(0, gridH + VEL_LANE_H / 2, w, 1);
     }
     for (const raw of notes) {
+      if (d?.erased?.has(raw.id)) continue;
       const n = current?.get(raw.id) ?? raw;
       const x = beatToX(n.start);
       if (x < -4 || x > w) continue;
@@ -431,6 +482,53 @@ export function PianoRoll() {
     }
   }, [activePatternId, channelId, laneMode, draw]);
 
+  /** Pincel: pinta la celda (fila, beat) bajo el puntero si está libre. */
+  const paintAt = useCallback(
+    (x: number, y: number) => {
+      const d = drag.current;
+      if (!d || d.mode !== 'paint' || !d.painted) return;
+      const rawKey = yToKey(y);
+      const key = scaleLock ? snapToScale(rawKey) : rawKey;
+      if (key < 0 || key >= KEYS) return;
+      const start = Math.max(0, Math.floor(xToBeat(x) / brushStep) * brushStep);
+      const cell = `${key}:${start}`;
+      if (cell === d.lastCell) return;
+      d.lastCell = cell;
+      // Ni encima de lo que ya había ni encima de lo recién pintado.
+      if (occupied(notes, key, start) || occupied(d.painted, key, start)) return;
+      d.painted.push({
+        id: newId(),
+        start,
+        duration: lastDuration,
+        key,
+        velocity: 0.8,
+        pan: 0,
+        slide: false,
+      });
+      if (channelIndex >= 0 && key !== d.lastPreviewKey) {
+        if (d.lastPreviewKey !== undefined) engine.previewNote(channelIndex, d.lastPreviewKey, false);
+        engine.previewNote(channelIndex, key, true);
+        d.lastPreviewKey = key;
+      }
+      draw();
+    },
+    [notes, yToKey, xToBeat, brushStep, lastDuration, scaleLock, snapToScale, channelIndex, draw],
+  );
+
+  /** Pincel-borrador: marca la nota bajo el puntero (se borran todas al soltar). */
+  const eraseAt = useCallback(
+    (x: number, y: number) => {
+      const d = drag.current;
+      if (!d || d.mode !== 'erase' || !d.erased) return;
+      const hit = noteAt(x, y);
+      if (hit && !d.erased.has(hit.note.id)) {
+        d.erased.add(hit.note.id);
+        draw();
+      }
+    },
+    [noteAt, draw],
+  );
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       const canvas = canvasRef.current;
@@ -450,8 +548,20 @@ export function PianoRoll() {
         return;
       }
 
-      // Botón derecho: borrar
+      // Botón derecho: borrar. Con el pincel, arrastrando (todo en un undo).
       if (e.button === 2) {
+        if (tool === 'brush') {
+          drag.current = {
+            mode: 'erase',
+            startX: x,
+            startY: y,
+            orig: new Map(),
+            erased: new Set(),
+            moved: false,
+          };
+          eraseAt(x, y);
+          return;
+        }
         const hit = noteAt(x, y);
         if (hit) {
           const ids = selection.has(hit.note.id) && selection.size > 1 ? [...selection] : [hit.note.id];
@@ -461,6 +571,40 @@ export function PianoRoll() {
           );
           setSelection(new Set());
         }
+        return;
+      }
+
+      // Ctrl+arrastre sigue siendo el marquee, también con pincel o corte.
+      if (e.ctrlKey && tool !== 'draw') {
+        drag.current = { mode: 'marquee', startX: x, startY: y, orig: new Map(), moved: false, marqueeEnd: { x, y } };
+        return;
+      }
+
+      // Cortar: la línea se dibuja mientras arrastras y parte al soltar.
+      if (tool === 'slice') {
+        drag.current = {
+          mode: 'slice',
+          startX: x,
+          startY: y,
+          orig: new Map(),
+          moved: false,
+          marqueeEnd: { x, y },
+        };
+        return;
+      }
+
+      // Pincel: notas seguidas mientras arrastras (respetando snap y duración).
+      if (tool === 'brush') {
+        drag.current = {
+          mode: 'paint',
+          startX: x,
+          startY: y,
+          orig: new Map(),
+          painted: [],
+          moved: false,
+        };
+        setSelection(new Set());
+        paintAt(x, y);
         return;
       }
 
@@ -527,7 +671,7 @@ export function PianoRoll() {
       drag.current = { mode: 'move', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
       engine.previewNote(channelIndex, key, true);
     },
-    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx],
+    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt],
   );
 
   const applyVelocityAt = useCallback(
@@ -579,7 +723,15 @@ export function PianoRoll() {
         applyVelocityAt(x, y, rect.height);
         return;
       }
-      if (d.mode === 'marquee') {
+      if (d.mode === 'paint') {
+        paintAt(x, y);
+        return;
+      }
+      if (d.mode === 'erase') {
+        eraseAt(x, y);
+        return;
+      }
+      if (d.mode === 'marquee' || d.mode === 'slice') {
         d.marqueeEnd = { x, y };
         draw();
         return;
@@ -628,7 +780,7 @@ export function PianoRoll() {
       }
       draw();
     },
-    [zoomX, yToKey, doSnap, snap, snapStep, scaleLock, snapToScale, xToBeat, draw, applyVelocityAt, channelIndex, channel],
+    [zoomX, yToKey, doSnap, snap, snapStep, scaleLock, snapToScale, xToBeat, draw, applyVelocityAt, paintAt, eraseAt, channelIndex, channel],
   );
 
   const onPointerUp = useCallback(() => {
@@ -637,6 +789,70 @@ export function PianoRoll() {
     if (d.lastPreviewKey !== undefined && channelIndex >= 0) {
       engine.previewNote(channelIndex, d.lastPreviewKey, false);
     }
+
+    // Pincel: todo lo pintado entra en UN solo addNotes (un paso de undo).
+    if (d.mode === 'paint') {
+      drag.current = null;
+      const painted = d.painted ?? [];
+      if (painted.length > 0 && activePatternId && channelId) {
+        store.dispatch(
+          { type: 'addNotes', patternId: activePatternId, channelId, notes: painted },
+          { label: `Pintar ${painted.length} nota(s)` },
+        );
+        setSelection(new Set(painted.map((n) => n.id)));
+      } else {
+        draw();
+      }
+      return;
+    }
+
+    // Pincel-borrador: un solo removeNotes con todo lo que tocó el arrastre.
+    if (d.mode === 'erase') {
+      drag.current = null;
+      const ids = [...(d.erased ?? [])];
+      if (ids.length > 0 && activePatternId && channelId) {
+        store.dispatch(
+          { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: ids },
+          { label: `Borrar ${ids.length} nota(s)` },
+        );
+        setSelection(new Set());
+      } else {
+        draw();
+      }
+      return;
+    }
+
+    // Cortar: cabezas acortadas + colas nuevas en UN batch (un paso de undo).
+    if (d.mode === 'slice') {
+      drag.current = null;
+      const end = d.marqueeEnd ?? { x: d.startX, y: d.startY };
+      const cuts = sliceCuts(
+        notes,
+        { x0: d.startX, y0: d.startY, x1: end.x, y1: end.y },
+        (key) => keyToY(key) + KEY_H / 2,
+        xToBeat,
+      );
+      const { patches, tails } = applySliceCuts(cuts);
+      if (patches.length > 0 && activePatternId && channelId) {
+        const label = `Cortar ${patches.length} nota(s)`;
+        store.dispatch(
+          {
+            type: 'batch',
+            label,
+            commands: [
+              { type: 'patchNotes', patternId: activePatternId, channelId, patches },
+              { type: 'addNotes', patternId: activePatternId, channelId, notes: tails },
+            ],
+          },
+          { label },
+        );
+        setSelection(new Set(tails.map((n) => n.id)));
+      } else {
+        draw();
+      }
+      return;
+    }
+
     if (d.mode === 'marquee') {
       const end = d.marqueeEnd ?? { x: d.startX, y: d.startY };
       const b0 = xToBeat(Math.min(d.startX, end.x));
@@ -659,7 +875,7 @@ export function PianoRoll() {
       if (first) setLastDuration(first.duration);
     }
     commitGesture();
-  }, [channelIndex, notes, xToBeat, yToKey, draw, commitGesture]);
+  }, [activePatternId, channelId, channelIndex, notes, xToBeat, yToKey, keyToY, draw, commitGesture]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -808,14 +1024,72 @@ export function PianoRoll() {
     applyTools('Chop', (sel) => chop(sel, { grid: snapStep ?? 0.25 }));
   }, [applyTools, snapStep]);
 
+  // ── Riff machine ──────────────────────────────────────────────────────────
+
+  /**
+   * Vuelca el riff generado en el canal y patrón activos con UN solo paso de
+   * undo: borra antes solo si el usuario pidió reemplazar, y si el motivo se
+   * sale del patrón lo alarga hasta el compás siguiente (todo en el mismo lote).
+   */
+  const applyRiff = useCallback(
+    (generated: Note[], replace: boolean) => {
+      if (!activePatternId || !channelId || !pattern || generated.length === 0) return;
+      const commands: Command[] = [];
+      if (replace && notes.length > 0) {
+        commands.push({
+          type: 'removeNotes',
+          patternId: activePatternId,
+          channelId,
+          noteIds: notes.map((n) => n.id),
+        });
+      }
+      commands.push({
+        type: 'addNotes',
+        patternId: activePatternId,
+        channelId,
+        notes: generated,
+      });
+      const end = Math.max(...generated.map((n) => n.start + n.duration));
+      const bar = Math.max(1, project.timeSig.num);
+      if (end > pattern.length + 1e-6) {
+        commands.push({
+          type: 'patchPattern',
+          patternId: activePatternId,
+          patch: { length: Math.ceil(end / bar) * bar },
+        });
+      }
+      const label = replace ? 'Riff machine (reemplazar)' : 'Riff machine';
+      store.dispatch(
+        commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+        { label },
+      );
+      setSelection(new Set(generated.map((n) => n.id)));
+    },
+    [activePatternId, channelId, pattern, notes, project.timeSig.num],
+  );
+
   // Atajos de herramientas estilo FL: Alt+A arpegiar, Alt+S strum, Alt+U chop,
-  // Alt+R humanizar, Ctrl+Q cuantizar, Ctrl+Shift+flechas transponer octava.
-  // Solo activos con la ventana del Piano Roll montada (como Supr/Ctrl+B).
+  // Alt+R humanizar, Alt+G Riff machine, Ctrl+Q cuantizar, Ctrl+Shift+flechas
+  // transponer octava. Solo activos con la ventana del Piano Roll montada
+  // (como Supr/Ctrl+B).
+  // Los modos de herramienta van con UNA tecla (P dibujar, B pincel, C cortar,
+  // como en FL) y por eso solo responden con el ratón encima del piano roll o
+  // el foco dentro: así no se los robamos a la playlist ni al rack.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
         return;
+      }
+      if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
+        const root = rootRef.current;
+        const here = hovering.current || (root !== null && root.contains(document.activeElement));
+        const picked = TOOLS.find((t) => t.key === e.code);
+        if (here && picked) {
+          e.preventDefault();
+          setTool(picked.id);
+          return;
+        }
       }
       if (e.altKey && !e.ctrlKey && !e.shiftKey) {
         if (e.code === 'KeyA') {
@@ -830,6 +1104,9 @@ export function PianoRoll() {
         } else if (e.code === 'KeyR') {
           e.preventDefault();
           doHumanize();
+        } else if (e.code === 'KeyG') {
+          e.preventDefault();
+          setRiffOpen((open) => !open);
         }
       } else if (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyQ') {
         e.preventDefault();
@@ -958,11 +1235,32 @@ export function PianoRoll() {
   }
 
   return (
-    <div className="pianoroll">
+    <div
+      className="pianoroll"
+      ref={rootRef}
+      onPointerEnter={() => {
+        hovering.current = true;
+      }}
+      onPointerLeave={() => {
+        hovering.current = false;
+      }}
+    >
       <div className="pr-toolbar">
         <span className="pr-channel" style={{ borderLeftColor: channel.color }}>
           {channel.name}
         </span>
+        <div className="pr-toolmodes">
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              className={`tbtn${tool === t.id ? ' active' : ''}`}
+              onClick={() => setTool(t.id)}
+              title={t.hint}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <label className="pr-field" title="Patrón que estás editando (cambia también el patrón activo)">
           <span className="pr-pattern-dot" style={{ background: pattern.color }} />
           <select
@@ -1026,6 +1324,13 @@ export function PianoRoll() {
           <button className="tbtn" onClick={doHumanize} title="Humanizar timing y velocity (Alt+R)">Hum</button>
           <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap (Alt+U)">Chop</button>
           <button
+            className={`tbtn${riffOpen ? ' active' : ''}`}
+            onClick={() => setRiffOpen(!riffOpen)}
+            title="Riff machine: generar un motivo sobre la escala activa (Alt+G)"
+          >
+            Riff
+          </button>
+          <button
             className={`tbtn${laneMode === 'pan' ? ' active' : ''}`}
             onClick={() => setLaneMode(laneMode === 'velocity' ? 'pan' : 'velocity')}
             title="Carril inferior: velocity o pan por nota"
@@ -1057,7 +1362,7 @@ export function PianoRoll() {
         <div className="pr-canvas-wrap" ref={wrapRef}>
           <canvas
             ref={canvasRef}
-            className="pr-canvas"
+            className={`pr-canvas tool-${tool}`}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -1065,6 +1370,16 @@ export function PianoRoll() {
             onContextMenu={(e) => e.preventDefault()}
           />
         </div>
+        {riffOpen && (
+          <RiffDialog
+            root={scaleRoot}
+            scaleName={scaleName}
+            beatsPerBar={Math.max(1, project.timeSig.num)}
+            patternBars={Math.max(1, Math.round(pattern.length / Math.max(1, project.timeSig.num)))}
+            onGenerate={applyRiff}
+            onClose={() => setRiffOpen(false)}
+          />
+        )}
       </div>
     </div>
   );
