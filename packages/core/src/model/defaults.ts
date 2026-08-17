@@ -2,6 +2,7 @@
 
 import { newId } from '../ids';
 import { DEFAULT_NOVA_PRESET, findNovaPreset } from './nova';
+import { DEFAULT_PRISMA_PRESET, findPrismaPreset, prismaPresetParams } from './prisma';
 import {
   defaultInstrumentParams,
   INSTRUMENT_LABELS,
@@ -9,6 +10,7 @@ import {
 import type {
   Arrangement,
   Channel,
+  EffectSlot,
   InstrumentKind,
   Lfo,
   MixerTrack,
@@ -17,7 +19,7 @@ import type {
   PlaylistTrack,
   Project,
 } from './types';
-import { FORMAT_VERSION, MIXER_SLOTS } from './types';
+import { CHANNEL_SLOTS, FORMAT_VERSION, MIXER_SLOTS } from './types';
 
 /** Paleta por defecto para canales/patrones/pistas (se rota). */
 export const PALETTE = [
@@ -29,35 +31,53 @@ export function pickColor(index: number): string {
   return PALETTE[index % PALETTE.length]!;
 }
 
+/** Cadena de inserts vacía de un canal (longitud fija, huecos = null). */
+export function createChannelFx(): (EffectSlot | null)[] {
+  return Array.from({ length: CHANNEL_SLOTS }, () => null);
+}
+
 export function createChannel(
   kind: InstrumentKind,
   index: number,
   name?: string,
 ): Channel {
-  // Un canal Nova nace con un preset cargado y sus macros en el valor que el
-  // preset propone: abrirlo y que no suene a nada sería un mal recibimiento.
-  const params = defaultInstrumentParams(kind);
+  // Un canal de presets (Nova o Prisma) nace con uno cargado y sus macros en
+  // el valor que el preset propone: abrirlo y que no suene a nada sería un mal
+  // recibimiento.
+  let params = defaultInstrumentParams(kind);
   let novaPreset: string | undefined;
+  let prismaPreset: string | undefined;
+  let presetName: string | undefined;
   if (kind === 'nova') {
     novaPreset = DEFAULT_NOVA_PRESET;
     const preset = findNovaPreset(novaPreset);
     if (preset) {
       params['macro1'] = preset.macros[0].value;
       params['macro2'] = preset.macros[1].value;
+      presetName = preset.name;
+    }
+  } else if (kind === 'prisma') {
+    prismaPreset = DEFAULT_PRISMA_PRESET;
+    const preset = findPrismaPreset(prismaPreset);
+    if (preset) {
+      params = prismaPresetParams(preset);
+      presetName = preset.name;
     }
   }
   return {
     id: newId(),
-    name: name ?? (kind === 'nova' ? (findNovaPreset(novaPreset)?.name ?? 'Orbit Nova') : INSTRUMENT_LABELS[kind]),
+    name: name ?? presetName ?? INSTRUMENT_LABELS[kind],
     color: pickColor(index),
     kind,
     ...(novaPreset ? { novaPreset } : null),
+    ...(prismaPreset ? { prismaPreset } : null),
     params,
     volume: 0.78, // ≈ -2.2 dB, margen de mezcla
     pan: 0,
     mute: false,
     solo: false,
     mixerTrack: 0,
+    fx: createChannelFx(),
   };
 }
 

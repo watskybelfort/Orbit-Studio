@@ -5,6 +5,7 @@ export * from './model/types';
 export * from './model/params';
 export * from './model/paramref';
 export * from './model/nova';
+export * from './model/prisma';
 export * from './model/templates';
 export * from './model/notes';
 export * from './model/defaults';

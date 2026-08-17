@@ -12,6 +12,8 @@ export type WindowId =
   | 'automation'
   | 'lfo'
   | 'nova'
+  | 'prisma'
+  | 'channelEditor'
   | 'history'
   | 'projectInfo'
   | 'collab'
@@ -59,6 +61,10 @@ export interface UiState {
   audioClipId: string | null;
   /** Canal de Orbit Nova que edita su panel. */
   novaChannelId: string | null;
+  /** Canal de Orbit Prisma que edita su panel. */
+  prismaChannelId: string | null;
+  /** Canal abierto en el editor de sonido (doble clic en el rack). */
+  channelEditorId: string | null;
   selectedMixerTrack: number;
   browserOpen: boolean;
   claudePanelOpen: boolean;
@@ -85,6 +91,8 @@ const defaultWindows: Record<WindowId, WindowState> = {
   automation: { open: false, x: 240, y: 140, w: 720, h: 380, z: 1 },
   lfo: { open: false, x: 280, y: 200, w: 780, h: 300, z: 1 },
   nova: { open: false, x: 200, y: 90, w: 760, h: 470, z: 1 },
+  prisma: { open: false, x: 150, y: 70, w: 940, h: 580, z: 1 },
+  channelEditor: { open: false, x: 220, y: 100, w: 820, h: 540, z: 1 },
   history: { open: false, x: 320, y: 120, w: 420, h: 460, z: 1 },
   projectInfo: { open: false, x: 340, y: 140, w: 460, h: 480, z: 1 },
   collab: { open: false, x: 380, y: 140, w: 420, h: 380, z: 1 },
@@ -93,9 +101,45 @@ const defaultWindows: Record<WindowId, WindowState> = {
   liveView: { open: false, x: 200, y: 120, w: 560, h: 420, z: 1 },
 };
 
+/**
+ * Base del apilado de ventanas internas.
+ *
+ * Antes cada `focusWindow` hacía `topZ + 1` sin techo y sin comprobar si la
+ * ventana ya estaba arriba, así que un rato de trabajo bastaba para que las
+ * ventanas superaran el z-index de los menús contextuales (1000), del aviso de
+ * la app (1000) y hasta de la paleta de comandos (1200): los menús "dejaban de
+ * funcionar" porque quedaban pintados DEBAJO. Ahora los z se renumeran en un
+ * rango pequeño y acotado, muy por debajo de cualquier overlay.
+ */
+const Z_BASE = 10;
+
+/**
+ * Sube una ventana al frente renumerando el resto. Devuelve `null` si ya
+ * estaba arriba — así el clic dentro de una ventana enfocada no reescribe el
+ * objeto `windows` ni obliga a repintar los quince editores.
+ */
+function raiseWindows(
+  windows: Record<WindowId, WindowState>,
+  id: WindowId,
+): { windows: Record<WindowId, WindowState>; topZ: number } | null {
+  const current = windows[id];
+  const others = (Object.keys(windows) as WindowId[])
+    .filter((k) => k !== id)
+    .sort((a, b) => windows[a].z - windows[b].z);
+  const top = Z_BASE + others.length;
+  if (current.z === top) return null;
+  const next = { ...windows };
+  others.forEach((k, i) => {
+    const w = windows[k];
+    if (w.z !== Z_BASE + i) next[k] = { ...w, z: Z_BASE + i };
+  });
+  next[id] = { ...current, z: top };
+  return { windows: next, topZ: top };
+}
+
 export const useUiStore = create<UiState>((set) => ({
   windows: defaultWindows,
-  topZ: 3,
+  topZ: Z_BASE,
 
   playMode: 'pattern',
   playing: false,
@@ -115,6 +159,8 @@ export const useUiStore = create<UiState>((set) => ({
   automationClipId: null,
   audioClipId: null,
   novaChannelId: null,
+  prismaChannelId: null,
+  channelEditorId: null,
   selectedMixerTrack: 0,
   browserOpen: true,
   claudePanelOpen: false,
@@ -122,27 +168,27 @@ export const useUiStore = create<UiState>((set) => ({
   trafficLights: false,
 
   openWindow: (id) =>
-    set((s) => ({
-      windows: { ...s.windows, [id]: { ...s.windows[id], open: true, z: s.topZ + 1 } },
-      topZ: s.topZ + 1,
-    })),
+    set((s) => {
+      const raised = raiseWindows(s.windows, id) ?? { windows: s.windows, topZ: s.topZ };
+      return {
+        windows: { ...raised.windows, [id]: { ...raised.windows[id], open: true } },
+        topZ: raised.topZ,
+      };
+    }),
   closeWindow: (id) =>
     set((s) => ({ windows: { ...s.windows, [id]: { ...s.windows[id], open: false } } })),
   toggleWindow: (id) =>
     set((s) => {
-      const w = s.windows[id];
-      return w.open
-        ? { windows: { ...s.windows, [id]: { ...w, open: false } } }
-        : {
-            windows: { ...s.windows, [id]: { ...w, open: true, z: s.topZ + 1 } },
-            topZ: s.topZ + 1,
-          };
+      if (s.windows[id].open) {
+        return { windows: { ...s.windows, [id]: { ...s.windows[id], open: false } } };
+      }
+      const raised = raiseWindows(s.windows, id) ?? { windows: s.windows, topZ: s.topZ };
+      return {
+        windows: { ...raised.windows, [id]: { ...raised.windows[id], open: true } },
+        topZ: raised.topZ,
+      };
     }),
-  focusWindow: (id) =>
-    set((s) => ({
-      windows: { ...s.windows, [id]: { ...s.windows[id], z: s.topZ + 1 } },
-      topZ: s.topZ + 1,
-    })),
+  focusWindow: (id) => set((s) => raiseWindows(s.windows, id) ?? s),
   moveWindow: (id, x, y) =>
     set((s) => ({ windows: { ...s.windows, [id]: { ...s.windows[id], x, y } } })),
   resizeWindow: (id, w, h) =>

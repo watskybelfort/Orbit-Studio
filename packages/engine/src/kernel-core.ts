@@ -8,6 +8,7 @@
 
 import type {
   CompiledChannel,
+  CompiledEffect,
   CompiledParamTarget,
   CompiledProject,
   FromKernel,
@@ -78,6 +79,17 @@ export class KernelCore {
   private effects = new Map<string, EffectUnit>();
   /** EQ de strip por pista (se crea con los buffers, uno por pista). */
   private trackEq: StripEq[] = [];
+
+  // Buffers de los canales que tienen efectos PROPIOS. Un canal sin cadena
+  // sigue sumando directo al bus de su pista (camino rápido de siempre); solo
+  // los que tienen inserts pasan por un buffer intermedio, y el pool crece
+  // pero no se encoge para no realocar en cada snapshot.
+  private chBufL: Float32Array[] = [];
+  private chBufR: Float32Array[] = [];
+  /** channelIndex → índice de buffer, o -1 si el canal entra seco. */
+  private chBufOf = new Int32Array(0);
+  /** Canales con cadena propia, en orden de índice. */
+  private fxChannels: number[] = [];
 
   private voices: ActiveVoice[] = [];
   private voiceOrder = 0;
@@ -240,6 +252,22 @@ export class KernelCore {
         }
         break;
       }
+      case 'channelEffectParam': {
+        const slot = this.project?.channels[msg.channelIndex]?.fx?.[msg.slotIndex];
+        if (slot) {
+          slot.params[msg.key] = msg.value;
+          this.effects.get(slot.id)?.setParams(slot.params);
+        }
+        break;
+      }
+      case 'channelEffectState': {
+        const slot = this.project?.channels[msg.channelIndex]?.fx?.[msg.slotIndex];
+        if (slot) {
+          slot.enabled = msg.enabled;
+          slot.mix = msg.mix;
+        }
+        break;
+      }
       case 'loadSample':
         this.samples.set(msg.sampleId, {
           left: msg.left,
@@ -271,23 +299,44 @@ export class KernelCore {
       this.trackSumSq = new Float32Array(n);
       this.trackEq = Array.from({ length: n }, () => new StripEq());
     }
+    // Canales con inserts propios: un buffer para cada uno. Basta con que el
+    // slot EXISTA (aunque esté en bypass) para reservarle sitio, si no
+    // reactivar un efecto sin recompilar se quedaría sin buffer donde sonar.
+    const nCh = p.channels.length;
+    if (this.chBufOf.length !== nCh) this.chBufOf = new Int32Array(nCh);
+    this.chBufOf.fill(-1);
+    this.fxChannels.length = 0;
+    for (let i = 0; i < nCh; i++) {
+      const fx = p.channels[i]!.fx;
+      if (!fx || !fx.some((s) => s !== null)) continue;
+      this.chBufOf[i] = this.fxChannels.length;
+      this.fxChannels.push(i);
+    }
+    while (this.chBufL.length < this.fxChannels.length) {
+      this.chBufL.push(new Float32Array(MAX_BLOCK));
+      this.chBufR.push(new Float32Array(MAX_BLOCK));
+    }
+
     // Instancias de efecto: reusar por id (conserva colas), crear nuevas, purgar.
     const alive = new Set<string>();
-    for (const t of p.mixer) {
-      for (const slot of t.slots) {
-        if (!slot) continue;
-        alive.add(slot.id);
-        let unit = this.effects.get(slot.id);
-        if (!unit) {
-          unit =
-            (slot.kind === 'plugin'
-              ? this.makePluginUnit(slot.pluginId)
-              : createEffect(slot.kind, this.sr)) ?? undefined;
-          if (unit) this.effects.set(slot.id, unit);
-        }
-        unit?.setParams(slot.params);
-        unit?.setTempo?.(this.tempo);
+    const ensureUnit = (slot: CompiledEffect): void => {
+      alive.add(slot.id);
+      let unit = this.effects.get(slot.id);
+      if (!unit) {
+        unit =
+          (slot.kind === 'plugin'
+            ? this.makePluginUnit(slot.pluginId)
+            : createEffect(slot.kind, this.sr)) ?? undefined;
+        if (unit) this.effects.set(slot.id, unit);
       }
+      unit?.setParams(slot.params);
+      unit?.setTempo?.(this.tempo);
+    };
+    for (const t of p.mixer) {
+      for (const slot of t.slots) if (slot) ensureUnit(slot);
+    }
+    for (const ci of this.fxChannels) {
+      for (const slot of p.channels[ci]!.fx!) if (slot) ensureUnit(slot);
     }
     for (const id of this.effects.keys()) {
       if (!alive.has(id)) this.effects.delete(id);
@@ -311,6 +360,11 @@ export class KernelCore {
     if (!p) return;
     for (const t of p.mixer) {
       for (const slot of t.slots) {
+        if (slot) this.effects.get(slot.id)?.setTempo?.(this.tempo);
+      }
+    }
+    for (const ci of this.fxChannels) {
+      for (const slot of p.channels[ci]?.fx ?? []) {
         if (slot) this.effects.get(slot.id)?.setTempo?.(this.tempo);
       }
     }
@@ -453,11 +507,14 @@ export class KernelCore {
     const ch = p.channels[channelIndex];
     if (!ch) return;
     if (this.voices.length >= MAX_VOICES) {
-      // Roba la voz más antigua.
+      // Roba la voz más antigua. `dispose` devuelve lo que tenga prestado de
+      // un pool (las cuerdas pulsadas de Prisma): sin esto, un pasaje denso
+      // agotaba el pool y las notas siguientes cambiaban de timbre.
       let oldest = 0;
       for (let i = 1; i < this.voices.length; i++) {
         if (this.voices[i]!.voice.startOrder < this.voices[oldest]!.voice.startOrder) oldest = i;
       }
+      this.voices[oldest]!.voice.dispose();
       this.voices.splice(oldest, 1);
     }
     const order = this.voiceOrder++;
@@ -465,7 +522,7 @@ export class KernelCore {
       this.makeInstrumentVoice(ch, channelIndex, key, order, velocity) ??
       createVoice(
         ch.kind, channelIndex, key, order, velocity, ch.params, this.voiceCtx,
-        ch.sampleId, ch.nova,
+        ch.sampleId, ch.nova, ch.prisma,
       );
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey });
   }
@@ -626,6 +683,14 @@ export class KernelCore {
           }
           break;
         }
+        case 'channelFx': {
+          const slot = p.channels[t.channelIndex]?.fx?.[t.slotIndex];
+          if (slot) {
+            slot.params[t.key] = value;
+            this.effects.get(slot.id)?.setParams(slot.params);
+          }
+          break;
+        }
         case 'transport':
           if (t.key === 'tempo') this.tempo = value;
           break;
@@ -647,18 +712,53 @@ export class KernelCore {
   /** 0 mientras la base aún no se ha tomado del parámetro vivo. */
   private lfoPrimed = new Uint8Array(0);
 
+  /** Identidad de cada LFO, para saber cuáles sobreviven a un snapshot. */
+  private lfoSig: string[] = [];
+
+  /**
+   * Estado de los LFOs tras un snapshot.
+   *
+   * Antes esto reiniciaba TODOS en cada snapshot, y como el proyecto se
+   * recompila con cada comando (también los que llegan del otro lado en
+   * colaboración), bastaba con que alguien moviera una perilla para que los
+   * LFOs se quedaran clavados. Ahora un LFO que no ha cambiado conserva su
+   * base: solo se reinician los nuevos o los que se han tocado de verdad.
+   */
   private resetLfoState(p: CompiledProject): void {
     const n = p.lfos.length;
-    if (this.lfoBase.length !== n) {
-      this.lfoBase = new Float64Array(n);
-      this.lfoLast = new Float64Array(n);
-      this.lfoPrimed = new Uint8Array(n);
-    }
+    const sig = p.lfos.map((l) => {
+      const t = l.target;
+      const target =
+        t.scope === 'channelParam' || t.scope === 'channelMix'
+          ? `${t.scope}:${t.channelIndex}:${t.key}`
+          : t.scope === 'mixer'
+            ? `mixer:${t.trackIndex}:${t.key}`
+            : t.scope === 'effect'
+              ? `fx:${t.trackIndex}:${t.slotIndex}:${t.key}`
+              : t.scope === 'channelFx'
+                ? `chfx:${t.channelIndex}:${t.slotIndex}:${t.key}`
+                : `transport:${t.key}`;
+      return `${target}|${l.shape}|${l.rateBeats}|${l.amount}|${l.phase}`;
+    });
+    const oldBase = this.lfoBase;
+    const oldLast = this.lfoLast;
+    const oldPrimed = this.lfoPrimed;
+    const oldSig = this.lfoSig;
+    this.lfoBase = new Float64Array(n);
+    this.lfoLast = new Float64Array(n);
+    this.lfoPrimed = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
-      this.lfoBase[i] = p.lfos[i]!.baseNorm;
-      this.lfoLast[i] = 0;
-      this.lfoPrimed[i] = 0;
+      if (i < oldSig.length && oldSig[i] === sig[i] && oldPrimed[i] === 1) {
+        this.lfoBase[i] = oldBase[i]!;
+        this.lfoLast[i] = oldLast[i]!;
+        this.lfoPrimed[i] = 1;
+      } else {
+        this.lfoBase[i] = p.lfos[i]!.baseNorm;
+        this.lfoLast[i] = 0;
+        this.lfoPrimed[i] = 0;
+      }
     }
+    this.lfoSig = sig;
   }
 
   private readParam(t: CompiledParamTarget): number | null {
@@ -678,6 +778,8 @@ export class KernelCore {
       }
       case 'effect':
         return p.mixer[t.trackIndex]?.slots[t.slotIndex]?.params[t.key] ?? null;
+      case 'channelFx':
+        return p.channels[t.channelIndex]?.fx?.[t.slotIndex]?.params[t.key] ?? null;
       case 'transport':
         return t.key === 'tempo' ? this.tempo : 0;
     }
@@ -710,6 +812,14 @@ export class KernelCore {
       }
       case 'effect': {
         const slot = p.mixer[t.trackIndex]?.slots[t.slotIndex];
+        if (slot) {
+          slot.params[t.key] = value;
+          this.effects.get(slot.id)?.setParams(slot.params);
+        }
+        break;
+      }
+      case 'channelFx': {
+        const slot = p.channels[t.channelIndex]?.fx?.[t.slotIndex];
         if (slot) {
           slot.params[t.key] = value;
           this.effects.get(slot.id)?.setParams(slot.params);
@@ -755,6 +865,10 @@ export class KernelCore {
       this.bufL[t]!.fill(0, 0, n);
       this.bufR[t]!.fill(0, 0, n);
     }
+    for (let c = 0; c < this.fxChannels.length; c++) {
+      this.chBufL[c]!.fill(0, 0, n);
+      this.chBufR[c]!.fill(0, 0, n);
+    }
 
     this.applyMaps();
     this.applyAutomation();
@@ -798,22 +912,80 @@ export class KernelCore {
       }
     }
 
-    // Voces → buffers de pista
+    // Voces → buffer del canal (si tiene inserts) o directo al bus de pista.
+    // Con cadena propia las voces se renderizan a ganancia unidad y el
+    // volumen/pan del canal se aplica DESPUÉS de los efectos: el fader del
+    // canal manda sobre su cadena, no dentro de ella.
     for (let i = this.voices.length - 1; i >= 0; i--) {
       const av = this.voices[i]!;
-      const ch = p.channels[av.voice.channelIndex];
+      const chIndex = av.voice.channelIndex;
+      const ch = p.channels[chIndex];
       if (!ch) {
+        av.voice.dispose();
         this.voices.splice(i, 1);
         continue;
       }
+      const slot = this.chBufOf[chIndex] ?? -1;
+      const from = av.pendingOffset;
+      av.pendingOffset = 0;
+      let alive: boolean;
+      if (slot >= 0) {
+        alive = av.voice.render(this.chBufL[slot]!, this.chBufR[slot]!, from, n, 1, 1);
+      } else {
+        const track = Math.min(nTracks - 1, Math.max(0, ch.mixerTrack));
+        const pan = ch.pan;
+        const gainL = ch.volume * Math.cos(((pan + 1) / 4) * Math.PI) * 1.414;
+        const gainR = ch.volume * Math.sin(((pan + 1) / 4) * Math.PI) * 1.414;
+        alive = av.voice.render(this.bufL[track]!, this.bufR[track]!, from, n, gainL, gainR);
+      }
+      if (!alive) {
+        av.voice.dispose();
+        this.voices.splice(i, 1);
+      }
+    }
+
+    // Cadena de inserts de cada canal → bus de su pista.
+    for (let c = 0; c < this.fxChannels.length; c++) {
+      const chIndex = this.fxChannels[c]!;
+      const ch = p.channels[chIndex];
+      if (!ch) continue;
+      const bl = this.chBufL[c]!;
+      const br = this.chBufR[c]!;
+      const slots = ch.fx;
+      if (slots) {
+        for (let s = 0; s < slots.length; s++) {
+          const slot = slots[s];
+          if (!slot || !slot.enabled) continue;
+          const unit = this.effects.get(slot.id);
+          if (!unit) continue;
+          const mix = slot.mix;
+          const useDry = mix < 0.999;
+          if (useDry) {
+            this.dryL.set(bl.subarray(0, n));
+            this.dryR.set(br.subarray(0, n));
+          }
+          const scIdx = slot.sidechainSource;
+          const scL = scIdx !== undefined ? this.lastL[scIdx] ?? null : null;
+          const scR = scIdx !== undefined ? this.lastR[scIdx] ?? null : null;
+          unit.process(bl, br, n, scL, scR);
+          if (useDry) {
+            for (let i = 0; i < n; i++) {
+              bl[i] = this.dryL[i]! * (1 - mix) + bl[i]! * mix;
+              br[i] = this.dryR[i]! * (1 - mix) + br[i]! * mix;
+            }
+          }
+        }
+      }
       const track = Math.min(nTracks - 1, Math.max(0, ch.mixerTrack));
+      const dl = this.bufL[track]!;
+      const dr = this.bufR[track]!;
       const pan = ch.pan;
       const gainL = ch.volume * Math.cos(((pan + 1) / 4) * Math.PI) * 1.414;
       const gainR = ch.volume * Math.sin(((pan + 1) / 4) * Math.PI) * 1.414;
-      const from = av.pendingOffset;
-      av.pendingOffset = 0;
-      const alive = av.voice.render(this.bufL[track]!, this.bufR[track]!, from, n, gainL, gainR);
-      if (!alive) this.voices.splice(i, 1);
+      for (let i = 0; i < n; i++) {
+        dl[i]! += bl[i]! * gainL;
+        dr[i]! += br[i]! * gainR;
+      }
     }
 
     // Clips de audio (posición determinista desde el timeline)

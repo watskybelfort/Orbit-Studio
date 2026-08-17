@@ -7,6 +7,7 @@
 import {
   LFO_SHAPES,
   findNovaPreset,
+  findPrismaPreset,
   paramRefKey,
   paramRefNorm,
   paramRefValue,
@@ -140,6 +141,16 @@ function compileParamTarget(
         slotIndex: ref.slotIndex,
         key: ref.param,
       };
+    case 'channelFx': {
+      const idx = channelIndexOf.get(ref.channelId);
+      if (idx === undefined) return null;
+      return {
+        scope: 'channelFx',
+        channelIndex: idx,
+        slotIndex: ref.slotIndex,
+        key: ref.param,
+      };
+    }
     case 'transport':
       return { scope: 'transport', key: ref.param };
   }
@@ -245,6 +256,18 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
         macros: preset.macros.map((m) => ({ targets: m.targets.map((t) => ({ ...t })) })),
       };
     }
+    const prisma = ch.kind === 'prisma' ? findPrismaPreset(ch.prismaPreset) : undefined;
+    if (prisma) {
+      compiled.prisma = {
+        layers: prisma.layers.map((l) => ({ ...l, params: { ...l.params } })),
+        macros: prisma.macros.map((m) => ({ targets: m.targets.map((t) => ({ ...t })) })),
+      };
+    }
+    // Inserts del canal: solo viajan si hay alguno, para que un proyecto sin
+    // efectos por canal compile exactamente igual que antes.
+    if (ch.fx && ch.fx.some((s) => s !== null)) {
+      compiled.fx = ch.fx.map((s) => (s ? compileEffect(s) : null));
+    }
     return compiled;
   });
 
@@ -325,13 +348,20 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     for (const clip of Object.values(project.clips)) {
       if (only && !only.has(clip.id)) continue;
       if (clip.muted || !activeTracks.has(clip.playlistTrackId)) continue;
-      lengthBeats = Math.max(lengthBeats, clip.start + clip.length);
       if (clip.kind === 'pattern' && clip.patternId) {
+        // Un clip huérfano (su patrón ya no existe) NO alarga la canción: antes
+        // la longitud se sumaba antes de comprobarlo y el export arrastraba una
+        // cola de silencio de un patrón borrado.
+        if (!project.patterns[clip.patternId]) continue;
+        lengthBeats = Math.max(lengthBeats, clip.start + clip.length);
         pushPatternEvents(clip.patternId, clip.start, {
           offset: clip.patternOffset ?? 0,
           length: clip.length,
         });
-      } else if (clip.kind === 'audio' && clip.sampleId) {
+        continue;
+      }
+      lengthBeats = Math.max(lengthBeats, clip.start + clip.length);
+      if (clip.kind === 'audio' && clip.sampleId) {
         // Pitch 0 (o basura) no viaja: así un clip sin transponer entra por el
         // camino de lectura directa del kernel, idéntico al de siempre.
         const pitch = clip.audioPitch;

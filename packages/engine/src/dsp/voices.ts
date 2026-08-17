@@ -8,52 +8,15 @@ import { DRUM_MAP, midiToHz } from '@orbit/core';
 import { ADSR, DecayEnv } from './env';
 import { Noise, Osc, TWO_PI } from './osc';
 import { Biquad, SVF } from './filters';
+import { PrismaVoice, type PrismaDef } from './prisma-voice';
+import { Voice, type SampleData, type VoiceContext } from './voice-base';
 
-export interface SampleData {
-  left: Float32Array;
-  right: Float32Array;
-  rate: number;
-}
-
-export interface VoiceContext {
-  sr: number;
-  samples: Map<string, SampleData>;
-  /**
-   * Buffers de trabajo del kernel, compartidos por todas las voces (se
-   * renderiza una detrás de otra en el mismo hilo). Los usa Nova para saturar
-   * la suma de sus capas sin alocar nada por nota.
-   */
-  scratchL?: Float32Array;
-  scratchR?: Float32Array;
-}
-
-export abstract class Voice {
-  releasing = false;
-
-  constructor(
-    public readonly channelIndex: number,
-    public key: number,
-    public readonly startOrder: number,
-  ) {}
-
-  abstract noteOff(): void;
-  /** Nota slide: la voz cambia de altura sin retrigger (808). */
-  glideTo(key: number, _velocity: number): void {
-    this.key = key;
-  }
-  /**
-   * Renderiza [from, to) sumando en outL/outR con las ganancias dadas.
-   * Devuelve false cuando la voz terminó (el kernel la recicla).
-   */
-  abstract render(
-    outL: Float32Array,
-    outR: Float32Array,
-    from: number,
-    to: number,
-    gainL: number,
-    gainR: number,
-  ): boolean;
-}
+// La base vive en `voice-base.ts` (ver el porqué allí), pero se re-exporta
+// desde aquí: el kernel y los tests llevan importándola de `./dsp/voices`
+// desde la primera versión y no hay motivo para moverles el suelo.
+export { Voice } from './voice-base';
+export type { SampleData, VoiceContext } from './voice-base';
+export type { PrismaDef, PrismaLayerDef, PrismaMacroDef } from './prisma-voice';
 
 // ── Orbit Sub (808) ──────────────────────────────────────────────────────────
 
@@ -475,6 +438,16 @@ export class SamplerVoice extends Voice {
   private env = new ADSR();
   private data: SampleData | null;
   private reverse: boolean;
+  private loop: boolean;
+  /** +1 normal, -1 fase invertida. */
+  private polarity: number;
+  private gain: number;
+  /** Región de lectura en samples de la FUENTE (start/end del canal). */
+  private lo: number;
+  private hi: number;
+  /** Fades en samples de la fuente (0 = sin fade). */
+  private fadeInSrc: number;
+  private fadeOutSrc: number;
 
   constructor(
     channelIndex: number,
@@ -492,9 +465,22 @@ export class SamplerVoice extends Voice {
     const srcRate = this.data?.rate ?? ctx.sr;
     this.rate = (srcRate / ctx.sr) * Math.pow(2, semis / 12);
     this.reverse = (p['reverse'] ?? 0) >= 0.5;
-    const len = this.data?.left.length ?? 0;
-    const startFrac = p['start'] ?? 0;
-    this.pos = this.reverse ? len - 1 - startFrac * len : startFrac * len;
+    this.loop = (p['loop'] ?? 0) >= 0.5;
+    this.polarity = (p['polarity'] ?? 0) >= 0.5 ? -1 : 1;
+    this.gain = p['gain'] ?? 1;
+
+    // Recorte start/end: el "acortar" del sonido. `end` por debajo de `start`
+    // no se acepta (dejaría la región del revés y la voz muda).
+    const last = Math.max(0, (this.data?.left.length ?? 0) - 2);
+    const startFrac = Math.min(1, Math.max(0, p['start'] ?? 0));
+    const endFrac = Math.min(1, Math.max(0, p['end'] ?? 1));
+    this.lo = Math.floor(startFrac * last);
+    this.hi = Math.max(this.lo + 1, Math.floor(endFrac * last));
+    this.pos = this.reverse ? this.hi : this.lo;
+
+    this.fadeInSrc = Math.max(0, p['fadeIn'] ?? 0) * srcRate;
+    this.fadeOutSrc = Math.max(0, p['fadeOut'] ?? 0) * srcRate;
+
     this.env.set(p['attack'] ?? 0.001, 1, 1, p['release'] ?? 0.05, ctx.sr);
     this.env.on();
   }
@@ -507,17 +493,31 @@ export class SamplerVoice extends Voice {
   render(outL: Float32Array, outR: Float32Array, from: number, to: number, gainL: number, gainR: number): boolean {
     const d = this.data;
     if (!d) return false;
-    const len = d.left.length;
+    const step = this.reverse ? -this.rate : this.rate;
     for (let i = from; i < to; i++) {
+      if (this.pos < this.lo || this.pos > this.hi) {
+        // Fuera de la región: o vuelve a empezar, o la voz terminó.
+        if (!this.loop) return false;
+        this.pos = this.reverse ? this.hi : this.lo;
+      }
       const idx = Math.floor(this.pos);
-      if (idx < 0 || idx >= len - 1) return false;
       const frac = this.pos - idx;
       const sl = d.left[idx]! * (1 - frac) + d.left[idx + 1]! * frac;
       const srr = d.right[idx]! * (1 - frac) + d.right[idx + 1]! * frac;
-      const e = this.env.tick() * this.velocity;
+      let e = this.env.tick() * this.velocity * this.gain;
+      // Los fades se miden en la fuente, así que no cambian al transponer.
+      if (this.fadeInSrc > 0) {
+        const entered = this.reverse ? this.hi - this.pos : this.pos - this.lo;
+        if (entered < this.fadeInSrc) e *= entered / this.fadeInSrc;
+      }
+      if (this.fadeOutSrc > 0) {
+        const left = this.reverse ? this.pos - this.lo : this.hi - this.pos;
+        if (left < this.fadeOutSrc) e *= left < 0 ? 0 : left / this.fadeOutSrc;
+      }
+      e *= this.polarity;
       outL[i]! += sl * e * gainL;
       outR[i]! += srr * e * gainR;
-      this.pos += this.reverse ? -this.rate : this.rate;
+      this.pos += step;
     }
     return this.env.active;
   }
@@ -859,11 +859,18 @@ export function createVoice(
   ctx: VoiceContext,
   sampleId?: string,
   nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] },
+  prisma?: PrismaDef,
 ): Voice {
   switch (kind) {
     case 'nova':
       return nova
         ? new NovaVoice(channelIndex, key, order, velocity, params, ctx, nova.layers, nova.macros)
+        : new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
+    // Sin preset resuelto (proyecto de otra versión, id desconocido) el canal
+    // cae al sinte básico en vez de quedarse mudo.
+    case 'prisma':
+      return prisma && prisma.layers.length > 0
+        ? new PrismaVoice(channelIndex, key, order, velocity, params, ctx, prisma)
         : new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'sub808': return new Sub808Voice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'synth': return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);

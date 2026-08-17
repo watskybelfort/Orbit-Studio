@@ -39,8 +39,17 @@ export type InstrumentKind =
   | 'drums'
   | 'sampler'
   | 'nova'
+  | 'prisma'
   | 'vox'
   | 'slicer';
+
+/**
+ * Inserts propios de un canal (v1.1). Son la cadena que suena ANTES de que el
+ * canal entre en su pista de mixer, y existen para poder tratar UN sonido a
+ * solas —bajarle el reverb, ensuciarlo, filtrarlo— sin gastar un insert
+ * entero del mixer ni arrastrar a los demás canales que compartan pista.
+ */
+export const CHANNEL_SLOTS = 4;
 
 export interface Channel {
   id: Id;
@@ -53,6 +62,14 @@ export interface Channel {
   sampleId?: Id;
   /** Preset cargado (solo kind='nova'); ver model/nova.ts. */
   novaPreset?: string;
+  /** Preset cargado (solo kind='prisma'); ver model/prisma.ts. */
+  prismaPreset?: string;
+  /**
+   * Efectos propios del canal, longitud fija CHANNEL_SLOTS y huecos = null.
+   * Ausente (los .orbit anteriores a v1.1) = cadena vacía: el canal entra seco
+   * en su pista de mixer, exactamente como antes.
+   */
+  fx?: (EffectSlot | null)[];
   /**
    * Plugin JS de instrumento que toca este canal (id del archivo). Cuando
    * está, sustituye al motor interno del `kind`; si el plugin falta o
@@ -155,6 +172,8 @@ export type ParamRef =
       param: 'volume' | 'pan' | 'stereoWidth' | 'eqLow' | 'eqMid' | 'eqHigh';
     }
   | { kind: 'effect'; trackIndex: number; slotIndex: number; param: string }
+  /** Parámetro de un insert PROPIO del canal (Channel.fx). */
+  | { kind: 'channelFx'; channelId: Id; slotIndex: number; param: string }
   | { kind: 'transport'; param: 'tempo' | 'swing' };
 
 // ── LFOs (modulación continua de un parámetro) ───────────────────────────────
