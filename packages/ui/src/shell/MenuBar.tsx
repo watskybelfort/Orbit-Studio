@@ -22,8 +22,9 @@ import {
   IconTrack,
   IconWave,
 } from '../icons';
+import { PROJECT_TEMPLATES } from '@orbit/core';
 import { store } from '../state/app';
-import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
+import { importMidi, newProject, newProjectFromTemplate, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
@@ -53,6 +54,12 @@ export function MenuBar() {
   const menus: Record<string, MenuItem[]> = {
     Archivo: [
       { label: 'Nuevo proyecto', icon: <IconNew />, action: () => newProject() },
+      // Plantillas de género: el rack ya montado en vez de empezar en blanco.
+      ...PROJECT_TEMPLATES.map((t) => ({
+        label: `Nuevo: ${t.name}`,
+        icon: <IconNew />,
+        action: () => newProjectFromTemplate(t.id),
+      })),
       { label: 'Abrir…', icon: <IconOpen />, shortcut: 'Ctrl+O', action: () => void openProject() },
       { label: 'Guardar', icon: <IconSave />, shortcut: 'Ctrl+S', action: () => void saveProject() },
       { label: 'Guardar como…', shortcut: 'Ctrl+Shift+S', action: () => void saveProject(true) },
