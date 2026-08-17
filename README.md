@@ -59,7 +59,7 @@ regenerarlo: `npm run dist` en `apps/desktop`.
 npm install
 npm run dev        # Electron + Vite (la app)
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 43 tests (core, engine, collab, claude-bridge)
+npm test           # 137 tests (core, engine, collab, claude-bridge, ui)
 ```
 
 > Si tras `npm install` Electron no arranca (allow-scripts se salta su
@@ -72,14 +72,22 @@ Panel de Claude).
 
 ## Estado
 
-**v0.7.0.** El backlog fino está completo (FLAC propio, sample rates de export,
-snap magnético, espectro en el EQ, RMS por strip…), la paridad FL de diario
-también (toolbar con plays PAT/SONG, ventanas desacoplables, metrónomo con
-acento real, menú de canal con fills, atajos FL del piano roll) y el horizonte
-grande ya aterrizó: **time-stretch** de clips, **SDK de plugins JS**
-([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista Live por escenas** con
-lanzamiento cuantizado (F8). Qué entró en cada versión está auditado línea a
-línea en [docs/FEATURES.md](docs/FEATURES.md).
+**v0.8.0 — "la mezcla se mueve sola".** La automatización deja de vivir solo en
+el editor de curvas: cada perilla y cada fader traen su menú (clic derecho) para
+crear su clip o colgarles un **LFO** —5 formas, velocidad en beats (1/16 a 8
+compases), cantidad bipolar y fase— que oscila alrededor del valor actual, y
+sobre la curva automatizada si la hay. La fase sale de la posición de la
+canción, así que el export suena idéntico al directo. Y se pueden **grabar los
+movimientos de perillas**: armas, mueves mandos mientras suena y al parar cada
+uno cae como clip con la curva simplificada, en un solo undo.
+
+Antes: el backlog fino (FLAC propio, sample rates de export, snap magnético,
+espectro en el EQ, RMS por strip…), la paridad FL de diario (toolbar con plays
+PAT/SONG, ventanas desacoplables, metrónomo con acento real, menú de canal con
+fills, atajos FL del piano roll) y el horizonte grande de v0.7: **time-stretch**
+de clips, **SDK de plugins JS** ([docs/PLUGINS.md](docs/PLUGINS.md)) y **vista
+Live por escenas** con lanzamiento cuantizado (F8). Qué entró en cada versión
+está auditado línea a línea en [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Documentación
 

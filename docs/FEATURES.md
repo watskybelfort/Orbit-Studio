@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.6** = ya publicado en
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.8** = ya publicado en
 esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.6 (16-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.8 (17-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -167,9 +167,11 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Clips de automatización con puntos y **tensión de curva** arrastrable | v0.1 |
 | Destinos: canal (síntesis y mezcla), mixer, parámetro de efecto, tempo, swing | v0.1 |
 | Valores reales mostrados en vivo (dB, Hz, %…) al editar la curva | v0.1 |
-| "Último parámetro tocado" → crear clip desde la perilla | v0.x |
-| LFO por parámetro (forma, velocidad sync, cantidad) | v0.x |
-| Grabación de movimientos de perillas en vivo | v0.x |
+| "Último parámetro tocado" → crear su clip desde la propia perilla (clic derecho) o desde la paleta | v0.8 |
+| **LFO por parámetro**: 5 formas, velocidad en beats (1/16 a 8 compases), cantidad bipolar y fase | v0.8 |
+| El LFO oscila sobre el valor actual — si hay automatización en el mismo destino, ondula sobre la curva | v0.8 |
+| Panel de LFOs: on/off por LFO y recorrido real del parámetro ("0.50 → 1.50") | v0.8 |
+| **Grabación de movimientos de perillas** en vivo → clips con la curva simplificada, en un solo undo | v0.8 |
 
 ## 9. Browser y librería de sonidos
 
@@ -270,6 +272,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
 | Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
 | Recordar layout por proyecto; layouts predefinidos | v0.x |
+| Ventana de LFOs (toolbar, menú Ver y paleta) | v0.8 |
+| Botón de grabación de perillas en el transporte (armar / capturando) | v0.8 |
 | F5 Playlist · F6 Channel Rack · F7 Piano Roll · F9 Mixer · F10 Ajustes | v0.1 |
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
@@ -293,5 +297,5 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Kernel DSP en un solo AudioWorklet, cero GC en el audio thread | v0.1 |
 | Medidor de CPU en la barra de transporte (aviso por color al cargarse) | v0.2 |
 | Proyecto de 100 pistas sin dropouts (objetivo QA) | v0.1 |
-| Golden tests del DSP (render determinista) — 43 tests en total | v0.1 |
+| Golden tests del DSP (render determinista) — 137 tests en total | v0.1 |
 | Autosave + crash recovery (banner Recuperar/Descartar al reabrir) | v0.2 |
