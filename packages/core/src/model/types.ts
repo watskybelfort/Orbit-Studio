@@ -236,6 +236,8 @@ export type EffectKind =
   | 'compressor'
   | 'limiter'
   | 'reverb'
+  | 'convolver'
+  | 'vinyl'
   | 'delay'
   | 'chorus'
   | 'flanger'

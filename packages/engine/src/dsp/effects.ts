@@ -5,10 +5,12 @@
  */
 
 import type { EffectKind } from '@orbit/core';
+import { OrbitConvolver } from './convolver';
 import { DelayLine } from './delayline';
 import { Allpass1, Biquad, EnvFollower, SVF, timeCoef } from './filters';
 import { TWO_PI } from './osc';
 import { Reverb } from './reverb';
+import { Vinyl } from './vinyl';
 
 export interface EffectUnit {
   setParams(params: Record<string, number>): void;
@@ -168,6 +170,56 @@ class ReverbUnit implements EffectUnit {
       l[i] = this.out[0];
       r[i] = this.out[1];
     }
+  }
+}
+
+// ── Convolver (reverb por convolución con IR sintética) ──────────────────────
+
+class ConvolverUnit implements EffectUnit {
+  private cv: OrbitConvolver;
+
+  constructor(sr: number) {
+    this.cv = new OrbitConvolver(sr);
+  }
+
+  setParams(p: Record<string, number>): void {
+    // La IR solo se regenera si cambia size/decay/damp (lo hace OrbitConvolver);
+    // predelay y width son proceso, no cola.
+    this.cv.set(
+      p['size'] ?? 0.6,
+      p['decay'] ?? 1.8,
+      p['damp'] ?? 0.45,
+      p['predelay'] ?? 0.02,
+      p['width'] ?? 1,
+    );
+  }
+
+  process(l: Float32Array, r: Float32Array, n: number): void {
+    this.cv.process(l, r, n);
+  }
+}
+
+// ── Vinilo (lo-fi de disco) ──────────────────────────────────────────────────
+
+class VinylUnit implements EffectUnit {
+  private vy: Vinyl;
+
+  constructor(sr: number) {
+    this.vy = new Vinyl(sr);
+  }
+
+  setParams(p: Record<string, number>): void {
+    this.vy.set(
+      p['crackle'] ?? 0.35,
+      p['noise'] ?? 0.3,
+      p['wow'] ?? 0.3,
+      p['flutter'] ?? 0.25,
+      p['tone'] ?? 8000,
+    );
+  }
+
+  process(l: Float32Array, r: Float32Array, n: number): void {
+    this.vy.process(l, r, n);
   }
 }
 
@@ -565,6 +617,8 @@ export function createEffect(kind: EffectKind, sr: number): EffectUnit {
     case 'compressor': return new CompressorUnit(sr);
     case 'limiter': return new LimiterUnit(sr);
     case 'reverb': return new ReverbUnit(sr);
+    case 'convolver': return new ConvolverUnit(sr);
+    case 'vinyl': return new VinylUnit(sr);
     case 'delay': return new DelayUnit(sr);
     case 'chorus': return new ChorusUnit(sr);
     case 'flanger': return new FlangerUnit(sr);
