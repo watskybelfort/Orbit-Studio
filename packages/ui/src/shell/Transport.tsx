@@ -10,6 +10,7 @@ import {
   IconChannelRack,
   IconClaude,
   IconExport,
+  IconLfo,
   IconLive,
   IconMetronome,
   IconMixer,
@@ -267,6 +268,9 @@ export function Transport() {
         </WindowButton>
         <WindowButton id="automation" title="Automatización">
           <IconAutomation size={15} />
+        </WindowButton>
+        <WindowButton id="lfo" title="LFOs (moduladores por parámetro)">
+          <IconLfo size={15} />
         </WindowButton>
         <WindowButton id="scope" title="Orbit Scope">
           <IconWave size={15} />

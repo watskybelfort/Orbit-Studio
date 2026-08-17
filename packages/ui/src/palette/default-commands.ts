@@ -19,6 +19,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'liveView', title: 'Vista Live', shortcut: 'F8' },
   { id: 'mixer', title: 'Mixer', shortcut: 'F9' },
   { id: 'automation', title: 'Automatización' },
+  { id: 'lfo', title: 'LFOs' },
   { id: 'scope', title: 'Orbit Scope' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },
