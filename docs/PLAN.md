@@ -6,6 +6,58 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## En curso — v1.0 "el estudio completo"
+
+Update grande: cinco bloques, un solo release al final (los commits van
+subiendo según se cierra cada entrega). Marcar aquí lo que se va cerrando.
+
+**E · Orbit Flux** — el instrumento de presets (equivalente de FLEX): una
+librería de sonidos separados por packs y categorías, cada preset con sus
+capas de síntesis y sus macros, más su browser dentro del propio instrumento.
+- [ ] Modelo del preset y del canal Flux (core) + catálogo de presets
+- [ ] Voz por capas en el kernel con macros aplicadas por nota
+- [ ] Panel de Flux: categorías, buscador, lista de presets y macros
+- [ ] Integración en el rack (crear canal, cambiar preset, preview)
+
+**A · Paridad FL**
+- [ ] Compases variables y cambios de tempo por marcador (motor + regla)
+- [ ] Historial de undo navegable
+- [ ] Herramientas brush / slice en el piano roll
+- [ ] Graph editor de velocity en el rack
+- [ ] Riff machine (generador de motivos)
+- [ ] Randomizar / humanizar pasos y agrupación de canales por filtros
+- [ ] Count-in de grabación
+
+**B · Audio pro**
+- [ ] Pitch-shift de clips (sobre el time-stretch SOLA de v0.7)
+- [ ] Corrección de tono de las tomas (tipo autotune)
+- [ ] Detección de transientes y slice de clips
+- [ ] Convolución con IRs
+- [ ] Vinyl / lo-fi (crujido + wow/flutter)
+- [ ] Carriles de toma (comping) en la playlist
+- [ ] Freeze de pista apoyado en el bounce
+
+**C · Instrumentos y librería**
+- [ ] Orbit Keys (Rhodes FM), Orbit Vox (formantes), Orbit Slicer
+- [ ] Plugins JS de instrumento (el SDK hoy solo hace efectos)
+- [ ] Browser: filtros combinables, favoritos y volumen de preview
+- [ ] Detección automática de BPM/tonalidad al indexar
+- [ ] Plantillas de proyecto (trap, boom bap, reggaetón)
+
+**D · Estudio y entrega**
+- [ ] Layouts de ventanas por proyecto y predefinidos
+- [ ] Escala de UI, fuentes/radios, exportar/importar tema
+- [ ] Ctrl+E export directo, export de la selección y OGG
+- [ ] Info del proyecto
+- [ ] Colaboración: modo seguidor, chat con notas ancladas, permisos por rol
+- [ ] Asistente de mezcla con Claude (analiza y propone cadena)
+
+**Fuera de la v1.0 (proyecto aparte)**: puente CLAP/VST3 (necesita host
+nativo con GUI embebida y sandbox de crashes) y galería de plugins de la
+comunidad (necesita backend).
+
+---
+
 ## Estado — 17-08-2026: v0.9.0
 
 v0.9, "cierra la pista": **consolidar a audio** (render de los clips de una
