@@ -6,6 +6,7 @@ import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
 import { ChannelRack } from '../editors/rack';
 import { NovaPanel } from '../editors/nova';
+import { HistoryPanel } from '../editors/history';
 import { LfoPanel } from '../editors/lfo';
 import { LiveView } from '../editors/live';
 import { PianoRoll } from '../editors/pianoroll';
@@ -48,6 +49,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="nova" title="Orbit Nova" minW={560} minH={340}>
         <NovaPanel />
+      </InternalWindow>
+      <InternalWindow id="history" title="Historial" minW={360} minH={260}>
+        <HistoryPanel />
       </InternalWindow>
       <InternalWindow id="scope" title="Orbit Scope" minW={360} minH={240}>
         <ScopePanel />
