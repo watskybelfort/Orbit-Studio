@@ -8,6 +8,8 @@ import {
   createChannel,
   createEmptyProject,
   createPattern,
+  createProjectFromTemplate,
+  findTemplate,
   decodeMidi,
   parseProject,
   serializeProject,
@@ -48,6 +50,21 @@ export function newProject(): void {
   useProjectFile.setState({ path: null });
   markClean();
   notify('Proyecto nuevo.');
+}
+
+/**
+ * Proyecto nuevo desde una plantilla de género: canales con su sonido, el
+ * groove básico en el patrón y el mixer enrutado. Es un proyecto normal — todo
+ * lo que trae se edita o se borra.
+ */
+export function newProjectFromTemplate(id: string): void {
+  const template = findTemplate(id);
+  store.replaceProject(createProjectFromTemplate(id));
+  useProjectFile.setState({ path: null });
+  markClean();
+  const first = store.project.patternOrder[0];
+  if (first) setActivePattern(first);
+  notify(template ? `Plantilla "${template.name}" cargada.` : 'Proyecto nuevo.');
 }
 
 export async function openProject(): Promise<void> {
