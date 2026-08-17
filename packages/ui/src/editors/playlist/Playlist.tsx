@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
+  TRACK_ICONS,
   createPlaylistTrack,
   newId,
   pickColor,
@@ -29,6 +30,7 @@ import {
   type Project,
 } from '@orbit/core';
 import { addAudioClip, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
+import { IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
@@ -44,6 +46,10 @@ import './playlist.css';
 const RULER_H = 26;
 /** Zona sensible del borde derecho de un clip (resize), en px. */
 const RESIZE_EDGE = 7;
+/** Límites de la altura de pista (px) y valor al que vuelve con doble clic. */
+const TRACK_H_MIN = 30;
+const TRACK_H_MAX = 220;
+const TRACK_H_DEFAULT = 56;
 const MIN_ZOOM = 6;
 const MAX_ZOOM = 120;
 
@@ -1084,6 +1090,8 @@ function TrackHeader({ track }: TrackHeaderProps) {
   const [editing, setEditing] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const cancelName = useRef(false);
+  /** Arrastre de la altura: alto y cursor al empezar. */
+  const resize = useRef<{ y: number; height: number } | null>(null);
   const busy = useBounceStore((s) => s.busy !== null);
 
   const toggleMute = () => {
@@ -1135,6 +1143,11 @@ function TrackHeader({ track }: TrackHeaderProps) {
       <label className="pl-swatch" title="Color de pista" style={{ background: track.color }}>
         <input type="color" value={track.color} onChange={(e) => setColor(e.target.value)} />
       </label>
+      {track.icon && (
+        <span className="pl-track-icon" title={track.icon}>
+          <IconTrack kind={track.icon} size={14} />
+        </span>
+      )}
       {editing ? (
         <input
           className="pl-name-input"
@@ -1159,8 +1172,61 @@ function TrackHeader({ track }: TrackHeaderProps) {
           {track.name}
         </button>
       )}
+      <div
+        className="pl-track-resize"
+        title="Arrastra para cambiar la altura de la pista"
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          capturePointer(e.currentTarget, e.pointerId);
+          resize.current = { y: e.clientY, height: track.height };
+        }}
+        onPointerMove={(e) => {
+          const r = resize.current;
+          if (!r) return;
+          const height = Math.round(
+            Math.min(TRACK_H_MAX, Math.max(TRACK_H_MIN, r.height + (e.clientY - r.y))),
+          );
+          if (height !== track.height) {
+            store.dispatch(
+              { type: 'patchPlaylistTrack', trackId: track.id, patch: { height } },
+              { label: `Altura de "${track.name}"`, mergeKey: `pl:height:${track.id}` },
+            );
+          }
+        }}
+        onPointerUp={() => {
+          resize.current = null;
+        }}
+        onDoubleClick={() =>
+          store.dispatch(
+            { type: 'patchPlaylistTrack', trackId: track.id, patch: { height: TRACK_H_DEFAULT } },
+            { label: `Altura de "${track.name}"` },
+          )
+        }
+      />
       {menu && (
         <TrackMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <div className="pl-menu-icons" title="Icono de la pista">
+            {TRACK_ICONS.map((kind) => (
+              <button
+                key={kind}
+                className={`pl-icon-btn${track.icon === kind ? ' on' : ''}`}
+                title={kind}
+                onClick={() =>
+                  store.dispatch(
+                    {
+                      type: 'patchPlaylistTrack',
+                      trackId: track.id,
+                      patch: { icon: track.icon === kind ? undefined : kind },
+                    },
+                    { label: `Icono de "${track.name}"` },
+                  )
+                }
+              >
+                <IconTrack kind={kind} size={15} />
+              </button>
+            ))}
+          </div>
           <button
             className="param-menu-item"
             disabled={busy || clipCount === 0}

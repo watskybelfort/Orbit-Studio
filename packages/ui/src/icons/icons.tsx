@@ -232,6 +232,71 @@ export function IconCollab(props: IconProps) {
   );
 }
 
+/* ── Iconos de pista de playlist ─────────────────────────────────────────── */
+
+/** Un icono por familia de sonido, para reconocer la pista de un vistazo. */
+export function IconTrack({ kind, ...props }: IconProps & { kind: string }) {
+  switch (kind) {
+    case 'drums': // bombo de frente con su pedal
+      return (
+        <Icon {...props}>
+          <circle cx="12" cy="13" r="7.5" />
+          <circle cx="12" cy="13" r="2.6" />
+          <path d="M4.5 20.5 L7 17.5 M19.5 20.5 L17 17.5" />
+        </Icon>
+      );
+    case 'bass': // clave de fa simplificada
+      return (
+        <Icon {...props}>
+          <path d="M6 6.5 C11 6.5 15.5 9 15.5 13.5 C15.5 17 12.5 19 9.5 19" />
+          <circle cx="6" cy="6.8" r="1.6" fill="currentColor" stroke="none" />
+          <circle cx="19" cy="9" r="1" fill="currentColor" stroke="none" />
+          <circle cx="19" cy="12.5" r="1" fill="currentColor" stroke="none" />
+        </Icon>
+      );
+    case 'keys': // teclas
+      return (
+        <Icon {...props}>
+          <rect x="3.5" y="6.5" width="17" height="11" rx="1.5" />
+          <path d="M8 6.5 V17.5 M12 6.5 V17.5 M16 6.5 V17.5" />
+        </Icon>
+      );
+    case 'guitar': // pala y cuerdas
+      return (
+        <Icon {...props}>
+          <path d="M14 4.5 L19.5 10 L10 19.5 C8 21.5 3.5 20 4.5 16.5 L14 4.5 Z" />
+          <path d="M11.5 8 L16 12.5" />
+        </Icon>
+      );
+    case 'synth': // onda de sierra
+      return (
+        <Icon {...props}>
+          <path d="M3 17 L9 7 L9 17 L15 7 L15 17 L21 7" />
+        </Icon>
+      );
+    case 'vocal': // micro
+      return (
+        <Icon {...props}>
+          <rect x="9.5" y="3.5" width="5" height="10" rx="2.5" />
+          <path d="M6 11.5 A6 6 0 0 0 18 11.5" />
+          <path d="M12 17.5 V20.5" />
+        </Icon>
+      );
+    case 'audio': // forma de onda
+      return (
+        <Icon {...props}>
+          <path d="M4 12 V12 M7 8 V16 M10 5 V19 M13 9 V15 M16 6.5 V17.5 M19 10 V14" />
+        </Icon>
+      );
+    default: // fx: destello
+      return (
+        <Icon {...props}>
+          <path d="M12 3.5 L13.9 9.6 L20 11.5 L13.9 13.4 L12 19.5 L10.1 13.4 L4 11.5 L10.1 9.6 Z" />
+        </Icon>
+      );
+  }
+}
+
 /** Grabar perillas: un mando con su índice y el punto de rec arriba a la derecha. */
 export function IconKnobRec(props: IconProps) {
   return (
