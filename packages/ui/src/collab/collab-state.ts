@@ -4,7 +4,8 @@
  * necesita pintar (fase, código de sala, conectados, error).
  *
  * Toda la réplica (snapshot + log de comandos, unirse/crear) vive en
- * @orbit/collab; aquí solo se orquesta el ciclo de vida de la sesión.
+ * @orbit/collab; aquí solo se orquesta el ciclo de vida de la sesión, la
+ * rehidratación de samples (sample-sync.ts) y el congelado del motor.
  */
 
 import { create } from 'zustand';
@@ -20,7 +21,8 @@ import {
   type CollabRole,
   type PeerInfo,
 } from '@orbit/collab';
-import { store } from '../state/app';
+import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
+import { resetSampleSync, sampleSetChanged, syncSamplesWithRoom } from './sample-sync';
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
@@ -79,6 +81,17 @@ export interface CollabState {
   role: CollabRole;
   /** clientId del peer al que estamos siguiendo (modo seguidor), o null. */
   following: number | null;
+  /**
+   * Motor congelado: los cambios de la sala siguen entrando al proyecto, pero
+   * TU audio se queda con el último snapshot (ver setAudioFrozen).
+   */
+  audioFrozen: boolean;
+  /** Congelado Y con cambios esperando a que lo descongeles. */
+  frozenPending: boolean;
+  /** Nombres de los sonidos de la sala que aquí todavía no pueden sonar. */
+  missingSamples: string[];
+  /** Sample que no cupo en la sala (tope por sample o sala llena). */
+  assetWarning: string | null;
   /** Chat de la sala (vive en el doc Yjs de la sesión). */
   chat: ChatMessage[];
   /** Último comando rechazado por permisos, para avisar en pantalla. */
@@ -92,6 +105,10 @@ export const useCollabStore = create<CollabState>(() => ({
   error: null,
   role: DEFAULT_ROLE,
   following: null,
+  audioFrozen: false,
+  frozenPending: false,
+  missingSamples: [],
+  assetWarning: null,
   chat: [],
   denied: null,
 }));
@@ -108,6 +125,7 @@ export function followedPeer(): PeerInfo | null {
 let session: CollabSession | null = null;
 let unsubscribePeers: (() => void) | null = null;
 let unsubscribeChat: (() => void) | null = null;
+let unsubscribeSamples: (() => void) | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let deniedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -124,6 +142,12 @@ function teardownSession(): void {
   unsubscribePeers = null;
   unsubscribeChat?.();
   unsubscribeChat = null;
+  unsubscribeSamples?.();
+  unsubscribeSamples = null;
+  // Salir de la sala con el motor congelado te dejaría sin oír TUS cambios sin
+  // ninguna sala a la que culpar.
+  setEngineSyncFrozen(false);
+  resetSampleSync();
   if (deniedTimer !== null) {
     clearTimeout(deniedTimer);
     deniedTimer = null;
@@ -144,6 +168,37 @@ function refreshPhase(s: CollabSession): void {
   if (phase !== 'online' && phase !== 'connecting') return;
   const next: CollabPhase = s.connected ? 'online' : 'connecting';
   if (next !== phase) useCollabStore.setState({ phase: next });
+}
+
+/**
+ * "Congelado y con cosas esperando". Va con el latido de la fase y no con cada
+ * comando: es un aviso, no un medidor, y no merece un re-render por tecla.
+ */
+function refreshFrozenPending(): void {
+  const pending = hasFrozenChanges();
+  if (useCollabStore.getState().frozenPending !== pending) {
+    useCollabStore.setState({ frozenPending: pending });
+  }
+}
+
+/**
+ * Reconcilia los samples del proyecto con el kernel y con la sala, y deja en el
+ * store cuántos sonidos siguen sin poder oírse aquí (el panel lo enseña).
+ */
+function runSampleSync(s: CollabSession): void {
+  void syncSamplesWithRoom(s).then((report) => {
+    if (session !== s) return;
+    const { missingSamples } = useCollabStore.getState();
+    // Comparación por contenido: esto corre en cada comando con samples y no
+    // debe re-renderizar el panel por gusto.
+    if (
+      missingSamples.length === report.missing.length &&
+      missingSamples.every((name, i) => name === report.missing[i])
+    ) {
+      return;
+    }
+    useCollabStore.setState({ missingSamples: report.missing });
+  });
 }
 
 /** Enseña en pantalla que un cambio se ha rechazado por permisos. */
@@ -184,6 +239,21 @@ async function startSession(code: string, url: string, userName: string): Promis
         info.local ? info.reason : `Cambio de ${info.user} descartado: ${info.reason}`,
       );
     },
+    // Unirse o re-derivar deja el proyecto lleno de referencias y el kernel
+    // vacío: aquí es donde hay que volver a llenarlo.
+    onProjectReplaced: () => {
+      if (session !== s) return;
+      runSampleSync(s);
+    },
+    // Llegó el contenido de un sonido que aún no teníamos: cárgalo ya.
+    onAsset: () => {
+      if (session !== s) return;
+      runSampleSync(s);
+    },
+    onAssetRejected: (info) => {
+      if (session !== s) return;
+      useCollabStore.setState({ assetWarning: info.message });
+    },
   });
   session = s;
   useCollabStore.setState({
@@ -192,6 +262,10 @@ async function startSession(code: string, url: string, userName: string): Promis
     peers: [],
     error: null,
     following: null,
+    audioFrozen: false,
+    frozenPending: false,
+    missingSamples: [],
+    assetWarning: null,
     chat: [],
     denied: null,
   });
@@ -210,7 +284,22 @@ async function startSession(code: string, url: string, userName: string): Promis
     if (session !== s) return;
     useCollabStore.setState({ chat });
   });
-  pollTimer = setInterval(() => refreshPhase(s), STATUS_POLL_MS);
+  // Un `registerSample` (nuestro o remoto) mete una referencia nueva: hay que
+  // resolver sus bytes antes de que a alguien le suene un canal mudo.
+  unsubscribeSamples = store.subscribe(() => {
+    if (session !== s) return;
+    if (!sampleSetChanged()) return;
+    runSampleSync(s);
+  });
+  pollTimer = setInterval(() => {
+    refreshPhase(s);
+    refreshFrozenPending();
+    // Red de seguridad: mientras quede algo por sonar se reintenta con el
+    // latido. Cuesta un `Map.get` por sonido ausente (lo que no se puede leer
+    // de disco no se vuelve a pedir al disco) y cierra los casos raros — que el
+    // blob llegara mientras el AudioContext dormía, o un aviso perdido.
+    if (useCollabStore.getState().missingSamples.length > 0) runSampleSync(s);
+  }, STATUS_POLL_MS);
 
   let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -229,6 +318,10 @@ async function startSession(code: string, url: string, userName: string): Promis
     ]);
     if (session !== s) return; // leaveRoom() durante la conexión
     useCollabStore.setState({ phase: 'online', peers: s.peers, chat: s.chat, error: null });
+    // Al CREAR la sala no hay replaceProject que dispare nada, pero nuestros
+    // samples tienen que subir igual para que el que entre después los oiga.
+    sampleSetChanged();
+    runSampleSync(s);
   } catch (err) {
     if (session !== s) return; // teardown externo: leaveRoom() ya dejó el estado
     teardownSession();
@@ -284,9 +377,39 @@ export function leaveRoom(): void {
     peers: [],
     error: null,
     following: null,
+    audioFrozen: false,
+    frozenPending: false,
+    missingSamples: [],
+    assetWarning: null,
     chat: [],
     denied: null,
   });
+}
+
+// ── Congelar el audio ────────────────────────────────────────────────────────
+
+/**
+ * "Silenciar lo que toca el otro": congela TU motor.
+ *
+ * No silencia al colaborador — él no reproduce nada en tu máquina, lo que oyes
+ * es tu propio motor tocando el proyecto compartido. Lo que hace es dejar de
+ * llevarle al kernel los cambios que van entrando: sus comandos se siguen
+ * aplicando (la UI converge, el chat sigue, todo llega) pero el audio se queda
+ * con el último snapshot. Al desactivarlo se resincroniza al instante con todo
+ * lo acumulado.
+ */
+export function setAudioFrozen(frozen: boolean): void {
+  setEngineSyncFrozen(frozen);
+  // Del motor, no del argumento: el estado real lo lleva app.ts.
+  useCollabStore.setState({
+    audioFrozen: isEngineSyncFrozen(),
+    frozenPending: hasFrozenChanges(),
+  });
+}
+
+/** Alterna el congelado del motor (botón del panel). */
+export function toggleAudioFrozen(): void {
+  setAudioFrozen(!useCollabStore.getState().audioFrozen);
 }
 
 // ── Rol ──────────────────────────────────────────────────────────────────────

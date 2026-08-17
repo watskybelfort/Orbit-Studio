@@ -1,6 +1,7 @@
 // @orbit/collab — colaboración en tiempo real: log de comandos sobre Yjs,
 // sesión WebSocket (protocolo y-websocket a mano), presencia por awareness,
-// permisos por rol y chat de sala con notas ancladas al timeline.
+// permisos por rol, chat de sala con notas ancladas al timeline y los BYTES de
+// los samples viajando por la sala (indexados por hash).
 export const COLLAB_VERSION = '0.1.0';
 
 export { CollabSession } from './session';
@@ -24,6 +25,15 @@ export type { CollabRole, RoleContext, RoleVerdict } from './roles';
 
 export { ChatBinding, MAX_CHAT_MESSAGES } from './chat';
 export type { ChatMessage, ChatOptions } from './chat';
+
+export { MAX_ASSET_BYTES, MAX_ROOM_ASSET_BYTES, SampleAssetBinding } from './assets';
+export type {
+  AssetRejection,
+  PublishResult,
+  RejectReason,
+  SampleAsset,
+  SampleAssetOptions,
+} from './assets';
 
 export {
   formatRoomCode,

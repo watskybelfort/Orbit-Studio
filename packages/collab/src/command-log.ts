@@ -88,6 +88,13 @@ export interface CommandLogOptions {
   getRole?: () => CollabRole;
   /** Se llama cuando un comando se rechaza por permisos (no rompe la sesión). */
   onDenied?: (info: DeniedInfo) => void;
+  /**
+   * El proyecto se ha SUSTITUIDO entero (unirse a la sala o re-derivar tras un
+   * merge cruzado). Quien escucha esto tiene que rehidratar todo lo que no vive
+   * en el proyecto serializado — sobre todo los BYTES de los samples: tras un
+   * replaceProject el modelo está lleno de referencias y el kernel, vacío.
+   */
+  onProjectReplaced?: () => void;
 }
 
 /** Umbral de compactación por defecto. */
@@ -98,7 +105,7 @@ function entryKey(client: number, seq: number): string {
   return `${client}:${seq}`;
 }
 
-/** Ids de pistas que borra un comando, entrando también en los lotes. */
+/** Ids de pistas/patrones que borra un comando, entrando también en los lotes. */
 function collectTrackDeletions(cmd: Command): Id[] {
   if (cmd.type === 'batch') {
     return cmd.commands.flatMap((sub) => collectTrackDeletions(sub));
@@ -121,10 +128,11 @@ export class CommandLogBinding {
   private readonly isHost: () => boolean;
   private readonly getRole: () => CollabRole;
   private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
+  private readonly onProjectReplaced: (() => void) | undefined;
 
   /** Entradas ya aplicadas a (u originadas por) nuestro store. */
   private applied = new Set<string>();
-  /** Ids de pistas creadas por NOSOTROS en esta sesión (ver roles.ts). */
+  /** Ids de pistas/patrones creados por NOSOTROS en esta sesión (ver roles.ts). */
   private ownCreations = new Set<Id>();
   /** Estamos revirtiendo un comando denegado: no re-anexar el inverso. */
   private reverting = false;
@@ -151,6 +159,7 @@ export class CommandLogBinding {
     this.isHost = opts.isHost ?? (() => true);
     this.getRole = opts.getRole ?? (() => DEFAULT_ROLE);
     this.onDenied = opts.onDenied;
+    this.onProjectReplaced = opts.onProjectReplaced;
   }
 
   /**
@@ -211,6 +220,7 @@ export class CommandLogBinding {
       this.applied.add(entryKey(entry.client, entry.seq));
     }
     this.store.replaceProject(project);
+    this.notifyProjectReplaced();
   }
 
   /** Publica el proyecto local como base del room. */
@@ -287,12 +297,18 @@ export class CommandLogBinding {
     return checkRole(role, entry.cmd, { ownCreation: entry.own === true }).allowed;
   }
 
-  /** Apunta las pistas que creamos nosotros (para poder deshacer su creación). */
+  /** Apunta lo que creamos nosotros (para poder deshacer su creación). */
   private rememberOwnCreations(cmd: Command): void {
     switch (cmd.type) {
       case 'addChannel':
       case 'restoreChannel':
         this.ownCreations.add(cmd.channel.id);
+        break;
+      case 'addPattern':
+      case 'restorePattern':
+        // Desde que borrar un patrón cuenta como borrado protegido, sin esto un
+        // invitado no podría deshacer ni su propio "patrón nuevo".
+        this.ownCreations.add(cmd.pattern.id);
         break;
       case 'addPlaylistTrack':
       case 'restorePlaylistTrack':
@@ -403,6 +419,7 @@ export class CommandLogBinding {
       this.applied.add(entryKey(entry.client, entry.seq));
     }
     this.store.replaceProject(project);
+    this.notifyProjectReplaced();
   }
 
   private safeApply(project: Project, cmd: Command): void {
@@ -410,6 +427,19 @@ export class CommandLogBinding {
       applyCommand(project, cmd);
     } catch (err) {
       console.warn('[collab] comando del log no aplicable (se ignora):', err);
+    }
+  }
+
+  /**
+   * Avisa de que el proyecto se cambió de golpe. Va aislado en su try porque
+   * quien escucha esto toca el motor de audio: que se le atragante un sample no
+   * puede tumbar la réplica.
+   */
+  private notifyProjectReplaced(): void {
+    try {
+      this.onProjectReplaced?.();
+    } catch (err) {
+      console.warn('[collab] rehidratación tras replaceProject falló:', err);
     }
   }
 

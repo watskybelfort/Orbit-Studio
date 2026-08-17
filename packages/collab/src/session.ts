@@ -10,7 +10,10 @@
  *   messageType 1 → awareness (presencia)
  *
  * Reconexión con backoff simple (1s, 2s, 4s… máx 15s). La réplica del
- * proyecto la lleva CommandLogBinding (log de comandos sobre el Y.Doc).
+ * proyecto la lleva CommandLogBinding (log de comandos sobre el Y.Doc) y el
+ * CONTENIDO de los samples, SampleAssetBinding (mapa de blobs por hash en el
+ * mismo doc): sin eso el otro recibe referencias a sonidos que su kernel no
+ * tiene y le suenan mudas.
  */
 
 import * as Y from 'yjs';
@@ -21,6 +24,12 @@ import * as decoding from 'lib0/decoding';
 import type { ProjectStore } from '@orbit/core';
 import { CommandLogBinding, type CollabUser, type DeniedInfo } from './command-log';
 import { ChatBinding, type ChatMessage } from './chat';
+import {
+  SampleAssetBinding,
+  type AssetRejection,
+  type PublishResult,
+  type SampleAsset,
+} from './assets';
 import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
 import { normalizeRoomCode } from './room-code';
 
@@ -79,6 +88,20 @@ export interface CollabSessionOptions {
   role?: CollabRole;
   /** Aviso de comando rechazado por permisos (propio o de un remoto). */
   onDenied?: (info: DeniedInfo) => void;
+  /**
+   * El proyecto se sustituyó entero (unirse a la sala, o re-derivar tras un
+   * merge cruzado). Es el momento de rehidratar los samples: el modelo queda
+   * lleno de referencias y el kernel local, vacío.
+   */
+  onProjectReplaced?: () => void;
+  /** Llegó a la sala el contenido de un sample que aún no teníamos. */
+  onAsset?: (asset: SampleAsset) => void;
+  /** Un sample no cupo en la sala (demasiado grande o sala llena). */
+  onAssetRejected?: (info: AssetRejection) => void;
+  /** Tope por sample de lo que viaja por la sala (bytes). */
+  maxAssetBytes?: number;
+  /** Tope acumulado de samples de la sala (bytes). */
+  maxRoomAssetBytes?: number;
 }
 
 export class CollabSession {
@@ -89,9 +112,11 @@ export class CollabSession {
   private readonly user: CollabUser;
   private readonly compactThreshold: number | undefined;
   private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
+  private readonly onProjectReplaced: (() => void) | undefined;
   private currentRole: CollabRole;
 
   private readonly chatBinding: ChatBinding;
+  private readonly assetBinding: SampleAssetBinding;
   private binding: CommandLogBinding | null = null;
   private ws: WebSocket | null = null;
   private url = '';
@@ -110,6 +135,7 @@ export class CollabSession {
     this.compactThreshold = opts.compactThreshold;
     this.currentRole = opts.role ?? DEFAULT_ROLE;
     this.onDenied = opts.onDenied;
+    this.onProjectReplaced = opts.onProjectReplaced;
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
@@ -121,6 +147,16 @@ export class CollabSession {
     // binding del proyecto (y así lo que escribas antes de sincronizar viaja
     // igualmente cuando llegue la sala).
     this.chatBinding = new ChatBinding(this.doc, opts.user, { isHost: () => this.isHost() });
+    // Los samples también viven en el doc desde el minuto uno: lo que subas
+    // antes de sincronizar viaja igual cuando llegue la sala, y lo que la sala
+    // ya tenía se anuncia en cuanto entra por el primer sync.
+    this.assetBinding = new SampleAssetBinding(this.doc, {
+      ...(opts.maxAssetBytes !== undefined ? { maxAssetBytes: opts.maxAssetBytes } : null),
+      ...(opts.maxRoomAssetBytes !== undefined ? { maxRoomBytes: opts.maxRoomAssetBytes } : null),
+      ...(opts.onAsset ? { onAsset: opts.onAsset } : null),
+      ...(opts.onAssetRejected ? { onRejected: opts.onAssetRejected } : null),
+    });
+    this.assetBinding.start();
   }
 
   // ── API pública ────────────────────────────────────────────────────────────
@@ -266,10 +302,47 @@ export class CollabSession {
     return this.chatBinding.onChanged(cb);
   }
 
+  // ── Samples de la sala ─────────────────────────────────────────────────────
+
+  /** ¿Está el CONTENIDO de este sample publicado en la sala? */
+  hasSample(hash: string): boolean {
+    return this.assetBinding.has(hash);
+  }
+
+  /** Bytes del sample publicado bajo ese hash, o null si la sala no los tiene. */
+  getSample(hash: string): Uint8Array | null {
+    return this.assetBinding.get(hash);
+  }
+
+  /**
+   * Sube el contenido de un sample para que suene en las demás máquinas.
+   * Idempotente por hash: republicar lo que ya está devuelve 'duplicate' sin
+   * mandar un solo byte.
+   */
+  publishSample(bytes: Uint8Array, meta: { hash: string; name: string }): PublishResult {
+    return this.assetBinding.publish(bytes, { ...meta, by: this.user.name });
+  }
+
+  /** Hashes con contenido disponible en la sala. */
+  get sampleHashes(): string[] {
+    return this.assetBinding.hashes;
+  }
+
+  /** Bytes que ocupan los samples publicados en la sala. */
+  get sampleBytes(): number {
+    return this.assetBinding.totalBytes;
+  }
+
+  /** Suscripción a "cambió el almacén de samples". Devuelve el unsubscribe. */
+  onSamplesChanged(cb: () => void): () => void {
+    return this.assetBinding.onChanged(cb);
+  }
+
   /** Teardown completo (para cerrar el proyecto). */
   destroy(): void {
     this.disconnect();
     this.chatBinding.destroy();
+    this.assetBinding.destroy();
     this.awareness.destroy();
     this.doc.destroy();
   }
@@ -355,6 +428,7 @@ export class CollabSession {
         isHost: () => this.isHost(),
         getRole: () => this.currentRole,
         ...(this.onDenied ? { onDenied: this.onDenied } : null),
+        ...(this.onProjectReplaced ? { onProjectReplaced: this.onProjectReplaced } : null),
       });
       this.binding.start();
     }

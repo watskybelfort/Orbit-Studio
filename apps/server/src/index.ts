@@ -9,7 +9,9 @@
  *   (código de 6 chars A-Z2-9 sin ambiguos; se aceptan guiones/minúsculas).
  * - messageType 0 → y-sync (step1/step2/update), messageType 1 → awareness.
  * - Persistencia: al cerrar el último socket de un room se guarda
- *   Y.encodeStateAsUpdate en ./rooms/<código>.bin; al abrirlo, se recarga.
+ *   Y.encodeStateAsUpdate en ./rooms/<código>.bin; al abrirlo, se recarga. Ahí
+ *   dentro van también los BYTES de los samples de la sala, así que el que
+ *   vuelva mañana sigue oyendo los sonidos que subió el otro.
  * - GET /health → {rooms: n}.
  */
 
@@ -205,7 +207,15 @@ const httpServer = createServer((req, res) => {
   res.end(JSON.stringify({ error: 'not found' }));
 });
 
-const wss = new WebSocketServer({ server: httpServer });
+// El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
+// (Y.Map 'assets', ver packages/collab/src/assets.ts). El primer sync manda el
+// estado ENTERO en un solo mensaje, así que el tope de payload tiene que quedar
+// por encima del presupuesto de assets (64 MB) MÁS el proyecto, el log y el
+// chat. Los 100 MiB por defecto de `ws` dan poco margen para una sala llena y
+// el fallo sería el peor posible: el socket cerrado justo al entrar.
+const MAX_PAYLOAD_BYTES = 192 * 1024 * 1024;
+
+const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD_BYTES });
 
 // ws re-emite los errores de listen del http server por aquí; sin handler
 // tirarían el proceso con un stack crudo en vez del mensaje de abajo.

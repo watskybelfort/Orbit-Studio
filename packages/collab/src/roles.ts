@@ -9,7 +9,7 @@
  *
  * Roles:
  * - productor → todo (es el dueño de la sesión).
- * - invitado  → edita, pero NO borra pistas ni toca el master del mixer.
+ * - invitado  → edita, pero NO borra pistas ni patrones ni toca el master.
  * - oyente    → solo mira y escucha: ni un comando.
  *
  * Rechazar NO rompe la sesión: el comando simplemente no entra al log (y si
@@ -31,7 +31,7 @@ export const ROLE_LABELS: Record<CollabRole, string> = {
 
 export const ROLE_DESCRIPTIONS: Record<CollabRole, string> = {
   productor: 'Control total del proyecto.',
-  invitado: 'Puede editar, pero no borra pistas ni toca el master.',
+  invitado: 'Puede editar, pero no borra pistas ni patrones ni toca el master.',
   oyente: 'Solo mira y escucha; no puede cambiar nada.',
 };
 
@@ -67,8 +67,14 @@ const MASTER_TRACK = 0;
 
 /**
  * Comandos que borran una PISTA entera (canal del rack, pista de playlist o
- * arrangement completo, que se lleva sus pistas por delante). Devuelve los
- * ids afectados; vacío = el comando no borra pistas.
+ * arrangement completo, que se lleva sus pistas por delante) o un PATRÓN, que
+ * se lleva todas sus notas y todos sus clips de la playlist. Devuelve los ids
+ * afectados; vacío = el comando no borra nada de esto.
+ *
+ * El patrón está aquí porque borrarlo destruye tanto trabajo ajeno como borrar
+ * una pista: quedaba fuera por omisión, no por decisión, y dejaba al invitado
+ * capaz de vaciar el proyecto por la puerta de atrás sin poder borrar ni una
+ * pista por la de delante.
  */
 export function trackDeletionTargets(cmd: Command): Id[] {
   switch (cmd.type) {
@@ -78,6 +84,8 @@ export function trackDeletionTargets(cmd: Command): Id[] {
       return [cmd.trackId];
     case 'removeArrangement':
       return [cmd.arrangementId];
+    case 'removePattern':
+      return [cmd.patternId];
     default:
       return [];
   }
@@ -136,7 +144,8 @@ export function checkRole(
   if (trackDeletionTargets(cmd).length > 0 && ctx.ownCreation !== true) {
     return {
       allowed: false,
-      reason: 'Como invitado no puedes borrar pistas; pídeselo al productor de la sesión.',
+      reason:
+        'Como invitado no puedes borrar pistas ni patrones; pídeselo al productor de la sesión.',
     };
   }
 

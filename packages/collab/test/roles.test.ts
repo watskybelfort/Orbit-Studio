@@ -4,8 +4,8 @@
  * clientes enlazados a mano (sin red, como en convergence.test.ts).
  *
  * Lo que se comprueba de punta a punta:
- * - un invitado edita, pero lo suyo NO entra al log si borra pistas o toca el
- *   master, y su store vuelve al estado de la sala (no se rompe la sesión);
+ * - un invitado edita, pero lo suyo NO entra al log si borra pistas o patrones
+ *   o toca el master, y su store vuelve al estado de la sala (sin romper nada);
  * - un oyente no mete NADA;
  * - una entrada remota con rol insuficiente se descarta igual en el receptor
  *   (mismo veredicto en todos los clientes = convergencia intacta).
@@ -16,6 +16,7 @@ import * as Y from 'yjs';
 import {
   createChannel,
   createEmptyProject,
+  createPattern,
   newId,
   parseProject,
   ProjectStore,
@@ -93,18 +94,20 @@ describe('checkRole: qué deja pasar cada rol', () => {
       { type: 'addChannel', channel: createChannel('drums', 0) },
       { type: 'addClips', clips: [] },
       { type: 'removeClips', clipIds: ['c1'] },
-      { type: 'removePattern', patternId: 'p1' },
     ];
     for (const cmd of permitidos) {
       expect(checkRole('invitado', cmd), `debería permitir ${cmd.type}`).toEqual({ allowed: true });
     }
   });
 
-  it('el invitado NO borra pistas', () => {
+  it('el invitado NO borra pistas ni patrones', () => {
     const borrados: Command[] = [
       { type: 'removeChannel', channelId: 'ch1' },
       { type: 'removePlaylistTrack', trackId: 't1' },
       { type: 'removeArrangement', arrangementId: 'a1' },
+      // Borrar un patrón se lleva sus notas y todos sus clips: pesa tanto como
+      // borrar una pista, aunque antes se colaba por no estar en la lista.
+      { type: 'removePattern', patternId: 'p1' },
     ];
     for (const cmd of borrados) {
       const verdict = checkRole('invitado', cmd);
@@ -113,9 +116,11 @@ describe('checkRole: qué deja pasar cada rol', () => {
     }
   });
 
-  it('el invitado sí puede deshacer la creación de una pista suya', () => {
+  it('el invitado sí puede deshacer la creación de una pista o patrón suyo', () => {
     const cmd: Command = { type: 'removeChannel', channelId: 'ch1' };
     expect(checkRole('invitado', cmd, { ownCreation: true }).allowed).toBe(true);
+    const pattern: Command = { type: 'removePattern', patternId: 'p1' };
+    expect(checkRole('invitado', pattern, { ownCreation: true }).allowed).toBe(true);
   });
 
   it('el invitado NO toca el master del mixer (fader, efectos, sends, ruta)', () => {
@@ -235,6 +240,31 @@ describe('CommandLogBinding: el rol se aplica en el log', () => {
     storeB.dispatch({ type: 'setSwing', swing: 0.3 });
     expect(storeA.project.swing).toBe(0.3);
     expect(serializeProject(storeA.project)).toBe(serializeProject(storeB.project));
+  });
+
+  it('el invitado no borra un patrón del productor, pero sí el suyo', () => {
+    const { storeA, storeB, logA, denied } = room('invitado');
+    // El productor mete un segundo patrón: core no deja borrar el último, y lo
+    // que se prueba aquí es el permiso, no esa regla.
+    storeA.dispatch({ type: 'addPattern', pattern: createPattern(1, 'Idea de Ana') });
+    const ajeno = storeA.project.patternOrder[0]!;
+    const entriesBefore = logA.length;
+    storeB.dispatch({ type: 'removePattern', patternId: ajeno });
+
+    expect(logA.length).toBe(entriesBefore);
+    expect(storeA.project.patterns[ajeno]).toBeDefined();
+    expect(storeB.project.patterns[ajeno]).toBeDefined();
+    expect(denied).toHaveLength(1);
+    expect(denied[0]!.reason).toMatch(/borrar pistas/i);
+
+    // El que crea él sí puede deshacerlo (si no, no podría ni un Ctrl+Z).
+    const propio = createPattern(2, 'Idea de Beto');
+    storeB.dispatch({ type: 'addPattern', pattern: propio });
+    expect(storeA.project.patterns[propio.id]).toBeDefined();
+    storeB.dispatch({ type: 'removePattern', patternId: propio.id });
+    expect(storeA.project.patterns[propio.id]).toBeUndefined();
+    expect(storeB.project.patterns[propio.id]).toBeUndefined();
+    expect(denied).toHaveLength(1); // sin rechazos nuevos
   });
 
   it('el invitado sí borra la pista que él mismo creó (undo de su propio alta)', () => {
