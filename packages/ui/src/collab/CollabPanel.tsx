@@ -1,9 +1,10 @@
 /**
  * Panel de colaboración en tiempo real: crear/unirse a salas, código grande
  * para compartir, rol con el que entras, presencia (quién está, qué edita y
- * botón para seguirle), chat de sala con notas ancladas al timeline y salida
- * limpia. La sesión vive en collab-state.ts (singleton); aquí solo se pinta y
- * se disparan createRoom/joinRoom/leaveRoom.
+ * botón para seguirle), congelar tu audio mientras el otro trastea, chat de
+ * sala con notas ancladas al timeline y salida limpia. La sesión vive en
+ * collab-state.ts (singleton); aquí solo se pinta y se disparan
+ * createRoom/joinRoom/leaveRoom.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -21,6 +22,7 @@ import {
   saveCollabSettings,
   sendChat,
   setCollabRole,
+  toggleAudioFrozen,
   useCollabStore,
 } from './collab-state';
 import { EDITOR_LABELS, followPeer, unfollow } from './follow';
@@ -54,6 +56,10 @@ export function CollabPanel() {
   const error = useCollabStore((s) => s.error);
   const role = useCollabStore((s) => s.role);
   const following = useCollabStore((s) => s.following);
+  const audioFrozen = useCollabStore((s) => s.audioFrozen);
+  const frozenPending = useCollabStore((s) => s.frozenPending);
+  const missingSamples = useCollabStore((s) => s.missingSamples);
+  const assetWarning = useCollabStore((s) => s.assetWarning);
   const chat = useCollabStore((s) => s.chat);
   const denied = useCollabStore((s) => s.denied);
 
@@ -205,6 +211,47 @@ export function CollabPanel() {
             ))}
           </ul>
         )}
+
+        {/* ── Lo que oyes TÚ (el otro no reproduce nada en tu máquina) ── */}
+        <h3 className="collab-heading">Lo que oyes tú</h3>
+
+        <div>
+          <button
+            className={`collab-btn small${audioFrozen ? ' primary' : ''}`}
+            onClick={toggleAudioFrozen}
+            title={
+              audioFrozen
+                ? 'Recupera de golpe todo lo que ha cambiado mientras estaba congelado'
+                : 'Tu motor deja de recoger cambios: sigues oyendo el proyecto tal y como suena ahora'
+            }
+          >
+            {audioFrozen ? 'Volver a oír los cambios' : 'Silenciar lo que toca el otro'}
+          </button>
+        </div>
+        <p className="collab-note">
+          Congela <strong>tu</strong> audio, no el suyo. Nadie reproduce nada en tu máquina: lo
+          que oyes es tu propio motor tocando el proyecto compartido. Mientras esté activo sus
+          cambios siguen llegando y la pantalla se actualiza igual, pero el sonido se queda como
+          está — también el de lo que toques tú. Al desactivarlo se pone al día al instante.
+        </p>
+        {audioFrozen && (
+          <p className="collab-warn">
+            Motor congelado: oyes el proyecto tal y como estaba al pulsar el botón.
+            {frozenPending ? ' Hay cambios esperando a que lo descongeles.' : ''}
+          </p>
+        )}
+
+        {missingSamples.length > 0 && (
+          <p className="collab-error">
+            {missingSamples.length === 1
+              ? '1 sonido de la sala todavía no está disponible aquí'
+              : `${missingSamples.length} sonidos de la sala todavía no están disponibles aquí`}{' '}
+            ({missingSamples.slice(0, 3).join(', ')}
+            {missingSamples.length > 3 ? '…' : ''}): esos canales suenan mudos hasta que llegue
+            su contenido.
+          </p>
+        )}
+        {assetWarning && <p className="collab-error">{assetWarning}</p>}
 
         {/* ── Chat de sala ── */}
         <h3 className="collab-heading">Chat de la sesión</h3>

@@ -23,7 +23,9 @@ a la vez, sin pisarse y sin conflictos.
   se cae, la sesión sobrevive.
 - Auth simple v0.1: token de room (el código) + nombre de usuario.
 - **Roles (v1.0)**: productor (todo), invitado (edita pero no borra pistas ni
-  toca el master, ni dentro de un batch) y oyente (solo mira y escucha). El
+  patrones ni toca el master, ni dentro de un batch) y oyente (solo mira y
+  escucha). Un patrón cuenta como borrado protegido porque se lleva sus notas y
+  todos sus clips por delante; lo que uno crea, uno lo puede deshacer. El
   control está en el log de comandos, que es por donde pasa TODO, con una
   función pura y el rol sellado en la entrada: emisor y receptores dan el mismo
   veredicto, así que la convergencia no se rompe. El rol es autodeclarado al
@@ -55,11 +57,68 @@ paso.
 
 ## Audio en colaboración
 
-Cada cliente renderiza el proyecto localmente con su propio motor (los samples
-de fábrica son idénticos por hash; los samples propios se suben al room y se
-cachean por hash). No hay streaming de audio en v0.1 — todos oyen lo mismo
-porque todos tienen el mismo proyecto. El streaming del master remoto queda en
-backlog (v1+).
+No hay streaming de audio: **cada cliente renderiza el proyecto con su propio
+motor**. Nadie reproduce nada en la máquina de nadie — lo que oyes es tu motor
+tocando el proyecto compartido. Todos oyen lo mismo *si* todos tienen lo mismo,
+y eso incluye los bytes de los sonidos, no solo el proyecto.
+
+### Los samples viajan por la sala (`packages/collab/src/assets.ts`)
+
+El log de comandos replica **referencias** (`SampleRef`: id, ruta, hash), no
+contenido. El kernel, en cambio, resuelve las voces por id contra los bytes que
+le hayas subido: sin ellos `ctx.samples.get(id)` es null y esa voz sale muda.
+Hasta v1.0 esto no se cerraba y el resultado era el "a veces se oye, a veces
+no": un sonido de fábrica sonaba solo si el otro ya lo había pinchado en su
+Browser (su kernel lo tenía cacheado bajo el mismo id), y una grabación o un
+bounce (`recording:<archivo>`) no sonaba **nunca** en la otra máquina.
+
+Cómo va ahora:
+
+- Un `Y.Map` `assets` en el MISMO documento, indexado por **hash** (el sha1 que
+  `SampleRef.hash` ya trae) y no por id: el hash es igual en las dos máquinas
+  aunque el id no tenga por qué serlo, dos referencias al mismo archivo
+  comparten un solo blob, y republicar lo que ya está se detecta sin red.
+- Un observer en el peer recibe el blob **una sola vez por hash** y lo sube a su
+  kernel bajo *su* id.
+- La rehidratación se dispara además al **unirse** (`join`) y al **re-derivar**
+  (`replay`), que son justo los dos momentos en los que el proyecto se sustituye
+  entero y el kernel local se queda vacío (`onProjectReplaced`).
+- El contenido de **fábrica no viaja**: `factory:<ruta>` se resuelve leyendo el
+  pack local en ambas máquinas; subirlo sería duplicar el pack por la red.
+- La reconciliación (`packages/ui/src/collab/sample-sync.ts`) es asíncrona y va
+  de una en una: cargar cincuenta samples no congela la interfaz.
+
+**Límites.** El documento Yjs vive en memoria en todos los clientes y el
+servidor lo persiste entero, así que un stem de diez minutos dentro del doc
+penaliza incluso a quien no lo usa:
+
+| Tope | Valor | Qué pasa al pasarse |
+| --- | --- | --- |
+| Por sample | **16 MB** | No se sube; el panel lo dice con el nombre del sonido. |
+| Por sala (acumulado) | **64 MB** | No se sube; el panel avisa de que la sala está llena. |
+
+Rechazar no rompe la sesión: el proyecto converge igual y ese sonido concreto
+suena en la máquina que lo tiene y no en la otra. El panel de colaboración
+lleva un contador de **"N sonidos de la sala todavía no están disponibles
+aquí"** para que el silencio nunca sea un misterio.
+
+La compactación del log no toca los blobs (viven fuera del log, en su propio
+mapa), así que sobreviven al recorte. Lo que **no** hay todavía es recogida de
+basura: un sample que deja de usarse sigue ocupando su hueco del presupuesto
+hasta cerrar la sala — borrarlo mientras otro cliente aún lo referencia es
+justo la carrera que no interesa. Backlog.
+
+### Congelar tu audio ("Silenciar lo que toca el otro")
+
+Botón del panel. Como el otro no reproduce nada en tu máquina, "silenciarle" no
+es mutear un canal: es **dejar de llevarle a tu kernel los cambios que van
+entrando**. Sus comandos se siguen aplicando al modelo (la UI converge, el chat
+sigue, la presencia también), pero tu motor se queda con el último snapshot
+compilado. Al desactivarlo se resincroniza de golpe con todo lo acumulado.
+Pulsar play con el motor congelado tampoco recompila: si pediste no oírlo, no
+se cuela por ahí.
+
+El streaming del master remoto sigue en backlog (v1+).
 
 ## Convergencia (test)
 

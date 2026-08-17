@@ -138,6 +138,12 @@ export async function readSampleBytes(path: string): Promise<ArrayBuffer | null>
  * .orbit o recuperar un autosave, el kernel arranca vacío y los samplers y
  * clips de audio no sonarían): pack de fábrica y grabaciones. Mejor esfuerzo:
  * lo que falle se ignora — el export ya avisa de samples ausentes por su lado.
+ *
+ * Esto resuelve SOLO por ruta local, así que no vale para colaboración: en la
+ * máquina del otro las rutas `user:`/`recording:` no existen. Ese caso lo lleva
+ * collab/sample-sync.ts, que además busca el contenido publicado en la sala por
+ * hash y sube lo nuestro. Si añades una vía nueva de registro de samples, la
+ * cubre sola: reconcilia el proyecto entero, no comandos sueltos.
  */
 export async function rehydrateSamples(): Promise<void> {
   for (const ref of Object.values(store.project.samples)) {
