@@ -168,6 +168,22 @@ export const EFFECT_PARAMS: Record<EffectKind, ParamSpec[]> = {
     p('width', 'Width', 0, 1, 1),
     p('predelay', 'PreDelay', 0, 0.2, 0.02, { unit: 's' }),
   ],
+  // Reverb por convolución: la IR es sintética y se regenera al cambiar
+  // size/decay/damp (predelay y width no la tocan).
+  convolver: [
+    p('size', 'Size', 0.05, 1, 0.6),
+    p('decay', 'Decay', 0.2, 8, 1.8, { unit: 's', curve: 'exp' }),
+    p('damp', 'Damp', 0, 1, 0.45),
+    p('predelay', 'PreDelay', 0, 0.25, 0.02, { unit: 's' }),
+    p('width', 'Width', 0, 1, 1),
+  ],
+  vinyl: [
+    p('crackle', 'Crackle', 0, 1, 0.35),
+    p('noise', 'Noise', 0, 1, 0.3),
+    p('wow', 'Wow', 0, 1, 0.3),
+    p('flutter', 'Flutter', 0, 1, 0.25),
+    p('tone', 'Tone', 1000, 18000, 8000, { unit: 'Hz', curve: 'exp' }),
+  ],
   delay: [
     p('time', 'Time', 0, 7, 4, {
       options: ['1/32', '1/16', '1/16.', '1/8', '1/8.', '1/4', '1/4.', '1/2'],
@@ -231,6 +247,8 @@ export const EFFECT_LABELS: Record<EffectKind, string> = {
   compressor: 'Orbit Comp',
   limiter: 'Orbit Limiter',
   reverb: 'Orbit Reverb',
+  convolver: 'Orbit Convolver',
+  vinyl: 'Orbit Vinyl',
   delay: 'Orbit Delay',
   chorus: 'Orbit Chorus',
   flanger: 'Orbit Flanger',
