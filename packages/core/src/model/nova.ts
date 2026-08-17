@@ -1,23 +1,23 @@
 /**
- * Orbit Flux — el instrumento de presets.
+ * Orbit Nova — el instrumento de presets.
  *
  * La idea es la de FLEX: no eliges "un sintetizador y 20 perillas", eliges un
  * SONIDO de una librería organizada por packs y categorías, y lo moldeas con
  * unas pocas macros que valen para todos. Por dentro cada preset es una pila
  * de capas sobre los motores que ya tiene Orbit (sustractivo, supersaw, FM,
  * 808), así que no hay samples que cargar ni peso extra en el proyecto: un
- * canal Flux guarda solo el id del preset y sus macros.
+ * canal Nova guarda solo el id del preset y sus macros.
  *
  * Vive en `core` (y no en el motor o la UI) porque lo necesitan los tres: el
  * compilador para mandar las capas al kernel, la UI para el browser, y el
  * modelo para saber qué sonido tiene el canal.
  */
 
-/** Motores sobre los que se construye una capa de Flux. */
-export type FluxEngine = 'synth' | 'supersaw' | 'fm' | 'sub808';
+/** Motores sobre los que se construye una capa de Nova. */
+export type NovaEngine = 'synth' | 'supersaw' | 'fm' | 'sub808';
 
-export interface FluxLayer {
-  engine: FluxEngine;
+export interface NovaLayer {
+  engine: NovaEngine;
   /** Params del motor (claves de INSTRUMENT_PARAMS[engine]). */
   params: Record<string, number>;
   /** Ganancia lineal de la capa dentro del preset. */
@@ -29,7 +29,7 @@ export interface FluxLayer {
 }
 
 /** Destino de una macro: qué parámetro mueve, en qué capa y entre qué valores. */
-export interface FluxMacroTarget {
+export interface NovaMacroTarget {
   /** Índice de capa, o -1 para todas. */
   layer: number;
   param: string;
@@ -37,14 +37,14 @@ export interface FluxMacroTarget {
   max: number;
 }
 
-export interface FluxMacro {
+export interface NovaMacro {
   label: string;
   /** Valor por defecto 0..1. */
   value: number;
-  targets: FluxMacroTarget[];
+  targets: NovaMacroTarget[];
 }
 
-export const FLUX_CATEGORIES = [
+export const NOVA_CATEGORIES = [
   'keys',
   'bass',
   'leads',
@@ -55,9 +55,9 @@ export const FLUX_CATEGORIES = [
   'atmos',
 ] as const;
 
-export type FluxCategory = (typeof FLUX_CATEGORIES)[number];
+export type NovaCategory = (typeof NOVA_CATEGORIES)[number];
 
-export const FLUX_CATEGORY_LABELS: Record<FluxCategory, string> = {
+export const NOVA_CATEGORY_LABELS: Record<NovaCategory, string> = {
   keys: 'Teclas',
   bass: 'Bajos',
   leads: 'Leads',
@@ -68,45 +68,45 @@ export const FLUX_CATEGORY_LABELS: Record<FluxCategory, string> = {
   atmos: 'Atmósferas',
 };
 
-export interface FluxPreset {
+export interface NovaPreset {
   /** Id estable, ej. "keys/rhodes-calido". */
   id: string;
   name: string;
   /** Pack al que pertenece (el de fábrica es "Orbit Core"). */
   pack: string;
-  category: FluxCategory;
+  category: NovaCategory;
   /** Tags libres para el buscador: género, carácter… */
   tags: string[];
-  layers: FluxLayer[];
+  layers: NovaLayer[];
   /** Hasta dos macros propias del preset (las otras perillas son fijas). */
-  macros: [FluxMacro, FluxMacro];
+  macros: [NovaMacro, NovaMacro];
 }
 
 // ── Helpers de autoría ───────────────────────────────────────────────────────
 
 const layer = (
-  engine: FluxEngine,
+  engine: NovaEngine,
   params: Record<string, number>,
   gain = 1,
   pan = 0,
   transpose = 0,
-): FluxLayer => ({ engine, params, gain, pan, transpose });
+): NovaLayer => ({ engine, params, gain, pan, transpose });
 
-const macro = (label: string, value: number, targets: FluxMacroTarget[]): FluxMacro => ({
+const macro = (label: string, value: number, targets: NovaMacroTarget[]): NovaMacro => ({
   label,
   value,
   targets,
 });
 
 /** Macro que mueve un parámetro en TODAS las capas. */
-const all = (param: string, min: number, max: number): FluxMacroTarget => ({
+const all = (param: string, min: number, max: number): NovaMacroTarget => ({
   layer: -1,
   param,
   min,
   max,
 });
 
-const on = (layerIndex: number, param: string, min: number, max: number): FluxMacroTarget => ({
+const on = (layerIndex: number, param: string, min: number, max: number): NovaMacroTarget => ({
   layer: layerIndex,
   param,
   min,
@@ -116,18 +116,18 @@ const on = (layerIndex: number, param: string, min: number, max: number): FluxMa
 const preset = (
   id: string,
   name: string,
-  category: FluxCategory,
+  category: NovaCategory,
   tags: string[],
-  layers: FluxLayer[],
-  macros: [FluxMacro, FluxMacro],
+  layers: NovaLayer[],
+  macros: [NovaMacro, NovaMacro],
   pack = 'Orbit Core',
-): FluxPreset => ({ id, name, pack, category, tags, layers, macros });
+): NovaPreset => ({ id, name, pack, category, tags, layers, macros });
 
 // ── Catálogo de fábrica ──────────────────────────────────────────────────────
 // Cada preset apila capas de los motores existentes. Nada de esto pesa en el
 // proyecto: son números.
 
-export const FLUX_PRESETS: FluxPreset[] = [
+export const NOVA_PRESETS: NovaPreset[] = [
   // ── Teclas ────────────────────────────────────────────────────────────────
   preset(
     'keys/rhodes-calido',
@@ -494,11 +494,11 @@ export const FLUX_PRESETS: FluxPreset[] = [
 ];
 
 /** Índice por id (la UI y el compilador resuelven por aquí). */
-const BY_ID = new Map(FLUX_PRESETS.map((p) => [p.id, p]));
+const BY_ID = new Map(NOVA_PRESETS.map((p) => [p.id, p]));
 
-export function findFluxPreset(id: string | undefined): FluxPreset | undefined {
+export function findNovaPreset(id: string | undefined): NovaPreset | undefined {
   return id === undefined ? undefined : BY_ID.get(id);
 }
 
-/** Preset por defecto de un canal Flux nuevo. */
-export const DEFAULT_FLUX_PRESET = 'keys/rhodes-calido';
+/** Preset por defecto de un canal Nova nuevo. */
+export const DEFAULT_NOVA_PRESET = 'keys/rhodes-calido';

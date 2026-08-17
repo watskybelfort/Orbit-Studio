@@ -24,7 +24,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'mixer', title: 'Mixer', shortcut: 'F9' },
   { id: 'automation', title: 'Automatización' },
   { id: 'lfo', title: 'LFOs' },
-  { id: 'flux', title: 'Orbit Flux' },
+  { id: 'nova', title: 'Orbit Nova' },
   { id: 'scope', title: 'Orbit Scope' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },

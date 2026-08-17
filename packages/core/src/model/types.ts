@@ -38,7 +38,9 @@ export type InstrumentKind =
   | 'fm'
   | 'drums'
   | 'sampler'
-  | 'flux';
+  | 'nova'
+  | 'vox'
+  | 'slicer';
 
 export interface Channel {
   id: Id;
@@ -49,8 +51,8 @@ export interface Channel {
   params: Record<string, number>;
   /** Sample cargado (solo sampler). */
   sampleId?: Id;
-  /** Preset cargado (solo kind='flux'); ver model/flux.ts. */
-  fluxPreset?: string;
+  /** Preset cargado (solo kind='nova'); ver model/nova.ts. */
+  novaPreset?: string;
   /** Ganancia lineal 0..2. */
   volume: number;
   /** -1..1 */
@@ -101,6 +103,15 @@ export const TRACK_ICONS: TrackIcon[] = [
   'audio',
   'fx',
 ];
+
+/** Estado de una ventana guardado en un layout del proyecto. */
+export interface LayoutWindow {
+  open: boolean;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 export interface PlaylistTrack {
   id: Id;
@@ -193,6 +204,13 @@ export interface Clip {
   audioGain?: number;
   /** Time-stretch: el audio se estira (pitch intacto) para llenar el clip. */
   audioStretch?: boolean;
+  /** Transposición del clip en semitonos (pitch-shift, tiempo intacto). */
+  audioPitch?: number;
+  /**
+   * Carril de toma dentro de la pista (comping): varias tomas apiladas en la
+   * misma pista, solo suena la elegida. 0 = carril principal.
+   */
+  lane?: number;
 
   /** kind === 'automation' */
   target?: ParamRef;
@@ -207,6 +225,8 @@ export interface Marker {
   color: string;
   /** Cambio de tempo a partir de este marcador (opcional). */
   tempo?: number;
+  /** Cambio de compás (pulsos por compás) a partir de aquí (opcional). */
+  timeSigNum?: number;
 }
 
 // ── Mixer ────────────────────────────────────────────────────────────────────
@@ -332,6 +352,11 @@ export interface Project {
   markers: Record<Id, Marker>;
   /** Moduladores continuos por parámetro (v0.8; los .orbit viejos no lo traen). */
   lfos: Record<Id, Lfo>;
+  /**
+   * Layouts de ventanas guardados con el proyecto (v1.0): nombre → ventana →
+   * posición. La UI decide qué claves usa; el modelo solo los transporta.
+   */
+  layouts?: Record<string, Record<string, LayoutWindow>>;
 
   mixer: MixerTrack[];
 

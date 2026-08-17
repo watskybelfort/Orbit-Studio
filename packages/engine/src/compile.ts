@@ -6,7 +6,7 @@
 
 import {
   LFO_SHAPES,
-  findFluxPreset,
+  findNovaPreset,
   paramRefKey,
   paramRefNorm,
   paramRefValue,
@@ -221,9 +221,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       mixerTrack: ch.mixerTrack,
       sampleId: ch.sampleId,
     };
-    const preset = ch.kind === 'flux' ? findFluxPreset(ch.fluxPreset) : undefined;
+    const preset = ch.kind === 'nova' ? findNovaPreset(ch.novaPreset) : undefined;
     if (preset) {
-      compiled.flux = {
+      compiled.nova = {
         layers: preset.layers.map((l) => ({
           engine: l.engine,
           params: { ...l.params },

@@ -20,7 +20,7 @@ export interface VoiceContext {
   samples: Map<string, SampleData>;
   /**
    * Buffers de trabajo del kernel, compartidos por todas las voces (se
-   * renderiza una detrás de otra en el mismo hilo). Los usa Flux para saturar
+   * renderiza una detrás de otra en el mismo hilo). Los usa Nova para saturar
    * la suma de sus capas sin alocar nada por nota.
    */
   scratchL?: Float32Array;
@@ -523,10 +523,10 @@ export class SamplerVoice extends Voice {
   }
 }
 
-// ── Orbit Flux (instrumento de presets) ──────────────────────────────────────
+// ── Orbit Nova (instrumento de presets) ──────────────────────────────────────
 
 /** Capa de un preset ya resuelta para el kernel. */
-export interface FluxLayerDef {
+export interface NovaLayerDef {
   engine: string;
   params: Record<string, number>;
   gain: number;
@@ -535,19 +535,19 @@ export interface FluxLayerDef {
 }
 
 /** Macro del preset: qué parámetros mueve y entre qué valores. */
-export interface FluxMacroDef {
+export interface NovaMacroDef {
   targets: { layer: number; param: string; min: number; max: number }[];
 }
 
 /**
- * Voz de Flux: apila las voces de sus capas y las mezcla.
+ * Voz de Nova: apila las voces de sus capas y las mezcla.
  *
  * Las perillas fijas del canal (filtro, ataque, release, drive, width, octava)
  * y las dos macros del preset se resuelven AQUÍ, al disparar la nota, sobre
  * una copia de los params de cada capa — el preset nunca se modifica y dos
  * canales con el mismo sonido no se pisan.
  */
-export class FluxVoice extends Voice {
+export class NovaVoice extends Voice {
   private layers: { voice: Voice; gainL: number; gainR: number }[] = [];
   private drive: number;
   private driveK = 1;
@@ -560,8 +560,8 @@ export class FluxVoice extends Voice {
     velocity: number,
     p: Record<string, number>,
     private ctx: VoiceContext,
-    defs: FluxLayerDef[],
-    macros: FluxMacroDef[],
+    defs: NovaLayerDef[],
+    macros: NovaMacroDef[],
   ) {
     super(channelIndex, key, order);
     const filter = p['filter'] ?? 0.5;
@@ -663,12 +663,12 @@ export function createVoice(
   params: Record<string, number>,
   ctx: VoiceContext,
   sampleId?: string,
-  flux?: { layers: FluxLayerDef[]; macros: FluxMacroDef[] },
+  nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] },
 ): Voice {
   switch (kind) {
-    case 'flux':
-      return flux
-        ? new FluxVoice(channelIndex, key, order, velocity, params, ctx, flux.layers, flux.macros)
+    case 'nova':
+      return nova
+        ? new NovaVoice(channelIndex, key, order, velocity, params, ctx, nova.layers, nova.macros)
         : new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'sub808': return new Sub808Voice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'synth': return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);

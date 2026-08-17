@@ -11,12 +11,12 @@ se saca al final, cuando el conjunto está pulido.
 Update grande: cinco bloques, un solo release al final (los commits van
 subiendo según se cierra cada entrega). Marcar aquí lo que se va cerrando.
 
-**E · Orbit Flux** — el instrumento de presets (equivalente de FLEX): una
+**E · Orbit Nova** — el instrumento de presets (equivalente de FLEX): una
 librería de sonidos separados por packs y categorías, cada preset con sus
 capas de síntesis y sus macros, más su browser dentro del propio instrumento.
-- [ ] Modelo del preset y del canal Flux (core) + catálogo de presets
+- [ ] Modelo del preset y del canal Nova (core) + catálogo de presets
 - [ ] Voz por capas en el kernel con macros aplicadas por nota
-- [ ] Panel de Flux: categorías, buscador, lista de presets y macros
+- [ ] Panel de Nova: categorías, buscador, lista de presets y macros
 - [ ] Integración en el rack (crear canal, cambiar preset, preview)
 
 **A · Paridad FL**

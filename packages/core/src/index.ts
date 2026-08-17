@@ -4,7 +4,7 @@ export const CORE_VERSION = '0.1.0';
 export * from './model/types';
 export * from './model/params';
 export * from './model/paramref';
-export * from './model/flux';
+export * from './model/nova';
 export * from './model/notes';
 export * from './model/defaults';
 export * from './commands';

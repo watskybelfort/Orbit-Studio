@@ -99,7 +99,7 @@ export class KernelCore {
 
   constructor(public readonly sr: number) {
     // Los buffers de trabajo se crean UNA vez y los comparten todas las voces
-    // (Flux los usa para saturar la suma de sus capas sin alocar por nota).
+    // (Nova los usa para saturar la suma de sus capas sin alocar por nota).
     this.voiceCtx = {
       sr,
       samples: this.samples,
@@ -404,7 +404,7 @@ export class KernelCore {
     }
     const voice = createVoice(
       ch.kind, channelIndex, key, this.voiceOrder++, velocity, ch.params, this.voiceCtx,
-      ch.sampleId, ch.flux,
+      ch.sampleId, ch.nova,
     );
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey });
   }
