@@ -201,22 +201,46 @@ export function Playlist() {
     [rows, scrollY],
   );
 
+  /**
+   * Carriles de toma de una pista: se derivan de los clips (no hay ajuste que
+   * mantener). Una pista normal tiene 1 y se pinta exactamente como siempre;
+   * en cuanto hay tomas apiladas, la fila se divide.
+   */
+  const laneCount = useCallback(
+    (trackId: Id): number => {
+      let max = 0;
+      for (const c of clipsByTrack.get(trackId) ?? []) max = Math.max(max, c.lane ?? 0);
+      return max + 1;
+    },
+    [clipsByTrack],
+  );
+
   const clipAt = useCallback(
     (x: number, y: number): { clip: Clip; row: RowLayout; edge: boolean } | null => {
       const row = rowAtY(y);
       if (!row) return null;
       const beat = xToBeat(x);
       const list = clipsByTrack.get(row.track.id) ?? [];
-      for (let i = list.length - 1; i >= 0; i--) {
-        const c = list[i]!;
-        if (beat >= c.start && beat < c.start + c.length) {
-          const endX = beatToX(c.start + c.length);
-          return { clip: c, row, edge: endX - x < RESIZE_EDGE && c.length * zoom > 16 };
+      // Con tomas apiladas, el clic elige el carril bajo el cursor; con una
+      // sola toma el cálculo da 0 y todo funciona como siempre.
+      const lanes = laneCount(row.track.id);
+      const laneH = row.track.height / lanes;
+      const localY = y - RULER_H + scrollY - row.top;
+      const lane = Math.min(lanes - 1, Math.max(0, Math.floor(localY / laneH)));
+      const hit = (wanted: number | null) => {
+        for (let i = list.length - 1; i >= 0; i--) {
+          const c = list[i]!;
+          if (wanted !== null && (c.lane ?? 0) !== wanted) continue;
+          if (beat >= c.start && beat < c.start + c.length) {
+            const endX = beatToX(c.start + c.length);
+            return { clip: c, row, edge: endX - x < RESIZE_EDGE && c.length * zoom > 16 };
+          }
         }
-      }
-      return null;
+        return null;
+      };
+      return hit(lane) ?? (lanes > 1 ? null : hit(null));
     },
-    [rowAtY, xToBeat, beatToX, clipsByTrack, zoom],
+    [rowAtY, xToBeat, beatToX, clipsByTrack, zoom, laneCount, scrollY],
   );
 
   /** ¿Está libre [start, start+length) en la pista? (para el pintado en serie) */
@@ -427,7 +451,17 @@ export function Playlist() {
     for (const r of rows) {
       const y = RULER_H + r.top - scrollY;
       if (y + r.track.height < RULER_H || y > h) continue;
-      for (const c of clipsByTrack.get(r.track.id) ?? []) drawClip(c, y, r.track.height);
+      const lanes = laneCount(r.track.id);
+      const laneH = r.track.height / lanes;
+      for (const c of clipsByTrack.get(r.track.id) ?? []) {
+        const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
+        drawClip(c, y + lane * laneH, laneH);
+      }
+      // Línea fina entre carriles para que se vea que hay tomas apiladas.
+      if (lanes > 1) {
+        ctx.fillStyle = col('--pl-grid-beat');
+        for (let l = 1; l < lanes; l++) ctx.fillRect(0, y + l * laneH, w, 1);
+      }
     }
     if (paintGhost.current) {
       for (const c of paintGhost.current) {
@@ -508,7 +542,7 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount]);
 
   useEffect(() => {
     draw();
@@ -617,13 +651,30 @@ export function Playlist() {
 
       const hit = clipAt(x, y);
 
-      // Clic central: alternar mute del clip.
+      // Clic central: alternar mute del clip. En una pista con tomas apiladas
+      // significa "quiero ESTA toma": suena la elegida y callan las que pisa.
       if (e.button === 1) {
         if (hit) {
-          store.dispatch(
-            { type: 'patchClips', patches: [{ id: hit.clip.id, muted: !hit.clip.muted }] },
-            { label: hit.clip.muted ? 'Activar clip' : 'Mutear clip' },
-          );
+          const lanes = laneCount(hit.row.track.id);
+          if (lanes > 1) {
+            const list = clipsByTrack.get(hit.row.track.id) ?? [];
+            const patches = list
+              .filter(
+                (c) =>
+                  c.start < hit.clip.start + hit.clip.length &&
+                  c.start + c.length > hit.clip.start,
+              )
+              .map((c) => ({ id: c.id, muted: c.id !== hit.clip.id }));
+            store.dispatch(
+              { type: 'patchClips', patches },
+              { label: `Elegir toma ${(hit.clip.lane ?? 0) + 1}` },
+            );
+          } else {
+            store.dispatch(
+              { type: 'patchClips', patches: [{ id: hit.clip.id, muted: !hit.clip.muted }] },
+              { label: hit.clip.muted ? 'Activar clip' : 'Mutear clip' },
+            );
+          }
         }
         return;
       }
@@ -689,7 +740,7 @@ export function Playlist() {
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack],
   );
 
   const onPointerMove = useCallback(
