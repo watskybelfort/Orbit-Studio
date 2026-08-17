@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId, type Clip, type SampleRef } from '@orbit/core';
-import { detectTransients, encodeWav } from '@orbit/engine';
+import { correctPitch, detectTransients, encodeWav, scalePitchClasses } from '@orbit/engine';
 import { readSampleBytes, sha1Hex } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
@@ -88,6 +88,9 @@ function applyOp(op: AudioOp, ch: Channels): { left: Float32Array; right: Float3
   return { left, right };
 }
 
+/** Nombres de nota para el selector de tónica. */
+const NOTE_NAMES = ['Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'];
+
 export function AudioEditor() {
   const project = useProject();
   const audioClipId = useUiStore((s) => s.audioClipId);
@@ -103,6 +106,12 @@ export function AudioEditor() {
   const [busy, setBusy] = useState(false);
   /** Transientes detectados (segundos desde el inicio del sample). */
   const [slices, setSlices] = useState<number[] | null>(null);
+  /** Panel de afinación (corrección de tono de la toma). */
+  const [tuneOpen, setTuneOpen] = useState(false);
+  const [tuneStrength, setTuneStrength] = useState(1);
+  const [tuneMode, setTuneMode] = useState<'chromatic' | 'major' | 'minor'>('chromatic');
+  const [tuneRoot, setTuneRoot] = useState(0);
+  const [tuneTranspose, setTuneTranspose] = useState(0);
 
   // Carga (cacheada) del PCM al cambiar de sample.
   useEffect(() => {
@@ -381,6 +390,57 @@ export function AudioEditor() {
     setSlices(null);
   }, [clip, channels, slices, offsetSec, clipSec, secPerBeat, sample]);
 
+  /**
+   * Afina la toma: detecta el tono y lo lleva a la nota más cercana (o a la
+   * escala elegida). Como el resto de operaciones del editor, escribe un
+   * sample NUEVO y deja el original intacto, con su paso de undo.
+   */
+  const runTune = useCallback(async () => {
+    if (!channels || !clip || !sample || !window.orbit || busy) return;
+    setBusy(true);
+    try {
+      const scale =
+        tuneMode === 'chromatic' ? undefined : scalePitchClasses(tuneRoot, tuneMode);
+      const out = correctPitch(channels.left, channels.right, channels.rate, {
+        strength: tuneStrength,
+        transpose: tuneTranspose,
+        ...(scale ? { scale } : null),
+      });
+      const wav = encodeWav(out.left, out.right, channels.rate, 24);
+      const stamp = new Date();
+      const two = (n: number) => String(n).padStart(2, '0');
+      const file = await window.orbit.recording.save(
+        `Afinado ${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}.wav`,
+        wav,
+      );
+      const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
+      const newSampleId = newId();
+      await engine.loadSample(newSampleId, wavBuf);
+      const ref: SampleRef = {
+        id: newSampleId,
+        name: `${sample.name} · afinado`,
+        path: `recording:${file}`,
+        hash: (await sha1Hex(wavBuf)) ?? newSampleId,
+        duration: channels.duration,
+      };
+      const label = `Afinar "${sample.name}"`;
+      store.dispatch(
+        {
+          type: 'batch',
+          label,
+          commands: [
+            { type: 'registerSample', sample: ref },
+            { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
+          ],
+        },
+        { label },
+      );
+      setTuneOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }, [channels, clip, sample, busy, tuneStrength, tuneMode, tuneRoot, tuneTranspose]);
+
   const listen = useCallback(() => {
     if (!clip?.sampleId) return;
     ensureAudioReady();
@@ -447,6 +507,14 @@ export function AudioEditor() {
         >
           Trocear{slices && slices.length > 0 ? ` (${slices.length})` : ''}
         </button>
+        <button
+          className={`tbtn${tuneOpen ? ' active' : ''}`}
+          disabled={!channels}
+          title="Afinar la toma: lleva cada nota a la más cercana (o a una escala)"
+          onClick={() => setTuneOpen((v) => !v)}
+        >
+          Afinar
+        </button>
         <div className="ae-ops">
           {(Object.keys(OP_LABELS) as AudioOp[]).map((op) => (
             <button key={op} className="tbtn" disabled={busy || !channels} onClick={() => void runOp(op)}>
@@ -455,6 +523,62 @@ export function AudioEditor() {
           ))}
         </div>
       </div>
+      {tuneOpen && (
+        <div className="ae-tune">
+          <Knob
+            value={tuneStrength}
+            min={0}
+            max={1}
+            defaultValue={1}
+            size={26}
+            label="Fuerza"
+            format={(v) => `${Math.round(v * 100)}%`}
+            onChange={setTuneStrength}
+          />
+          <label className="ae-field">
+            Escala
+            <select
+              value={tuneMode}
+              onChange={(e) => setTuneMode(e.target.value as typeof tuneMode)}
+            >
+              <option value="chromatic">Cromática</option>
+              <option value="major">Mayor</option>
+              <option value="minor">Menor</option>
+            </select>
+          </label>
+          {tuneMode !== 'chromatic' && (
+            <label className="ae-field">
+              Tónica
+              <select value={tuneRoot} onChange={(e) => setTuneRoot(Number(e.target.value))}>
+                {NOTE_NAMES.map((name, i) => (
+                  <option key={name} value={i}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <label className="ae-field">
+            Transponer
+            <select
+              value={tuneTranspose}
+              onChange={(e) => setTuneTranspose(Number(e.target.value))}
+            >
+              {[-12, -7, -5, -3, 0, 3, 5, 7, 12].map((st) => (
+                <option key={st} value={st}>
+                  {st > 0 ? `+${st}` : st} st
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="tbtn" disabled={busy} onClick={() => void runTune()}>
+            Aplicar
+          </button>
+          <span className="ae-tune-hint">
+            Crea un sample nuevo; el original se queda como estaba.
+          </span>
+        </div>
+      )}
       <div className="ae-wave-wrap" ref={wrapRef}>
         <canvas
           ref={canvasRef}

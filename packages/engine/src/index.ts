@@ -10,6 +10,13 @@ export { encodeWav, type WavDepth } from './render/wav';
 export { encodeFlac, type FlacDepth } from './render/flac';
 export { analyzeMix, gainToTarget, type MixAnalysis } from './render/analysis';
 export {
+  correctPitch,
+  detectPitchTrack,
+  scalePitchClasses,
+  type CorrectPitchOptions,
+  type PitchTrack,
+} from './render/pitch';
+export {
   detectTransients,
   evenSlices,
   type TransientOptions,

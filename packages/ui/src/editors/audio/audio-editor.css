@@ -47,3 +47,39 @@
   color: var(--text-dim);
   border-top: 1px solid var(--border);
 }
+
+/* Panel de afinación (corrección de tono de la toma) */
+
+.ae-tune {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+  flex-wrap: wrap;
+}
+
+.ae-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ae-field select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+}
+
+.ae-tune-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+}
