@@ -91,3 +91,33 @@ describe('defaultPluginParams', () => {
     ).toEqual({ rate: 5, depth: 0.6 });
   });
 });
+
+describe('plugins de instrumento (v1.0)', () => {
+  const instrument = `const name = 'Mono';
+function createInstrument(sampleRate) {
+  return {
+    noteOn(key, velocity) {},
+    noteOff() {},
+    render(l, r, from, to, gainL, gainR) { return false; },
+  };
+}`;
+
+  it('un archivo con createInstrument vale aunque no traiga createEffect', () => {
+    const parsed = parsePluginSource(instrument);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.instrument).toBe(true);
+    expect(parsed?.effect).toBe(false);
+    expect(parsed?.name).toBe('Mono');
+  });
+
+  it('un archivo puede traer las dos fábricas', () => {
+    const parsed = parsePluginSource(`${instrument}
+function createEffect(sr) { return { process(l, r, n) {} }; }`);
+    expect(parsed?.effect).toBe(true);
+    expect(parsed?.instrument).toBe(true);
+  });
+
+  it('sin ninguna de las dos fábricas se descarta', () => {
+    expect(parsePluginSource("const name = 'Nada';")).toBeNull();
+  });
+});

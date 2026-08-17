@@ -19,6 +19,9 @@ export interface ParsedPlugin {
   name: string | null;
   /** Perillas declaradas por el plugin, ya saneadas. */
   params: ParamSpec[];
+  /** Qué fábricas trae: un archivo puede ser efecto, instrumento o los dos. */
+  effect: boolean;
+  instrument: boolean;
 }
 
 /** Tope defensivo de perillas que la UI pinta por plugin. */
@@ -84,6 +87,7 @@ export function parsePluginSource(source: string): ParsedPlugin | null {
       `${source}\n;return {` +
         ` marker: '${META_MARKER}',` +
         ` factory: typeof createEffect === 'function',` +
+        ` instrument: typeof createInstrument === 'function',` +
         ` name: typeof name !== 'undefined' ? String(name) : null,` +
         ` params: Array.isArray(typeof params !== 'undefined' ? params : null) ? params : [] };`,
     )();
@@ -91,9 +95,19 @@ export function parsePluginSource(source: string): ParsedPlugin | null {
     return null; // sintaxis rota o el top-level lanza
   }
   if (typeof raw !== 'object' || raw === null) return null;
-  const meta = raw as { marker?: unknown; factory?: unknown; name?: unknown; params?: unknown };
+  const meta = raw as {
+    marker?: unknown;
+    factory?: unknown;
+    instrument?: unknown;
+    name?: unknown;
+    params?: unknown;
+  };
   if (meta.marker !== META_MARKER) return null; // el plugin cortó con un return propio
-  if (meta.factory !== true) return null; // sin createEffect no hay efecto
+  // Un archivo vale si trae efecto, instrumento o los dos; sin ninguna de las
+  // dos fábricas no hay nada que registrar.
+  const isEffect = meta.factory === true;
+  const isInstrument = meta.instrument === true;
+  if (!isEffect && !isInstrument) return null;
 
   const name = typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name.trim() : null;
   const params: ParamSpec[] = [];
@@ -108,7 +122,7 @@ export function parsePluginSource(source: string): ParsedPlugin | null {
       }
     }
   }
-  return { name, params };
+  return { name, params, effect: isEffect, instrument: isInstrument };
 }
 
 /** Params por defecto de un plugin (espejo de defaultEffectParams del core). */

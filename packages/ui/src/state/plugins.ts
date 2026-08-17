@@ -19,6 +19,10 @@ export interface PluginInfo {
   name: string;
   /** Perillas declaradas por el plugin (ya saneadas). */
   params: ParamSpec[];
+  /** Se puede insertar como efecto en un slot del mixer. */
+  effect: boolean;
+  /** Se puede cargar como instrumento en un canal del rack. */
+  instrument: boolean;
 }
 
 interface PluginsState {
@@ -57,15 +61,22 @@ export async function initPlugins(): Promise<void> {
   for (const f of files) {
     const parsed = parsePluginSource(f.source);
     if (!parsed) {
-      // Plugin roto (no compila o sin createEffect): se ignora sin romper nada.
-      console.warn(`[plugins] plugin ignorado (sin createEffect o con errores): ${f.name}`);
+      // Plugin roto (no compila, o sin createEffect ni createInstrument).
+      console.warn(`[plugins] plugin ignorado (sin fábrica válida o con errores): ${f.name}`);
       continue;
     }
-    plugins.push({ id: f.id, name: parsed.name ?? f.id, params: parsed.params });
+    plugins.push({
+      id: f.id,
+      name: parsed.name ?? f.id,
+      params: parsed.params,
+      effect: parsed.effect,
+      instrument: parsed.instrument,
+    });
     sources.set(f.id, f.source);
     // El motor encola los mensajes hasta que el AudioContext despierte,
     // así que registrar antes del primer gesto del usuario es seguro.
-    engine.registerPlugin(f.id, f.source);
+    if (parsed.effect) engine.registerPlugin(f.id, f.source);
+    if (parsed.instrument) engine.registerInstrument(f.id, f.source);
   }
   usePluginsStore.setState({ plugins, sources });
 }
