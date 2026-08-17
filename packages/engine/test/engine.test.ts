@@ -3,13 +3,16 @@ import {
   applyCommand,
   createChannel,
   createEmptyProject,
+  createLfo,
   createPattern,
+  defaultEffectParams,
   newId,
+  type Lfo,
   type Note,
   type Project,
 } from '@orbit/core';
 import { compileProject, topoOrder } from '../src/compile';
-import { KernelCore, MAX_BLOCK } from '../src/kernel-core';
+import { KernelCore, MAX_BLOCK, evalLut, invertLut, lfoWave } from '../src/kernel-core';
 import { renderProject } from '../src/render/offline';
 import { analyzeMix } from '../src/render/analysis';
 import { encodeWav } from '../src/render/wav';
@@ -492,5 +495,110 @@ describe('kernel: plugins JS y cambio cuantizado', () => {
     core.meterFrame();
     runBlocks(core, blocksPerBeat);
     expect(core.meterFrame().rms[1]!).toBeLessThan(0.001);
+  });
+});
+
+describe('kernel: LFOs por parametro', () => {
+  /** Nota sostenida en la pista 1 + un LFO sobre el volumen de esa pista. */
+  function lfoProject(patch: Partial<Lfo> = {}) {
+    const p = createEmptyProject('LFO');
+    p.tempo = 120; // 1 beat = 0.5 s
+    const patternId = p.patternOrder[0]!;
+    const ch = createChannel('synth', 0, 'Lead');
+    ch.mixerTrack = 1;
+    applyCommand(p, { type: 'addChannel', channel: ch });
+    applyCommand(p, { type: 'addNotes', patternId, channelId: ch.id, notes: [note(0, 4, 60)] });
+    applyCommand(p, {
+      type: 'addLfos',
+      lfos: [
+        {
+          ...createLfo({ kind: 'mixer', trackIndex: 1, param: 'volume' }),
+          shape: 'square',
+          rateBeats: 1,
+          amount: 1,
+          ...patch,
+        },
+      ],
+    });
+    return compileProject(p, { mode: 'pattern', patternId });
+  }
+
+  function rmsOf(xs: Float32Array, from: number, to: number): number {
+    let s = 0;
+    for (let i = from; i < to; i++) s += xs[i]! * xs[i]!;
+    return Math.sqrt(s / Math.max(1, to - from));
+  }
+
+  it('la LUT del parametro va y vuelve (curva exponencial incluida)', () => {
+    const p = createEmptyProject('LUT');
+    applyCommand(p, {
+      type: 'setEffect',
+      trackIndex: 1,
+      slotIndex: 0,
+      slot: {
+        id: 'fx',
+        kind: 'autofilter',
+        enabled: true,
+        mix: 1,
+        params: defaultEffectParams('autofilter'),
+      },
+    });
+    applyCommand(p, {
+      type: 'addLfos',
+      lfos: [createLfo({ kind: 'effect', trackIndex: 1, slotIndex: 0, param: 'cutoff' })],
+    });
+    const lut = compileProject(p, { mode: 'song' }).lfos[0]!.lut;
+    // cutoff es exponencial 40..18000 Hz: el error de ida y vuelta debe ser < 0.1 %.
+    for (const norm of [0, 0.13, 0.5, 0.77, 1]) {
+      expect(invertLut(lut, evalLut(lut, norm))).toBeCloseTo(norm, 3);
+    }
+    // Y la tabla es monotona creciente.
+    for (let i = 1; i < lut.length; i++) expect(lut[i]!).toBeGreaterThan(lut[i - 1]!);
+  });
+
+  it('una cuadrada sobre el volumen abre y cierra la pista a tiempo', () => {
+    const res = renderProject(lfoProject(), { tailSeconds: 0 });
+    const sr = res.sampleRate;
+    // Medio beat arriba (volumen x2), medio beat abajo (silencio), 0.25 s cada uno.
+    expect(rmsOf(res.left, Math.round(0.05 * sr), Math.round(0.2 * sr))).toBeGreaterThan(0.02);
+    expect(rmsOf(res.left, Math.round(0.3 * sr), Math.round(0.45 * sr))).toBeLessThan(0.001);
+    expect(rmsOf(res.left, Math.round(0.55 * sr), Math.round(0.7 * sr))).toBeGreaterThan(0.02);
+  });
+
+  it('la fase sale de la posicion: dos renders son identicos sample a sample', () => {
+    const a = renderProject(lfoProject({ shape: 'sine', amount: 0.6 }), { tailSeconds: 0 });
+    const b = renderProject(lfoProject({ shape: 'sine', amount: 0.6 }), { tailSeconds: 0 });
+    expect(a.left.length).toBe(b.left.length);
+    for (let i = 0; i < a.left.length; i += 997) expect(a.left[i]!).toBe(b.left[i]!);
+  });
+
+  it('sample & hold da escalones estables dentro de cada ciclo', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({
+      type: 'snapshot',
+      project: lfoProject({ shape: 'random', amount: 1, rateBeats: 2 }),
+    });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    // Dentro de un ciclo el valor no cambia: el LFO es escalonado, no una rampa.
+    const first = lfoWave(4, 0.1);
+    expect(lfoWave(4, 0.9)).toBe(first);
+    expect(lfoWave(4, 1.1)).not.toBe(first);
+    for (let i = 0; i < 40; i++) core.process(l, r, MAX_BLOCK);
+    expect(Number.isFinite(core.meterFrame().rms[1]!)).toBe(true);
+  });
+
+  it('si mueves la perilla el LFO adopta el valor nuevo como base', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: lfoProject({ shape: 'sine', amount: 0.05 }) });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    runBlocks(core, 40);
+    const loud = core.meterFrame().rms[1]!;
+    expect(loud).toBeGreaterThan(0);
+    // Bajar el fader a casi cero debe oirse: el LFO no puede reimponer su base.
+    core.handleMessage({ type: 'mixerParam', trackIndex: 1, key: 'volume', value: 0.02 });
+    runBlocks(core, 40);
+    expect(core.meterFrame().rms[1]!).toBeLessThan(loud * 0.2);
   });
 });

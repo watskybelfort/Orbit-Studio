@@ -7,6 +7,7 @@
  */
 
 import type {
+  CompiledParamTarget,
   CompiledProject,
   FromKernel,
   MeterFrame,
@@ -234,6 +235,7 @@ export class KernelCore {
     }
     this.eventCursor = 0;
     this.resyncCursor();
+    this.resetLfoState(p);
   }
 
   private updateEffectTempos(): void {
@@ -462,6 +464,112 @@ export class KernelCore {
     }
   }
 
+  // ── LFOs ──────────────────────────────────────────────────────────────────
+  // Un LFO NO dibuja el valor: lo hace oscilar alrededor de su base. La base
+  // se re-lee sola cuando alguien externo toca el parámetro (automatización,
+  // perilla, snapshot) comparando el valor actual con lo último que escribió
+  // este mismo LFO — así ondula sobre la curva de automatización y sigue a la
+  // perilla sin necesidad de avisos.
+
+  /** Base normalizada por LFO (índice paralelo a project.lfos). */
+  private lfoBase = new Float64Array(0);
+  /** Último valor real escrito por cada LFO (para detectar cambios externos). */
+  private lfoLast = new Float64Array(0);
+  /** 0 mientras la base aún no se ha tomado del parámetro vivo. */
+  private lfoPrimed = new Uint8Array(0);
+
+  private resetLfoState(p: CompiledProject): void {
+    const n = p.lfos.length;
+    if (this.lfoBase.length !== n) {
+      this.lfoBase = new Float64Array(n);
+      this.lfoLast = new Float64Array(n);
+      this.lfoPrimed = new Uint8Array(n);
+    }
+    for (let i = 0; i < n; i++) {
+      this.lfoBase[i] = p.lfos[i]!.baseNorm;
+      this.lfoLast[i] = 0;
+      this.lfoPrimed[i] = 0;
+    }
+  }
+
+  private readParam(t: CompiledParamTarget): number | null {
+    const p = this.project;
+    if (!p) return null;
+    switch (t.scope) {
+      case 'channelParam':
+        return p.channels[t.channelIndex]?.params[t.key] ?? null;
+      case 'channelMix': {
+        const ch = p.channels[t.channelIndex];
+        if (!ch) return null;
+        return t.key === 'volume' ? ch.volume : ch.pan;
+      }
+      case 'mixer': {
+        const track = p.mixer[t.trackIndex];
+        return track ? track[t.key] : null;
+      }
+      case 'effect':
+        return p.mixer[t.trackIndex]?.slots[t.slotIndex]?.params[t.key] ?? null;
+      case 'transport':
+        return t.key === 'tempo' ? this.tempo : 0;
+    }
+  }
+
+  private writeParam(t: CompiledParamTarget, value: number): void {
+    const p = this.project;
+    if (!p) return;
+    switch (t.scope) {
+      case 'channelParam': {
+        const ch = p.channels[t.channelIndex];
+        if (ch) ch.params[t.key] = value;
+        break;
+      }
+      case 'channelMix': {
+        const ch = p.channels[t.channelIndex];
+        if (ch) {
+          if (t.key === 'volume') ch.volume = value;
+          else ch.pan = value;
+        }
+        break;
+      }
+      case 'mixer': {
+        const track = p.mixer[t.trackIndex];
+        if (track) track[t.key] = value;
+        break;
+      }
+      case 'effect': {
+        const slot = p.mixer[t.trackIndex]?.slots[t.slotIndex];
+        if (slot) {
+          slot.params[t.key] = value;
+          this.effects.get(slot.id)?.setParams(slot.params);
+        }
+        break;
+      }
+      case 'transport':
+        if (t.key === 'tempo') this.tempo = value;
+        break;
+    }
+  }
+
+  private applyLfos(): void {
+    const p = this.project;
+    if (!p) return;
+    for (let i = 0; i < p.lfos.length; i++) {
+      const lfo = p.lfos[i]!;
+      const current = this.readParam(lfo.target);
+      if (current === null) continue;
+      // Cambio venido de fuera (o primer bloque) → nueva base.
+      if (this.lfoPrimed[i] === 0 || current !== this.lfoLast[i]) {
+        this.lfoBase[i] = invertLut(lfo.lut, current);
+        this.lfoPrimed[i] = 1;
+      }
+      const cycles = this.posBeats / lfo.rateBeats + lfo.phase;
+      const norm = clamp01(this.lfoBase[i]! + lfo.amount * lfoWave(lfo.shape, cycles));
+      const value = evalLut(lfo.lut, norm);
+      this.writeParam(lfo.target, value);
+      this.lfoLast[i] = value;
+    }
+  }
+
   // ── Proceso principal ─────────────────────────────────────────────────────
 
   process(outL: Float32Array, outR: Float32Array, n: number): void {
@@ -477,6 +585,7 @@ export class KernelCore {
     }
 
     this.applyAutomation();
+    this.applyLfos();
 
     const spb = this.tempo / 60 / this.sr; // beats por sample
     const blockBeats = n * spb;
@@ -786,3 +895,74 @@ export class KernelCore {
 }
 
 export type { FromKernel };
+
+// ── Matemáticas de los LFOs ──────────────────────────────────────────────────
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/**
+ * Oscilador bipolar -1..1. Todas las formas arrancan en 0 subiendo (salvo la
+ * cuadrada, que arranca arriba, y S&H, que es escalonada) para que cambiar de
+ * forma no salte de valor.
+ */
+export function lfoWave(shape: number, cycles: number): number {
+  const ph = cycles - Math.floor(cycles);
+  switch (shape) {
+    case 1: // triángulo
+      return ph < 0.25 ? 4 * ph : ph < 0.75 ? 2 - 4 * ph : 4 * ph - 4;
+    case 2: // sierra ascendente
+      return 2 * ph - 1;
+    case 3: // cuadrada
+      return ph < 0.5 ? 1 : -1;
+    case 4: // sample & hold (determinista por ciclo)
+      return hashUnit(Math.floor(cycles)) * 2 - 1;
+    default: // seno
+      return Math.sin(2 * Math.PI * ph);
+  }
+}
+
+/** Ruido reproducible 0..1 a partir de un entero (S&H sin estado). */
+function hashUnit(n: number): number {
+  let x = Math.imul(n | 0, 1103515245) + 12345;
+  x = (x ^ (x >>> 15)) >>> 0;
+  x = Math.imul(x, 2246822519) >>> 0;
+  x = (x ^ (x >>> 13)) >>> 0;
+  return x / 4294967295;
+}
+
+/** LUT norm→valor real con interpolación lineal (norm ya viene en 0..1). */
+export function evalLut(lut: Float32Array, norm: number): number {
+  const last = lut.length - 1;
+  const x = clamp01(norm) * last;
+  const i = Math.min(last - 1, Math.floor(x));
+  const f = x - i;
+  return lut[i]! * (1 - f) + lut[i + 1]! * f;
+}
+
+/**
+ * Inversa de `evalLut`: valor real → norm 0..1. La LUT es monótona (todas las
+ * curvas de parámetro lo son), así que basta una búsqueda binaria.
+ */
+export function invertLut(lut: Float32Array, value: number): number {
+  const last = lut.length - 1;
+  const lo = lut[0]!;
+  const hi = lut[last]!;
+  const asc = hi >= lo;
+  if (asc ? value <= lo : value >= lo) return 0;
+  if (asc ? value >= hi : value <= hi) return 1;
+  let a = 0;
+  let b = last;
+  while (b - a > 1) {
+    const mid = (a + b) >> 1;
+    const v = lut[mid]!;
+    if (asc ? v <= value : v >= value) a = mid;
+    else b = mid;
+  }
+  const va = lut[a]!;
+  const vb = lut[b]!;
+  const span = vb - va;
+  const f = span === 0 ? 0 : (value - va) / span;
+  return (a + f) / last;
+}
