@@ -7,6 +7,7 @@
 
 import type { EffectKind, InstrumentKind } from '@orbit/core';
 import type { NovaLayerDef, NovaMacroDef } from './dsp/voices';
+import type { PrismaDef } from './dsp/prisma-voice';
 
 // ── Proyecto compilado ───────────────────────────────────────────────────────
 
@@ -36,6 +37,18 @@ export interface CompiledChannel {
    * voz, así que un preset nuevo no obliga a tocar el motor.
    */
   nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] };
+  /**
+   * kind === 'prisma': el preset ya resuelto (capas + macros), igual que Nova.
+   * El kernel sigue sin conocer la librería de sonidos.
+   */
+  prisma?: PrismaDef;
+  /**
+   * Efectos PROPIOS del canal: suenan entre las voces y la pista de mixer, así
+   * que un sonido se puede tratar a solas sin arrastrar a los demás canales
+   * que compartan pista. Ausente o todo null = el canal entra seco, que es el
+   * camino rápido de siempre.
+   */
+  fx?: (CompiledEffect | null)[];
   /**
    * Plugin JS de instrumento que sustituye al motor interno del canal: cada
    * nota instancia `createInstrument(sampleRate)` del plugin registrado. Si el
@@ -114,6 +127,7 @@ export type CompiledParamTarget =
       key: 'volume' | 'pan' | 'stereoWidth' | 'eqLow' | 'eqMid' | 'eqHigh';
     }
   | { scope: 'effect'; trackIndex: number; slotIndex: number; key: string }
+  | { scope: 'channelFx'; channelIndex: number; slotIndex: number; key: string }
   | { scope: 'transport'; key: 'tempo' | 'swing' };
 
 export interface CompiledAudioClip {
@@ -209,6 +223,15 @@ export type ToKernel =
   | { type: 'mixerAudible'; audible: boolean[] }
   | { type: 'effectParam'; trackIndex: number; slotIndex: number; key: string; value: number }
   | { type: 'effectState'; trackIndex: number; slotIndex: number; enabled: boolean; mix: number }
+  /** Perilla de un insert PROPIO del canal (sin recompilar el proyecto). */
+  | { type: 'channelEffectParam'; channelIndex: number; slotIndex: number; key: string; value: number }
+  | {
+      type: 'channelEffectState';
+      channelIndex: number;
+      slotIndex: number;
+      enabled: boolean;
+      mix: number;
+    }
   | { type: 'loadSample'; sampleId: string; left: Float32Array; right: Float32Array; sampleRate: number }
   | { type: 'previewNote'; channelIndex: number; key: number; on: boolean }
   | { type: 'previewSample'; sampleId: string; gain: number };

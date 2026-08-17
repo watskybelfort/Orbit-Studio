@@ -41,9 +41,16 @@ export function paramRefKey(ref: ParamRef): string {
       return `mix:${ref.trackIndex}:${ref.param}`;
     case 'effect':
       return `fx:${ref.trackIndex}:${ref.slotIndex}:${ref.param}`;
+    case 'channelFx':
+      return `chfx:${ref.channelId}:${ref.slotIndex}:${ref.param}`;
     case 'transport':
       return `tr:${ref.param}`;
   }
+}
+
+/** Slot de efecto propio de un canal (o undefined si no hay). */
+function channelSlot(ref: Extract<ParamRef, { kind: 'channelFx' }>, project: Project) {
+  return project.channels[ref.channelId]?.fx?.[ref.slotIndex] ?? undefined;
 }
 
 /** ParamSpec del destino; solo canal y efecto tienen (el resto es rango fijo). */
@@ -54,6 +61,10 @@ export function paramSpecOf(ref: ParamRef, project: Project): ParamSpec | undefi
   }
   if (ref.kind === 'effect') {
     const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
+    return slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
+  }
+  if (ref.kind === 'channelFx') {
+    const slot = channelSlot(ref, project);
     return slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
   }
   return undefined;
@@ -82,6 +93,13 @@ export function describeParamRef(ref: ParamRef, project: Project): string {
       const spec = slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
       return `${t?.name ?? `Mixer ${ref.trackIndex}`} · ${fx} · ${spec?.label ?? ref.param}`;
     }
+    case 'channelFx': {
+      const ch = project.channels[ref.channelId];
+      const slot = channelSlot(ref, project);
+      const fx = slot ? EFFECT_LABELS[slot.kind] : `slot ${ref.slotIndex + 1}`;
+      const spec = slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
+      return `Canal ${ch?.name ?? '?'} · ${fx} · ${spec?.label ?? ref.param}`;
+    }
     case 'transport':
       return `Transporte · ${ref.param}`;
   }
@@ -105,7 +123,8 @@ export function paramRefValue(norm: number, ref: ParamRef, project: Project): nu
       if (ref.param === 'pan') return t * 2 - 1;
       if (isEqParam(ref.param)) return EQ_MIN + t * (EQ_MAX - EQ_MIN);
       return t * 2; // volume y stereoWidth 0..2
-    case 'effect': {
+    case 'effect':
+    case 'channelFx': {
       const spec = paramSpecOf(ref, project);
       return spec ? denormalizeParam(spec, t) : t;
     }
@@ -118,7 +137,8 @@ export function paramRefValue(norm: number, ref: ParamRef, project: Project): nu
 export function paramValueNorm(value: number, ref: ParamRef, project: Project): number {
   switch (ref.kind) {
     case 'channel':
-    case 'effect': {
+    case 'effect':
+    case 'channelFx': {
       const spec = paramSpecOf(ref, project);
       return spec ? normalizeParam(spec, value) : clamp01(value);
     }
@@ -156,6 +176,10 @@ export function paramRefNorm(ref: ParamRef, project: Project): number | null {
     case 'effect': {
       const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
       const value = slot?.params[ref.param];
+      return value === undefined ? null : paramValueNorm(value, ref, project);
+    }
+    case 'channelFx': {
+      const value = channelSlot(ref, project)?.params[ref.param];
       return value === undefined ? null : paramValueNorm(value, ref, project);
     }
     case 'transport':

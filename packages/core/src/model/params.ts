@@ -113,10 +113,82 @@ export const INSTRUMENT_PARAMS: Record<InstrumentKind, ParamSpec[]> = {
     p('attack', 'Attack', 0.001, 2, 0.001, { unit: 's', curve: 'exp' }),
     p('release', 'Release', 0.005, 4, 0.05, { unit: 's', curve: 'exp' }),
     p('start', 'Start', 0, 1, 0),
+    // `end` cierra la lectura antes del final del archivo: es el "acortar" del
+    // sonido, y con `start` deja recortado cualquier sample sin destruirlo.
+    p('end', 'End', 0, 1, 1),
+    p('fadeIn', 'Fade In', 0, 2, 0, { unit: 's' }),
+    p('fadeOut', 'Fade Out', 0, 2, 0, { unit: 's' }),
+    p('gain', 'Gain', 0, 2, 1),
     p('reverse', 'Reverse', 0, 1, 0, { options: ['Off', 'On'] }),
+    // Invertir la FASE (no el tiempo): lo que hace falta cuando dos capas se
+    // cancelan entre sí. El "invertir el tiempo" es `reverse`.
+    p('polarity', 'Fase', 0, 1, 0, { options: ['Normal', 'Invertida'] }),
+    p('loop', 'Loop', 0, 1, 0, { options: ['Off', 'On'] }),
     p('keytrack', 'Keytrack', 0, 1, 1, { options: ['Off', 'On'] }),
   ],
+  // Orbit Prisma: el instrumento grande de presets (ver model/prisma.ts). A
+  // diferencia de Nova, sus perillas son ABSOLUTAS: el preset carga sus
+  // valores en el canal y a partir de ahí todo se toca a mano.
+  prisma: [
+    // Mezcla y afinación
+    p('level', 'Nivel', 0, 2, 1),
+    p('octave', 'Octava', -3, 3, 0),
+    p('semi', 'Semis', -12, 12, 0, { unit: 'st' }),
+    p('fine', 'Fino', -100, 100, 0, { unit: 'ct' }),
+    p('glide', 'Glide', 0, 1, 0, { unit: 's' }),
+    p('voiceMode', 'Modo', 0, 2, 0, { options: ['Poly', 'Mono', 'Legato'] }),
+    p('unison', 'Unison', 1, 8, 1),
+    p('uniDetune', 'Uni Det', 0, 1, 0.25),
+    p('uniWidth', 'Uni Width', 0, 1, 0.6),
+    // Filtro
+    p('filterType', 'Filtro', 0, 3, 0, { options: ['LP', 'HP', 'BP', 'Notch'] }),
+    p('cutoff', 'Cutoff', 30, 20000, 20000, { unit: 'Hz', curve: 'exp' }),
+    p('resonance', 'Reso', 0, 1, 0.15),
+    p('filterEnv', 'Env→Filt', -1, 1, 0),
+    p('keytrack', 'Keytrack', 0, 1, 0),
+    // Envolvente de amplitud
+    p('attack', 'Attack', 0.001, 4, 0.005, { unit: 's', curve: 'exp' }),
+    p('decay', 'Decay', 0.005, 8, 0.6, { unit: 's', curve: 'exp' }),
+    p('sustain', 'Sustain', 0, 1, 0.8),
+    p('release', 'Release', 0.005, 8, 0.3, { unit: 's', curve: 'exp' }),
+    // Envolvente de modulación (destino elegible)
+    p('modAttack', 'Mod Atk', 0.001, 4, 0.005, { unit: 's', curve: 'exp' }),
+    p('modDecay', 'Mod Dec', 0.005, 8, 0.4, { unit: 's', curve: 'exp' }),
+    p('modSustain', 'Mod Sus', 0, 1, 0),
+    p('modRelease', 'Mod Rel', 0.005, 8, 0.3, { unit: 's', curve: 'exp' }),
+    p('modAmount', 'Mod Amt', -1, 1, 0),
+    p('modTarget', 'Mod →', 0, 4, 1, {
+      options: ['Pitch', 'Cutoff', 'Nivel', 'Wave', 'Pan'],
+    }),
+    // LFO propio del instrumento (por voz, distinto de los LFOs del proyecto)
+    p('lfoShape', 'LFO', 0, 4, 0, { options: ['Seno', 'Tri', 'Saw', 'Cuad', 'S&H'] }),
+    p('lfoRate', 'LFO Rate', 0.05, 20, 5, { unit: 'Hz', curve: 'exp' }),
+    p('lfoAmount', 'LFO Amt', 0, 1, 0),
+    p('lfoTarget', 'LFO →', 0, 4, 0, {
+      options: ['Pitch', 'Cutoff', 'Nivel', 'Wave', 'Pan'],
+    }),
+    p('lfoDelay', 'LFO Delay', 0, 3, 0, { unit: 's' }),
+    // Carácter
+    p('wave', 'Wave', 0, 1, 0.5),
+    p('drive', 'Drive', 0, 1, 0),
+    p('bass', 'Graves', -12, 12, 0, { unit: 'dB' }),
+    p('treble', 'Agudos', -12, 12, 0, { unit: 'dB' }),
+    p('width', 'Width', 0, 2, 1),
+    p('velSens', 'Vel', 0, 1, 0.6),
+    // Macros del preset (la etiqueta la pone el preset cargado)
+    p('macro1', 'Macro 1', 0, 1, 0.5),
+    p('macro2', 'Macro 2', 0, 1, 0.5),
+    p('macro3', 'Macro 3', 0, 1, 0.5),
+    p('macro4', 'Macro 4', 0, 1, 0.5),
+    p('macro5', 'Macro 5', 0, 1, 0.5),
+    p('macro6', 'Macro 6', 0, 1, 0.5),
+    p('macro7', 'Macro 7', 0, 1, 0.5),
+    p('macro8', 'Macro 8', 0, 1, 0.5),
+  ],
 };
+
+/** Número de macros que expone un preset de Prisma. */
+export const PRISMA_MACROS = 8;
 
 /**
  * Mapa de piezas del kit de drums (canal kind='drums'):
@@ -270,6 +342,7 @@ export const INSTRUMENT_LABELS: Record<InstrumentKind, string> = {
   drums: 'Orbit Drums',
   sampler: 'Orbit Sampler',
   nova: 'Orbit Nova',
+  prisma: 'Orbit Prisma',
   vox: 'Orbit Vox',
   slicer: 'Orbit Slicer',
 };

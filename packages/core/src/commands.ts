@@ -23,6 +23,7 @@ import type {
   SampleRef,
   TimeSig,
 } from './model/types';
+import { CHANNEL_SLOTS } from './model/types';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -47,6 +48,15 @@ export type Command =
   | { type: 'patchChannel'; channelId: Id; patch: Partial<Omit<Channel, 'id'>> }
   | { type: 'setChannelParam'; channelId: Id; key: string; value: number }
   | { type: 'moveChannel'; channelId: Id; toIndex: number }
+  // Inserts propios del canal (Channel.fx)
+  | { type: 'setChannelEffect'; channelId: Id; slotIndex: number; slot: EffectSlot | null }
+  | {
+      type: 'patchChannelEffect';
+      channelId: Id;
+      slotIndex: number;
+      patch: Partial<Pick<EffectSlot, 'enabled' | 'mix' | 'sidechainSource'>>;
+    }
+  | { type: 'setChannelEffectParam'; channelId: Id; slotIndex: number; key: string; value: number }
   // Patrones
   | { type: 'addPattern'; pattern: Pattern; index?: number }
   | { type: 'removePattern'; patternId: Id }
@@ -123,6 +133,24 @@ function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
     old[k] = (target as Record<string, unknown>)[k];
   }
   return old as Partial<T>;
+}
+
+/**
+ * Array de inserts del canal, creándolo si el proyecto viene de antes de la
+ * v1.1. Se materializa solo cuando alguien va a escribir en él: un canal sin
+ * efectos sigue guardándose sin el campo.
+ */
+function channelFx(channel: Channel): (EffectSlot | null)[] {
+  if (!channel.fx || channel.fx.length !== CHANNEL_SLOTS) {
+    const slots: (EffectSlot | null)[] = Array.from({ length: CHANNEL_SLOTS }, () => null);
+    if (channel.fx) {
+      for (let i = 0; i < Math.min(channel.fx.length, CHANNEL_SLOTS); i++) {
+        slots[i] = channel.fx[i] ?? null;
+      }
+    }
+    channel.fx = slots;
+  }
+  return channel.fx;
 }
 
 // ── applyCommand ─────────────────────────────────────────────────────────────
@@ -212,6 +240,51 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'moveChannel', channelId: cmd.channelId, toIndex: from };
     }
 
+    // Inserts propios del canal
+    case 'setChannelEffect': {
+      const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      const slots = channelFx(channel);
+      const old = slots[cmd.slotIndex] ?? null;
+      slots[cmd.slotIndex] = cmd.slot;
+      return {
+        type: 'setChannelEffect',
+        channelId: cmd.channelId,
+        slotIndex: cmd.slotIndex,
+        slot: old,
+      };
+    }
+    case 'patchChannelEffect': {
+      const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      const slot = must(
+        channelFx(channel)[cmd.slotIndex] ?? undefined,
+        `slot ${cmd.slotIndex} del canal ${cmd.channelId}`,
+      );
+      const inverse: Command = {
+        type: 'patchChannelEffect',
+        channelId: cmd.channelId,
+        slotIndex: cmd.slotIndex,
+        patch: pickOld(slot, cmd.patch),
+      };
+      Object.assign(slot, cmd.patch);
+      return inverse;
+    }
+    case 'setChannelEffectParam': {
+      const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      const slot = must(
+        channelFx(channel)[cmd.slotIndex] ?? undefined,
+        `slot ${cmd.slotIndex} del canal ${cmd.channelId}`,
+      );
+      const inverse: Command = {
+        type: 'setChannelEffectParam',
+        channelId: cmd.channelId,
+        slotIndex: cmd.slotIndex,
+        key: cmd.key,
+        value: slot.params[cmd.key] ?? 0,
+      };
+      slot.params[cmd.key] = cmd.value;
+      return inverse;
+    }
+
     // Patrones
     case 'addPattern': {
       project.patterns[cmd.pattern.id] = cmd.pattern;
@@ -220,6 +293,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'removePattern', patternId: cmd.pattern.id };
     }
     case 'removePattern': {
+      // Igual que con los arrangements: siempre queda uno. Sin patrones el
+      // rack, el modo PAT y la grabación en vivo se quedan sin destino.
+      if (project.patternOrder.length <= 1) {
+        throw new Error('No se puede borrar el último patrón');
+      }
       const pattern = must(project.patterns[cmd.patternId], `patrón ${cmd.patternId}`);
       const index = project.patternOrder.indexOf(cmd.patternId);
       const clips = Object.values(project.clips).filter((c) => c.patternId === cmd.patternId);
