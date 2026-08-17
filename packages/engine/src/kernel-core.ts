@@ -100,6 +100,8 @@ export class KernelCore {
   private loopEnabled = true;
   private loopStart = 0;
   private loopEnd = 4;
+  /** true = la región de loop la marcó el usuario (y por tanto manda él). */
+  private loopUserSet = false;
   metronome = false;
   private clickPhase = 0;
   private clickEnv = 0;
@@ -169,6 +171,9 @@ export class KernelCore {
         break;
       case 'setLoop':
         this.loopEnabled = msg.enabled;
+        // Solo una región marcada a mano congela los límites; al quitarla,
+        // el siguiente snapshot vuelve a estirar el loop a todo el timeline.
+        this.loopUserSet = msg.enabled;
         this.loopStart = msg.start;
         this.loopEnd = Math.max(msg.start + 0.25, msg.end);
         break;
@@ -287,8 +292,11 @@ export class KernelCore {
     for (const id of this.effects.keys()) {
       if (!alive.has(id)) this.effects.delete(id);
     }
-    // Por defecto el loop cubre el timeline.
-    if (this.loopEnd > p.lengthBeats || this.loopEnd <= this.loopStart) {
+    // Sin región marcada por el usuario, el loop cubre TODO el timeline y lo
+    // sigue cubriendo cuando crece: antes solo se reajustaba si se quedaba
+    // más largo que el proyecto, así que un patrón que pasaba de 4 a 8 beats
+    // seguía dando la vuelta en el 4 y solo sonaba su primera mitad.
+    if (!this.loopUserSet || this.loopEnd > p.lengthBeats || this.loopEnd <= this.loopStart) {
       this.loopStart = 0;
       this.loopEnd = p.lengthBeats;
     }
