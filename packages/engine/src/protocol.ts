@@ -6,6 +6,7 @@
  */
 
 import type { EffectKind, InstrumentKind } from '@orbit/core';
+import type { FluxLayerDef, FluxMacroDef } from './dsp/voices';
 
 // ── Proyecto compilado ───────────────────────────────────────────────────────
 
@@ -29,6 +30,12 @@ export interface CompiledChannel {
   audible: boolean; // mute/solo ya resueltos
   mixerTrack: number;
   sampleId?: string;
+  /**
+   * kind === 'flux': el preset ya resuelto. El kernel no conoce la librería
+   * de sonidos — recibe las capas y el mapa de macros y con eso construye la
+   * voz, así que un preset nuevo no obliga a tocar el motor.
+   */
+  flux?: { layers: FluxLayerDef[]; macros: FluxMacroDef[] };
 }
 
 export interface CompiledEffect {
