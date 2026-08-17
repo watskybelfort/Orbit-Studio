@@ -27,15 +27,14 @@ import {
   EFFECT_LABELS,
   EFFECT_PARAMS,
   INSTRUMENT_PARAMS,
-  denormalizeParam,
-  findParamSpec,
+  describeParamRef,
+  formatParamRef,
   newId,
-  normalizeParam,
+  paramRefNorm,
   type AutomationPoint,
   type Clip,
   type EffectSlot,
   type ParamRef,
-  type ParamSpec,
   type Project,
 } from '@orbit/core';
 import { store } from '../../state/app';
@@ -89,95 +88,13 @@ function evalCurve(points: AutomationPoint[], t: number): number {
 }
 
 // ── Destinos (ParamRef) ──────────────────────────────────────────────────────
+// La descripción, la spec y las conversiones valor ⇄ 0..1 viven en
+// @orbit/core (model/paramref.ts): el motor compila las curvas con ESAS
+// mismas funciones, así que aquí no puede haber una copia que se desvíe.
 
-/** Descripción legible del destino ("Insert 3 · volume", "Canal 808 · glide"…). */
-function describeTarget(ref: ParamRef, project: Project): string {
-  switch (ref.kind) {
-    case 'channel': {
-      const ch = project.channels[ref.channelId];
-      return `Canal ${ch?.name ?? '?'} · ${ref.param}`;
-    }
-    case 'channelMix': {
-      const ch = project.channels[ref.channelId];
-      return `Canal ${ch?.name ?? '?'} · ${ref.param} (mezcla)`;
-    }
-    case 'mixer': {
-      const t = project.mixer[ref.trackIndex];
-      return `${t?.name ?? `Mixer ${ref.trackIndex}`} · ${ref.param}`;
-    }
-    case 'effect': {
-      const t = project.mixer[ref.trackIndex];
-      const slot = t?.slots[ref.slotIndex];
-      const fx = slot ? EFFECT_LABELS[slot.kind] : `slot ${ref.slotIndex + 1}`;
-      return `${t?.name ?? `Mixer ${ref.trackIndex}`} · ${fx} · ${ref.param}`;
-    }
-    case 'transport':
-      return `Transporte · ${ref.param}`;
-  }
-}
-
-/** ParamSpec del destino (solo canal/efecto lo tienen; el resto es 0..1/rango fijo). */
-function specOf(ref: ParamRef, project: Project): ParamSpec | undefined {
-  if (ref.kind === 'channel') {
-    const ch = project.channels[ref.channelId];
-    return ch ? findParamSpec(INSTRUMENT_PARAMS[ch.kind], ref.param) : undefined;
-  }
-  if (ref.kind === 'effect') {
-    const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
-    return slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
-  }
-  return undefined;
-}
-
-/**
- * Valor ACTUAL del destino normalizado a 0..1 (para los puntos iniciales).
- * Espejo de denormalizeTarget del motor, en sentido inverso.
- */
-function currentNorm(ref: ParamRef, project: Project): number | null {
-  switch (ref.kind) {
-    case 'channel': {
-      const ch = project.channels[ref.channelId];
-      if (!ch) return null;
-      const spec = findParamSpec(INSTRUMENT_PARAMS[ch.kind], ref.param);
-      const value = ch.params[ref.param];
-      return spec && value !== undefined ? normalizeParam(spec, value) : null;
-    }
-    case 'channelMix': {
-      const ch = project.channels[ref.channelId];
-      if (!ch) return null;
-      return ref.param === 'volume' ? clamp01(ch.volume / 2) : clamp01((ch.pan + 1) / 2);
-    }
-    case 'mixer': {
-      const t = project.mixer[ref.trackIndex];
-      if (!t) return null;
-      if (ref.param === 'pan') return clamp01((t.pan + 1) / 2);
-      return clamp01((ref.param === 'volume' ? t.volume : t.stereoWidth) / 2);
-    }
-    case 'effect': {
-      const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
-      if (!slot) return null;
-      const spec = findParamSpec(EFFECT_PARAMS[slot.kind], ref.param);
-      const value = slot.params[ref.param];
-      return spec && value !== undefined ? normalizeParam(spec, value) : null;
-    }
-    case 'transport':
-      return ref.param === 'tempo'
-        ? clamp01((project.tempo - 20) / (999 - 20))
-        : clamp01(project.swing);
-  }
-}
-
-/** Texto del valor bajo el cursor: con spec → unidades reales; sin spec → 0..1. */
+/** Texto del valor bajo el cursor (sin destino aún, se muestra 0..1 crudo). */
 function formatValue(ref: ParamRef | undefined, project: Project, norm: number): string {
-  const spec = ref ? specOf(ref, project) : undefined;
-  if (!spec) return norm.toFixed(2);
-  const real = denormalizeParam(spec, norm);
-  if (spec.options) {
-    const idx = clamp(Math.round(real), 0, spec.options.length - 1);
-    return spec.options[idx] ?? real.toFixed(0);
-  }
-  const digits = Math.abs(real) >= 100 ? 0 : Math.abs(real) >= 10 ? 1 : 2;
-  return `${real.toFixed(digits)}${spec.unit ? ` ${spec.unit}` : ''}`;
+  return ref ? formatParamRef(ref, project, norm) : norm.toFixed(2);
 }
 
 // ── Componente raíz ──────────────────────────────────────────────────────────
@@ -292,7 +209,7 @@ function NewClipForm({ project }: NewClipFormProps) {
   const create = () => {
     if (!ref || !trackSel) return;
     // Dos puntos al valor actual del parámetro (línea recta = "sin cambio").
-    const value = currentNorm(ref, project) ?? 0.5;
+    const value = paramRefNorm(ref, project) ?? 0.5;
     const clip: Clip = {
       id: newId(),
       kind: 'automation',
@@ -308,7 +225,7 @@ function NewClipForm({ project }: NewClipFormProps) {
     };
     store.dispatch(
       { type: 'addClips', clips: [clip] },
-      { label: `Crear automatización de ${describeTarget(ref, project)}` },
+      { label: `Crear automatización de ${describeParamRef(ref, project)}` },
     );
     useUiStore.setState({ automationClipId: clip.id });
   };
@@ -506,7 +423,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
   // (el componente re-renderiza con cada versión del store) en vez de memoizar.
   const points = (clip.points ?? []).slice().sort((a, b) => a.time - b.time);
   const barLen = Math.max(1, project.timeSig.num);
-  const title = target ? describeTarget(target, project) : 'Automatización (sin destino)';
+  const title = target ? describeParamRef(target, project) : 'Automatización (sin destino)';
 
   // ── Geometría beats/valor ↔ px ────────────────────────────────────────────
 
