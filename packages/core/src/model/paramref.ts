@@ -1,0 +1,178 @@
+/**
+ * Utilidades de `ParamRef`: identidad, spec, nombre legible y conversión
+ * valor real ⇄ 0..1.
+ *
+ * Un ParamRef apunta a CUALQUIER parámetro automatizable del proyecto
+ * (canal, mezcla del canal, pista de mixer, parámetro de efecto, transporte).
+ * Antes cada consumidor tenía su propia copia de estas conversiones — el
+ * compilador del motor desnormalizaba y el editor de automatización
+ * normalizaba, con el riesgo evidente de que dejaran de ser inversas. Aquí
+ * viven una sola vez y las usan motor, editor, LFOs y grabación de perillas.
+ */
+
+import { EFFECT_LABELS, EFFECT_PARAMS, INSTRUMENT_PARAMS, denormalizeParam, findParamSpec, normalizeParam, type ParamSpec } from './params';
+import type { ParamRef, Project } from './types';
+
+/** Rango del tempo cuando se automatiza (BPM). */
+export const TEMPO_MIN = 20;
+export const TEMPO_MAX = 999;
+
+const clamp01 = (v: number): number => Math.min(1, Math.max(0, v));
+
+/**
+ * Clave estable de un destino: dos ParamRef equivalentes dan la misma cadena.
+ * Sirve de identidad en mapas (LFOs por destino, carriles de grabación...).
+ */
+export function paramRefKey(ref: ParamRef): string {
+  switch (ref.kind) {
+    case 'channel':
+      return `ch:${ref.channelId}:${ref.param}`;
+    case 'channelMix':
+      return `chmix:${ref.channelId}:${ref.param}`;
+    case 'mixer':
+      return `mix:${ref.trackIndex}:${ref.param}`;
+    case 'effect':
+      return `fx:${ref.trackIndex}:${ref.slotIndex}:${ref.param}`;
+    case 'transport':
+      return `tr:${ref.param}`;
+  }
+}
+
+/** ParamSpec del destino; solo canal y efecto tienen (el resto es rango fijo). */
+export function paramSpecOf(ref: ParamRef, project: Project): ParamSpec | undefined {
+  if (ref.kind === 'channel') {
+    const ch = project.channels[ref.channelId];
+    return ch ? findParamSpec(INSTRUMENT_PARAMS[ch.kind], ref.param) : undefined;
+  }
+  if (ref.kind === 'effect') {
+    const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
+    return slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
+  }
+  return undefined;
+}
+
+/** Descripción legible ("Insert 3 · volume", "Canal 808 · glide"…). */
+export function describeParamRef(ref: ParamRef, project: Project): string {
+  switch (ref.kind) {
+    case 'channel': {
+      const ch = project.channels[ref.channelId];
+      const spec = ch ? findParamSpec(INSTRUMENT_PARAMS[ch.kind], ref.param) : undefined;
+      return `Canal ${ch?.name ?? '?'} · ${spec?.label ?? ref.param}`;
+    }
+    case 'channelMix': {
+      const ch = project.channels[ref.channelId];
+      return `Canal ${ch?.name ?? '?'} · ${ref.param} (mezcla)`;
+    }
+    case 'mixer': {
+      const t = project.mixer[ref.trackIndex];
+      return `${t?.name ?? `Mixer ${ref.trackIndex}`} · ${ref.param}`;
+    }
+    case 'effect': {
+      const t = project.mixer[ref.trackIndex];
+      const slot = t?.slots[ref.slotIndex];
+      const fx = slot ? EFFECT_LABELS[slot.kind] : `slot ${ref.slotIndex + 1}`;
+      const spec = slot ? findParamSpec(EFFECT_PARAMS[slot.kind], ref.param) : undefined;
+      return `${t?.name ?? `Mixer ${ref.trackIndex}`} · ${fx} · ${spec?.label ?? ref.param}`;
+    }
+    case 'transport':
+      return `Transporte · ${ref.param}`;
+  }
+}
+
+/**
+ * 0..1 → valor REAL del parámetro (lo que consume el kernel).
+ * Los destinos sin spec tienen rango fijo: ganancias 0..2, pan -1..1,
+ * tempo 20..999 BPM y swing 0..1.
+ */
+export function paramRefValue(norm: number, ref: ParamRef, project: Project): number {
+  const t = clamp01(norm);
+  switch (ref.kind) {
+    case 'channel': {
+      const spec = paramSpecOf(ref, project);
+      return spec ? denormalizeParam(spec, t) : t;
+    }
+    case 'channelMix':
+      return ref.param === 'volume' ? t * 2 : t * 2 - 1;
+    case 'mixer':
+      return ref.param === 'pan' ? t * 2 - 1 : t * 2;
+    case 'effect': {
+      const spec = paramSpecOf(ref, project);
+      return spec ? denormalizeParam(spec, t) : t;
+    }
+    case 'transport':
+      return ref.param === 'tempo' ? TEMPO_MIN + t * (TEMPO_MAX - TEMPO_MIN) : t;
+  }
+}
+
+/** Valor real → 0..1 (inversa exacta de `paramRefValue`). */
+export function paramValueNorm(value: number, ref: ParamRef, project: Project): number {
+  switch (ref.kind) {
+    case 'channel':
+    case 'effect': {
+      const spec = paramSpecOf(ref, project);
+      return spec ? normalizeParam(spec, value) : clamp01(value);
+    }
+    case 'channelMix':
+      return ref.param === 'volume' ? clamp01(value / 2) : clamp01((value + 1) / 2);
+    case 'mixer':
+      return ref.param === 'pan' ? clamp01((value + 1) / 2) : clamp01(value / 2);
+    case 'transport':
+      return ref.param === 'tempo'
+        ? clamp01((value - TEMPO_MIN) / (TEMPO_MAX - TEMPO_MIN))
+        : clamp01(value);
+  }
+}
+
+/** Valor ACTUAL del destino en el proyecto, normalizado a 0..1 (null si no existe). */
+export function paramRefNorm(ref: ParamRef, project: Project): number | null {
+  switch (ref.kind) {
+    case 'channel': {
+      const ch = project.channels[ref.channelId];
+      const value = ch?.params[ref.param];
+      return value === undefined ? null : paramValueNorm(value, ref, project);
+    }
+    case 'channelMix': {
+      const ch = project.channels[ref.channelId];
+      if (!ch) return null;
+      return paramValueNorm(ref.param === 'volume' ? ch.volume : ch.pan, ref, project);
+    }
+    case 'mixer': {
+      const t = project.mixer[ref.trackIndex];
+      if (!t) return null;
+      const value = ref.param === 'pan' ? t.pan : ref.param === 'volume' ? t.volume : t.stereoWidth;
+      return paramValueNorm(value, ref, project);
+    }
+    case 'effect': {
+      const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
+      const value = slot?.params[ref.param];
+      return value === undefined ? null : paramValueNorm(value, ref, project);
+    }
+    case 'transport':
+      return paramValueNorm(ref.param === 'tempo' ? project.tempo : project.swing, ref, project);
+  }
+}
+
+/** Texto del valor de un destino: con spec en unidades reales; sin spec, 0..1. */
+export function formatParamRef(ref: ParamRef, project: Project, norm: number): string {
+  const spec = paramSpecOf(ref, project);
+  if (!spec) {
+    const real = paramRefValue(norm, ref, project);
+    if (ref.kind === 'transport' && ref.param === 'tempo') return `${real.toFixed(1)} BPM`;
+    if (ref.kind === 'mixer' || ref.kind === 'channelMix') {
+      return ref.param === 'pan' ? formatPanValue(real) : real.toFixed(2);
+    }
+    return real.toFixed(2);
+  }
+  const real = denormalizeParam(spec, norm);
+  if (spec.options) {
+    const idx = Math.min(spec.options.length - 1, Math.max(0, Math.round(real)));
+    return spec.options[idx] ?? real.toFixed(0);
+  }
+  const digits = Math.abs(real) >= 100 ? 0 : Math.abs(real) >= 10 ? 1 : 2;
+  return `${real.toFixed(digits)}${spec.unit ? ` ${spec.unit}` : ''}`;
+}
+
+function formatPanValue(pan: number): string {
+  if (Math.abs(pan) < 0.005) return 'C';
+  return `${pan < 0 ? 'L' : 'R'}${Math.round(Math.abs(pan) * 100)}`;
+}

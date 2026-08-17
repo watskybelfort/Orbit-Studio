@@ -32,5 +32,8 @@ export function parseProject(json: string): Project {
       throw new Error(`.orbit inválido: falta "${key}"`);
     }
   }
+  // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
+  // anteriores simplemente no los traen y arrancan vacíos.
+  p.lfos ??= {};
   return p as Project;
 }

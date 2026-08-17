@@ -109,6 +109,35 @@ export type ParamRef =
   | { kind: 'effect'; trackIndex: number; slotIndex: number; param: string }
   | { kind: 'transport'; param: 'tempo' | 'swing' };
 
+// ── LFOs (modulación continua de un parámetro) ───────────────────────────────
+
+/** Forma de onda del LFO; el orden es el del selector de la UI y del kernel. */
+export type LfoShape = 'sine' | 'triangle' | 'saw' | 'square' | 'random';
+
+export const LFO_SHAPES: LfoShape[] = ['sine', 'triangle', 'saw', 'square', 'random'];
+
+/**
+ * Modulador libre sobre un parámetro. A diferencia de un clip de
+ * automatización (que dibuja el valor), el LFO **suma** una oscilación
+ * alrededor del valor actual del parámetro: si además hay automatización en
+ * el mismo destino, el LFO ondula sobre la curva.
+ *
+ * La fase se deriva de la posición de la canción (`beats / rateBeats`), no de
+ * un reloj libre: así el render offline suena EXACTAMENTE igual que en vivo.
+ */
+export interface Lfo {
+  id: Id;
+  target: ParamRef;
+  shape: LfoShape;
+  /** Duración de un ciclo en beats (4 = un compás de 4/4). */
+  rateBeats: number;
+  /** Profundidad bipolar -1..1 en unidades normalizadas del parámetro. */
+  amount: number;
+  /** Desfase inicial 0..1 (1 = un ciclo entero). */
+  phase: number;
+  enabled: boolean;
+}
+
 export interface Clip {
   id: Id;
   kind: ClipKind;
@@ -261,6 +290,8 @@ export interface Project {
   playlistTracks: Record<Id, PlaylistTrack>;
   clips: Record<Id, Clip>;
   markers: Record<Id, Marker>;
+  /** Moduladores continuos por parámetro (v0.8; los .orbit viejos no lo traen). */
+  lfos: Record<Id, Lfo>;
 
   mixer: MixerTrack[];
 

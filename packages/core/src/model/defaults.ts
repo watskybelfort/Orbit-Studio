@@ -9,7 +9,9 @@ import type {
   Arrangement,
   Channel,
   InstrumentKind,
+  Lfo,
   MixerTrack,
+  ParamRef,
   Pattern,
   PlaylistTrack,
   Project,
@@ -87,6 +89,23 @@ export function createPlaylistTrack(
   };
 }
 
+/**
+ * LFO nuevo sobre un destino: seno de un compás, profundidad discreta.
+ * Se crea apagado-de-fábrica NO: nace encendido para que se oiga al instante
+ * (es lo que espera quien acaba de pulsar "Añadir LFO" en la perilla).
+ */
+export function createLfo(target: ParamRef, rateBeats = 4): Lfo {
+  return {
+    id: newId(),
+    target,
+    shape: 'sine',
+    rateBeats,
+    amount: 0.25,
+    phase: 0,
+    enabled: true,
+  };
+}
+
 export const DEFAULT_MIXER_TRACKS = 26; // Master + 25 inserts (crece bajo demanda)
 
 export function createEmptyProject(title = 'Nuevo proyecto'): Project {
@@ -114,6 +133,7 @@ export function createEmptyProject(title = 'Nuevo proyecto'): Project {
     playlistTracks: tracks,
     clips: {},
     markers: {},
+    lfos: {},
     mixer: Array.from({ length: DEFAULT_MIXER_TRACKS }, (_, i) => createMixerTrack(i)),
     samples: {},
   };

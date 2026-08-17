@@ -11,6 +11,7 @@ import type {
   Clip,
   EffectSlot,
   Id,
+  Lfo,
   Marker,
   MixerTrack,
   Note,
@@ -75,6 +76,11 @@ export type Command =
     }
   | { type: 'patchArrangement'; arrangementId: Id; patch: Partial<Omit<Arrangement, 'id'>> }
   | { type: 'setActiveArrangement'; arrangementId: Id }
+  // LFOs
+  | { type: 'addLfos'; lfos: Lfo[] }
+  | { type: 'removeLfos'; lfoIds: Id[] }
+  | { type: 'restoreLfos'; lfos: Lfo[] }
+  | { type: 'patchLfo'; lfoId: Id; patch: Partial<Omit<Lfo, 'id'>> }
   // Marcadores
   | { type: 'addMarker'; marker: Marker }
   | { type: 'removeMarker'; markerId: Id }
@@ -396,6 +402,37 @@ export function applyCommand(project: Project, cmd: Command): Command {
         arrangementId: project.activeArrangementId,
       };
       project.activeArrangementId = cmd.arrangementId;
+      return inverse;
+    }
+
+    // LFOs
+    case 'addLfos': {
+      for (const lfo of cmd.lfos) project.lfos[lfo.id] = lfo;
+      return { type: 'removeLfos', lfoIds: cmd.lfos.map((l) => l.id) };
+    }
+    case 'removeLfos': {
+      const removed: Lfo[] = [];
+      for (const id of cmd.lfoIds) {
+        const lfo = project.lfos[id];
+        if (lfo) {
+          removed.push(lfo);
+          delete project.lfos[id];
+        }
+      }
+      return { type: 'restoreLfos', lfos: removed };
+    }
+    case 'restoreLfos': {
+      for (const lfo of cmd.lfos) project.lfos[lfo.id] = lfo;
+      return { type: 'removeLfos', lfoIds: cmd.lfos.map((l) => l.id) };
+    }
+    case 'patchLfo': {
+      const lfo = must(project.lfos[cmd.lfoId], `LFO ${cmd.lfoId}`);
+      const inverse: Command = {
+        type: 'patchLfo',
+        lfoId: cmd.lfoId,
+        patch: pickOld(lfo, cmd.patch),
+      };
+      Object.assign(lfo, cmd.patch);
       return inverse;
     }
 
