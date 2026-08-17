@@ -232,6 +232,15 @@ export function IconCollab(props: IconProps) {
   );
 }
 
+/** LFO: un ciclo de seno entero (modulación que no para). */
+export function IconLfo(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M3 12 C4.6 12 4.6 6 7 6 C9.4 6 9.4 18 12 18 C14.6 18 14.6 6 17 6 C19.4 6 19.4 12 21 12" />
+    </Icon>
+  );
+}
+
 /** Automatización: curva con breakpoints (puntos rellenos). */
 export function IconAutomation(props: IconProps) {
   return (

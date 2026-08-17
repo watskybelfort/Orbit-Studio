@@ -9,6 +9,7 @@ import {
   IconClose,
   IconCollab,
   IconExport,
+  IconLfo,
   IconLive,
   IconMidi,
   IconMixer,
@@ -71,6 +72,7 @@ export function MenuBar() {
       { label: 'Vista Live', icon: <IconLive />, shortcut: 'F8', action: () => toggleWindow('liveView') },
       { label: 'Mixer', icon: <IconMixer />, shortcut: 'F9', action: () => toggleWindow('mixer') },
       { label: 'Automatización', icon: <IconAutomation />, action: () => toggleWindow('automation') },
+      { label: 'LFOs', icon: <IconLfo />, action: () => toggleWindow('lfo') },
       { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
       { label: '', separator: true },
       {

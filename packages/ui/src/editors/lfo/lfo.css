@@ -1,0 +1,157 @@
+/* Panel de LFOs. Solo tokens globales (var(--…)): oscuro, claro y acrílico
+   salen del tema sin colores literales. */
+
+.lfo {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.lfo-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.lfo-count {
+  font-weight: 600;
+}
+
+.lfo-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.lfo-empty {
+  margin: 0;
+  padding: 16px;
+  max-width: 520px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.lfo-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lfo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.lfo-row.off {
+  opacity: 0.5;
+}
+
+.lfo-led {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.lfo-led.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.lfo-target {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 150px;
+  max-width: 240px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.lfo-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lfo-range {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lfo-wave {
+  flex: none;
+  overflow: visible;
+}
+
+.lfo-wave path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.lfo-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.lfo-field select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 5px;
+  outline: none;
+}
+
+.lfo-del {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lfo-del:hover {
+  color: var(--text);
+  border-color: var(--meter-clip);
+}

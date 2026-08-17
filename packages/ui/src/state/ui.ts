@@ -10,6 +10,7 @@ export type WindowId =
   | 'settings'
   | 'export'
   | 'automation'
+  | 'lfo'
   | 'collab'
   | 'scope'
   | 'audioEditor'
@@ -77,6 +78,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   settings: { open: false, x: 260, y: 120, w: 640, h: 480, z: 1 },
   export: { open: false, x: 320, y: 100, w: 420, h: 500, z: 1 },
   automation: { open: false, x: 240, y: 140, w: 720, h: 380, z: 1 },
+  lfo: { open: false, x: 280, y: 200, w: 780, h: 300, z: 1 },
   collab: { open: false, x: 380, y: 140, w: 420, h: 380, z: 1 },
   scope: { open: false, x: 300, y: 180, w: 560, h: 360, z: 1 },
   audioEditor: { open: false, x: 260, y: 160, w: 720, h: 340, z: 1 },
