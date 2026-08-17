@@ -7,3 +7,23 @@ export const BRIDGE_VERSION = '0.1.0';
 
 export { TOOLS, findTool, type ToolDef, type ToolInputSchema } from './tools';
 export { ToolExecutor, type SaveFileFn } from './executor';
+export {
+  CEILING_DB,
+  GENRE_LABELS,
+  GENRE_PROFILES,
+  MONO_BELOW_HZ,
+  STREAMING_LUFS,
+  adviseMix,
+  formatAdvice,
+  guessGenre,
+} from './mix-advisor';
+export type {
+  ChainStep,
+  GainStep,
+  MixAdvice,
+  MixContext,
+  MixGenre,
+  MixIssue,
+  MixIssueId,
+  TrackSlots,
+} from './mix-advisor';

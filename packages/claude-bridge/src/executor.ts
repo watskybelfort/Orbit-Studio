@@ -47,11 +47,24 @@ import {
   type MixAnalysis,
   type PlayMode,
 } from '@orbit/engine';
+import {
+  STREAMING_LUFS,
+  adviseMix,
+  formatAdvice,
+  guessGenre,
+  type MixAdvice,
+  type MixContext,
+  type MixGenre,
+  type TrackSlots,
+} from './mix-advisor';
 
 /** Guarda `data` con nombre sugerido y devuelve la ruta final. */
 export type SaveFileFn = (suggestedName: string, data: Uint8Array) => Promise<string>;
 
-const INSTRUMENT_KINDS: InstrumentKind[] = ['sub808', 'synth', 'supersaw', 'fm', 'drums', 'sampler'];
+// Del registro de core, igual que los efectos: si core gana un instrumento
+// (nova, vox, slicer…) la tool lo acepta sola y no se queda corta respecto al
+// enum que anuncia su propio esquema.
+const INSTRUMENT_KINDS = Object.keys(INSTRUMENT_PARAMS) as InstrumentKind[];
 const EFFECT_KINDS = Object.keys(EFFECT_PARAMS) as EffectKind[];
 
 // ── Helpers de validación de argumentos ──────────────────────────────────────
@@ -183,6 +196,7 @@ export class ToolExecutor {
       case 'set_automation': return { text: this.setAutomation(a) };
       case 'render': return { text: await this.render(a) };
       case 'analyze_mix': return { text: this.analyzeMixTool() };
+      case 'advise_mix': return { text: this.adviseMixTool(a) };
       case 'undo': return { text: this.undo() };
       case 'redo': return { text: this.redo() };
       default:
@@ -932,8 +946,11 @@ export class ToolExecutor {
     );
   }
 
-  private analyzeMixTool(): string {
-    // Song si la playlist tiene contenido; si no, primer patrón con notas.
+  /**
+   * Render en memoria de lo que haya que analizar: la canción si la playlist
+   * tiene contenido y, si no, el primer patrón con notas.
+   */
+  private renderForAnalysis(): { analysis: MixAnalysis; what: string; seconds: number; lengthBeats: number } {
     let play: PlayMode = { mode: 'song' };
     let what = 'canción';
     let compiled = compileProject(this.project, play);
@@ -948,18 +965,183 @@ export class ToolExecutor {
       what = `patrón "${withNotes.name}"`;
       compiled = compileProject(this.project, play);
     }
-
     const { left, right, sampleRate } = renderProject(compiled, { sampleRate: 44100, tailSeconds: 1 });
-    const m: MixAnalysis = analyzeMix(left, right, sampleRate);
-    const seconds = left.length / sampleRate;
+    return {
+      analysis: analyzeMix(left, right, sampleRate),
+      what,
+      seconds: left.length / sampleRate,
+      lengthBeats: compiled.lengthBeats,
+    };
+  }
+
+  private analyzeMixTool(): string {
+    const { analysis: m, what, seconds, lengthBeats } = this.renderForAnalysis();
     const toTarget = -14 - m.lufsIntegrated;
     return [
-      `Análisis de mezcla (${what}, ${f(compiled.lengthBeats)} beats, ${f(seconds, 1)} s render):`,
+      `Análisis de mezcla (${what}, ${f(lengthBeats)} beats, ${f(seconds, 1)} s render):`,
       `- LUFS integrado: ${f(m.lufsIntegrated, 1)} (para -14 LUFS de streaming: ${toTarget >= 0 ? '+' : ''}${f(toTarget, 1)} dB)`,
       `- Peak: ${f(m.peakDb, 1)} dBFS`,
       `- Bandas (dB rel. al total): low ${f(m.bands.low, 1)} · low-mid ${f(m.bands.lowMid, 1)} · high-mid ${f(m.bands.highMid, 1)} · high ${f(m.bands.high, 1)}`,
       `- Correlación estéreo: ${f(m.stereoCorrelation)}`,
     ].join('\n');
+  }
+
+  // ── Consejo de mezcla ──────────────────────────────────────────────────────
+
+  /** Foto de una pista de mixer para el asistente (qué efectos tiene ya). */
+  private trackSlots(index: number): TrackSlots {
+    const track = this.mixerTrack(index);
+    return {
+      index,
+      name: track.name,
+      slots: track.slots.map((s) => (s ? s.kind : null)),
+    };
+  }
+
+  /**
+   * Busca la pista de mixer de un papel (voz, 808, beat): primero por el
+   * nombre de la propia pista, y si no, por el canal que la alimenta.
+   */
+  private findRoleTrack(
+    nameRe: RegExp,
+    channelKinds: InstrumentKind[],
+  ): TrackSlots | undefined {
+    const p = this.project;
+    for (let i = 1; i < p.mixer.length; i++) {
+      const track = p.mixer[i];
+      if (track && nameRe.test(track.name)) return this.trackSlots(i);
+    }
+    for (const id of p.channelOrder) {
+      const ch = p.channels[id];
+      if (!ch || ch.mixerTrack === 0) continue;
+      if (nameRe.test(ch.name) || channelKinds.includes(ch.kind)) {
+        return this.trackSlots(ch.mixerTrack);
+      }
+    }
+    return undefined;
+  }
+
+  private adviseMixTool(a: Record<string, unknown>): string {
+    const { analysis, what } = this.renderForAnalysis();
+
+    const genreArg = optString(a, 'genre') ?? 'auto';
+    const genres: MixGenre[] = ['trap', 'boombap', 'reggaeton', 'generico'];
+    if (genreArg !== 'auto' && !genres.includes(genreArg as MixGenre)) {
+      throw new ToolError(`genre inválido "${genreArg}". Válidos: ${genres.join(', ')}, auto`);
+    }
+    const genre: MixGenre =
+      genreArg === 'auto' ? guessGenre(this.project.tempo) : (genreArg as MixGenre);
+
+    const targetLufs = optNumber(a, 'targetLufs') ?? STREAMING_LUFS;
+    if (targetLufs < -30 || targetLufs > -6) {
+      throw new ToolError('targetLufs fuera de rango -30..-6');
+    }
+
+    const explicit = (key: string): TrackSlots | undefined => {
+      const index = optNumber(a, key);
+      if (index === undefined) return undefined;
+      if (index === 0) throw new ToolError(`${key} no puede ser el master (0)`);
+      return this.trackSlots(index);
+    };
+
+    const voice = explicit('voiceTrack') ?? this.findRoleTrack(/voz|vocal|vox|voice|cantad/i, ['vox']);
+    const low = explicit('lowTrack') ?? this.findRoleTrack(/808|sub|bajo|bass/i, ['sub808']);
+    const beat = explicit('beatTrack') ?? this.findRoleTrack(/beat|instrumental|pista base/i, []);
+
+    const ctx: MixContext = {
+      genre,
+      targetLufs,
+      master: this.trackSlots(0),
+      ...(voice ? { voice } : null),
+      // El beat solo tiene sentido si es OTRA pista distinta de la voz.
+      ...(beat && beat.index !== voice?.index ? { beat } : null),
+      ...(low ? { low } : null),
+    };
+
+    const advice = adviseMix(analysis, ctx);
+    const detected = [
+      voice ? `voz = mixer ${voice.index} "${voice.name}"` : 'voz no detectada',
+      low ? `808/sub = mixer ${low.index} "${low.name}"` : null,
+      ctx.beat ? `beat = mixer ${ctx.beat.index} "${ctx.beat.name}"` : null,
+    ].filter(Boolean);
+
+    const parts = [formatAdvice(advice, analysis, what), '', `Pistas: ${detected.join(' · ')}.`];
+    if (optBoolean(a, 'apply') === true) {
+      parts.push(this.applyAdvice(advice));
+    } else {
+      parts.push('Nada aplicado todavía: repite con apply=true para dejarlo puesto (un solo undo).');
+    }
+    return parts.join('\n');
+  }
+
+  /** Aplica la cadena propuesta como UN comando batch (un paso de undo). */
+  private applyAdvice(advice: MixAdvice): string {
+    const commands: Command[] = [];
+    const done: string[] = [];
+
+    for (const step of advice.chain) {
+      const specs = EFFECT_PARAMS[step.kind];
+      const params = validateParams(step.params, specs, step.kind);
+      if (step.existing) {
+        for (const [key, value] of Object.entries(params)) {
+          commands.push({
+            type: 'setEffectParam',
+            trackIndex: step.trackIndex,
+            slotIndex: step.slotIndex,
+            key,
+            value,
+          });
+        }
+        const patch: { enabled?: boolean; mix?: number; sidechainSource?: number } = { enabled: true };
+        if (step.mix !== undefined) patch.mix = clamp(step.mix, 0, 1);
+        if (step.sidechainSource !== undefined) patch.sidechainSource = step.sidechainSource;
+        commands.push({
+          type: 'patchEffect',
+          trackIndex: step.trackIndex,
+          slotIndex: step.slotIndex,
+          patch,
+        });
+        done.push(`ajustado ${step.kind} en mixer ${step.trackIndex} (slot ${step.slotIndex})`);
+      } else {
+        const full: Record<string, number> = {};
+        for (const spec of specs) full[spec.key] = spec.default;
+        Object.assign(full, params);
+        const slot: EffectSlot = {
+          id: newId(),
+          kind: step.kind,
+          enabled: true,
+          mix: clamp(step.mix ?? 1, 0, 1),
+          params: full,
+          ...(step.sidechainSource !== undefined
+            ? { sidechainSource: step.sidechainSource }
+            : {}),
+        };
+        commands.push({
+          type: 'setEffect',
+          trackIndex: step.trackIndex,
+          slotIndex: step.slotIndex,
+          slot,
+        });
+        done.push(`${step.kind} en mixer ${step.trackIndex} (slot ${step.slotIndex})`);
+      }
+    }
+
+    for (const gain of advice.gains) {
+      commands.push({
+        type: 'patchMixerTrack',
+        trackIndex: gain.trackIndex,
+        patch: { volume: clamp(dbToGain(gain.volumeDb), 0, 2) },
+      });
+      done.push(`fader de mixer ${gain.trackIndex} a ${f(gain.volumeDb, 1)} dB`);
+    }
+
+    if (commands.length === 0) return 'No había nada que aplicar.';
+    const label = `Cadena de mezcla (${advice.chain.length} efecto(s))`;
+    this.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      label,
+    );
+    return `Aplicado en un solo paso de undo: ${done.join(', ')}.`;
   }
 
   // ── Undo / redo ────────────────────────────────────────────────────────────

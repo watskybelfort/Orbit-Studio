@@ -8,6 +8,7 @@
 import type { PeerActivity } from '@orbit/collab';
 import { useClaudeStore } from '../state/claude';
 import { getCollabSession, useCollabStore } from './collab-state';
+import { initFollow } from './follow';
 
 const THROTTLE_MS = 120;
 
@@ -44,12 +45,14 @@ let wired = false;
 
 /**
  * Mantiene la bandera de Claude sincronizada con awareness: al conectarse o
- * caerse el bridge, y al entrar en una sala con el bridge ya conectado.
+ * caerse el bridge, y al entrar en una sala con el bridge ya conectado. Y
+ * arranca el modo seguidor (publicar la vista lógica + seguir la de otro).
  * Idempotente; se llama una vez desde App.
  */
 export function initPresence(): void {
   if (wired) return;
   wired = true;
+  initFollow();
   const sync = () => reportClaudeActive(useClaudeStore.getState().connected);
   useClaudeStore.subscribe((s, prev) => {
     if (s.connected !== prev.connected) sync();

@@ -242,3 +242,179 @@
   height: 1px;
   background: var(--border);
 }
+
+/* Rol en la sala */
+.collab-role-chip {
+  padding: 1px 7px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.collab-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.collab-btn.small {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+/* Modo seguidor: la vista lógica del peer, bajo su fila */
+.collab-peer-view {
+  margin-left: 18px;
+  margin-top: 1px;
+}
+
+/* Chat de sala */
+.collab-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.collab-msg {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.collab-msg-user {
+  flex: none;
+  font-weight: 600;
+}
+
+.collab-msg-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.collab-msg-time {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Notas ancladas al timeline */
+.collab-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.collab-notes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.collab-note-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.collab-note-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+
+.collab-note-del {
+  flex: none;
+  padding: 0 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: none;
+  border: none;
+}
+
+.collab-note-del:hover {
+  color: var(--meter-clip);
+}
+
+/* Chip de compás: salta ahí en la playlist */
+.collab-chip {
+  flex: none;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--bg);
+  background: var(--accent);
+  border: none;
+  border-radius: 999px;
+}
+
+.collab-chip:hover {
+  filter: brightness(1.15);
+}
+
+.collab-bar-input {
+  flex: none;
+  width: 70px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Capa de aviso sobre la app: modo seguidor y rechazos por rol.
+   Mismo carril que el banner de recuperación (bajo la toolbar, z 1001):
+   por debajo de menús desplegados y de la paleta de comandos. */
+.collab-overlay {
+  position: fixed;
+  top: calc(var(--titlebar-h) + 46px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.collab-following,
+.collab-denied {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--popup-bg);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  box-shadow: var(--shadow-popup);
+  pointer-events: auto;
+}
+
+.collab-following .collab-btn.small {
+  margin-left: 0;
+}
+
+.collab-denied {
+  border-color: var(--meter-clip);
+  color: var(--meter-clip);
+}
