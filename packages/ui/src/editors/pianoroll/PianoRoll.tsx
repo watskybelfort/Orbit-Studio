@@ -21,6 +21,7 @@ import {
 } from '@orbit/core';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
+import { canRemovePattern, patternClipsHint, removePattern } from '../../palette/default-commands';
 import { engine, setActivePattern, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -89,7 +90,14 @@ interface DragState {
 
 export function PianoRoll() {
   const project = useProject();
-  const activePatternId = useUiStore((s) => s.activePatternId) ?? project.patternOrder[0] ?? null;
+  // El patrón activo es estado de UI y puede haber sido BORRADO: hay que
+  // comprobar que sigue existiendo, no solo que no es null, o el editor se
+  // queda en blanco (y los dispatch tirarían por el `must` de core).
+  const uiPatternId = useUiStore((s) => s.activePatternId);
+  const activePatternId =
+    (uiPatternId !== null && project.patterns[uiPatternId] ? uiPatternId : null) ??
+    project.patternOrder[0] ??
+    null;
   const channelId =
     useUiStore((s) => s.pianoRollChannelId) ?? project.channelOrder[0] ?? null;
   const playing = useUiStore((s) => s.playing);
@@ -897,7 +905,9 @@ export function PianoRoll() {
       if (!activePatternId || !channelId) return;
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
-      if (e.code === 'Delete' && selection.size > 0) {
+      // Supr A SECAS borra las notas; con Ctrl+Shift es el atajo global de
+      // borrar el patrón (useShortcuts) y aquí no se toca la selección.
+      if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey && selection.size > 0) {
         store.dispatch(
           { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: [...selection] },
           { label: `Borrar ${selection.size} nota(s)` },
@@ -1273,6 +1283,20 @@ export function PianoRoll() {
               </option>
             ))}
           </select>
+          {/* Borrar el patrón que se está editando. Deshabilitado con uno solo:
+              core lanza en vez de dejar el proyecto sin patrones. */}
+          <button
+            className="tbtn pr-pattern-del"
+            disabled={!canRemovePattern()}
+            title={
+              canRemovePattern()
+                ? `Borrar "${pattern.name}"${patternClipsHint(pattern.id)} · Ctrl+Shift+Supr, Ctrl+Z lo devuelve`
+                : 'El proyecto siempre tiene un patrón'
+            }
+            onClick={() => removePattern(pattern.id)}
+          >
+            ✕
+          </button>
         </label>
         <label className="pr-field">
           Snap

@@ -10,8 +10,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   createChannel,
+  createPattern,
   newId,
   ProjectStore,
+  type Clip,
   type Note,
 } from '../src/index';
 
@@ -153,6 +155,72 @@ describe('jumpTo', () => {
 
     // Idempotente: ya estamos ahí.
     expect(store.jumpTo(null)).toBe(0);
+  });
+});
+
+describe('borrar patrones por el ProjectStore', () => {
+  /** Patrón con notas en un canal y dos clips en la playlist. */
+  function conContenido(store: ProjectStore) {
+    const ch = createChannel('sub808', 0);
+    store.dispatch({ type: 'addChannel', channel: ch });
+    const pat = createPattern(1);
+    store.dispatch({ type: 'addPattern', pattern: pat });
+    const notes = [makeNote(0, 36), makeNote(1, 38), makeNote(2, 41)];
+    store.dispatch({ type: 'addNotes', patternId: pat.id, channelId: ch.id, notes });
+
+    const trackId = Object.keys(store.project.playlistTracks)[0]!;
+    const clips: Clip[] = [0, 8].map((start) => ({
+      id: newId(), kind: 'pattern', playlistTrackId: trackId,
+      start, length: 4, muted: false, patternId: pat.id,
+    }));
+    store.dispatch({ type: 'addClips', clips });
+    return { ch, pat, notes, clips };
+  }
+
+  it('borrar → undo → redo devuelve las notas Y los clips', () => {
+    const store = new ProjectStore();
+    const { ch, pat, clips } = conContenido(store);
+    const before = JSON.stringify(store.project);
+    const orderBefore = [...store.project.patternOrder];
+
+    store.dispatch({ type: 'removePattern', patternId: pat.id }, { label: `Borrar "${pat.name}"` });
+    expect(store.project.patterns[pat.id]).toBeUndefined();
+    expect(store.project.patternOrder).not.toContain(pat.id);
+    for (const c of clips) expect(store.project.clips[c.id]).toBeUndefined();
+    // El canal no se va con el patrón (sus notas viven DENTRO del patrón).
+    expect(store.project.channels[ch.id]).toBeDefined();
+
+    // Un solo Ctrl+Z devuelve el patrón entero: notas, clips y su posición.
+    expect(store.undo()).toBe(true);
+    expect(JSON.stringify(store.project)).toBe(before);
+    expect(store.project.patternOrder).toEqual(orderBefore);
+    expect(store.project.patterns[pat.id]!.notes[ch.id]).toHaveLength(3);
+    for (const c of clips) expect(store.project.clips[c.id]!.start).toBe(c.start);
+
+    // Y el redo se lo vuelve a llevar todo.
+    expect(store.redo()).toBe(true);
+    expect(store.project.patterns[pat.id]).toBeUndefined();
+    for (const c of clips) expect(store.project.clips[c.id]).toBeUndefined();
+
+    // La entrada queda en el historial con su etiqueta (panel + jumpTo).
+    const view = store.historyView();
+    expect(view.entries.at(-1)!.label).toBe(`Borrar "${pat.name}"`);
+    expect(view.present).toBe(view.entries.length);
+  });
+
+  it('el último patrón no se puede borrar y el historial no se ensucia', () => {
+    const store = new ProjectStore();
+    store.dispatch({ type: 'setTempo', tempo: 90 });
+    const entries = store.historyView().entries.length;
+
+    expect(() =>
+      store.dispatch({ type: 'removePattern', patternId: store.project.patternOrder[0]! }),
+    ).toThrow(/último patrón/);
+    expect(store.project.patternOrder).toHaveLength(1);
+    expect(store.historyView().entries).toHaveLength(entries);
+    // El undo sigue siendo el del cambio anterior, no un paso roto.
+    expect(store.undo()).toBe(true);
+    expect(store.project.tempo).toBe(140);
   });
 });
 

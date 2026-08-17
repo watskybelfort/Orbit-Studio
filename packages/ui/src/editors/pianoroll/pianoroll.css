@@ -275,3 +275,20 @@ html[data-theme='light'] .pr-key.black {
   border-radius: 50%;
   border: 1px solid var(--border);
 }
+
+/* Borrar el patron que se esta editando (al lado del selector).
+   Se pinta rojo solo al pasar por encima: es destructivo pero no grita. */
+.pr-pattern-del {
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.pr-pattern-del:hover:not(:disabled) {
+  color: var(--titlebar-close-hover-text);
+  border-color: var(--titlebar-close-hover);
+  background: var(--titlebar-close-hover);
+}

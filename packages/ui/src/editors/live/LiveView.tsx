@@ -13,15 +13,27 @@
  *     idéntico al snapshot recién aplicado, así que no corta el audio.
  *   - Pad en cola: clic para cancelar (re-encola el patrón que suena).
  *   - Pad ya sonando: no hace nada (más seguro que relanzar desde 0).
+ *
+ * Clic DERECHO en un pad: menú de la escena (renombrar, color, clonar y
+ * borrar). El borrado comparte implementación con la paleta y el menú Patrón.
  */
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { createPattern, type Id, type Pattern } from '@orbit/core';
+import { type Id, type Pattern } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
+import {
+  addPattern,
+  clonePattern,
+  patternClipsHint,
+  removePattern,
+  renamePattern,
+  setPatternColor,
+} from '../../palette/default-commands';
 import { engine, play, setActivePattern, setPlayMode, stopPlayback, store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { IconStop } from '../../icons';
+import { MenuPortal } from '../../widgets/MenuPortal';
 import './live.css';
 
 export function LiveView() {
@@ -29,6 +41,11 @@ export function LiveView() {
   const activePatternId = useUiStore((s) => s.activePatternId);
   const playing = useUiStore((s) => s.playing);
   const playMode = useUiStore((s) => s.playMode);
+
+  /** Menú contextual de un pad: qué escena y dónde se abrió. */
+  const [padMenu, setPadMenu] = useState<{ id: Id; x: number; y: number } | null>(null);
+  /** Raíz de la vista: le dice al portal en qué documento pintar el menú. */
+  const rootRef = useRef<HTMLDivElement>(null);
 
   /** Patrón lanzado que espera el cierre del loop (null = sin cola). */
   const [queuedId, setQueuedId] = useState<Id | null>(null);
@@ -92,11 +109,19 @@ export function LiveView() {
     void play();
   };
 
-  /** Pad «+»: crea un patrón nuevo y lo deja activo (como hace el rack). */
-  const addNewPattern = () => {
-    const p = createPattern(project.patternOrder.length);
-    store.dispatch({ type: 'addPattern', pattern: p }, { label: `Añadir "${p.name}"` });
-    setActivePattern(p.id);
+  /**
+   * Borra la escena: si era la que esperaba en cola hay que cancelarla antes,
+   * porque el kernel ya tiene su snapshot y la haría sonar igual al cerrar el
+   * loop. El resto (clips, undo, patrón activo) lo cubre removePattern.
+   */
+  const removeScene = (id: Id) => {
+    if (queuedRef.current === id) {
+      if (patternId && patternId !== id) {
+        engine.queueSnapshot(store.project, { mode: 'pattern', patternId });
+      }
+      setQueued(null);
+    }
+    removePattern(id);
   };
 
   const stop = () => {
@@ -105,9 +130,13 @@ export function LiveView() {
   };
 
   const queuedPattern = queuedId !== null ? project.patterns[queuedId] : undefined;
+  const menuPattern = padMenu ? project.patterns[padMenu.id] : undefined;
+  // Con una sola escena el borrado no se ofrece: core lanza en vez de dejar el
+  // proyecto sin patrones.
+  const canRemove = project.patternOrder.length > 1;
 
   return (
-    <div className="live" onPointerDown={() => reportActivity('Vista Live')}>
+    <div className="live" ref={rootRef} onPointerDown={() => reportActivity('Vista Live')}>
       <div className="live-grid">
         {project.patternOrder.map((id) => {
           const pattern = project.patterns[id];
@@ -120,10 +149,11 @@ export function LiveView() {
               sounding={playingPattern && id === patternId}
               queued={id === queuedId}
               onLaunch={() => launch(id)}
+              onMenu={(x, y) => setPadMenu({ id, x, y })}
             />
           );
         })}
-        <button className="live-pad add" title="Nuevo patrón (escena vacía)" onClick={addNewPattern}>
+        <button className="live-pad add" title="Nuevo patrón (escena vacía)" onClick={() => addPattern()}>
           +
         </button>
       </div>
@@ -139,9 +169,65 @@ export function LiveView() {
           </span>
         )}
         <span className="live-hint">
-          Clic: lanzar escena · sonando entra al cierre del loop · clic en la cola: cancelar
+          Clic: lanzar escena · sonando entra al cierre del loop · clic derecho: menú de la escena
         </span>
       </div>
+
+      {padMenu && menuPattern && (
+        <MenuPortal
+          anchor={rootRef.current}
+          x={padMenu.x}
+          y={padMenu.y}
+          className="live-ctx"
+          onClose={() => setPadMenu(null)}
+        >
+          <div className="live-ctx-title" style={{ borderLeftColor: menuPattern.color }}>
+            {menuPattern.name}
+          </div>
+          <button
+            className="menu-item"
+            onClick={() => {
+              setPadMenu(null);
+              renamePattern(padMenu.id);
+            }}
+          >
+            Renombrar…
+          </button>
+          <label className="menu-item live-ctx-color">
+            Cambiar color
+            <input
+              type="color"
+              value={menuPattern.color}
+              onChange={(e) => setPatternColor(padMenu.id, e.target.value)}
+            />
+          </label>
+          <button
+            className="menu-item"
+            onClick={() => {
+              setPadMenu(null);
+              clonePattern(padMenu.id);
+            }}
+          >
+            Clonar escena
+          </button>
+          <div className="menu-sep" />
+          <button
+            className="menu-item"
+            disabled={!canRemove}
+            title={
+              canRemove
+                ? 'Se lleva sus notas y sus clips de la playlist; Ctrl+Z lo devuelve entero'
+                : 'El proyecto siempre tiene un patrón'
+            }
+            onClick={() => {
+              setPadMenu(null);
+              removeScene(padMenu.id);
+            }}
+          >
+            Borrar escena{patternClipsHint(padMenu.id)}
+          </button>
+        </MenuPortal>
+      )}
     </div>
   );
 }
@@ -157,9 +243,11 @@ interface ScenePadProps {
   /** Lanzado y a la espera del cierre del loop. */
   queued: boolean;
   onLaunch: () => void;
+  /** Clic derecho: abre el menú de la escena en esas coordenadas de viewport. */
+  onMenu: (x: number, y: number) => void;
 }
 
-function ScenePad({ pattern, beatsPerBar, sounding, queued, onLaunch }: ScenePadProps) {
+function ScenePad({ pattern, beatsPerBar, sounding, queued, onLaunch, onMenu }: ScenePadProps) {
   const bars = Math.round((pattern.length / Math.max(1, beatsPerBar)) * 10) / 10;
   const noteCount = Object.values(pattern.notes).reduce((total, list) => total + list.length, 0);
   const cls = `live-pad${sounding ? ' sounding' : ''}${queued ? ' queued' : ''}`;
@@ -167,13 +255,17 @@ function ScenePad({ pattern, beatsPerBar, sounding, queued, onLaunch }: ScenePad
     ? `${pattern.name} — en cola, clic para cancelar`
     : sounding
       ? `${pattern.name} — sonando`
-      : `Lanzar ${pattern.name}`;
+      : `Lanzar ${pattern.name} · clic derecho para renombrar, colorear, clonar o borrar`;
   return (
     <button
       className={cls}
       style={{ '--pad-color': pattern.color } as CSSProperties}
       title={title}
       onClick={onLaunch}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMenu(e.clientX, e.clientY);
+      }}
     >
       <span className="live-pad-name">{pattern.name}</span>
       <span className="live-pad-meta">

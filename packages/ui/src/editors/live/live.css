@@ -166,3 +166,44 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Menú de la escena (clic derecho en un pad) ──
+   Va por MenuPortal, así que solo pone la caja: el fondo, el borde y el blur
+   del acrílico los pone .popup, y las filas reusan .menu-item del shell. */
+
+.live-ctx {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  padding: 5px;
+}
+
+.live-ctx-title {
+  padding: 4px 8px 6px;
+  border-left: 3px solid transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-ctx-color {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.live-ctx-color input {
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+}

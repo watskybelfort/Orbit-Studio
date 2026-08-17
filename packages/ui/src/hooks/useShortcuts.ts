@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { repeatLastExport } from '../export';
 import { usePaletteStore } from '../palette';
+import { removeActivePattern } from '../palette/default-commands';
 import { setPlayMode, store, togglePlay } from '../state/app';
 import { openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
@@ -35,6 +36,15 @@ export function useShortcuts(): void {
       if ((e.ctrlKey && e.code === 'KeyY') || (e.ctrlKey && e.shiftKey && e.code === 'KeyZ')) {
         e.preventDefault();
         store.redo();
+        return;
+      }
+      // Ctrl+Shift+Supr: borra el patrón activo (con sus notas y sus clips).
+      // Lleva los dos modificadores a propósito: Supr a secas ya borra la
+      // selección de notas en el Piano Roll y no se le pisa. Aquí arriba ya
+      // hemos salido si se estaba escribiendo en un campo de texto.
+      if (e.ctrlKey && e.shiftKey && e.code === 'Delete') {
+        e.preventDefault();
+        removeActivePattern();
         return;
       }
       // Ctrl+E: repite el último export sin diálogo (sufijo incremental).
