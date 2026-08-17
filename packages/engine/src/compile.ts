@@ -11,6 +11,7 @@ import {
   paramRefNorm,
   paramRefValue,
   type AutomationPoint,
+  type Channel,
   type Clip,
   type EffectSlot,
   type Lfo,
@@ -221,6 +222,14 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       mixerTrack: ch.mixerTrack,
       sampleId: ch.sampleId,
     };
+    // Plugin JS de instrumento: el canal lo declara por id y el kernel hace el
+    // resto. El campo aún no vive en `Channel`, así que se lee de forma
+    // tolerante — en cuanto core lo añada esto empieza a funcionar solo, sin
+    // volver a tocar el motor.
+    const pluginId = (ch as Channel & { instrumentPluginId?: string }).instrumentPluginId;
+    if (typeof pluginId === 'string' && pluginId.length > 0) {
+      compiled.instrumentPluginId = pluginId;
+    }
     const preset = ch.kind === 'nova' ? findNovaPreset(ch.novaPreset) : undefined;
     if (preset) {
       compiled.nova = {
@@ -321,6 +330,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
           length: clip.length,
         });
       } else if (clip.kind === 'audio' && clip.sampleId) {
+        // Pitch 0 (o basura) no viaja: así un clip sin transponer entra por el
+        // camino de lectura directa del kernel, idéntico al de siempre.
+        const pitch = clip.audioPitch;
         audioClips.push({
           start: clip.start,
           length: clip.length,
@@ -329,6 +341,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
           gain: clip.audioGain ?? 1,
           mixerTrack: 0,
           stretch: clip.audioStretch === true,
+          ...(typeof pitch === 'number' && Number.isFinite(pitch) && pitch !== 0
+            ? { pitch }
+            : {}),
         });
       } else if (clip.kind === 'automation' && clip.target && clip.points) {
         const ev = sampleAutomation(clip, clip.points, clip.target, project, channelIndexOf);

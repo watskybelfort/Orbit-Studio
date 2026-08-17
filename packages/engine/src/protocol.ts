@@ -36,6 +36,13 @@ export interface CompiledChannel {
    * voz, así que un preset nuevo no obliga a tocar el motor.
    */
   nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] };
+  /**
+   * Plugin JS de instrumento que sustituye al motor interno del canal: cada
+   * nota instancia `createInstrument(sampleRate)` del plugin registrado. Si el
+   * id no está registrado (o su fábrica falla) el canal cae a su `kind`, que
+   * es la misma degradación amable que un slot de efecto con plugin ausente.
+   */
+  instrumentPluginId?: string;
 }
 
 export interface CompiledEffect {
@@ -121,6 +128,12 @@ export interface CompiledAudioClip {
   mixerTrack: number;
   /** Time-stretch: el sample se estira (pitch intacto) hasta llenar el clip. */
   stretch: boolean;
+  /**
+   * Transposición en semitonos (+12 = una octava arriba). La duración NO
+   * cambia: el kernel lee el sample más rápido/lento y compensa con el mismo
+   * motor de grains del stretch. Ausente o 0 = lectura directa, sin grains.
+   */
+  pitch?: number;
 }
 
 export interface CompiledProject {
@@ -148,6 +161,14 @@ export type ToKernel =
   | { type: 'queueSnapshot'; project: CompiledProject }
   /** Registra (o actualiza) un plugin JS de usuario: código fuente del módulo. */
   | { type: 'registerPlugin'; pluginId: string; code: string }
+  /**
+   * Igual que `registerPlugin` pero para un plugin de INSTRUMENTO
+   * (`createInstrument(sampleRate)`). Son dos mensajes y no uno porque el
+   * emisor es distinto — el escáner de plugins sabe qué exporta cada archivo —
+   * pero el kernel compila el módulo una sola vez y se queda con las fábricas
+   * que encuentre, así un archivo con las dos sirve para ambas cosas.
+   */
+  | { type: 'registerInstrument'; pluginId: string; code: string }
   | { type: 'play'; fromBeat: number }
   | { type: 'stop' }
   | { type: 'seek'; beat: number }
