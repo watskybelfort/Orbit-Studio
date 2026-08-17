@@ -1,10 +1,22 @@
 /**
  * Ajustes → Apariencia: tema (oscuro/claro/acrílico), las tres perillas
- * (acento, transparencia, tinte), semáforo Mac y temas custom con nombre.
+ * (acento, transparencia, tinte), semáforo Mac, los ajustes de "a mi manera"
+ * (escala de la interfaz, tipografía y radio de esquinas) y temas custom con
+ * nombre, que además se pueden sacar y meter como archivo.
  * Todo se aplica EN VIVO y se persiste en settings.json.
  */
 
 import { useEffect, useState } from 'react';
+import {
+  commitAppearance,
+  DEFAULT_APPEARANCE,
+  UI_FONTS,
+  UI_RADIUS_MAX,
+  UI_RADIUS_MIN,
+  appearanceFromSettings,
+  isUiFontId,
+  type Appearance,
+} from '../theme/appearance';
 import {
   applyTheme,
   isThemeId,
@@ -12,6 +24,13 @@ import {
   type ThemeId,
   type ThemeOverrides,
 } from '../theme/theme';
+import {
+  buildThemeFile,
+  downloadThemeFile,
+  parseThemeFile,
+  pickThemeFile,
+} from '../theme/theme-file';
+import { UI_SCALE_MAX, UI_SCALE_MIN } from '../theme/ui-scale';
 import { useUiStore } from '../state/ui';
 import './settings.css';
 
@@ -20,9 +39,17 @@ const ACCENT_PALETTE = [
   '#b45ae6', '#5ae6c9', '#e65aa9', '#e6935a',
 ];
 
+const THEME_LABEL: Record<ThemeId, string> = {
+  dark: 'Oscuro',
+  light: 'Claro',
+  acrylic: 'Acrílico',
+};
+
 interface CustomTheme {
   theme: ThemeId;
   overrides: ThemeOverrides;
+  /** Escala/tipografía/radio; falta en los temas guardados antes de existir. */
+  appearance?: Appearance;
 }
 
 type CustomThemes = Record<string, CustomTheme>;
@@ -33,18 +60,27 @@ function parseCustomThemes(raw: unknown): CustomThemes {
   for (const [name, v] of Object.entries(raw as Record<string, unknown>)) {
     const t = v as Partial<CustomTheme>;
     if (t && isThemeId(t.theme)) {
-      out[name] = { theme: t.theme, overrides: t.overrides ?? {} };
+      out[name] = {
+        theme: t.theme,
+        overrides: t.overrides ?? {},
+        ...(t.appearance ? { appearance: t.appearance } : null),
+      };
     }
   }
   return out;
 }
 
+/** Aviso del exportar/importar de temas (verde = bien, rojo = archivo malo). */
+type FileNotice = { kind: 'ok' | 'error'; text: string } | null;
+
 export function SettingsPanel() {
   const [theme, setTheme] = useState<ThemeId>('dark');
   const [overrides, setOverrides] = useState<ThemeOverrides>({});
+  const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
   const [customThemes, setCustomThemes] = useState<CustomThemes>({});
   const [savingName, setSavingName] = useState<string | null>(null);
   const [acrylicOk, setAcrylicOk] = useState(true);
+  const [fileNotice, setFileNotice] = useState<FileNotice>(null);
   const trafficLights = useUiStore((s) => s.trafficLights);
 
   useEffect(() => {
@@ -57,6 +93,7 @@ export function SettingsPanel() {
         glassAlpha: typeof settings['glassAlpha'] === 'number' ? settings['glassAlpha'] : undefined,
         glassTint: typeof settings['glassTint'] === 'string' ? settings['glassTint'] : undefined,
       });
+      setAppearance(appearanceFromSettings(settings));
       setCustomThemes(parseCustomThemes(settings['customThemes']));
     })();
   }, []);
@@ -70,16 +107,29 @@ export function SettingsPanel() {
     void saveThemeToSettings(nextTheme, { ...nextOverrides, trafficLights });
   };
 
+  /** Escala/fuente/radio: se aplican al instante y se guardan al parar. */
+  const commitLook = (next: Appearance) => {
+    setAppearance(next);
+    commitAppearance(next);
+  };
+
   const setTraffic = (on: boolean) => {
     useUiStore.setState({ trafficLights: on });
     void window.orbit?.settings.set({ trafficLights: on });
   };
 
   const saveCustom = (name: string) => {
-    const next = { ...customThemes, [name]: { theme, overrides } };
+    const next = { ...customThemes, [name]: { theme, overrides, appearance } };
     setCustomThemes(next);
     void window.orbit?.settings.set({ customThemes: next });
     setSavingName(null);
+  };
+
+  const applyCustom = (t: CustomTheme) => {
+    commit(t.theme, t.overrides);
+    // Los temas guardados antes de que existiera "a mi manera" no traen
+    // apariencia: en ese caso se respeta la que el usuario tenga puesta.
+    if (t.appearance) commitLook(t.appearance);
   };
 
   const deleteCustom = (name: string) => {
@@ -87,6 +137,35 @@ export function SettingsPanel() {
     delete next[name];
     setCustomThemes(next);
     void window.orbit?.settings.set({ customThemes: next });
+  };
+
+  // ── Tema como archivo ──────────────────────────────────────────────────────
+
+  const exportThemeFile = () => {
+    const name = `Tema Orbit ${THEME_LABEL[theme]}`;
+    const written = downloadThemeFile(buildThemeFile(name, theme, overrides, appearance));
+    setFileNotice({ kind: 'ok', text: `Guardando ${written} (elige dónde en el diálogo).` });
+  };
+
+  const importThemeFile = async () => {
+    const picked = await pickThemeFile();
+    if (!picked) return;
+    const result = parseThemeFile(picked.text);
+    if (!result.ok) {
+      setFileNotice({ kind: 'error', text: `No se pudo importar ${picked.name}: ${result.error}` });
+      return;
+    }
+    const file = result.file;
+    commit(file.theme, file.overrides);
+    commitLook(file.appearance);
+    // Además de aplicarlo, queda en "Mis temas" para poder volver a él.
+    const next = {
+      ...customThemes,
+      [file.name]: { theme: file.theme, overrides: file.overrides, appearance: file.appearance },
+    };
+    setCustomThemes(next);
+    void window.orbit?.settings.set({ customThemes: next });
+    setFileNotice({ kind: 'ok', text: `Tema «${file.name}» importado y guardado en Mis temas.` });
   };
 
   return (
@@ -185,11 +264,71 @@ export function SettingsPanel() {
         </span>
       </div>
 
+      <h3 className="set-heading">A mi manera</h3>
+
+      <div className="set-row">
+        <span className="set-label">Escala de la UI</span>
+        <input
+          type="range"
+          min={UI_SCALE_MIN}
+          max={UI_SCALE_MAX}
+          step={0.05}
+          value={appearance.scale}
+          onChange={(e) => commitLook({ ...appearance, scale: Number(e.target.value) })}
+        />
+        <span className="set-value">{Math.round(appearance.scale * 100)}%</span>
+        <button
+          className="set-reset"
+          disabled={appearance.scale === DEFAULT_APPEARANCE.scale}
+          title="Volver al 100%"
+          onClick={() => commitLook({ ...appearance, scale: DEFAULT_APPEARANCE.scale })}
+        >
+          100%
+        </button>
+      </div>
+      <p className="set-note">
+        Escala toda la interfaz de golpe —texto, paneles, perillas y los canvas del piano roll y
+        la playlist, que se redibujan a la nueva resolución para no salir borrosos.
+      </p>
+
+      <div className="set-row">
+        <span className="set-label">Tipografía</span>
+        <select
+          className="set-select"
+          value={appearance.font}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (isUiFontId(id)) commitLook({ ...appearance, font: id });
+          }}
+        >
+          {UI_FONTS.map((f) => (
+            <option key={f.id} value={f.id}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+        <span className="set-value">Fuentes que ya trae el sistema</span>
+      </div>
+
+      <div className="set-row">
+        <span className="set-label">Radio de esquinas</span>
+        <input
+          type="range"
+          min={UI_RADIUS_MIN}
+          max={UI_RADIUS_MAX}
+          step={1}
+          value={appearance.radius}
+          onChange={(e) => commitLook({ ...appearance, radius: Number(e.target.value) })}
+        />
+        <span className="set-value">{appearance.radius} px</span>
+        <span className="radius-preview" style={{ borderRadius: `${appearance.radius}px` }} />
+      </div>
+
       <h3 className="set-heading">Mis temas</h3>
       <div className="custom-themes">
         {Object.entries(customThemes).map(([name, t]) => (
           <div key={name} className="custom-theme">
-            <button className="custom-apply" onClick={() => commit(t.theme, t.overrides)}>
+            <button className="custom-apply" onClick={() => applyCustom(t)}>
               <span className="swatch" style={{ background: t.overrides.accent ?? '#5aa9e6' }} />
               {name}
             </button>
@@ -217,6 +356,18 @@ export function SettingsPanel() {
           />
         )}
       </div>
+
+      <div className="set-row">
+        <button className="tbtn" onClick={exportThemeFile}>
+          Exportar tema a archivo…
+        </button>
+        <button className="tbtn" onClick={() => void importThemeFile()}>
+          Importar tema…
+        </button>
+      </div>
+      {fileNotice && (
+        <p className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
+      )}
 
       <h3 className="set-heading">Audio</h3>
       <p className="set-note">

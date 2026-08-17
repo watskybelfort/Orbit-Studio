@@ -44,6 +44,53 @@
   color: var(--text-dim);
 }
 
+/* Archivo de tema que no vale: mismo tono que el clip de los medidores. */
+.set-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--meter-clip);
+}
+
+/* ── A mi manera (escala, tipografía, radio) ── */
+.set-select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.set-reset {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.set-reset:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.set-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Muestra en vivo del radio elegido. */
+.radius-preview {
+  width: 26px;
+  height: 20px;
+  flex: none;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
 /* Tarjetas de tema */
 .theme-cards {
   display: flex;

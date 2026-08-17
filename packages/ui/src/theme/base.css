@@ -24,7 +24,9 @@ body {
   margin: 0;
   background: transparent;
   color: var(--text);
-  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  /* Tipografía elegible en Ajustes → A mi manera (token, nunca una pila
+     hardcodeada aquí). El respaldo es la pila del sistema de siempre. */
+  font-family: var(--font-ui, 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif);
   font-size: 13px;
   line-height: 1.4;
   user-select: none;
