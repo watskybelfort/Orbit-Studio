@@ -1,6 +1,7 @@
 /** Atajos globales de teclado (catálogo en docs/FEATURES.md §15). */
 
 import { useEffect } from 'react';
+import { repeatLastExport } from '../export';
 import { usePaletteStore } from '../palette';
 import { setPlayMode, store, togglePlay } from '../state/app';
 import { openProject, saveProject } from '../state/project-file';
@@ -34,6 +35,12 @@ export function useShortcuts(): void {
       if ((e.ctrlKey && e.code === 'KeyY') || (e.ctrlKey && e.shiftKey && e.code === 'KeyZ')) {
         e.preventDefault();
         store.redo();
+        return;
+      }
+      // Ctrl+E: repite el último export sin diálogo (sufijo incremental).
+      if (e.ctrlKey && e.code === 'KeyE') {
+        e.preventDefault();
+        void repeatLastExport();
         return;
       }
       if (e.ctrlKey && e.code === 'KeyO') {
