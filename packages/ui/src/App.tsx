@@ -24,6 +24,7 @@ import { initPlugins } from './state/plugins';
 import { CommandPalette } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
 import { useProjectFile } from './state/project-file';
+import { useBounceStore } from './state/bounce';
 import { useUiStore } from './state/ui';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
@@ -35,6 +36,8 @@ export function App() {
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
   const notice = useProjectFile((s) => s.notice);
+  const bounceBusy = useBounceStore((s) => s.busy);
+  const bounceNotice = useBounceStore((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
 
   useShortcuts();
@@ -96,7 +99,10 @@ export function App() {
         )}
       </div>
       <CommandPalette />
-      {notice && <div className="app-notice popup">{notice}</div>}
+      {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
+      {(bounceBusy ?? bounceNotice ?? notice) && (
+        <div className="app-notice popup">{bounceBusy ?? bounceNotice ?? notice}</div>
+      )}
       {recovery && (
         <div className="app-recovery popup">
           <span className="recovery-text">

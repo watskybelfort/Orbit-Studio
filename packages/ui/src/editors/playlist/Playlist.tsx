@@ -17,7 +17,7 @@
  * ('pl:move:<clipId>' / 'pl:resize:<clipId>'), como las perillas.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   createPlaylistTrack,
   newId,
@@ -32,10 +32,12 @@ import { addAudioClip, getDragEntry, SOUND_MIME } from '../../browser/sound-acti
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
+import { bounceTrack, bounceableClipsOfTrack, useBounceStore } from '../../state/bounce';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
+import { clampMenuPosition } from '../../widgets/ParamMenu';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -1080,7 +1082,9 @@ interface TrackHeaderProps {
 
 function TrackHeader({ track }: TrackHeaderProps) {
   const [editing, setEditing] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const cancelName = useRef(false);
+  const busy = useBounceStore((s) => s.busy !== null);
 
   const toggleMute = () => {
     store.dispatch(
@@ -1111,10 +1115,17 @@ function TrackHeader({ track }: TrackHeaderProps) {
     );
   };
 
+  const clipCount = bounceableClipsOfTrack(track.id).length;
+
   return (
     <div
       className={`pl-track${track.muted ? ' muted' : ''}`}
       style={{ height: track.height, borderLeftColor: track.color }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        const view = e.currentTarget.ownerDocument.defaultView;
+        setMenu(clampMenuPosition(e.clientX, e.clientY, view, 230, 90));
+      }}
     >
       <button
         className={`pl-led${track.muted ? '' : ' on'}`}
@@ -1142,12 +1153,78 @@ function TrackHeader({ track }: TrackHeaderProps) {
       ) : (
         <button
           className="pl-track-name"
-          title="Doble clic para renombrar"
+          title="Doble clic para renombrar · clic derecho: menú de pista"
           onDoubleClick={() => setEditing(true)}
         >
           {track.name}
         </button>
       )}
+      {menu && (
+        <TrackMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)}>
+          <button
+            className="param-menu-item"
+            disabled={busy || clipCount === 0}
+            title={
+              clipCount === 0
+                ? 'Esta pista no tiene clips que consolidar'
+                : 'Renderiza los clips de la pista (con sus efectos) y los sustituye por un solo clip de audio'
+            }
+            onClick={() => {
+              setMenu(null);
+              void bounceTrack(track.id);
+            }}
+          >
+            Consolidar a audio{clipCount > 0 ? ` (${clipCount} clip${clipCount > 1 ? 's' : ''})` : ''}
+          </button>
+          <button
+            className="param-menu-item"
+            onClick={() => {
+              setMenu(null);
+              store.dispatch(
+                { type: 'removePlaylistTrack', trackId: track.id },
+                { label: `Borrar pista "${track.name}"` },
+              );
+            }}
+          >
+            Borrar pista
+          </button>
+        </TrackMenu>
+      )}
+    </div>
+  );
+}
+
+/** Menú flotante de la cabecera de pista (se cierra al clicar fuera o Esc). */
+function TrackMenu({
+  x,
+  y,
+  onClose,
+  children,
+}: {
+  x: number;
+  y: number;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('pointerdown', onClose);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('pointerdown', onClose);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="popup param-menu"
+      style={{ left: x, top: y }}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      {children}
     </div>
   );
 }

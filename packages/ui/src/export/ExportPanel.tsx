@@ -17,16 +17,13 @@ import {
   gainToTarget,
   renderProject,
   renderStems,
-  type CompiledProject,
   type FlacDepth,
   type RenderResult,
-  type SampleData,
   type WavDepth,
 } from '@orbit/engine';
-import { readSampleBytes } from '../browser/sound-actions';
 import { encodeMp3 } from './mp3';
+import { collectPluginSources, collectSamples } from './render-inputs';
 import { store } from '../state/app';
-import { usePluginsStore } from '../state/plugins';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import './export.css';
@@ -126,24 +123,6 @@ function usedMixerTracks(project: Project): { idx: number; name: string }[] {
  * sacado del registro del renderer para que el render offline los instancie.
  * Los que ya no están en la carpeta se reportan (sonarán en bypass).
  */
-function collectPluginSources(project: Project): {
-  plugins: Map<string, string>;
-  missing: string[];
-} {
-  const sources = usePluginsStore.getState().sources;
-  const plugins = new Map<string, string>();
-  const missing: string[] = [];
-  for (const track of project.mixer) {
-    for (const slot of track.slots) {
-      if (slot?.kind !== 'plugin' || !slot.pluginId || plugins.has(slot.pluginId)) continue;
-      const code = sources.get(slot.pluginId);
-      if (code) plugins.set(slot.pluginId, code);
-      else if (!missing.includes(slot.pluginId)) missing.push(slot.pluginId);
-    }
-  }
-  return { plugins, missing };
-}
-
 /** Ganancia lineal in situ sobre un render (para normalizar). */
 function applyGain(res: RenderResult, db: number): void {
   const g = Math.pow(10, db / 20);
@@ -157,58 +136,6 @@ function formatDuration(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds - m * 60;
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
-}
-
-// ── Samples para el render offline ───────────────────────────────────────────
-// El kernel en vivo recibe los samples por transferencia; para el render
-// offline los decodificamos aquí (mejor esfuerzo: pack de fábrica vía
-// library.read). Caché por id+hash para no re-decodificar en cada export.
-
-const sampleCache = new Map<string, SampleData>();
-
-async function collectSamples(
-  project: Project,
-  compiled: CompiledProject,
-): Promise<{ samples: Map<string, SampleData>; missing: string[] }> {
-  const needed = new Set<string>();
-  for (const ch of compiled.channels) if (ch.sampleId) needed.add(ch.sampleId);
-  for (const clip of compiled.audioClips) needed.add(clip.sampleId);
-
-  const samples = new Map<string, SampleData>();
-  const missing: string[] = [];
-  for (const id of needed) {
-    const ref = project.samples[id];
-    const key = ref ? `${id}:${ref.hash}` : id;
-    const cached = sampleCache.get(key);
-    if (cached) {
-      samples.set(id, cached);
-      continue;
-    }
-    if (!ref || !window.orbit) {
-      missing.push(ref?.name ?? id);
-      continue;
-    }
-    try {
-      const bytes = await readSampleBytes(ref.path);
-      if (!bytes) {
-        // Esquema de ruta que el renderer no sabe resolver (rutas locales sueltas).
-        missing.push(ref.name);
-        continue;
-      }
-      const ctx = new OfflineAudioContext(2, 1, 44100);
-      const decoded = await ctx.decodeAudioData(bytes.slice(0));
-      const left = decoded.getChannelData(0).slice();
-      const right = (
-        decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : decoded.getChannelData(0)
-      ).slice();
-      const data: SampleData = { left, right, rate: decoded.sampleRate };
-      sampleCache.set(key, data);
-      samples.set(id, data);
-    } catch {
-      missing.push(ref.name);
-    }
-  }
-  return { samples, missing };
 }
 
 // ── Panel ────────────────────────────────────────────────────────────────────
