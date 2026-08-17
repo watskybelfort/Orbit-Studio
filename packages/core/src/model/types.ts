@@ -53,6 +53,12 @@ export interface Channel {
   sampleId?: Id;
   /** Preset cargado (solo kind='nova'); ver model/nova.ts. */
   novaPreset?: string;
+  /**
+   * Plugin JS de instrumento que toca este canal (id del archivo). Cuando
+   * está, sustituye al motor interno del `kind`; si el plugin falta o
+   * revienta, el canal cae a su motor de siempre.
+   */
+  instrumentPluginId?: string;
   /** Ganancia lineal 0..2. */
   volume: number;
   /** -1..1 */
