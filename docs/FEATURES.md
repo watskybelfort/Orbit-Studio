@@ -142,6 +142,37 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Orbit Nova** | Instrumento de presets (estilo FLEX): 26 sonidos en 8 categorías con capas de síntesis, 8 perillas y 2 macros por preset, con su browser | v1.0 |
 | **Orbit Slicer** | Trocea un sample en N partes y dispara una por nota desde C3 | v1.0 |
 | **Orbit Vox** | Voz sintética por formantes (A/E/I/O/U) con soplo y vibrato | v1.0 |
+| **Orbit Prisma** | El instrumento grande de presets: **125 sonidos** en 16 categorías, hasta 4 capas por preset con 9 motores propios (tabla con morph, pulso PWM, ruido, FM con realimentación, cuerda pulsada, órgano aditivo, campana inarmónica, formantes y sub), filtro LP/HP/BP/Notch con envolvente y keytrack, envolvente de modulación, LFO por voz, unísono, modo Poly/Mono/Legato y **8 macros por preset**. Sus 38 perillas son ABSOLUTAS: el preset las carga y a partir de ahí mandas tú | v1.1 |
+
+### Orbit Prisma — parámetros de las capas
+
+Cada capa declara su motor y su carácter (`wave` 0..1, que cada motor interpreta
+a su manera), nivel, pan, transposición, multiplicadores sobre la envolvente del
+canal, un pasa-bajos propio en octavas, rango de teclas, respuesta a velocidad y
+fase (o fase aleatoria por nota). La perilla **Wave** del canal es un
+DESPLAZAMIENTO sobre todas las capas desde su neutro (0.5), no el wave de la
+primera. Y una macro **escribe** su parámetro al disparar la nota, así que su
+valor de fábrica tiene que reproducir lo que muestran las perillas — si no, el
+preset suena distinto de lo que enseña.
+
+Techos del motor: 12 osciladores por voz (el unísono se reparte entre las capas)
+y 48 líneas de retardo para la cuerda pulsada en todo el proceso.
+
+## 6 bis. Editor de sonido por canal (v1.1)
+
+Doble clic en un canal del rack, o clic derecho → *Editor de sonido…*
+
+| Pestaña | Qué trae | Versión |
+|---|---|---|
+| **Sonido** | Las perillas del instrumento, generadas desde el registro de parámetros (vale para los diez kinds). En un sampler, además, el bloque de recorte con la **onda dibujada y las marcas de start/end arrastrables**, fades de entrada y salida, ganancia, reverse (invertir el tiempo), polaridad (invertir la fase) y loop | v1.1 |
+| **Efectos** | Los **4 inserts propios del canal**: menú de tipo, bypass, dry/wet, sidechain del compresor y todas las perillas del efecto, cada una automatizable y con LFO por clic derecho | v1.1 |
+| **Mezcla** | Volumen, pan, mute, solo y pista de mixer de destino | v1.1 |
+
+Los inserts del canal suenan ENTRE las voces y el bus de la pista de mixer, y el
+volumen y el pan del canal se aplican DESPUÉS de la cadena. Eso permite tratar un
+sonido a solas —bajarle el reverb, ensuciarlo, filtrarlo— sin gastar un insert
+entero del mixer ni arrastrar a los demás canales que compartan pista. Un canal
+sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 
 ## 7. Efectos incluidos (14 tipos en v0.1)
 
@@ -240,6 +271,10 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Modo seguidor**: tu vista sigue la de otro (editor, patrón, canal, caret) | v1.0 |
 | **Chat de sesión** por el mismo documento Yjs, con notas ancladas a un compás | v1.0 |
 | **Permisos por rol** (productor / invitado / oyente) aplicados en el log de comandos | v1.0 |
+| **Los sonidos viajan por la sala**: los samples se publican por hash en el mismo documento Yjs y se rehidratan en el kernel del otro. Antes solo viajaban los comandos, así que un canal sampler o un clip de audio sonaba en tu máquina y era MUDO en la suya salvo que él hubiera pinchado ese mismo sonido de fábrica antes. Topes: 16 MB por sample, 64 MB por sala; el contenido de fábrica no viaja (se resuelve por ruta en las dos) | v1.1 |
+| Reconciliación al conectar, al registrar un sample y tras cada resincronización (join y replay dejaban el proyecto lleno de referencias y el kernel vacío) | v1.1 |
+| **Congelar tu audio** mientras el otro trastea: los comandos remotos se siguen aplicando al modelo, pero tu motor se queda con el último snapshot hasta que lo sueltas. No silencia al otro — lo que oyes es tu propio motor tocando el proyecto común | v1.1 |
+| Aviso de "N sonidos de la sala todavía no están disponibles aquí", con nombres | v1.1 |
 | Audio streaming de la sesión (escuchar el master remoto) | v1+ |
 
 ## 13. Claude integrado
@@ -275,6 +310,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | Ventanas internas movibles/redimensionables/cerrables con z-order (como FL) | v0.1 |
+| **Menús flotantes por portal** (`MenuPortal`): van al `body` del documento del ancla y se colocan midiéndose contra ESA ventana. Antes eran `position: fixed` dentro del editor, y cualquier ancestro con `transform`, `will-change` o `backdrop-filter` los recortaba — por eso el menú de pista de la playlist no aparecía nunca y los demás fallaban solo en tema acrílico | v1.1 |
+| **Z-order acotado**: los z de las ventanas se renumeran en un rango pequeño. Antes crecían 1 por cada clic sin techo y acababan tapando los menús contextuales (1000) y la paleta de comandos (1200) | v1.1 |
 | **Ventanas desacoplables**: sacar cualquier editor a una ventana nativa del OS | v0.6 |
 | Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
 | Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
