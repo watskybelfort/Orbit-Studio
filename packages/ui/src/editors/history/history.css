@@ -1,0 +1,157 @@
+/* Panel de historial. Solo tokens globales (var(--…)): oscuro, claro y
+   acrílico salen del tema sin colores literales. */
+
+.hist {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.hist-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.hist-count {
+  font-weight: 600;
+}
+
+.hist-pending {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.hist-hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.hist-empty {
+  margin: 0;
+  padding: 14px;
+  max-width: 460px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.hist-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Cada cambio es un botón: salta a ese punto. */
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.hist-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+/* El presente: aquí está el proyecto ahora mismo. */
+.hist-row.now {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+}
+
+/* Futuro: deshecho pero recuperable (clic y vuelve). */
+.hist-row.undone {
+  opacity: 0.5;
+}
+
+.hist-row.undone .hist-label {
+  text-decoration: line-through;
+}
+
+.hist-start .hist-label {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Punto de color por origen: quién hizo el cambio de un vistazo. */
+.hist-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.hist-dot.local {
+  background: var(--accent);
+}
+
+.hist-dot.claude {
+  background: var(--meter-hot);
+}
+
+.hist-dot.remote {
+  background: var(--meter);
+}
+
+.hist-dot.start {
+  background: transparent;
+  border: 1px solid var(--text-dim);
+}
+
+.hist-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hist-who {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.hist-who.local {
+  color: var(--accent);
+}
+
+.hist-who.claude {
+  color: var(--meter-hot);
+}
+
+.hist-who.remote {
+  color: var(--meter);
+}
+
+.hist-time {
+  flex: none;
+  min-width: 38px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
