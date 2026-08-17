@@ -6,7 +6,16 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 17-08-2026: v0.8.0
+## Estado — 17-08-2026: v0.9.0
+
+v0.9, "cierra la pista": **consolidar a audio** (render de los clips de una
+pista por la cadena de mixer completa → un clip de audio en su sitio, con el
+WAV en userData/recordings y todo en un undo), **grabar la salida de una pista**
+del mixer en vivo mediante un tap post-fader en el kernel, **EQ de 3 bandas y
+separación estéreo por pista** (automatizables y con LFO) y **altura
+arrastrable e icono** por pista de playlist. 145 tests.
+
+## Estado anterior — v0.8.0
 
 v0.8, "la mezcla se mueve sola": **LFO por parámetro** (5 formas, velocidad en
 beats, cantidad bipolar y fase; oscila sobre el valor actual y sobre la curva
@@ -63,12 +72,11 @@ colaborador en la presencia) y **mixer fino** (nivel por send con perilla,
 línea de RMS + LED de clip enclavado, Orbit Scope real con forma de onda y
 espectro del master). 65 tests en verde. Instalador NSIS por release.
 
-Backlog v0.x restante tras v0.8 (detalle en [FEATURES.md](FEATURES.md)):
-graph editor del rack, compases variables y
-tempo por marcador, historial de undo navegable, consolidar a audio (bounce),
-grabar la salida de una pista, altura e icono por pista, stereo sep y EQ de 3
-bandas en el strip, filtros y favoritos del browser, plugins JS de instrumento,
-layouts por proyecto, Ctrl+E export directo, escala de UI y export a OGG.
+Backlog v0.x restante tras v0.9 (detalle en [FEATURES.md](FEATURES.md)):
+graph editor del rack, compases variables y tempo por marcador, historial de
+undo navegable, filtros y favoritos del browser, plugins JS de instrumento,
+layouts por proyecto, Ctrl+E export directo, escala de UI, exportar/importar
+tema, modo seguidor y permisos por rol en collab, y export a OGG.
 
 ---
 

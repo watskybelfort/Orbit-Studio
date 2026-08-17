@@ -2,10 +2,10 @@
 
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
-y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.8** = ya publicado en
+y el sistema de temas acrílicos. Leyenda: **v0.1** a **v0.9** = ya publicado en
 esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 
-> Actualizado al estado REAL del código tras el QA de v0.8 (17-08-2026): lo que
+> Actualizado al estado REAL del código tras el QA de v0.9 (17-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
 > existe a veces ya en el modelo o el motor, pero no tiene UI todavía.
 
@@ -96,9 +96,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Cambiar entre **arrangements** | v0.1 |
 | Crear (+, con sus pistas base) y renombrar arrangements desde la toolbar | v0.5 |
 | Color editable por pista (swatch en la cabecera) | v0.6 |
-| Altura e icono por pista | v0.x |
+| Altura de pista arrastrable (doble clic en el tirador la resetea) e icono por familia de sonido | v0.9 |
 | Mini-preview de las notas dentro de cada clip | v0.1 |
-| Consolidar selección a audio (bounce in place) | v0.x |
+| **Consolidar a audio (bounce)**: los clips de la pista se renderizan CON sus efectos y quedan como un solo clip de audio, en un undo | v0.9 |
 | **Vista Live por escenas** (F8): pads por patrón, lanzamiento cuantizado al cierre del loop | v0.7 |
 | Pistas apiladas / carriles de toma | v1+ |
 
@@ -108,7 +108,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 |---|---|
 | 25 pistas de insert + Master, nombre por pista | v0.1 |
 | Fader en dB reales, pan, mute/solo | v0.1 |
-| Stereo separation en el strip (ya existe como destino de automatización) | v0.x |
+| Separación estéreo en el panel de la pista (perilla Width, automatizable) | v0.9 |
 | **10 slots de efectos** por pista con on/off y dry/wet por slot | v0.1 |
 | Editor de parámetros de cada efecto inline (perillas por parámetro) | v0.1 |
 | Routing libre pista→pista (clic derecho, "enrutar aquí") | v0.1 |
@@ -120,8 +120,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Línea de RMS en TODOS los strips (medición por pista en el kernel) | v0.6 |
 | **Cadena vocal de un clic** (EQ + compresor + saturación + delay 1/4 + reverb) | v0.5 |
 | Color editable por pista (clic en el chip de color) | v0.6 |
-| EQ rápido de 3 bandas en el strip (como FL) | v0.x |
-| Grabar la salida de una pista a audio | v0.x |
+| **EQ rápido de 3 bandas** por pista (120 Hz shelf · 1 kHz campana · 6 kHz shelf), post-efectos y pre-fader; plano no toca el audio | v0.9 |
+| **Grabar la salida de una pista** (post-fader) mientras suena → WAV + clip en la playlist, en un undo | v0.9 |
 
 ## 6. Instrumentos incluidos
 
@@ -297,5 +297,5 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Kernel DSP en un solo AudioWorklet, cero GC en el audio thread | v0.1 |
 | Medidor de CPU en la barra de transporte (aviso por color al cargarse) | v0.2 |
 | Proyecto de 100 pistas sin dropouts (objetivo QA) | v0.1 |
-| Golden tests del DSP (render determinista) — 137 tests en total | v0.1 |
+| Golden tests del DSP (render determinista) — 145 tests en total | v0.1 |
 | Autosave + crash recovery (banner Recuperar/Descartar al reabrir) | v0.2 |
