@@ -5,7 +5,9 @@ import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
 import { ChannelRack } from '../editors/rack';
+import { ChannelEditor } from '../editors/channel';
 import { NovaPanel } from '../editors/nova';
+import { PrismaPanel } from '../editors/prisma';
 import { HistoryPanel } from '../editors/history';
 import { LfoPanel } from '../editors/lfo';
 import { ProjectInfo } from '../editors/project-info';
@@ -50,6 +52,12 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="nova" title="Orbit Nova" minW={560} minH={340}>
         <NovaPanel />
+      </InternalWindow>
+      <InternalWindow id="prisma" title="Orbit Prisma" minW={720} minH={460}>
+        <PrismaPanel />
+      </InternalWindow>
+      <InternalWindow id="channelEditor" title="Editor de sonido" minW={560} minH={360}>
+        <ChannelEditor />
       </InternalWindow>
       <InternalWindow id="history" title="Historial" minW={360} minH={260}>
         <HistoryPanel />
