@@ -77,13 +77,37 @@ export interface Arrangement {
   name: string;
 }
 
+/** Iconos disponibles para una pista de playlist (la UI dibuja cada uno). */
+export type TrackIcon =
+  | 'drums'
+  | 'bass'
+  | 'keys'
+  | 'guitar'
+  | 'synth'
+  | 'vocal'
+  | 'audio'
+  | 'fx';
+
+export const TRACK_ICONS: TrackIcon[] = [
+  'drums',
+  'bass',
+  'keys',
+  'guitar',
+  'synth',
+  'vocal',
+  'audio',
+  'fx',
+];
+
 export interface PlaylistTrack {
   id: Id;
   arrangementId: Id;
   name: string;
   color: string;
-  /** Altura en px de la fila (UI). */
+  /** Altura en px de la fila (UI); se arrastra desde el borde de la cabecera. */
   height: number;
+  /** Icono de la pista (clave de TRACK_ICONS); ausente = sin icono. */
+  icon?: TrackIcon;
   muted: boolean;
   /** Posición vertical (0 arriba). */
   order: number;

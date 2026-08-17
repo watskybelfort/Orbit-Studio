@@ -288,3 +288,62 @@ html[data-theme='acrylic'] .playlist {
   color: var(--text);
   outline: none;
 }
+
+/* Icono de la pista, tirador de altura y selector de icono del menú */
+
+.pl-track-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-dim);
+  flex: none;
+}
+
+.pl-track {
+  position: relative;
+}
+
+.pl-track-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  height: 5px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.pl-track-resize:hover {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+.pl-menu-icons {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  padding: 4px 6px 6px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.pl-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.pl-icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.pl-icon-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
