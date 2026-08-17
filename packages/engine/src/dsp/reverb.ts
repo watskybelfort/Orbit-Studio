@@ -85,13 +85,15 @@ export class Reverb {
 
   /** Procesa un sample; devuelve [wetL, wetR] en `out`. */
   tick(inL: number, inR: number, out: [number, number]): void {
-    // Pre-delay
+    // Pre-delay: se ESCRIBE antes de leer. Al revés, con predelay = 0 el índice
+    // de lectura coincide con el de escritura y se leía la muestra de hace una
+    // vuelta entera del anillo — 250 ms de retardo donde no se pidió ninguno.
     const n = this.preDelayL.length;
+    this.preDelayL[this.preIdx] = inL;
+    this.preDelayR[this.preIdx] = inR;
     const readIdx = (this.preIdx - this.preSamples + n) % n;
     const dl = this.preDelayL[readIdx]!;
     const dr = this.preDelayR[readIdx]!;
-    this.preDelayL[this.preIdx] = inL;
-    this.preDelayR[this.preIdx] = inR;
     this.preIdx = (this.preIdx + 1) % n;
 
     const input = (dl + dr) * 0.015;
