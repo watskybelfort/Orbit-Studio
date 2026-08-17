@@ -140,6 +140,8 @@ export type ToKernel =
   | { type: 'setMetronome'; enabled: boolean }
   /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
   | { type: 'setScope'; enabled: boolean; trackIndex?: number }
+  /** Graba la salida post-fader de una pista: el audio viaja en los frames. */
+  | { type: 'setTrackCapture'; trackIndex: number; enabled: boolean }
   | { type: 'setTempo'; tempo: number }
   | { type: 'channelParam'; channelIndex: number; key: string; value: number }
   | { type: 'channelMix'; channelIndex: number; volume: number; pan: number; audible: boolean }
@@ -162,6 +164,9 @@ export interface MeterFrame {
   masterRms: [number, number];
   /** Últimos samples de la pista tapeada (mono L+R/2) para el Orbit Scope; solo si está activado. */
   scope?: Float32Array;
+  /** Audio grabado de la pista en captura desde el frame anterior (estéreo). */
+  captureL?: Float32Array;
+  captureR?: Float32Array;
   /** Posición del playhead en beats. */
   positionBeats: number;
   playing: boolean;

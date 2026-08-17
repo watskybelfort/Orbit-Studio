@@ -112,6 +112,14 @@ export class AudioEngine {
     this.send({ type: 'setScope', enabled, trackIndex });
   }
 
+  /**
+   * Graba la salida post-fader de una pista de mixer: mientras está activo, el
+   * audio llega en `captureL`/`captureR` de cada frame de medidores.
+   */
+  setTrackCapture(trackIndex: number, enabled: boolean): void {
+    this.send({ type: 'setTrackCapture', trackIndex, enabled });
+  }
+
   previewNote(channelIndex: number, key: number, on: boolean): void {
     this.send({ type: 'previewNote', channelIndex, key, on });
   }

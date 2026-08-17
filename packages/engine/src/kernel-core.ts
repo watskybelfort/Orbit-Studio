@@ -18,6 +18,12 @@ import { createVoice, type SampleData, type Voice, type VoiceContext } from './d
 
 export const MAX_BLOCK = 128;
 
+/**
+ * Buffer de la grabación de pista: cuatro veces el intervalo de medidores
+ * (16 bloques), margen de sobra para que un frame tardón no pierda audio.
+ */
+const CAPTURE_BUFFER = MAX_BLOCK * 16 * 4;
+
 interface ActiveVoice {
   voice: Voice;
   /** Beat absoluto en que suelta la nota (Infinity = preview sostenido). */
@@ -82,6 +88,11 @@ export class KernelCore {
   private scopeTrack = 0;
   private scopeRing = new Float32Array(2048);
   private scopePos = 0;
+  /** Grabación de la salida de una pista (-1 = ninguna). */
+  private captureTrack = -1;
+  private captureL = new Float32Array(CAPTURE_BUFFER);
+  private captureR = new Float32Array(CAPTURE_BUFFER);
+  private capturePos = 0;
 
   constructor(public readonly sr: number) {
     this.voiceCtx = { sr, samples: this.samples };
@@ -127,6 +138,10 @@ export class KernelCore {
       case 'setScope':
         this.scopeEnabled = msg.enabled;
         this.scopeTrack = msg.trackIndex ?? 0;
+        break;
+      case 'setTrackCapture':
+        this.captureTrack = msg.enabled ? msg.trackIndex : -1;
+        this.capturePos = 0;
         break;
       case 'setTempo':
         this.tempo = msg.tempo;
@@ -835,6 +850,15 @@ export class KernelCore {
         }
       }
 
+      // Grabación de la salida de una pista: se acumula post-fader y viaja
+      // entero en el siguiente frame de medidores (nada se pierde si la UI
+      // tarda: el buffer cubre justo el intervalo del frame).
+      if (t === this.captureTrack && this.capturePos + n <= this.captureL.length) {
+        this.captureL.set(bl.subarray(0, n), this.capturePos);
+        this.captureR.set(br.subarray(0, n), this.capturePos);
+        this.capturePos += n;
+      }
+
       if (t === 0) {
         // Master → salida
         for (let i = 0; i < n; i++) {
@@ -885,6 +909,12 @@ export class KernelCore {
       const scope = new Float32Array(2048);
       for (let i = 0; i < 2048; i++) scope[i] = this.scopeRing[(this.scopePos + i) & 2047]!;
       frame.scope = scope;
+    }
+    if (this.captureTrack >= 0 && this.capturePos > 0) {
+      // Lo grabado desde el frame anterior, en bruto (la UI lo concatena).
+      frame.captureL = this.captureL.slice(0, this.capturePos);
+      frame.captureR = this.captureR.slice(0, this.capturePos);
+      this.capturePos = 0;
     }
     this.masterSumSq[0] = 0;
     this.masterSumSq[1] = 0;
