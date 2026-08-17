@@ -8,6 +8,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { adoptChildWindow, forgetChildWindow } from '../theme/ui-scale';
 import './detached.css';
 
 export interface DetachedWindowProps {
@@ -21,10 +22,28 @@ export interface DetachedWindowProps {
   children: ReactNode;
 }
 
-/** Copia los estilos de la app (style de Vite y link de producción). */
+/**
+ * Copia los estilos de la app (style de Vite en dev, link en producción).
+ *
+ * La ventana hija nace en `about:blank`, así que NO tiene URL base: cualquier
+ * ruta relativa que viaje en el clon (el href de un <link>, un url() de una
+ * fuente dentro de un <style>) no resuelve contra nada y se cae. Y una ventana
+ * sin hoja de estilos se ve exactamente como "todo corrido". Por eso:
+ *  - se planta un <base> con la URL de la ventana principal, que arregla de
+ *    golpe las url() relativas de las reglas copiadas;
+ *  - y el href de cada <link> se reescribe absoluto (el IDL `.href` ya lo da
+ *    resuelto en el documento de origen), sin depender del <base>.
+ */
 function cloneStyles(from: Document, into: Document): void {
+  const base = into.createElement('base');
+  base.href = from.baseURI;
+  into.head.appendChild(base);
   for (const node of from.head.querySelectorAll('style, link[rel="stylesheet"]')) {
-    into.head.appendChild(node.cloneNode(true));
+    const clone = node.cloneNode(true);
+    if (clone instanceof HTMLLinkElement && node instanceof HTMLLinkElement) {
+      clone.href = node.href;
+    }
+    into.head.appendChild(clone);
   }
 }
 
@@ -52,6 +71,13 @@ export function DetachedWindow({ name, title, width, height, onClose, children }
     child.document.title = `${title} — Orbit Studio`;
     cloneStyles(document, child.document);
     syncRootAttributes(child.document);
+    // Registro explícito en la escala de UI: parchea los globals de ESTA
+    // ventana (MouseEvent, devicePixelRatio, getBoundingClientRect) y le pone
+    // el zoom vigente. Antes se confiaba en que `window.open` estuviera
+    // envuelto, y si aún no lo estaba la ventana heredaba el zoom por el
+    // `style` del <html> pero con las coordenadas sin traducir: todo clic
+    // aquí dentro caía desplazado.
+    adoptChildWindow(child);
     child.document.body.className = 'detached-body';
     const root = child.document.createElement('div');
     root.className = 'detached-root';
@@ -69,6 +95,7 @@ export function DetachedWindow({ name, title, width, height, onClose, children }
     return () => {
       observer.disconnect();
       child.removeEventListener('beforeunload', handleClosed);
+      forgetChildWindow(child);
       childRef.current = null;
       setMount(null);
       if (!child.closed) child.close();

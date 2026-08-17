@@ -156,17 +156,25 @@
   outline: none;
 }
 
+/* ── Menús por portal ──
+   La posición y la capa las pone MenuPortal en línea (mide el menú y lo mete
+   dentro de SU ventana); aquí solo va el aspecto. Nada de `transform`,
+   `filter` ni `backdrop-filter` en los ancestros de un menú: convierten al
+   ancestro en containing block y el menú se coloca —y se recorta— contra él.
+   Por eso estos menús viven en el <body> y no junto al mando que los abre. */
+
+.menu-portal {
+  cursor: default;
+}
+
 /* ── Menú contextual de una perilla/fader con destino automatizable ── */
 
 .param-menu {
-  position: fixed;
-  z-index: 3000;
   min-width: 200px;
   padding: 5px;
   display: flex;
   flex-direction: column;
   font-size: 12px;
-  cursor: default;
 }
 
 .param-menu-item {
@@ -182,6 +190,13 @@
   cursor: pointer;
 }
 
-.param-menu-item:hover {
+.param-menu-item:hover:not(:disabled) {
   background: var(--surface-2);
+}
+
+/* Una opción que no aplica se ve que no aplica (el porqué va en su title). */
+.param-menu-item:disabled {
+  color: var(--text-dim);
+  opacity: 0.6;
+  cursor: default;
 }

@@ -8,7 +8,7 @@ import { useCallback, useRef, useState } from 'react';
 import { gainToDb, type ParamRef } from '@orbit/core';
 import { touchParam } from '../state/param-touch';
 import { capturePointer } from './pointer';
-import { ParamMenu, clampMenuPosition } from './ParamMenu';
+import { ParamMenu } from './ParamMenu';
 import './widgets.css';
 
 export interface FaderProps {
@@ -33,7 +33,8 @@ function gainToPos(gain: number): number {
 export function Fader({ value, height = 160, onChange, onCommit, paramRef }: FaderProps) {
   const track = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // El ancla del menú es el propio fader: dice en qué ventana pintarlo.
+  const [menu, setMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
 
   const emit = useCallback(
     (gain: number) => {
@@ -64,7 +65,10 @@ export function Fader({ value, height = 160, onChange, onCommit, paramRef }: Fad
       ref={track}
       title={`${db <= -96 ? '-∞' : db.toFixed(1)} dB`}
       onPointerDown={(e) => {
-        capturePointer(e.target as HTMLElement, e.pointerId);
+        // currentTarget (el carril entero), no e.target: el pulgar y la pista
+        // son hijos que React redibuja al mover, y capturar sobre ellos deja
+        // el gesto colgado en cuanto se reemplaza el nodo.
+        capturePointer(e.currentTarget, e.pointerId);
         dragging.current = true;
         setFromClientY(e.clientY);
       }}
@@ -72,6 +76,18 @@ export function Fader({ value, height = 160, onChange, onCommit, paramRef }: Fad
         if (dragging.current) setFromClientY(e.clientY);
       }}
       onPointerUp={() => {
+        dragging.current = false;
+        onCommit?.();
+      }}
+      // Gesto cancelado o captura perdida: soltar igual, o el fader se quedaba
+      // "pegado" al puntero y se movía con el simple hover.
+      onPointerCancel={() => {
+        if (!dragging.current) return;
+        dragging.current = false;
+        onCommit?.();
+      }}
+      onLostPointerCapture={() => {
+        if (!dragging.current) return;
         dragging.current = false;
         onCommit?.();
       }}
@@ -83,13 +99,20 @@ export function Fader({ value, height = 160, onChange, onCommit, paramRef }: Fad
         if (!paramRef) return;
         e.preventDefault();
         e.stopPropagation();
-        setMenu(clampMenuPosition(e.clientX, e.clientY, e.currentTarget.ownerDocument.defaultView));
+        // MenuPortal se encarga de medirlo y meterlo dentro de SU ventana.
+        setMenu({ x: e.clientX, y: e.clientY, anchor: e.currentTarget });
       }}
     >
       <div className="fader-track" />
       <div className="fader-thumb" style={{ bottom: `calc(${pos * 100}% - 7px)` }} />
       {menu && paramRef && (
-        <ParamMenu target={paramRef} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />
+        <ParamMenu
+          target={paramRef}
+          x={menu.x}
+          y={menu.y}
+          anchor={menu.anchor}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   );

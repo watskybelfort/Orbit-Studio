@@ -417,10 +417,13 @@
 
 /* ── Menú de colecciones ── */
 
+/* z-index en el rango de overlays (por debajo del 4000 de los menús por
+   portal, ver widgets/MenuPortal): con 40/41 el velo y el menú quedaban
+   sepultados bajo cualquier ventana interna y el menú "no se abría". */
 .browser-menu-veil {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 3000;
 }
 
 .browser-menu {
@@ -428,7 +431,7 @@
   left: 8px;
   right: 8px;
   bottom: 8px;
-  z-index: 41;
+  z-index: 3001;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -437,6 +440,13 @@
   border-radius: var(--radius);
   background: var(--popup-bg);
   box-shadow: var(--shadow-popup);
+}
+
+/* El blur SOLO en acrílico (regla del tema): fuera de la guarda se comía
+   rendimiento en oscuro/claro para nada, y convertía este menú en containing
+   block de cualquier `position: fixed` que colgara de él. */
+html[data-theme='acrylic'] .browser-menu {
+  -webkit-backdrop-filter: blur(var(--blur-popup));
   backdrop-filter: blur(var(--blur-popup));
 }
 

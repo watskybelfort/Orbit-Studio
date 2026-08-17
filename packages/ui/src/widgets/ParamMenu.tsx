@@ -5,41 +5,32 @@
  * automatización y buscar el parámetro en tres desplegables, clic derecho
  * sobre el mando y ya tienes su clip o su LFO, enlazados al destino correcto.
  *
- * Se pinta con position: fixed dentro de SU documento, así que funciona igual
- * en la ventana principal y en un editor desacoplado.
+ * Va por MenuPortal: una perilla puede estar dentro de una ventana interna con
+ * blur (acrílico) o dentro de las cabeceras de la playlist, y ahí un
+ * `position: fixed` se coloca contra la caja del ancestro y se recorta. El
+ * portal lo pinta en el <body> del documento del ancla, así que sale entero y
+ * también en un editor desacoplado.
  */
 
-import { useEffect } from 'react';
 import type { ParamRef } from '@orbit/core';
 import { addLfoFor, createAutomationClipFor, findLfoFor, removeLfo } from '../state/param-actions';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
+import { MenuPortal } from './MenuPortal';
 import './widgets.css';
 
 export interface ParamMenuProps {
   target: ParamRef;
   x: number;
   y: number;
+  /** El mando que abrió el menú: dice en qué ventana hay que pintarlo. */
+  anchor?: Element | null;
   onClose: () => void;
 }
 
-export function ParamMenu({ target, x, y, onClose }: ParamMenuProps) {
+export function ParamMenu({ target, x, y, anchor, onClose }: ParamMenuProps) {
   const project = useProject();
   const lfo = findLfoFor(target, project);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('pointerdown', onClose);
-    window.addEventListener('blur', onClose);
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('pointerdown', onClose);
-      window.removeEventListener('blur', onClose);
-      window.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
 
   const run = (fn: () => void) => () => {
     fn();
@@ -47,11 +38,7 @@ export function ParamMenu({ target, x, y, onClose }: ParamMenuProps) {
   };
 
   return (
-    <div
-      className="popup param-menu"
-      style={{ left: x, top: y }}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
+    <MenuPortal anchor={anchor} x={x} y={y} onClose={onClose} className="param-menu">
       <button className="param-menu-item" onClick={run(() => createAutomationClipFor(target))}>
         Crear clip de automatización
       </button>
@@ -72,24 +59,6 @@ export function ParamMenu({ target, x, y, onClose }: ParamMenuProps) {
           Añadir LFO
         </button>
       )}
-    </div>
+    </MenuPortal>
   );
-}
-
-/**
- * Coloca el menú dentro de su ventana (no de la principal: en un editor
- * desacoplado el ancho útil es el de ESA ventana).
- */
-export function clampMenuPosition(
-  x: number,
-  y: number,
-  view: Window | null | undefined,
-  w = 210,
-  h = 96,
-): { x: number; y: number } {
-  const v = view ?? window;
-  return {
-    x: Math.max(4, Math.min(x, v.innerWidth - w)),
-    y: Math.max(4, Math.min(y, v.innerHeight - h)),
-  };
 }

@@ -47,23 +47,26 @@
   background: var(--surface-2);
 }
 
+/* Franja de color de la pista. Mide 6 px porque ES el botón: antes eran 3 px
+   de color con un input invisible de 9 px por encima, y esos 6 px de más
+   caían ya sobre el cuerpo del strip — el clic para seleccionar la pista
+   moría ahí y abría el selector de color del sistema. Lo que se ve es lo que
+   se pulsa. */
 .strip-color {
   position: relative;
   display: block;
   width: 100%;
-  height: 3px;
+  height: 6px;
   flex: none;
   cursor: pointer;
 }
 
-/* Input de color invisible encima del chip (zona de clic algo mayor que 3px) */
+/* El input nativo va invisible, pero EXACTAMENTE sobre la franja. */
 .strip-color-input {
   position: absolute;
-  left: 0;
-  right: 0;
-  top: -2px;
-  height: 9px;
+  inset: 0;
   width: 100%;
+  height: 100%;
   opacity: 0;
   padding: 0;
   border: none;
@@ -424,12 +427,11 @@
   border-color: var(--accent);
 }
 
-/* ── Menú flotante (lista de efectos / "Enrutar aquí") ──
-   Reusa .popup (tokens + blur en acrílico) y .menu-item del shell. */
+/* ── Menú flotante (lista de efectos / menú de strip) ──
+   Reusa .popup (tokens + blur en acrílico) y .menu-item del shell. La
+   posición y la capa las pone MenuPortal en línea. */
 
 .mixer-menu {
-  position: fixed;
-  z-index: 3000;
   min-width: 160px;
   max-height: 320px;
   overflow-y: auto;

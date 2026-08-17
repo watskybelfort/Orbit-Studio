@@ -12,7 +12,7 @@ import { useCallback, useRef, useState } from 'react';
 import type { ParamRef } from '@orbit/core';
 import { touchParam } from '../state/param-touch';
 import { capturePointer } from './pointer';
-import { ParamMenu, clampMenuPosition } from './ParamMenu';
+import { ParamMenu } from './ParamMenu';
 import './widgets.css';
 
 export interface KnobProps {
@@ -58,7 +58,8 @@ export function Knob({
   paramRef,
 }: KnobProps) {
   const drag = useRef<{ startY: number; startNorm: number } | null>(null);
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  // El ancla del menú es el propio SVG: dice en qué ventana hay que pintarlo.
+  const [menu, setMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
 
   const norm = toNorm(Math.min(max, Math.max(min, value)), min, max, curve);
   // Arco de 270° empezando abajo-izquierda.
@@ -76,7 +77,11 @@ export function Knob({
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault();
-      capturePointer(e.target as HTMLElement, e.pointerId);
+      // Sobre currentTarget (el <svg>), NUNCA sobre e.target: ahí caen el
+      // <circle> y el <path> del dibujo, que React reemplaza en cuanto cambia
+      // el valor — y con el nodo capturado fuera del DOM el gesto se muere a
+      // medio arrastre.
+      capturePointer(e.currentTarget, e.pointerId);
       drag.current = { startY: e.clientY, startNorm: norm };
     },
     [norm],
@@ -93,6 +98,17 @@ export function Knob({
   );
 
   const onPointerUp = useCallback(() => {
+    drag.current = null;
+    onCommit?.();
+  }, [onCommit]);
+
+  /**
+   * Cancelación del gesto (el sistema se lleva el puntero, se pierde la
+   * captura, entra un menú nativo…). Sin esto el arrastre quedaba "pegado" y
+   * la perilla seguía moviéndose con el simple hover.
+   */
+  const onPointerCancel = useCallback(() => {
+    if (!drag.current) return;
     drag.current = null;
     onCommit?.();
   }, [onCommit]);
@@ -118,7 +134,8 @@ export function Knob({
       if (!paramRef) return;
       e.preventDefault();
       e.stopPropagation();
-      setMenu(clampMenuPosition(e.clientX, e.clientY, e.currentTarget.ownerDocument.defaultView));
+      // Sin recortar a mano: MenuPortal lo mide y lo mete dentro de SU ventana.
+      setMenu({ x: e.clientX, y: e.clientY, anchor: e.currentTarget });
     },
     [paramRef],
   );
@@ -140,6 +157,8 @@ export function Knob({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        onLostPointerCapture={onPointerCancel}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
         onContextMenu={onContextMenu}
@@ -157,7 +176,13 @@ export function Knob({
       </svg>
       {label && <span className="knob-label">{label}</span>}
       {menu && paramRef && (
-        <ParamMenu target={paramRef} x={menu.x} y={menu.y} onClose={() => setMenu(null)} />
+        <ParamMenu
+          target={paramRef}
+          x={menu.x}
+          y={menu.y}
+          anchor={menu.anchor}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   );

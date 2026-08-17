@@ -35,11 +35,15 @@
  * devuelve exactamente las mismas coordenadas y la relación
  * `backing / (tamaño visual × dpr nativo)` se mantiene en 1.
  *
- * ## Coste
- * El shim **solo se instala la primera vez que se pide una escala ≠ 100 %**:
- * quien no toque el ajuste corre con el DOM virgen. Una vez instalado, a 100 %
- * los getters dividen por 1 (identidad exacta en IEEE-754), así que volver a
- * 100 % no deja residuo ni deriva.
+ * ## Cuándo se instala (y por qué SIEMPRE)
+ * Se instala **al cargar el módulo**, aunque la escala sea 100 %: a factor 1
+ * los getters dividen por 1 (identidad exacta en IEEE-754), así que no cuesta
+ * nada. Instalarlo tarde sí costaba: como el shim es también quien envuelve
+ * `window.open` para adoptar los editores desacoplados, si alguien sacaba un
+ * editor a su ventana ANTES de tocar la escala, esa ventana no quedaba
+ * parcheada nunca — pero `DetachedWindow` sí le copiaba el `style` de <html>
+ * (donde vive el `zoom`), así que recibía el zoom visual con las coordenadas
+ * nativas: cada clic caía desplazado y el canvas salía borroso.
  *
  * ## Cuando esto sobre
  * Si el puente de Electron llega a exponer `webFrame.setZoomFactor`, este
@@ -94,13 +98,17 @@ export function themedWindows(): Window[] {
 export function applyUiScale(scale: number): void {
   if (typeof document === 'undefined') return;
   const next = clampUiScale(scale);
-  if (next !== UI_SCALE_DEFAULT) installScaleShim();
+  installScaleShim();
 
   // Primero la variable del shim y luego el DOM: cualquier lectura de
   // geometría que ocurra a partir de aquí ya se traduce con el factor bueno.
   currentScale = next;
 
   for (const w of themedWindows()) {
+    // Adopción retroactiva: una ventana que se abriera sin pasar por aquí
+    // (o antes de que existiera el shim) se parchea ahora, antes de recibir
+    // el `zoom` — si no, tendría el zoom visual con coordenadas nativas.
+    installShimIn(w as Window & typeof globalThis);
     const root = w.document.documentElement;
     root.style.setProperty('--ui-scale', String(next));
     if (next === UI_SCALE_DEFAULT) root.style.removeProperty('zoom');
@@ -170,20 +178,16 @@ function installShimIn(win: Window & typeof globalThis): void {
 
   // 3. Coordenadas de puntero. `PointerEvent`, `WheelEvent` y `DragEvent`
   //    heredan de `MouseEvent`, así que con parchear el prototipo base llegan
-  //    todas. `screenX/screenY` NO se tocan: son de pantalla, no de página.
+  //    todas.
+  //    Lo que NO se toca, y es a propósito:
+  //    - `screenX/screenY`: son de pantalla, no de página.
+  //    - `movementX/movementY`: también de pantalla; el `zoom` no las escala,
+  //      así que dividirlas dejaba los arrastres relativos cortos.
+  //    - `offsetX/offsetY`: Blink ya las da en unidades de LAYOUT (relativas
+  //      al padding box del target), o sea en el mismo idioma al que traduce
+  //      el shim; dividirlas otra vez era doble corrección.
   const mouse = win.MouseEvent.prototype;
-  for (const prop of [
-    'clientX',
-    'clientY',
-    'pageX',
-    'pageY',
-    'offsetX',
-    'offsetY',
-    'x',
-    'y',
-    'movementX',
-    'movementY',
-  ]) {
+  for (const prop of ['clientX', 'clientY', 'pageX', 'pageY', 'x', 'y']) {
     patchToLayoutUnits(mouse, prop);
   }
 
@@ -205,7 +209,7 @@ function installShimIn(win: Window & typeof globalThis): void {
  * `MouseEvent.prototype` y su `devicePixelRatio`), y sin parchearlos los
  * editores sacados fuera tendrían el hit-test desplazado.
  */
-function adoptChildWindow(child: Window): void {
+export function adoptChildWindow(child: Window): void {
   if (childWindows.has(child)) return;
   childWindows.add(child);
   try {
@@ -221,6 +225,11 @@ function adoptChildWindow(child: Window): void {
   }
 }
 
+/** La ventana desacoplada se cerró: deja de intentar escalarla. */
+export function forgetChildWindow(child: Window): void {
+  childWindows.delete(child);
+}
+
 function installScaleShim(): void {
   if (typeof window === 'undefined') return;
   installShimIn(window);
@@ -228,7 +237,9 @@ function installScaleShim(): void {
   openWrapped = true;
 
   // Las ventanas desacopladas se abren con window.open desde shell/: se
-  // envuelve una vez para poder parchearlas al nacer.
+  // envuelve una vez para poder parchearlas al nacer. DetachedWindow además
+  // las registra a mano (adoptChildWindow), que es el camino fiable; esto es
+  // la red por si algún día alguien abre una ventana por otro sitio.
   const nativeOpen = window.open;
   window.open = function (...args: Parameters<typeof nativeOpen>): Window | null {
     const child = nativeOpen.apply(window, args);
@@ -236,3 +247,8 @@ function installScaleShim(): void {
     return child;
   };
 }
+
+// El shim se instala al cargar el módulo, no al primer cambio de escala: a
+// factor 1 es la identidad y así `window.open` queda envuelto desde el minuto
+// cero (ver la nota de arriba sobre desacoplar antes de tocar la escala).
+installScaleShim();

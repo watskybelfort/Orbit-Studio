@@ -123,7 +123,14 @@ html[data-theme='acrylic'] {
   box-shadow: var(--shadow-popup);
 }
 
-html[data-theme='acrylic'] .popup {
+/* El `:not(.iw)` no es cosmética, es la regla 2 de arriba: las ventanas
+   internas también son `.popup` (por la superficie y la sombra), pero son
+   PANELES GRANDES. Con backdrop-filter, cada ventana se convertía en
+   containing block de sus descendientes `position: fixed` — y como además es
+   `overflow: hidden`, todo menú contextual abierto dentro se colocaba contra
+   la caja de la ventana y se recortaba. Eso, y solo eso, es por qué los menús
+   salían bien en oscuro/claro y desaparecían en acrílico. */
+html[data-theme='acrylic'] .popup:not(.iw) {
   -webkit-backdrop-filter: blur(var(--blur-popup));
   backdrop-filter: blur(var(--blur-popup));
 }
