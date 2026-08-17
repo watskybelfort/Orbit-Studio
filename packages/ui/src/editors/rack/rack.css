@@ -3,6 +3,23 @@
    patrón llegan como datos del proyecto vía style inline. */
 
 .rack {
+  /* Medidas de la fila. El graph editor de velocity se alinea con los pasos
+     usando --rack-lead, así que cualquier cambio de anchura va AQUÍ y las dos
+     rejillas siguen cuadrando. */
+  --rack-gap: 7px;
+  --rack-led: 14px;
+  --rack-knob: 30px; /* Knob size=22 + 8 del propio widget */
+  --rack-name-w: 140px;
+  --rack-mix-w: 26px;
+  --rack-lead: calc(
+    var(--rack-led) + var(--rack-knob) * 2 + var(--rack-name-w) + var(--rack-mix-w) +
+      var(--rack-gap) * 5
+  );
+  /* Rejilla de pasos (la comparten .rack-steps y el graph editor). */
+  --rack-step-gap: 3px;
+  --rack-step-min: 16px;
+  --rack-group-gap: 8px;
+
   display: flex;
   flex-direction: column;
   width: max-content;
@@ -133,7 +150,7 @@
 /* Input de renombrar canal (mismo hueco que .rack-name) */
 .rack-rename-input {
   flex: none;
-  width: 140px;
+  width: var(--rack-name-w);
   height: 26px;
   background: var(--surface-2);
   border: 1px solid var(--accent);
@@ -179,6 +196,13 @@
   outline: none;
 }
 
+/* Grupo derecho de la cabecera: graph editor + pasos visibles */
+.rack-head-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .rack-lengths {
   display: flex;
   gap: 4px;
@@ -207,6 +231,118 @@
   border-color: var(--accent);
 }
 
+/* Botón de texto (conmutador del graph editor) */
+.rack-len.wide {
+  min-width: 0;
+  padding: 0 9px;
+  font-weight: 500;
+  letter-spacing: 0.2px;
+}
+
+/* ── Barra de filtros (agrupación de canales, estilo FL) ── */
+
+.rack-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.rack-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.rack-filter:hover {
+  color: var(--text);
+}
+
+.rack-filter.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* Sin canales de esa familia: sigue pulsable, pero no llama la atención */
+.rack-filter.empty:not(.active) {
+  opacity: 0.45;
+}
+
+.rack-filter-count {
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.rack-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.rack-search-input {
+  width: 150px;
+  height: 22px;
+  padding: 0 22px 0 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.rack-search-input:focus {
+  border-color: var(--accent);
+}
+
+.rack-search-input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.rack-search-clear {
+  position: absolute;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.rack-search-clear:hover {
+  color: var(--text);
+}
+
+/* Enlace de "Quitar filtros" dentro del aviso de lista vacía */
+.rack-hint-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
 /* ── Filas de canal ── */
 
 .rack-rows {
@@ -219,7 +355,7 @@
 .rack-row {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: var(--rack-gap);
   padding: 3px 6px;
   border-radius: 6px;
 }
@@ -236,8 +372,8 @@
 
 .rack-led {
   flex: none;
-  width: 14px;
-  height: 14px;
+  width: var(--rack-led);
+  height: var(--rack-led);
   padding: 0;
   border-radius: 50%;
   background: var(--surface-2);
@@ -259,7 +395,7 @@
 
 .rack-name {
   flex: none;
-  width: 140px;
+  width: var(--rack-name-w);
   height: 26px;
   display: inline-flex;
   align-items: center;
@@ -290,7 +426,7 @@
 
 .rack-mix {
   flex: none;
-  width: 26px;
+  width: var(--rack-mix-w);
   height: 20px;
   padding: 0;
   background: var(--surface-2);
@@ -325,13 +461,13 @@
 .rack-steps {
   flex: 1;
   display: flex;
-  gap: 3px;
+  gap: var(--rack-step-gap);
   touch-action: none;
 }
 
 .step {
   position: relative;
-  flex: 1 0 16px;
+  flex: 1 0 var(--rack-step-min);
   height: 26px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -349,7 +485,7 @@
 
 /* Separación entre grupos de 4 */
 .step.gs {
-  margin-left: 8px;
+  margin-left: var(--rack-group-gap);
 }
 
 .step:hover::after {
@@ -412,6 +548,119 @@
   font-size: 9px;
   color: var(--text-dim);
   pointer-events: none;
+}
+
+/* ── Graph editor de velocity (franja bajo los pasos) ── */
+
+.rack-graph {
+  display: flex;
+  align-items: stretch;
+  /* Mismo padding lateral que .rack-rows + .rack-row: las dos rejillas cuadran */
+  padding: 6px 16px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.rack-graph-lead {
+  flex: none;
+  width: var(--rack-lead);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding-right: 10px;
+  overflow: hidden;
+}
+
+.rack-graph-name {
+  padding-left: 7px;
+  border-left: 3px solid transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rack-graph-hint {
+  padding-left: 10px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.rack-graph-bars {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--rack-step-gap);
+  height: 54px;
+  touch-action: none;
+  cursor: ns-resize;
+}
+
+/* Referencia del valor normal (0.8) — fuera del flujo, no es un flex item */
+.rack-graph-bars::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 20%;
+  border-top: 1px dashed color-mix(in srgb, var(--text) 16%, transparent);
+  pointer-events: none;
+}
+
+.rack-gcell {
+  position: relative;
+  flex: 1 0 var(--rack-step-min);
+  height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.rack-gcell.ga {
+  background: var(--surface);
+}
+
+.rack-gcell.gb {
+  background: var(--surface-2);
+}
+
+.rack-gcell.gs {
+  margin-left: var(--rack-group-gap);
+}
+
+.rack-gcell.ph {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.rack-gcell:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  pointer-events: none;
+}
+
+/* Barra = velocity del paso (color del canal, inline) */
+.rack-gbar {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: 0;
+  border-radius: 2px 2px 0 0;
+  pointer-events: none;
+}
+
+.rack-graph-melodic {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 54px;
+  padding-left: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
 }
 
 /* ── Añadir canal ── */

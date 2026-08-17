@@ -2,17 +2,24 @@
  * Channel Rack — step sequencer estilo FL Studio.
  *
  * Cabecera: selector de patrón (◀ ▶, punto de color, nombre editable con
- * doble clic, contador, botón +) y selector de pasos visibles (16/32/64 →
- * length 4/8/16 beats). Una fila por canal: LED de mute (Ctrl+clic = solo),
- * perillas mini de volumen/pan, nombre (clic = seleccionar, doble clic =
- * Piano Roll, mantener pulsado = preview), número de pista de mixer y los
- * pasos agrupados de 4 en 4. Un canal con melodía del Piano Roll (notas
- * fuera de rejilla o duration > 1/16) muestra una franja mini-preview EN VEZ
- * de los pasos, que abre el Piano Roll — como hace FL.
+ * doble clic, contador, botón +), conmutador del graph editor de velocity y
+ * selector de pasos visibles (16/32/64 → length 4/8/16 beats). Debajo, la
+ * barra de filtros (Todos · Drums · 808/Bajos · Melódicos · Sampler · Voces)
+ * con buscador por nombre: estado de VISTA local, no toca el proyecto.
+ *
+ * Una fila por canal: LED de mute (Ctrl+clic = solo), perillas mini de
+ * volumen/pan, nombre (clic = seleccionar, doble clic = Piano Roll, mantener
+ * pulsado = preview), número de pista de mixer y los pasos agrupados de 4 en
+ * 4. Un canal con melodía del Piano Roll (notas fuera de rejilla o duration >
+ * 1/16) muestra una franja mini-preview EN VEZ de los pasos, que abre el
+ * Piano Roll — como hace FL.
+ *
+ * Bajo las filas, el graph editor de velocity del canal seleccionado
+ * (VelocityGraph): una barra por paso, se pinta arrastrando.
  *
  * ▶ en la cabecera reproduce SOLO este patrón (modo PAT desde 0). Clic
  * derecho en el nombre de un canal abre su menú: llenar cada 2/4/todos los
- * pasos, vaciar, renombrar, color y borrar canal.
+ * pasos, vaciar, randomizar, humanizar, renombrar, color y borrar canal.
  *
  * Toda mutación pasa por store.dispatch (bus de comandos de @orbit/core).
  */
@@ -44,11 +51,17 @@ import {
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
+import {
+  DEFAULT_FILTER_ID,
+  matchesChannel,
+  matchesKind,
+  matchesQuery,
+  RACK_FILTERS,
+} from './filters';
+import { humanizeStepsCommand, randomizeStepsCommand } from './step-tools';
+import { DEFAULT_VELOCITY, defaultKey, isMelodic, STEP, stepIndexOf } from './steps';
+import { VelocityGraph } from './VelocityGraph';
 import './rack.css';
-
-/** Un paso = 1/16 = 0.25 beats. */
-const STEP = 0.25;
-const EPS = 1e-6;
 
 const INSTRUMENT_KINDS = Object.keys(INSTRUMENT_LABELS) as InstrumentKind[];
 
@@ -58,17 +71,6 @@ const LENGTH_CHOICES = [
   { steps: 32, beats: 8 },
   { steps: 64, beats: 16 },
 ] as const;
-
-/** Altura por defecto al pintar un paso: kick (36) en drums, C5 (60) en el resto. */
-function defaultKey(kind: InstrumentKind): number {
-  return kind === 'drums' ? 36 : 60;
-}
-
-/** Nota que no cabe en el step sequencer (melodía de Piano Roll). */
-function isMelodic(n: Note): boolean {
-  const rel = n.start / STEP;
-  return Math.abs(rel - Math.round(rel)) > 1e-3 || n.duration > STEP + 1e-3;
-}
 
 function formatPan(v: number): string {
   if (Math.abs(v) < 0.005) return 'C';
@@ -90,6 +92,11 @@ export function ChannelRack() {
   const [chanMenu, setChanMenu] = useState<{ id: Id; x: number; y: number } | null>(null);
   /** Canal cuyo nombre se está renombrando (desde el menú contextual). */
   const [renamingId, setRenamingId] = useState<Id | null>(null);
+  /** Graph editor de velocity abierto (vista local, como en FL). */
+  const [graphOpen, setGraphOpen] = useState(false);
+  /** Filtro de familia de instrumento y buscador por nombre (solo vista). */
+  const [filterId, setFilterId] = useState(DEFAULT_FILTER_ID);
+  const [query, setQuery] = useState('');
 
   // Patrón activo (fallback al primero si la UI aún no fijó ninguno).
   const firstPatternId = project.patternOrder[0];
@@ -112,6 +119,27 @@ export function ChannelRack() {
   const steps = Math.max(1, Math.round(pattern.length / STEP));
   const patternIndex = project.patternOrder.indexOf(patternId);
   const anySolo = project.channelOrder.some((id) => project.channels[id]?.solo === true);
+
+  // ── Vista filtrada ────────────────────────────────────────────────────────
+  // Se conserva el índice ORIGINAL del canal: engine.previewNote va por
+  // posición en channelOrder, no por posición en la lista visible.
+  const visibleRows: { id: Id; index: number; channel: Channel }[] = [];
+  project.channelOrder.forEach((id, index) => {
+    const channel = project.channels[id];
+    if (channel && matchesChannel(channel, filterId, query)) {
+      visibleRows.push({ id, index, channel });
+    }
+  });
+  /** Cuántos canales caen en cada filtro con el buscador puesto. */
+  const filterCount = (id: string): number =>
+    project.channelOrder.reduce((acc, cid) => {
+      const ch = project.channels[cid];
+      return ch && matchesKind(ch, id) && matchesQuery(ch, query) ? acc + 1 : acc;
+    }, 0);
+
+  // El graph editor sigue al canal seleccionado; si el filtro lo esconde,
+  // cae al primero visible para no quedarse en blanco.
+  const graphRow = visibleRows.find((r) => r.id === selectedChannelId) ?? visibleRows[0];
 
   const goTo = (dir: -1 | 1) => {
     const next = project.patternOrder[patternIndex + dir];
@@ -166,14 +194,20 @@ export function ChannelRack() {
     if (!ch) return;
     const key = defaultKey(ch.kind);
     const occupied = new Set(
-      (pattern.notes[channelId] ?? [])
-        .filter((n) => !isMelodic(n))
-        .map((n) => Math.floor(n.start / STEP + EPS)),
+      (pattern.notes[channelId] ?? []).filter((n) => !isMelodic(n)).map(stepIndexOf),
     );
     const notes: Note[] = [];
     for (let i = 0; i < steps; i += every) {
       if (occupied.has(i)) continue;
-      notes.push({ id: newId(), start: i * STEP, duration: STEP, key, velocity: 0.8, pan: 0, slide: false });
+      notes.push({
+        id: newId(),
+        start: i * STEP,
+        duration: STEP,
+        key,
+        velocity: DEFAULT_VELOCITY,
+        pan: 0,
+        slide: false,
+      });
     }
     if (notes.length > 0) {
       store.dispatch(
@@ -192,6 +226,40 @@ export function ChannelRack() {
       { type: 'removeNotes', patternId, channelId, noteIds: list.map((n) => n.id) },
       { label: `Vaciar ${ch.name} en ${pattern.name}` },
     );
+  };
+
+  /**
+   * Randomiza los pasos del canal: probabilidad por posición (los pulsos
+   * pesan más) y velocity variada, en UN solo undo. Sustituye los pasos que
+   * hubiera pero deja intacta la melodía del Piano Roll.
+   */
+  const randomizeSteps = (channelId: Id) => {
+    const ch = project.channels[channelId];
+    if (!ch) return;
+    const cmd = randomizeStepsCommand({
+      patternId,
+      channelId,
+      kind: ch.kind,
+      notes: pattern.notes[channelId] ?? EMPTY_NOTES,
+      steps,
+      patternLength: pattern.length,
+    });
+    if (cmd) store.dispatch(cmd, { label: `Randomizar pasos de ${ch.name}` });
+  };
+
+  /** Humaniza: timing ligeramente corrido y velocity variada, en un undo. */
+  const humanizeSteps = (channelId: Id) => {
+    const ch = project.channels[channelId];
+    if (!ch) return;
+    const cmd = humanizeStepsCommand({
+      patternId,
+      channelId,
+      kind: ch.kind,
+      notes: pattern.notes[channelId] ?? EMPTY_NOTES,
+      steps,
+      patternLength: pattern.length,
+    });
+    if (cmd) store.dispatch(cmd, { label: `Humanizar ${ch.name}` });
   };
 
   const deleteChannel = (channelId: Id) => {
@@ -321,16 +389,62 @@ export function ChannelRack() {
             ⧉
           </button>
         </div>
-        <div className="rack-lengths" title="Pasos del patrón">
-          {LENGTH_CHOICES.map((c) => (
+        <div className="rack-head-tools">
+          <button
+            className={`rack-len wide${graphOpen ? ' active' : ''}`}
+            onClick={() => setGraphOpen((v) => !v)}
+            title="Graph editor: velocity de los pasos del canal seleccionado"
+          >
+            Velocity
+          </button>
+          <div className="rack-lengths" title="Pasos del patrón">
+            {LENGTH_CHOICES.map((c) => (
+              <button
+                key={c.steps}
+                className={`rack-len${pattern.length === c.beats ? ' active' : ''}`}
+                onClick={() => setLength(c.beats)}
+              >
+                {c.steps}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="rack-filters">
+        {RACK_FILTERS.map((f) => {
+          const count = filterCount(f.id);
+          return (
             <button
-              key={c.steps}
-              className={`rack-len${pattern.length === c.beats ? ' active' : ''}`}
-              onClick={() => setLength(c.beats)}
+              key={f.id}
+              className={`rack-filter${filterId === f.id ? ' active' : ''}${count === 0 ? ' empty' : ''}`}
+              title={f.title}
+              onClick={() => setFilterId(f.id)}
             >
-              {c.steps}
+              {f.label}
+              <span className="rack-filter-count">{count}</span>
             </button>
-          ))}
+          );
+        })}
+        <div className="rack-search">
+          <input
+            className="rack-search-input"
+            type="search"
+            placeholder="Buscar canal…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setQuery('');
+              }
+            }}
+          />
+          {query !== '' && (
+            <button className="rack-search-clear" title="Limpiar búsqueda" onClick={() => setQuery('')}>
+              ×
+            </button>
+          )}
         </div>
       </div>
 
@@ -338,35 +452,55 @@ export function ChannelRack() {
         {project.channelOrder.length === 0 && (
           <div className="rack-hint">Sin canales — añade un instrumento abajo.</div>
         )}
-        {project.channelOrder.map((id, i) => {
-          const channel = project.channels[id];
-          if (!channel) return null;
-          return (
-            <ChannelRow
-              key={id}
-              channel={channel}
-              channelIndex={i}
-              patternId={patternId}
-              notes={pattern.notes[id] ?? EMPTY_NOTES}
-              steps={steps}
-              patternLength={pattern.length}
-              selected={selectedChannelId === id}
-              audible={!channel.mute && (!anySolo || channel.solo)}
-              playStep={playStep}
-              renaming={renamingId === id}
-              onRenameDone={() => setRenamingId(null)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setChanMenu({
-                  id,
-                  x: Math.min(e.clientX, window.innerWidth - 210),
-                  y: Math.min(e.clientY, window.innerHeight - 300),
-                });
+        {project.channelOrder.length > 0 && visibleRows.length === 0 && (
+          <div className="rack-hint">
+            Ningún canal pasa el filtro.{' '}
+            <button
+              className="rack-hint-link"
+              onClick={() => {
+                setFilterId(DEFAULT_FILTER_ID);
+                setQuery('');
               }}
-            />
-          );
-        })}
+            >
+              Quitar filtros
+            </button>
+          </div>
+        )}
+        {visibleRows.map(({ id, index, channel }) => (
+          <ChannelRow
+            key={id}
+            channel={channel}
+            channelIndex={index}
+            patternId={patternId}
+            notes={pattern.notes[id] ?? EMPTY_NOTES}
+            steps={steps}
+            patternLength={pattern.length}
+            selected={selectedChannelId === id}
+            audible={!channel.mute && (!anySolo || channel.solo)}
+            playStep={playStep}
+            renaming={renamingId === id}
+            onRenameDone={() => setRenamingId(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setChanMenu({
+                id,
+                x: Math.min(e.clientX, window.innerWidth - 210),
+                y: Math.min(e.clientY, window.innerHeight - 340),
+              });
+            }}
+          />
+        ))}
       </div>
+
+      {graphOpen && graphRow && (
+        <VelocityGraph
+          channel={graphRow.channel}
+          patternId={patternId}
+          notes={pattern.notes[graphRow.id] ?? EMPTY_NOTES}
+          steps={steps}
+          playStep={playStep}
+        />
+      )}
 
       {chanMenu && menuChannel && (
         <>
@@ -417,6 +551,28 @@ export function ChannelRack() {
               }}
             >
               Vaciar canal en este patrón
+            </button>
+            <div className="menu-sep" />
+            <button
+              className="menu-item"
+              title="Reparte pasos al azar (los pulsos pesan más) con velocity variada"
+              onClick={() => {
+                randomizeSteps(chanMenu.id);
+                setChanMenu(null);
+              }}
+            >
+              Randomizar pasos
+            </button>
+            <button
+              className="menu-item"
+              disabled={(pattern.notes[chanMenu.id] ?? EMPTY_NOTES).length === 0}
+              title="Corre un pelín el timing y varía la velocity de lo que ya hay"
+              onClick={() => {
+                humanizeSteps(chanMenu.id);
+                setChanMenu(null);
+              }}
+            >
+              Humanizar
             </button>
             <div className="menu-sep" />
             <button
@@ -535,7 +691,7 @@ function ChannelRow({
   const cells: Note[][] = Array.from({ length: steps }, () => []);
   if (!melodic) {
     for (const n of notes) {
-      const idx = Math.floor(n.start / STEP + EPS);
+      const idx = stepIndexOf(n);
       if (idx >= 0 && idx < steps) cells[idx]?.push(n);
     }
   }
@@ -605,7 +761,7 @@ function ChannelRow({
       start: i * STEP,
       duration: STEP,
       key,
-      velocity: 0.8,
+      velocity: DEFAULT_VELOCITY,
       pan: 0,
       slide: false,
     };
@@ -730,8 +886,9 @@ function ChannelRow({
           {cells.map((cellNotes, i) => {
             const occupied = cellNotes.length > 0;
             const first = cellNotes[0];
-            const vel = first ? first.velocity : 0.8;
-            const opacity = Math.abs(vel - 0.8) < 0.001 ? 1 : Math.max(0.15, Math.min(1, vel));
+            const vel = first ? first.velocity : DEFAULT_VELOCITY;
+            const opacity =
+              Math.abs(vel - DEFAULT_VELOCITY) < 0.001 ? 1 : Math.max(0.15, Math.min(1, vel));
             const cls = [
               'step',
               Math.floor(i / 4) % 2 === 0 ? 'ga' : 'gb',
