@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Orbit Prisma v1: el instrumento grande de presets (capas, macros, rangos de
  * tecla y pool de cuerdas pulsadas).
  *
