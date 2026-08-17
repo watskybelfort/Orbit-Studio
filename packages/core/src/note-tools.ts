@@ -45,6 +45,34 @@ export interface ChopOptions {
   grid: number;
 }
 
+/** Carácter rítmico del riff (cómo caen las notas dentro del compás). */
+export type RiffCharacter = 'sostenido' | 'sincopado' | 'puntillo';
+
+export interface RiffOptions {
+  /** Semilla del RNG determinista (mulberry32): misma semilla = mismo riff. */
+  seed: number;
+  /** Tónica en semitonos 0..11 (0 = C). */
+  root: number;
+  /** Escala: intervalos en semitonos desde la tónica (como SCALES). */
+  scale: readonly number[];
+  /** Longitud en compases (≥ 1). */
+  bars: number;
+  /** Pulsos por compás (4 = 4/4). Por defecto 4. */
+  beatsPerBar?: number;
+  /** Densidad: notas por compás (se redondea y se limita a 1..32). */
+  density: number;
+  /** Octava más grave del rango (convención FL: C5 = 60 → octava 5). */
+  octaveLow: number;
+  /** Cuántas octavas abarca el riff desde `octaveLow` (≥ 1). */
+  octaves: number;
+  /** Carácter rítmico. */
+  character: RiffCharacter;
+  /** Beat inicial dentro del patrón (por defecto 0). */
+  start?: number;
+  /** Velocity de referencia 0..1 (por defecto 0.8). */
+  velocity?: number;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Orden canónico del resultado: start y después key (sort estable). */
@@ -74,6 +102,16 @@ function groupOverlapping(notes: readonly Note[]): Note[][] {
   if (current.length > 0) groups.push(current);
   return groups;
 }
+
+/** Tope de densidad del riff (notas por compás) — más es ruido, no música. */
+const RIFF_MAX_DENSITY = 32;
+
+/**
+ * Pasos del paseo melódico, en GRADOS de la escala. Los cortos aparecen
+ * repetidos: el riff se mueve casi siempre por grados vecinos y solo de vez en
+ * cuando pega un salto (así suena a motivo y no a arpegio aleatorio).
+ */
+const RIFF_STEPS = [0, 1, -1, 1, -1, 2, -2, 1, -1, 2, -2, 3, -3, 4, -4, 1];
 
 /** RNG determinista mulberry32 → floats uniformes en [0, 1). */
 function mulberry32(seed: number): () => number {
@@ -222,6 +260,133 @@ export function chop(notes: readonly Note[], opts: ChopOptions): Note[] {
         slide: idx === pieces.length - 1 ? n.slide : false,
       });
       t += duration;
+    });
+  }
+  return out.sort(byStartThenKey);
+}
+
+/**
+ * Riff machine: genera un motivo melódico sobre una escala y tónica.
+ *
+ * El ritmo sale de una rejilla de `density` notas por compás (siempre
+ * `density × bars` notas exactas) que el `character` desplaza y recorta:
+ * 'sostenido' llena la rejilla ligado, 'sincopado' ancla el pie del compás y
+ * manda el resto al contratiempo dejando huecos, y 'puntillo' hace parejas
+ * larga-corta 3:1. Ninguna nota se solapa con la siguiente ni rebasa el final.
+ *
+ * Las alturas son un paseo por los GRADOS de la escala dentro del rango de
+ * octavas (pasos cortos casi siempre, saltos sueltos; ver RIFF_STEPS), que
+ * rebota en los bordes del rango. Cada compás tiende a empezar en nota del
+ * acorde de tónica (grados 1, 3 y 5) para que el motivo tenga pie.
+ *
+ * **Determinista**: la misma `seed` con las mismas opciones da exactamente las
+ * mismas notas (mulberry32, cero Math.random). Lo único que cambia entre dos
+ * llamadas son los `id`, que siempre son nuevos (newId).
+ */
+export function riff(opts: RiffOptions): Note[] {
+  const bars = Math.floor(opts.bars);
+  if (bars <= 0) throw new Error(`riff: bars debe ser > 0 (${opts.bars})`);
+  const beatsPerBar = opts.beatsPerBar ?? 4;
+  if (beatsPerBar <= 0) throw new Error(`riff: beatsPerBar debe ser > 0 (${beatsPerBar})`);
+  const perBar = Math.min(RIFF_MAX_DENSITY, Math.max(1, Math.round(opts.density)));
+  const octaves = Math.max(1, Math.floor(opts.octaves));
+
+  // Grados únicos y ordenados de la escala (0..11 desde la tónica).
+  const degrees = [...new Set(opts.scale.map((s) => ((s % 12) + 12) % 12))].sort((a, b) => a - b);
+  if (degrees.length === 0) throw new Error('riff: la escala no tiene ni un grado');
+  const root = ((Math.round(opts.root) % 12) + 12) % 12;
+  const inSc = (key: number) => degrees.includes((((key - root) % 12) + 12) % 12);
+
+  // Pool de alturas: las de la escala dentro del rango de octavas pedido.
+  const lowKey = Math.max(0, Math.floor(opts.octaveLow) * 12);
+  const highKey = Math.min(127, lowKey + octaves * 12 - 1);
+  const pool: number[] = [];
+  for (let k = lowKey; k <= highKey; k++) if (inSc(k)) pool.push(k);
+  if (pool.length === 0) throw new Error('riff: ninguna nota de la escala cabe en el rango');
+  const last = pool.length - 1;
+  /** Índices del pool que son nota del acorde de tónica (grados 1, 3 y 5). */
+  const chordKeys = new Set(
+    [0, 2, 4].map((d) => (root + (degrees[d % degrees.length] ?? 0)) % 12),
+  );
+
+  const rand = mulberry32(opts.seed);
+  const riffStart = Math.max(0, opts.start ?? 0);
+  const riffEnd = riffStart + bars * beatsPerBar;
+  const baseVel = opts.velocity ?? 0.8;
+  const slot = beatsPerBar / perBar;
+
+  // ── Rejilla rítmica (starts y duraciones "de intención") ──
+  const starts: number[] = [];
+  const durations: number[] = [];
+  for (let b = 0; b < bars; b++) {
+    for (let i = 0; i < perBar; i++) {
+      const slotStart = riffStart + b * beatsPerBar + i * slot;
+      if (opts.character === 'sincopado') {
+        // Ancla el pie del compás y manda el resto al contratiempo (con hueco).
+        starts.push(slotStart + (i === 0 ? 0 : slot / 2));
+        durations.push(slot * 0.5);
+      } else if (opts.character === 'puntillo') {
+        const off = i % 2 === 1;
+        starts.push(slotStart + (off ? slot * 0.5 : 0));
+        durations.push(slot * (off ? 0.5 : 1.5));
+      } else {
+        starts.push(slotStart);
+        durations.push(slot);
+      }
+    }
+  }
+  // Recorte: nadie pisa a la siguiente ni rebasa el final del riff.
+  for (let i = 0; i < starts.length; i++) {
+    const limit = (i + 1 < starts.length ? starts[i + 1]! : riffEnd) - starts[i]!;
+    durations[i] = Math.max(MIN_DUR, Math.min(durations[i]!, limit));
+  }
+
+  // ── Alturas: paseo por grados con rebote en los bordes del rango ──
+  // Arranca en la tónica más cercana al centro del rango (o el centro si la
+  // escala no tiene tónica, p. ej. una escala exótica sin el grado 0).
+  const mid = Math.floor(last / 2);
+  let idx = mid;
+  for (let d = 0; d <= pool.length; d++) {
+    if (pool[mid - d] !== undefined && pool[mid - d]! % 12 === root) { idx = mid - d; break; }
+    if (pool[mid + d] !== undefined && pool[mid + d]! % 12 === root) { idx = mid + d; break; }
+  }
+
+  const out: Note[] = [];
+  for (let n = 0; n < starts.length; n++) {
+    if (n > 0) {
+      const barHead = n % perBar === 0;
+      if (barHead && rand() < 0.65) {
+        // Pie de compás: a la nota del acorde de tónica más cercana.
+        if (!chordKeys.has(pool[idx]! % 12)) {
+          for (let d = 1; d <= pool.length; d++) {
+            const down = idx - d;
+            if (down >= 0 && chordKeys.has(pool[down]! % 12)) { idx = down; break; }
+            const up = idx + d;
+            if (up <= last && chordKeys.has(pool[up]! % 12)) { idx = up; break; }
+          }
+        }
+      } else {
+        const step = RIFF_STEPS[Math.floor(rand() * RIFF_STEPS.length)] ?? 0;
+        let next = idx + step;
+        // Rebote: en vez de clavarse en el borde, el motivo da la vuelta.
+        if (next < 0) next = -next;
+        if (next > last) next = 2 * last - next;
+        idx = Math.min(last, Math.max(0, next));
+      }
+    }
+    const onBeat = Math.abs(starts[n]! - Math.round(starts[n]!)) < EPS;
+    const velocity = Math.min(
+      1,
+      Math.max(0.05, baseVel + (onBeat ? 0.08 : -0.06) + (rand() - 0.5) * 0.12),
+    );
+    out.push({
+      id: newId(),
+      start: starts[n]!,
+      duration: durations[n]!,
+      key: pool[idx]!,
+      velocity,
+      pan: 0,
+      slide: false,
     });
   }
   return out.sort(byStartThenKey);

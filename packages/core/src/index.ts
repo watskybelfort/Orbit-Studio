@@ -18,9 +18,12 @@ export {
   arpeggiate,
   chop,
   humanize,
+  riff,
   strum,
   type ArpeggiateOptions,
   type ChopOptions,
   type HumanizeOptions,
+  type RiffCharacter,
+  type RiffOptions,
   type StrumOptions,
 } from './note-tools';
