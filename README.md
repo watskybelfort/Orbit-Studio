@@ -42,7 +42,7 @@ guardables con nombre).
    CRDT (Yjs): salas por código de 6 letras, servidor propio con persistencia,
    convergencia sin conflictos y undo POR USUARIO (tu Ctrl+Z no deshace lo del
    otro).
-5. **Claude dentro del estudio** — la app expone un servidor MCP con 19 tools
+5. **Claude dentro del estudio** — la app expone un servidor MCP con 20 tools
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
    todo por el mismo bus de comandos, visible en vivo y deshacible.
@@ -67,7 +67,7 @@ npm test           # 145 tests (core, engine, collab, claude-bridge, ui)
 
 **Claude como colaborador:** abre la carpeta con Claude Code y la app en
 marcha; el `.mcp.json` del repo conecta el bridge (stdio → WS local 7855) y las
-19 tools aparecen solas. Todo lo que haga Claude sale en su panel (menú Ver →
+20 tools aparecen solas. Todo lo que haga Claude sale en su panel (menú Ver →
 Panel de Claude).
 
 ## Estado

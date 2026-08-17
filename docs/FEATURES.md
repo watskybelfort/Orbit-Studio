@@ -243,7 +243,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | Servidor **MCP** expuesto por la app (`.mcp.json` en el repo, stdio→WS) | v0.1 |
-| **19 tools**: proyecto, notas, canales, steps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, undo/redo | v0.1 |
+| **20 tools**: proyecto, notas, canales, steps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, undo/redo | v0.1 |
 | Todas sus ediciones pasan por el bus de comandos → undo separado del tuyo | v0.1 |
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
