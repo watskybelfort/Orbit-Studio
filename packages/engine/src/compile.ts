@@ -30,7 +30,12 @@ import {
 
 export type PlayMode =
   | { mode: 'pattern'; patternId: string }
-  | { mode: 'song' };
+  /**
+   * Canción entera o, con `clipIds`, SOLO esos clips (consolidar a audio):
+   * el resto del arreglo enmudece pero la cadena de mixer sigue intacta, que
+   * es justo lo que se quiere bouncear — el clip con sus efectos, no seco.
+   */
+  | { mode: 'song'; clipIds?: readonly string[] };
 
 const AUTOMATION_STEP = 1 / 8; // beats entre muestras de curva (1/32 de compás 4/4)
 
@@ -286,7 +291,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
         .filter((t) => t.arrangementId === project.activeArrangementId && !t.muted)
         .map((t) => t.id),
     );
+    const only = play.clipIds ? new Set(play.clipIds) : null;
     for (const clip of Object.values(project.clips)) {
+      if (only && !only.has(clip.id)) continue;
       if (clip.muted || !activeTracks.has(clip.playlistTrackId)) continue;
       lengthBeats = Math.max(lengthBeats, clip.start + clip.length);
       if (clip.kind === 'pattern' && clip.patternId) {

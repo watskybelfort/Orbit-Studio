@@ -15,6 +15,14 @@ export interface RenderOptions {
   samples?: Map<string, SampleData>;
   /** Plugins JS de usuario (pluginId → código fuente) usados por el proyecto. */
   plugins?: Map<string, string>;
+  /**
+   * Renderiza solo un tramo del timeline (consolidar un clip, por ejemplo).
+   * Automatización y LFOs se derivan de la posición, así que arrancar en
+   * `startBeat` da EXACTAMENTE lo mismo que renderizar todo y recortar; lo
+   * único que no viaja es la cola de lo que sonaba antes del tramo.
+   */
+  startBeat?: number;
+  endBeat?: number;
   onProgress?: (fraction: number) => void;
 }
 
@@ -26,10 +34,21 @@ export interface RenderResult {
 
 const HARD_CAP_SECONDS = 60 * 20;
 
-export function renderProject(project: CompiledProject, opts: RenderOptions = {}): RenderResult {
+export function renderProject(
+  fullProject: CompiledProject,
+  opts: RenderOptions = {},
+): RenderResult {
   const sr = opts.sampleRate ?? 44100;
   const tail = opts.tailSeconds ?? 2;
   const core = new KernelCore(sr);
+
+  // El kernel para cuando la posición alcanza lengthBeats: acortar el timeline
+  // es lo que define el final del tramo.
+  const startBeat = Math.max(0, opts.startBeat ?? 0);
+  const project =
+    opts.endBeat !== undefined && opts.endBeat < fullProject.lengthBeats
+      ? { ...fullProject, lengthBeats: Math.max(startBeat + 1e-6, opts.endBeat) }
+      : fullProject;
 
   if (opts.samples) {
     for (const [id, s] of opts.samples) {
@@ -49,9 +68,10 @@ export function renderProject(project: CompiledProject, opts: RenderOptions = {}
   }
   core.handleMessage({ type: 'snapshot', project });
   core.handleMessage({ type: 'setLoop', start: 0, end: project.lengthBeats, enabled: false });
-  core.handleMessage({ type: 'play', fromBeat: 0 });
+  core.handleMessage({ type: 'play', fromBeat: startBeat });
 
-  const estSeconds = (project.lengthBeats * 60) / project.tempo + tail;
+  const estSeconds =
+    ((Math.max(0, project.lengthBeats - startBeat) * 60) / project.tempo) + tail;
   const capSamples = Math.ceil(Math.min(HARD_CAP_SECONDS, estSeconds * 3 + 10) * sr);
   const chunks: Float32Array[] = [];
   const chunksR: Float32Array[] = [];
