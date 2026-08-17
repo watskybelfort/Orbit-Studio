@@ -127,6 +127,44 @@ export function Playlist() {
   );
 
   const barLen = Math.max(1, project.timeSig.num);
+
+  /**
+   * Compases visibles teniendo en cuenta los cambios de compás por marcador:
+   * la rejilla ya no puede asumir que todos los compases miden lo mismo. Sin
+   * marcadores de compás sale exactamente la rejilla de siempre.
+   */
+  const meterMap = useMemo(() => {
+    const map: { beat: number; num: number }[] = [{ beat: 0, num: barLen }];
+    for (const m of Object.values(project.markers).sort((a, b) => a.time - b.time)) {
+      const num = m.timeSigNum ? Math.round(m.timeSigNum) : 0;
+      if (num <= 0) continue;
+      if (m.time <= 0) map[0]!.num = num;
+      else if (num !== map[map.length - 1]!.num) map.push({ beat: m.time, num });
+    }
+    return map;
+  }, [project, barLen]);
+
+  /** Inicios de compás dentro de [from, to), con su número (1-based). */
+  const barsIn = useCallback(
+    (from: number, to: number): { beat: number; index: number; num: number }[] => {
+      const out: { beat: number; index: number; num: number }[] = [];
+      let beat = 0;
+      let index = 0;
+      let seg = 0;
+      // Recorre compás a compás desde el 0: son unos pocos miles como mucho y
+      // así el número de compás que se ve es el de verdad.
+      while (beat <= to && out.length < 4096) {
+        while (seg + 1 < meterMap.length && meterMap[seg + 1]!.beat <= beat + 1e-9) seg++;
+        const num = meterMap[seg]!.num;
+        if (beat >= from - num) out.push({ beat, index, num });
+        beat += num;
+        index++;
+        if (index > 20000) break;
+      }
+      return out;
+    },
+    [meterMap],
+  );
   const rawSnap = SNAPS[snapIdx]?.value ?? 1;
   const snapBeats = rawSnap === 'bar' ? barLen : rawSnap;
   /** Snap efectivo del evento (Alt lo desactiva). */
@@ -418,17 +456,19 @@ export function Playlist() {
     ctx.rect(0, RULER_H, w, h - RULER_H);
     ctx.clip();
 
-    // Compases alternos + líneas verticales.
-    const firstBar = Math.floor(scrollX / barLen);
+    // Compases alternos + líneas verticales (con compases variables).
     const lastBeat = scrollX + w / zoom;
-    for (let bar = firstBar; bar * barLen <= lastBeat; bar++) {
-      if (bar % 2 === 1) {
+    const bars = barsIn(scrollX, lastBeat);
+    const barStarts = new Set<number>();
+    for (const bar of bars) {
+      barStarts.add(Math.round(bar.beat * 1000));
+      if (bar.index % 2 === 1) {
         ctx.fillStyle = col('--pl-bar-alt');
-        ctx.fillRect(beatToX(bar * barLen), RULER_H, barLen * zoom, h - RULER_H);
+        ctx.fillRect(beatToX(bar.beat), RULER_H, bar.num * zoom, h - RULER_H);
       }
     }
     for (let b = Math.floor(scrollX); b <= lastBeat; b++) {
-      const isBar = b % barLen === 0;
+      const isBar = barStarts.has(Math.round(b * 1000));
       if (!isBar && zoom < 12) continue; // beats solo con zoom suficiente
       ctx.fillStyle = isBar ? col('--pl-grid-bar') : col('--pl-grid-beat');
       ctx.fillRect(beatToX(b), RULER_H, 1, h - RULER_H);
@@ -485,13 +525,13 @@ export function Playlist() {
     // Números de compás (espaciados según zoom) y ticks.
     ctx.font = `9px ${font}`;
     const every = Math.max(1, Math.ceil(34 / (barLen * zoom)));
-    for (let bar = firstBar; bar * barLen <= lastBeat; bar++) {
-      const x = beatToX(bar * barLen);
+    for (const bar of bars) {
+      const x = beatToX(bar.beat);
       ctx.fillStyle = col('--pl-grid-bar');
       ctx.fillRect(x, RULER_H - 7, 1, 7);
-      if (bar % every === 0) {
+      if (bar.index % every === 0) {
         ctx.fillStyle = col('--pl-ruler-text');
-        ctx.fillText(String(bar + 1), x + 3, RULER_H - 9);
+        ctx.fillText(String(bar.index + 1), x + 3, RULER_H - 9);
       }
     }
 
@@ -542,7 +582,7 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn]);
 
   useEffect(() => {
     draw();
@@ -1069,28 +1109,82 @@ export function Playlist() {
         </div>
         <div className="pl-canvas-wrap" ref={wrapRef}>
           {markerEdit && (
-            <input
+            <div
               className="pl-marker-edit popup"
               style={{ left: Math.max(2, markerEdit.x + 4), top: 2 }}
-              autoFocus
-              value={markerEdit.name}
-              onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => setMarkerEdit({ ...markerEdit, name: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur();
-                else if (e.key === 'Escape') setMarkerEdit(null);
-              }}
-              onBlur={() => {
-                const name = markerEdit.name.trim();
-                if (name && name !== project.markers[markerEdit.id]?.name) {
-                  store.dispatch(
-                    { type: 'patchMarker', markerId: markerEdit.id, patch: { name } },
-                    { label: 'Renombrar marcador' },
-                  );
-                }
-                setMarkerEdit(null);
-              }}
-            />
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <input
+                className="pl-marker-name"
+                autoFocus
+                value={markerEdit.name}
+                onFocus={(e) => e.currentTarget.select()}
+                onChange={(e) => setMarkerEdit({ ...markerEdit, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  else if (e.key === 'Escape') setMarkerEdit(null);
+                }}
+                onBlur={() => {
+                  const name = markerEdit.name.trim();
+                  if (name && name !== project.markers[markerEdit.id]?.name) {
+                    store.dispatch(
+                      { type: 'patchMarker', markerId: markerEdit.id, patch: { name } },
+                      { label: 'Renombrar marcador' },
+                    );
+                  }
+                }}
+              />
+              {/* Un marcador puede cambiar el tempo y el compás a partir de
+                  aquí: el motor sigue el mapa y la regla dibuja los compases
+                  con su medida real. Vacío = sigue lo que venía. */}
+              <label className="pl-marker-field">
+                BPM
+                <input
+                  type="number"
+                  min={20}
+                  max={999}
+                  step={0.5}
+                  placeholder="—"
+                  value={project.markers[markerEdit.id]?.tempo ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const tempo = raw === '' ? undefined : Math.min(999, Math.max(20, Number(raw)));
+                    if (raw !== '' && !Number.isFinite(tempo)) return;
+                    store.dispatch(
+                      { type: 'patchMarker', markerId: markerEdit.id, patch: { tempo } },
+                      { label: 'Tempo del marcador', mergeKey: `mk:tempo:${markerEdit.id}` },
+                    );
+                  }}
+                />
+              </label>
+              <label className="pl-marker-field">
+                Compás
+                <input
+                  type="number"
+                  min={1}
+                  max={16}
+                  step={1}
+                  placeholder="—"
+                  value={project.markers[markerEdit.id]?.timeSigNum ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const num = raw === '' ? undefined : Math.min(16, Math.max(1, Math.round(Number(raw))));
+                    if (raw !== '' && !Number.isFinite(num)) return;
+                    store.dispatch(
+                      { type: 'patchMarker', markerId: markerEdit.id, patch: { timeSigNum: num } },
+                      { label: 'Compás del marcador', mergeKey: `mk:sig:${markerEdit.id}` },
+                    );
+                  }}
+                />
+              </label>
+              <button
+                className="pl-marker-close"
+                title="Cerrar"
+                onClick={() => setMarkerEdit(null)}
+              >
+                ✕
+              </button>
+            </div>
           )}
           <canvas
             ref={canvasRef}
