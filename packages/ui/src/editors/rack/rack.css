@@ -713,3 +713,15 @@
 .rack-add-menu.down {
   top: calc(100% + 4px);
 }
+
+/* Separador de sección dentro del menú de añadir canal (Plugins JS) */
+.rack-add-sep {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
