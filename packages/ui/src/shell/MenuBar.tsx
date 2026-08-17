@@ -65,6 +65,8 @@ export function MenuBar() {
       { label: 'Guardar', icon: <IconSave />, shortcut: 'Ctrl+S', action: () => void saveProject() },
       { label: 'Guardar como…', shortcut: 'Ctrl+Shift+S', action: () => void saveProject(true) },
       { label: '', separator: true },
+      { label: 'Info del proyecto…', action: () => toggleWindow('projectInfo') },
+      { label: '', separator: true },
       { label: 'Importar MIDI…', icon: <IconMidi />, action: () => void importMidi() },
       { label: 'Exportar…', icon: <IconExport />, action: () => toggleWindow('export') },
       { label: '', separator: true },

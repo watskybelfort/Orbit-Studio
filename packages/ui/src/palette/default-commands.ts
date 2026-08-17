@@ -27,6 +27,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'lfo', title: 'LFOs' },
   { id: 'nova', title: 'Orbit Nova' },
   { id: 'history', title: 'Historial' },
+  { id: 'projectInfo', title: 'Info del proyecto' },
   { id: 'scope', title: 'Orbit Scope' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },
