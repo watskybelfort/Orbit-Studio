@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.5.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-467%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.6.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-494%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,26 @@ guardables con nombre).
 
 ## Lo último
 
+**v1.6.0 — "cada ventana en su monitor".** Las otras dos del roadmap.
+
+**Multi-ventana de verdad.** Sacar un editor a su propia ventana ya no es un
+apaño: **recuerda dónde estaba** (monitor incluido) y vuelve a salir ahí al
+abrir la app al día siguiente, así que el mixer se queda a vivir en la segunda
+pantalla. Si ese monitor ya no está, arranca donde se vea —una ventana
+restaurada fuera de pantalla existe, roba el foco y no hay forma de agarrarla—.
+Cada una trae su barra con **siempre encima** y **devolver**, y sobre todo: el
+**teclado funciona dentro**. Antes, un piano roll en el segundo monitor era un
+editor mudo (espacio, Ctrl+Z, F5, la fila Z/Q del piano… todo escuchaba en la
+ventana principal); ahora sus teclas se reenvían allí, salvo lo que estés
+escribiendo en un campo de texto.
+
+**Arrastrar canales entre carpetas.** El nombre del canal es el asa: suéltalo
+sobre otra fila y queda encima o debajo de ella **con la carpeta de esa fila**;
+sobre la cabecera de una carpeta, entra al final; y en la zona de sueltos —que
+se dibuja sola en cuanto empiezas a arrastrar— sale de la suya. Guía de
+inserción mientras arrastras y **un solo Ctrl+Z** para deshacerlo entero,
+carpeta y sitio.
+
 **v1.5.0 — "cada cosa en su sitio".** Dos del roadmap, terminadas.
 
 **El Slicer trocea por los golpes.** En la pestaña Sonido de un canal Slicer
@@ -103,12 +123,6 @@ arranca en local y lo dice; y como atado a una IP concreta `localhost` deja de
 valer hasta para quien hospeda, el panel te da la dirección para repartir, la
 copia y la deja en tu propio campo Servidor.
 
-**v1.3.0 — "que se vea quién toca".** Las **teclas se iluminan mientras suenan**
-(las que pulsas con el ratón, con la fila Z/Q o con el MIDI, y las que dispara el
-secuenciador: el dato sale del kernel, no de la UI), y las salas dejan de ser
-cosa de dos — aforo configurable, motivo legible cuando no cabes, y un color por
-persona aunque tres entren llamándose "Productor".
-
 Historial completo en [Releases](https://github.com/watskybelfort/Orbit-Studio/releases)
 y, auditado línea a línea, en [docs/FEATURES.md](docs/FEATURES.md).
 
@@ -123,8 +137,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 |---|---|
 | **Graph editor del rack por nodos** | La cadena de un canal es hoy una lista de inserts; verla y recablearla como grafo abre el enrutado raro que ahora no se puede expresar |
 | **Packs de sonidos generados por Claude** | La librería se genera por síntesis: que Claude arme packs a medida ("dame 12 hats de drill") es el paso natural |
-| **Multi-ventana real** | Las ventanas ya se desacoplan por portal; falta que el mixer viva de verdad en el segundo monitor |
-| **Arrastrar canales entre carpetas** | Las carpetas ya están (v1.5), pero mover un canal es cosa del menú: falta el arrastre |
 
 ### Después
 
@@ -149,7 +161,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 467 tests (core, engine, collab, claude-bridge, sound-library, ui, server)
+npm test           # 494 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

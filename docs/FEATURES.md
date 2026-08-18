@@ -55,6 +55,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Mantener pulsado el icono = escuchar el canal | v0.1 |
 | Filtros de canal (Todos, Drums, 808/Bajos, Melódicos, Sampler, Voces) + buscador | v1.0 |
 | **Carpetas de canales**: cabecera con color, plegado, contador y M/S de todo el grupo; botón + Carpeta y, en el menú del canal, mover a una carpeta, sacarlo o crear una con él. Es organización pura —no hay bus de carpeta—: el mute del grupo se le hace a sus canales en UN paso de undo, y deshacer la carpeta los deja sueltos sin borrar nada | v1.5 |
+| **Arrastrar canales**: el nombre es el asa. Sobre otra fila queda encima o debajo de ella y hereda SU carpeta; sobre la cabecera de una carpeta (aunque esté plegada o vacía) entra al final; en la zona de sueltos —que aparece en cuanto empieza el arrastre— sale de la suya. Guía de inserción, fila de origen apagada, y carpeta + sitio en UN paso de undo | v1.6 |
 | Randomizar y humanizar pasos desde el menú del canal, en un solo undo | v1.0 |
 
 ## 3. Piano Roll
@@ -322,6 +323,10 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | **Menús flotantes por portal** (`MenuPortal`): van al `body` del documento del ancla y se colocan midiéndose contra ESA ventana. Antes eran `position: fixed` dentro del editor, y cualquier ancestro con `transform`, `will-change` o `backdrop-filter` los recortaba — por eso el menú de pista de la playlist no aparecía nunca y los demás fallaban solo en tema acrílico | v1.1 |
 | **Z-order acotado**: los z de las ventanas se renumeran en un rango pequeño. Antes crecían 1 por cada clic sin techo y acababan tapando los menús contextuales (1000) y la paleta de comandos (1200) | v1.1 |
 | **Ventanas desacoplables**: sacar cualquier editor a una ventana nativa del OS | v0.6 |
+| **Su sitio se recuerda** (monitor incluido) y se comprueba contra las pantallas de ahora: si aquel monitor ya no está, o la resolución encogió, arranca donde se vea — una ventana restaurada fuera de pantalla existe, roba el foco y no se puede agarrar | v1.6 |
+| **Se restauran al arrancar**: los editores que estaban fuera vuelven a salir en su ventana | v1.6 |
+| **Teclado dentro de la ventana desacoplada**: sus pulsaciones se reenvían a la principal, que es donde escuchan los atajos y las teclas del piano (no se reenvía lo que se escribe en un campo) | v1.6 |
+| Barra propia de cada ventana: **siempre encima** (persistido) y **devolver** a la principal | v1.6 |
 | Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
 | Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
 | **Layouts de ventanas**: tres predefinidos (Componer, Mezclar, Arreglar) y los que guardes en el proyecto | v1.0 |
@@ -336,7 +341,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Menú **Patrón** en el MenuBar: nuevo, clonar, renombrar y borrar el activo | v1.1 |
 | Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
 | Grupo "Patrón" en la paleta: nuevo, clonar, renombrar y borrar (con el nombre del patrón y los clips que se lleva en el propio título) | v1.1 |
-| Multi-ventana (mixer en segundo monitor) | v1+ |
+| Multi-ventana (mixer en segundo monitor) | v1.6 |
 
 ## 16. Plugins de terceros
 
