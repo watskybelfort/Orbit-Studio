@@ -255,6 +255,14 @@ export interface MeterFrame {
   playing: boolean;
   /** Carga estimada del kernel 0..1. */
   cpu: number;
+  /**
+   * Notas que están sonando ahora mismo (voces todavía no soltadas), una
+   * entrada por voz, empaquetadas como (channelIndex << 8) | key. Es lo que
+   * ilumina las teclas del piano: el dato sale del kernel, así que cubre por
+   * igual lo que se toca en vivo y lo que dispara el secuenciador. Ausente
+   * cuando no suena nada, que es el caso normal y evita alocar por frame.
+   */
+  notes?: Uint16Array;
 }
 
 export type FromKernel =

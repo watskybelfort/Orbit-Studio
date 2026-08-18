@@ -1328,6 +1328,26 @@ export class KernelCore {
       playing: this.playing,
       cpu,
     };
+    // Teclas que suenan. Solo las voces SIN soltar: una nota en release sigue
+    // sonando un rato, pero su tecla ya no está pulsada y debe apagarse. El
+    // dato viaja empaquetado (canal<<8 | key) para no alocar un objeto por voz
+    // en cada frame de medidores.
+    let sounding = 0;
+    for (const v of this.voices) if (!v.released) sounding++;
+    if (sounding > 0) {
+      const notes = new Uint16Array(sounding);
+      let n = 0;
+      for (const v of this.voices) {
+        if (v.released) continue;
+        const ch = v.voice.channelIndex;
+        const key = Math.round(v.voice.key);
+        // Empaquetado de 8+8 bits: lo que no cabe se descarta en vez de
+        // encender la tecla de otro canal.
+        if (ch < 0 || ch > 255 || key < 0 || key > 255) continue;
+        notes[n++] = (ch << 8) | key;
+      }
+      if (n > 0) frame.notes = n === sounding ? notes : notes.slice(0, n);
+    }
     if (this.scopeEnabled) {
       // Copia ordenada del anillo (lo más antiguo primero).
       const scope = new Float32Array(2048);
