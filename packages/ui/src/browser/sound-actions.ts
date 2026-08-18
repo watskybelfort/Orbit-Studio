@@ -49,14 +49,16 @@ export async function sha1Hex(data: ArrayBuffer): Promise<string | null> {
   }
 }
 
-/** Lee los bytes de un sonido (pack de fábrica o carpeta del usuario) y los
- *  sube al kernel bajo el id de la entrada. */
+/** Lee los bytes de un sonido (pack de fábrica, pack generado o carpeta del
+ *  usuario) y los sube al kernel bajo el id de la entrada. */
 export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
   const api = window.orbit;
   if (!api) throw new Error('Librería no disponible fuera de Electron');
   const bytes = entry.id.startsWith('user:')
     ? await api.folder.read(entry.file)
-    : await api.library.read(entry.file);
+    : entry.id.startsWith('pack:')
+      ? await api.pack.read(entry.file)
+      : await api.library.read(entry.file);
   await engine.loadSample(entry.id, bytes);
   return bytes;
 }
@@ -67,7 +69,11 @@ async function registerIfNew(entry: SoundEntry, bytes: ArrayBuffer): Promise<Com
   const sample: SampleRef = {
     id: entry.id,
     name: entry.name,
-    path: entry.id.startsWith('user:') ? `user:${entry.file}` : `factory:${entry.file}`,
+    path: entry.id.startsWith('user:')
+      ? `user:${entry.file}`
+      : entry.id.startsWith('pack:')
+        ? `pack:${entry.file}`
+        : `factory:${entry.file}`,
     hash: (await sha1Hex(bytes)) ?? entry.id,
     duration: entry.durationSec,
   };
@@ -128,6 +134,7 @@ export async function readSampleBytes(path: string): Promise<ArrayBuffer | null>
   const api = window.orbit;
   if (!api) return null;
   if (path.startsWith('factory:')) return api.library.read(path.slice('factory:'.length));
+  if (path.startsWith('pack:')) return api.pack.read(path.slice('pack:'.length));
   if (path.startsWith('recording:')) return api.recording.read(path.slice('recording:'.length));
   if (path.startsWith('user:')) return api.folder.read(path.slice('user:'.length));
   return null;

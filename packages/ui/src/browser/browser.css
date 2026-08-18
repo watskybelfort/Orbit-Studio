@@ -567,3 +567,58 @@ html[data-theme='acrylic'] .browser-menu {
 .user-folder-del:hover {
   color: var(--meter-clip);
 }
+
+/* ── Generador de packs ──
+   Encargo compacto (familia, estilo, cuántos) dentro de la sección de packs
+   generados: lo mismo que Claude pide por su tool, a mano. */
+
+.pack-gen {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 6px;
+}
+
+.pack-gen-sel {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.pack-gen-count {
+  width: 42px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.pack-gen-go {
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pack-gen-go:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pack-gen-go:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

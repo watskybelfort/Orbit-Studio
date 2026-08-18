@@ -925,6 +925,111 @@ function registerIpc(): void {
     const bytes = await readFile(target);
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   });
+
+  // ── Packs generados (los que pide Claude) ──────────────────────────────────
+  // Viven en userData/packs/<slug>/ con el MISMO formato que el de fábrica
+  // (WAVs + manifest.json), así el browser no tiene que aprender nada nuevo.
+  // Los renderiza el renderer con el motor y los escribe aquí: el nombre del
+  // pack y el de cada archivo los propone quien los genera, así que ambos se
+  // validan a mano — un `..` en la ruta escribiría fuera de userData.
+
+  const packsDir = () => join(app.getPath('userData'), 'packs');
+  /** Carpeta de pack: minúsculas, números y guiones, y no vacía. */
+  const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+  /** Archivo dentro del pack: subcarpetas simples y solo .wav o .json. */
+  const PACK_FILE_RE = /^[a-z0-9][a-z0-9/-]*\.(wav|json)$/;
+  const PACK_MAX_FILES = 64;
+  const PACK_MAX_BYTES = 64 * 1024 * 1024;
+
+  function packDirOf(slug: unknown): string {
+    if (typeof slug !== 'string' || !SLUG_RE.test(slug)) {
+      throw new Error(`Nombre de pack no válido: ${String(slug)}`);
+    }
+    return join(packsDir(), slug);
+  }
+
+  ipcMain.handle('pack:save', async (_event, slug: unknown, files: unknown) => {
+    const dir = packDirOf(slug);
+    if (!Array.isArray(files) || files.length === 0) {
+      throw new Error('pack:save requiere al menos un archivo');
+    }
+    if (files.length > PACK_MAX_FILES) {
+      throw new Error(`Un pack no puede traer más de ${PACK_MAX_FILES} archivos`);
+    }
+    let total = 0;
+    const written: { path: string; bytes: Uint8Array }[] = [];
+    for (const raw of files as { path?: unknown; data?: unknown }[]) {
+      const path = raw?.path;
+      if (typeof path !== 'string' || !PACK_FILE_RE.test(path) || path.includes('..')) {
+        throw new Error(`Ruta de pack no válida: ${String(path)}`);
+      }
+      const data = raw?.data;
+      const bytes =
+        data instanceof Uint8Array
+          ? data
+          : data instanceof ArrayBuffer
+            ? new Uint8Array(data)
+            : null;
+      if (!bytes) throw new Error(`El archivo ${path} no trae bytes`);
+      total += bytes.byteLength;
+      if (total > PACK_MAX_BYTES) throw new Error('El pack pasa del tope de 64 MB');
+      written.push({ path, bytes });
+    }
+    for (const file of written) {
+      const target = join(dir, file.path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, file.bytes);
+    }
+    return { slug, dir, files: written.length };
+  });
+
+  /** Todos los packs generados: su carpeta y su manifest en crudo. */
+  ipcMain.handle('pack:list', async () => {
+    const dir = packsDir();
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return []; // aún no se ha generado ninguno
+    }
+    const out: { slug: string; manifest: string }[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !SLUG_RE.test(entry.name)) continue;
+      try {
+        out.push({
+          slug: entry.name,
+          manifest: await readFile(join(dir, entry.name, 'manifest.json'), 'utf8'),
+        });
+      } catch {
+        // carpeta a medias (se cortó la generación): se ignora
+      }
+    }
+    return out;
+  });
+
+  ipcMain.handle('pack:read', async (_event, file: unknown) => {
+    if (typeof file !== 'string' || file.length === 0) {
+      throw new Error('pack:read requiere <pack>/<archivo>');
+    }
+    const base = resolvePath(packsDir());
+    const target = resolvePath(base, file);
+    if (!target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+      throw new Error(`Ruta fuera de los packs: ${file}`);
+    }
+    const bytes = await readFile(target);
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  });
+
+  ipcMain.handle('pack:remove', async (_event, slug: unknown) => {
+    await rm(packDirOf(slug), { recursive: true, force: true });
+    return true;
+  });
+
+  ipcMain.handle('pack:reveal', async (_event, slug: unknown) => {
+    const dir = packDirOf(slug);
+    await mkdir(dir, { recursive: true });
+    await shell.openPath(dir);
+  });
 }
 
 // ─── Ciclo de vida ───────────────────────────────────────────────────────────

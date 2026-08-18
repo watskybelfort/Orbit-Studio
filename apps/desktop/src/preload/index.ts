@@ -67,6 +67,22 @@ export interface OrbitApi {
     /** Bytes de un archivo del pack (ruta relativa tal como viene en el manifest). */
     read(file: string): Promise<ArrayBuffer>;
   };
+  /** Packs generados en la propia app (los que pide Claude). */
+  readonly pack: {
+    /** Escribe un pack en userData/packs/<slug>/ (WAVs + manifest.json). */
+    save(
+      slug: string,
+      files: { path: string; data: Uint8Array }[],
+    ): Promise<{ slug: string; dir: string; files: number }>;
+    /** Todos los packs generados, con su manifest en crudo. */
+    list(): Promise<{ slug: string; manifest: string }[]>;
+    /** Bytes de un archivo, con la ruta `<pack>/<archivo>` del manifest. */
+    read(file: string): Promise<ArrayBuffer>;
+    /** Borra un pack entero del disco. */
+    remove(slug: string): Promise<boolean>;
+    /** Abre su carpeta en el explorador. */
+    reveal(slug: string): Promise<void>;
+  };
   readonly project: {
     /** Diálogo de apertura .orbit; null si el usuario cancela. */
     open(): Promise<{ path: string; json: string } | null>;
@@ -171,6 +187,13 @@ const api: OrbitApi = {
   library: {
     manifest: () => ipcRenderer.invoke('library:manifest'),
     read: (file) => ipcRenderer.invoke('library:read', file),
+  },
+  pack: {
+    save: (slug, files) => ipcRenderer.invoke('pack:save', slug, files),
+    list: () => ipcRenderer.invoke('pack:list'),
+    read: (file) => ipcRenderer.invoke('pack:read', file),
+    remove: (slug) => ipcRenderer.invoke('pack:remove', slug),
+    reveal: (slug) => ipcRenderer.invoke('pack:reveal', slug),
   },
   project: {
     open: () => ipcRenderer.invoke('project:open'),

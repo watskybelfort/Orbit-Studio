@@ -23,7 +23,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CATEGORY_LABELS,
   loadManifest,
+  PACK_FAMILIES,
+  PACK_STYLES,
   SOUND_CATEGORIES,
+  type PackFamily,
+  type PackStyle,
   type SoundCategory,
   type SoundEntry,
   type SoundManifest,
@@ -32,6 +36,7 @@ import { engine, ensureAudioReady } from '../state/app';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, loadIntoEngine, setDragEntry } from './sound-actions';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
+import { generatePack } from './pack-generator';
 import {
   BPM_MAX,
   BPM_MIN,
@@ -116,6 +121,31 @@ function buildTree(entries: readonly SoundEntry[]): CatGroup[] {
   return out;
 }
 
+
+/** Nombres visibles del generador de packs. */
+const PACK_FAMILY_LABELS: Record<PackFamily, string> = {
+  kicks: 'Kicks',
+  snares: 'Snares',
+  claps: 'Claps',
+  hats: 'Hats',
+  openhats: 'Open hats',
+  percs: 'Percusión',
+  '808s': '808s',
+  impacts: 'Impactos',
+  risers: 'Risers',
+  downlifters: 'Downlifters',
+};
+
+const PACK_STYLE_LABELS: Record<PackStyle, string> = {
+  trap: 'Trap',
+  drill: 'Drill',
+  boombap: 'Boom bap',
+  latin: 'Latino',
+  house: 'House',
+  techno: 'Techno',
+  lofi: 'Lo-fi',
+};
+
 // ── Componente ───────────────────────────────────────────────────────────────
 
 export function Browser() {
@@ -131,6 +161,15 @@ export function Browser() {
   const [collectionMenu, setCollectionMenu] = useState<SoundEntry | null>(null);
   /** Archivos de usuario aún en la cola de análisis (redibuja el aviso). */
   const [analizando, setAnalizando] = useState(0);
+  /** Packs generados en la app (userData/packs), con su manifest. */
+  const [packs, setPacks] = useState<{ slug: string; manifest: SoundManifest }[]>([]);
+  /** Encargo del generador y su progreso ("3 / 12 · Hat drill 03"). */
+  const [packForm, setPackForm] = useState<{ family: PackFamily; style: PackStyle; count: number }>({
+    family: 'hats',
+    style: 'trap',
+    count: 8,
+  });
+  const [packBusy, setPackBusy] = useState<string | null>(null);
   const previewTimer = useRef<number | null>(null);
 
   const { favorites, collections, previewGain, analysis } = usePrefs();
@@ -211,6 +250,63 @@ export function Browser() {
     }
   };
 
+  // ── Packs generados (userData/packs) ──────────────────────────────────────
+  // Mismo formato que el pack de fábrica, así que el árbol no cambia: solo
+  // hay que traerlos y prefijar sus ids/rutas con el pack al que pertenecen.
+
+  const refreshPacks = async (): Promise<{ slug: string; manifest: SoundManifest }[]> => {
+    const api = window.orbit;
+    if (!api) return [];
+    try {
+      const raw = await api.pack.list();
+      const parsed = raw.flatMap((p) => {
+        try {
+          return [{ slug: p.slug, manifest: loadManifest(p.manifest) }];
+        } catch {
+          return []; // manifest a medias: mejor no enseñarlo que romper el browser
+        }
+      });
+      setPacks(parsed);
+      return parsed;
+    } catch {
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    void refreshPacks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Genera un pack con el motor y lo deja listo en el browser. */
+  const runGenerate = async () => {
+    if (packBusy !== null) return;
+    setStatus(null);
+    setPackBusy('Preparando…');
+    try {
+      const pack = await generatePack(packForm, {
+        taken: packs.map((p) => p.slug),
+        onProgress: (done, total, name) => setPackBusy(`${done} / ${total} · ${name}`),
+      });
+      await refreshPacks();
+      setStatus(`Pack "${pack.name}": ${pack.count} sonidos`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'No se pudo generar el pack');
+    } finally {
+      setPackBusy(null);
+    }
+  };
+
+  const removePack = async (slug: string, name: string) => {
+    try {
+      await window.orbit?.pack.remove(slug);
+      await refreshPacks();
+      setStatus(`Pack "${name}" borrado`);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'No se pudo borrar el pack');
+    }
+  };
+
   const removeFolder = (dir: string) => {
     const next = folders.filter((f) => f !== dir);
     setFolders(next);
@@ -258,9 +354,32 @@ export function Browser() {
     [lib],
   );
 
+  /**
+   * Entradas de los packs generados. El manifest de cada pack trae rutas
+   * relativas a SU carpeta: aquí se les antepone el pack (y el esquema
+   * `pack:` al id) para que loadIntoEngine sepa por dónde leerlas.
+   */
+  const packEntriesBySlug = useMemo(() => {
+    const out: Record<string, SoundEntry[]> = {};
+    for (const pack of packs) {
+      out[pack.slug] = pack.manifest.entries.map((entry) => ({
+        ...entry,
+        id: `pack:${entry.id}`,
+        file: `${pack.slug}/${entry.file}`,
+        tags: [...entry.tags, 'generado'],
+      }));
+    }
+    return out;
+  }, [packs]);
+
   const facets = useMemo(
-    () => buildFacets([...factoryEntries, ...Object.values(userEntriesByDir).flat()]),
-    [factoryEntries, userEntriesByDir],
+    () =>
+      buildFacets([
+        ...factoryEntries,
+        ...Object.values(packEntriesBySlug).flat(),
+        ...Object.values(userEntriesByDir).flat(),
+      ]),
+    [factoryEntries, packEntriesBySlug, userEntriesByDir],
   );
 
   const ctx: MatchContext = useMemo(() => {
@@ -281,8 +400,17 @@ export function Browser() {
     return out;
   }, [userEntriesByDir, filters, ctx]);
 
+  const filteredPacks = useMemo(() => {
+    const out: Record<string, SoundEntry[]> = {};
+    for (const [slug, list] of Object.entries(packEntriesBySlug)) {
+      out[slug] = filterEntries(list, filters, ctx);
+    }
+    return out;
+  }, [packEntriesBySlug, filters, ctx]);
+
+  const packVisible = useMemo(() => Object.values(filteredPacks).flat(), [filteredPacks]);
   const userVisible = useMemo(() => Object.values(filteredUser).flat(), [filteredUser]);
-  const resultCount = filteredFactory.length + userVisible.length;
+  const resultCount = filteredFactory.length + packVisible.length + userVisible.length;
   const activeCount = countActiveFilters(filters);
   const filtering = hasActiveFilters(filters);
   /** Vista plana: en favoritos y colecciones el árbol por categorías estorba. */
@@ -484,6 +612,106 @@ export function Browser() {
       );
     });
   }
+
+  // ── Sección de packs generados ────────────────────────────────────────────
+
+  const packSection = lib.status !== 'sin-electron' && !flatView && (
+    <section className="browser-cat">
+      <div className="browser-cat-head user-head">
+        <span className="browser-cat-name">Packs generados</span>
+        <span className="browser-cat-count">{packVisible.length}</span>
+      </div>
+
+      <div className="pack-gen">
+        <select
+          className="pack-gen-sel"
+          value={packForm.family}
+          onChange={(e) => setPackForm((f) => ({ ...f, family: e.target.value as PackFamily }))}
+          title="Qué familia de sonidos"
+        >
+          {PACK_FAMILIES.map((family) => (
+            <option key={family} value={family}>
+              {PACK_FAMILY_LABELS[family]}
+            </option>
+          ))}
+        </select>
+        <select
+          className="pack-gen-sel"
+          value={packForm.style}
+          onChange={(e) => setPackForm((f) => ({ ...f, style: e.target.value as PackStyle }))}
+          title="Con qué carácter"
+        >
+          {PACK_STYLES.map((style) => (
+            <option key={style} value={style}>
+              {PACK_STYLE_LABELS[style]}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          className="pack-gen-count"
+          min={1}
+          max={32}
+          value={packForm.count}
+          onChange={(e) =>
+            setPackForm((f) => ({
+              ...f,
+              count: Math.max(1, Math.min(32, Math.round(Number(e.target.value) || 1))),
+            }))
+          }
+          title="Cuántos sonidos"
+        />
+        <button
+          className="pack-gen-go"
+          disabled={packBusy !== null}
+          onClick={() => void runGenerate()}
+          title="Renderiza el pack con el motor de la app (Claude puede pedirlo también por su tool)"
+        >
+          {packBusy === null ? 'Generar' : '…'}
+        </button>
+      </div>
+      {packBusy !== null && <div className="browser-sub-name">{packBusy}</div>}
+      {packs.length === 0 && packBusy === null && (
+        <div className="browser-sub-name">
+          Aún no hay ninguno. Elige familia y estilo, o pídeselo a Claude.
+        </div>
+      )}
+
+      {packs.map((pack) => {
+        const files = filteredPacks[pack.slug] ?? [];
+        return (
+          <div key={pack.slug} className="browser-sub">
+            <div className="browser-sub-name user-folder">
+              <span className="user-folder-name" title={pack.manifest.generatedWith}>
+                {pack.manifest.pack}
+              </span>
+              <span className="user-folder-count">{files.length}</span>
+              <button
+                className="user-folder-del"
+                title="Abrir su carpeta"
+                onClick={() => void window.orbit?.pack.reveal(pack.slug)}
+              >
+                ⁝
+              </button>
+              <button
+                className="user-folder-del"
+                title="Borrar este pack del disco"
+                onClick={() => void removePack(pack.slug, pack.manifest.pack)}
+              >
+                ✕
+              </button>
+            </div>
+            {files.map((entry) => renderEntry(entry))}
+          </div>
+        );
+      })}
+    </section>
+  );
+
+  /** En vista plana los sonidos generados van con el resto. */
+  const packFlat = flatView && packVisible.length > 0 && (
+    <div className="browser-sub">{packVisible.map((e) => renderEntry(e))}</div>
+  );
 
   // ── Sección de carpetas del usuario ───────────────────────────────────────
 
@@ -694,6 +922,8 @@ export function Browser() {
 
       <div className="browser-body">
         {body}
+        {packSection}
+        {packFlat}
         {userSection}
         {userFlat}
       </div>
