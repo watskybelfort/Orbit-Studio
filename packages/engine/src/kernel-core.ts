@@ -432,6 +432,18 @@ export class KernelCore {
           inst.process(l, r, n);
         } catch {
           broken = true; // bypass permanente: el audio sigue limpio
+          return;
+        }
+        // Un solo NaN/Inf de un plugin envenena PARA SIEMPRE los estados IIR de
+        // los efectos que vengan detrás (biquads, delays, reverb): NaN×feedback =
+        // NaN. Si la salida no es finita, se pone el bloque a cero y a bypass.
+        for (let i = 0; i < n; i++) {
+          if (!Number.isFinite(l[i]!) || !Number.isFinite(r[i]!)) {
+            l.fill(0, 0, n);
+            r.fill(0, 0, n);
+            broken = true;
+            break;
+          }
         }
       },
     };
