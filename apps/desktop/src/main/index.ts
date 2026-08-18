@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, session, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -7,6 +7,7 @@ import { networkInterfaces, release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
+import { childWindowId, usableBounds, type Area } from './window-bounds';
 import {
   HOST_ALL,
   HOST_LOCAL,
@@ -129,6 +130,90 @@ function installCsp(): void {
   });
 }
 
+// ─── Ventanas desacopladas ───────────────────────────────────────────────────
+// El renderer saca un editor a una ventana nativa con `window.open('',
+// 'orbit-<id>')` y porta ahí su contenido (mismo contexto JS). Desde aquí se
+// le da lo que tiene una ventana de verdad y un popup no: su sitio recordado
+// entre sesiones —para que el mixer VIVA en el segundo monitor y no haya que
+// arrastrarlo cada arranque— y la opción de dejarla siempre encima.
+
+const DETACHED_BOUNDS = 'detachedBounds';
+const DETACHED_ON_TOP = 'detachedAlwaysOnTop';
+/** El arrastre llega en ráfaga: se apunta el sitio cuando para. */
+const BOUNDS_SAVE_DELAY_MS = 400;
+
+/** Ventana nativa de cada editor fuera, por id ('mixer', 'pianoRoll'…). */
+const detachedWindows = new Map<string, BrowserWindow>();
+
+function recordOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/** Áreas útiles de los monitores de AHORA (sin barra de tareas). */
+function workAreas(): Area[] {
+  return screen.getAllDisplays().map((d) => d.workArea);
+}
+
+/** Sitio guardado de ese editor, ya comprobado contra las pantallas actuales. */
+function savedDetachedBounds(id: string, settings: Settings): ReturnType<typeof usableBounds> {
+  return usableBounds(recordOf(settings[DETACHED_BOUNDS])[id], workAreas());
+}
+
+function detachedOnTop(id: string, settings: Settings): boolean {
+  return recordOf(settings[DETACHED_ON_TOP])[id] === true;
+}
+
+/** Apunta dónde ha quedado la ventana (merge sobre lo que ya hubiera). */
+function rememberDetachedBounds(id: string, win: BrowserWindow): void {
+  if (win.isDestroyed() || win.isMinimized()) return;
+  const settings = readSettings();
+  const { x, y, width, height } = win.getBounds();
+  writeSettings({
+    ...settings,
+    [DETACHED_BOUNDS]: { ...recordOf(settings[DETACHED_BOUNDS]), [id]: { x, y, width, height } },
+  });
+}
+
+/**
+ * Adopta la ventana hija recién creada. El sitio ya se le pasó al construirla
+ * (en overrideBrowserWindowOptions, para que no aparezca en un lado y salte
+ * al otro); aquí quedan el registro, el siempre-encima y el seguimiento.
+ */
+function adoptDetachedWindow(child: BrowserWindow, frameName: string): void {
+  const id = childWindowId(frameName);
+  if (!id) return;
+  detachedWindows.set(id, child);
+  if (detachedOnTop(id, readSettings())) child.setAlwaysOnTop(true);
+
+  let timer: NodeJS.Timeout | null = null;
+  const soon = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      rememberDetachedBounds(id, child);
+    }, BOUNDS_SAVE_DELAY_MS);
+  };
+  child.on('move', soon);
+  child.on('resize', soon);
+  child.on('close', () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    rememberDetachedBounds(id, child);
+  });
+  child.on('closed', () => {
+    if (detachedWindows.get(id) === child) detachedWindows.delete(id);
+  });
+}
+
+/** Cerrar la app se lleva las hijas por delante: hay que apuntarlas antes. */
+function rememberAllDetachedBounds(): void {
+  for (const [id, child] of detachedWindows) {
+    if (!child.isDestroyed()) rememberDetachedBounds(id, child);
+  }
+}
+
 // ─── Ventana principal ───────────────────────────────────────────────────────
 
 /** Ventana viva más reciente: destino de las tool calls del puente Claude. */
@@ -174,6 +259,11 @@ function createWindow(): BrowserWindow {
       if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
       return { action: 'deny' };
     }
+    // Sitio de la última vez, si ese monitor sigue estando: va en las OPCIONES
+    // de construcción (y no con un setBounds después) para que la ventana no
+    // aparezca en mitad de la pantalla principal y salte al segundo monitor.
+    const id = childWindowId(details.frameName);
+    const saved = id ? savedDetachedBounds(id, readSettings()) : null;
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -183,9 +273,14 @@ function createWindow(): BrowserWindow {
         minHeight: 220,
         autoHideMenuBar: true,
         backgroundColor: theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark,
+        ...(saved ?? {}),
       },
     };
   });
+
+  win.webContents.on('did-create-window', (child, details) =>
+    adoptDetachedWindow(child, details.frameName),
+  );
 
   // La app es una SPA: nunca navega el documento de nivel superior. Cualquier
   // will-navigate a una URL distinta (un enlace, un location.href inyectado) se
@@ -200,6 +295,9 @@ function createWindow(): BrowserWindow {
 
   win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
   win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
+  // Al cerrar la principal, las hijas se van con ella sin dar tiempo a su
+  // propio 'close': su sitio se apunta desde aquí.
+  win.on('close', () => rememberAllDetachedBounds());
 
   win.once('ready-to-show', () => win.show());
 
@@ -398,6 +496,29 @@ function registerIpc(): void {
     const id: ThemeId = isThemeId(theme) ? theme : 'dark';
     const acrylicAvailable = win !== null && applyWindowTheme(win, id);
     return { acrylicAvailable };
+  });
+
+  // ── Ventanas desacopladas ─────────────────────────────────────────────────
+  // El id viaja pelado ('mixer'); se valida con el mismo filtro que el
+  // frameName porque acaba siendo una clave de settings.json.
+
+  ipcMain.handle('detached:state', (_event, id: unknown) => {
+    const key = typeof id === 'string' ? childWindowId(`orbit-${id}`) : null;
+    return { alwaysOnTop: key !== null && detachedOnTop(key, readSettings()) };
+  });
+
+  ipcMain.handle('detached:always-on-top', (_event, id: unknown, on: unknown) => {
+    const key = typeof id === 'string' ? childWindowId(`orbit-${id}`) : null;
+    if (!key) return false;
+    const flag = on === true;
+    const win = detachedWindows.get(key);
+    if (win && !win.isDestroyed()) win.setAlwaysOnTop(flag);
+    const settings = readSettings();
+    writeSettings({
+      ...settings,
+      [DETACHED_ON_TOP]: { ...recordOf(settings[DETACHED_ON_TOP]), [key]: flag },
+    });
+    return flag;
   });
 
   ipcMain.handle('settings:get', () => readSettings());

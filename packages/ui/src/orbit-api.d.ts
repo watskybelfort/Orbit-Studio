@@ -32,6 +32,13 @@ interface OrbitApi {
     /** Suscribe a cambios de maximizado; devuelve la función para desuscribir. */
     onMaximizedChanged(cb: (isMaximized: boolean) => void): () => void;
   };
+  /** Ventanas desacopladas (un editor fuera, en su ventana nativa). */
+  readonly detached: {
+    /** Estado guardado de esa ventana (para pintar su barra al abrirla). */
+    state(id: string): Promise<{ alwaysOnTop: boolean }>;
+    /** Deja (o quita) esa ventana siempre encima; devuelve el estado real. */
+    alwaysOnTop(id: string, on: boolean): Promise<boolean>;
+  };
   readonly theme: {
     /** Conmuta el material de la ventana; informa si el acrílico quedó activo. */
     apply(theme: OrbitThemeId): Promise<{ acrylicAvailable: boolean }>;
