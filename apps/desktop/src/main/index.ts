@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -80,6 +80,41 @@ function applyWindowTheme(win: BrowserWindow, theme: ThemeId): boolean {
   }
   win.setBackgroundColor(theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark);
   return false;
+}
+
+// ─── Content-Security-Policy ─────────────────────────────────────────────────
+// Red de seguridad contra inyección: aunque el renderer es código propio, una
+// CSP corta la exfiltración por fetch/XHR a hosts externos si algo llegara a
+// ejecutarse (p. ej. el código de un plugin en el export). Se aplica SOLO al
+// renderer empaquetado (loadFile): en desarrollo, vite inyecta un preámbulo
+// inline y usa HMR, y una CSP lo rompería.
+//
+// Notas de por qué cada relajación: 'unsafe-eval' porque el kernel compila los
+// plugins JS y el encoder MP3 con new Function; 'unsafe-inline' en style por los
+// estilos en línea de React; blob: para el AudioWorklet; y connect-src ws/wss
+// porque el servidor de colaboración es una URL configurable (no puede ser solo
+// 'self'). El grueso —bloquear fetch/XHR/img a http(s) externos— sigue en pie.
+function installCsp(): void {
+  if (process.env['ELECTRON_RENDERER_URL']) return; // dev: sin CSP (vite/HMR)
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' ws: wss:",
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+  ].join('; ');
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    cb({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
 }
 
 // ─── Ventana principal ───────────────────────────────────────────────────────
@@ -662,6 +697,7 @@ function registerIpc(): void {
 // ─── Ciclo de vida ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  installCsp();
   registerIpc();
   startClaudeBridge();
   createWindow();
