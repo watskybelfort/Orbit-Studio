@@ -19,6 +19,10 @@ import { newId, type Clip, type Command, type SampleRef } from '@orbit/core';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
 import { collectPluginSources, collectSamples } from '../export/render-inputs';
+import {
+  canUseRenderWorker,
+  renderProjectInWorker,
+} from '../export/render-in-worker';
 import { engine, store } from './app';
 import { nextPaint } from './next-paint';
 
@@ -144,13 +148,18 @@ async function bounceClips(
     const { samples, missing } = await collectSamples(project, compiled);
     const { plugins, missing: missingPlugins } = collectPluginSources(project);
 
-    const res = renderProject(compiled, {
+    // El render (donde se ejecutan los plugins) va en el worker aislado; en
+    // Node/tests, sin Worker, cae al render directo.
+    const renderOpts = {
       samples,
       plugins,
       startBeat: start,
       endBeat: end,
       tailSeconds: TAIL_SECONDS,
-    });
+    };
+    const res = canUseRenderWorker()
+      ? await renderProjectInWorker(compiled, renderOpts)
+      : renderProject(compiled, renderOpts);
     const wav = encodeWav(res.left, res.right, res.sampleRate, 24);
     const buffer = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
 

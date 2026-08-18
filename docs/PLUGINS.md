@@ -53,10 +53,12 @@ los proyectos que lo usan (mostrarán «Plugin no encontrado»).
   plugin funciona igual.)
 - **Durante la reproducción en vivo**, el DSP corre dentro del worklet de audio:
   sin DOM, sin red, sin filesystem — solo números.
-- **Al exportar**, hoy el código del plugin todavía se evalúa en el hilo del
-  renderer (que sí tiene acceso a APIs del navegador). Es la última pieza del
-  aislamiento pendiente (mover el render offline con plugins a un worker); hasta
-  entonces, un export que USE un plugin sí corre su código.
+- **Al exportar** (y al consolidar/congelar), el render offline —donde se
+  ejecutan los plugins— corre en un **worker aislado**: sin `window`, sin DOM,
+  sin acceso al puente de la app, y con la CSP del documento cortando la salida a
+  red. El renderer solo recoge las entradas (bytes de samples, fuentes) y le pasa
+  el cómputo. Así un plugin no puede tocar nada fuera del audio ni siquiera al
+  exportar.
 - Si el plugin **lanza una excepción** (al instanciarse, en `setParams` o en
   `process`), el slot pasa a **bypass automático**: el audio sigue limpio y el
   resto de la cadena no se entera. (Un bucle infinito, en cambio, NO se
