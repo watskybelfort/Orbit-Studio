@@ -74,6 +74,18 @@ Panel de Claude).
 
 ## Estado
 
+**v1.4.0 — "por dónde entra la gente".** El servidor de la sala ya no es "aquí o
+en todas partes": el panel trae un desplegable **"Escucha en"** con las
+direcciones reales de la máquina, etiquetadas y ordenadas —Radmin VPN y demás
+VPN primero, después la LAN, y al final lo virtual y el 169.254—, además de
+"solo esta máquina" y "todas las redes". Se elige, se arranca, y el servidor
+queda atado justo a esa dirección.
+
+Si la IP elegida ya no está (el VPN apagado), arranca en local y lo dice en vez
+de no arrancar. Y como, atado a una IP concreta, `localhost` deja de responder
+hasta para quien hospeda, el panel enseña la dirección que hay que repartir, la
+copia al portapapeles y ofrece dejarla también en tu propio campo Servidor.
+
 **v1.3.0 — "que se vea quién toca".** Dos cosas que se piden solas cuando el
 estudio ya funciona: saber qué está sonando y caber más de dos en una sesión.
 
