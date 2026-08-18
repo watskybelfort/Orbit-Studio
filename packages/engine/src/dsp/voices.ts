@@ -4,7 +4,7 @@
  * bloque, así los cambios en vivo entran sin recrear la voz.
  */
 
-import { DRUM_MAP, midiToHz } from '@orbit/core';
+import { DRUM_MAP, midiToHz, sliceRange } from '@orbit/core';
 import { ADSR, DecayEnv } from './env';
 import { Noise, Osc, TWO_PI } from './osc';
 import { Biquad, SVF } from './filters';
@@ -797,17 +797,18 @@ export class SlicerVoice extends Voice {
     p: Record<string, number>,
     ctx: VoiceContext,
     sampleId: string | undefined,
+    slicePoints?: readonly number[],
   ) {
     super(channelIndex, key, order);
     this.data = sampleId ? ctx.samples.get(sampleId) ?? null : null;
     const len = this.data?.left.length ?? 0;
-    const slices = Math.max(2, Math.round(p['slices'] ?? 8));
-    // C3 = primer trozo; las teclas de arriba avanzan y se envuelven.
-    const index = ((Math.round(key) - 36) % slices + slices) % slices;
-    const sliceLen = len / slices;
+    // C3 = primer trozo; las teclas de arriba avanzan y se envuelven. Con
+    // cortes propios (los del detector de transientes) mandan ellos; sin
+    // ellos, el reparto en partes iguales de toda la vida.
+    const range = sliceRange(slicePoints, Math.round(key) - 36, p['slices'] ?? 8);
     this.reverse = (p['reverse'] ?? 0) >= 0.5;
-    const start = Math.floor(index * sliceLen);
-    const stop = Math.min(len, Math.floor((index + 1) * sliceLen));
+    const start = Math.floor(range.start * len);
+    const stop = Math.min(len, Math.max(start + 1, Math.floor(range.end * len)));
     this.pos = this.reverse ? stop - 1 : start;
     this.end = this.reverse ? start : stop;
     const srcRate = this.data?.rate ?? ctx.sr;
@@ -860,6 +861,7 @@ export function createVoice(
   sampleId?: string,
   nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] },
   prisma?: PrismaDef,
+  slicePoints?: readonly number[],
 ): Voice {
   switch (kind) {
     case 'nova':
@@ -879,7 +881,7 @@ export function createVoice(
     case 'drums': return new DrumVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'sampler': return new SamplerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
     case 'vox': return new VoxVoice(channelIndex, key, order, velocity, params, ctx.sr);
-    case 'slicer': return new SlicerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
+    case 'slicer': return new SlicerVoice(channelIndex, key, order, velocity, params, ctx, sampleId, slicePoints);
     default: return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);
   }
 }

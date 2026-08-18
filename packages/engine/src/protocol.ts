@@ -32,6 +32,12 @@ export interface CompiledChannel {
   mixerTrack: number;
   sampleId?: string;
   /**
+   * kind === 'slicer': cortes propios del canal (0..1, ordenados, el primero
+   * 0). Sin ellos el motor reparte el sample en `params.slices` partes
+   * iguales, que es como funcionó siempre.
+   */
+  slicePoints?: number[];
+  /**
    * kind === 'nova': el preset ya resuelto. El kernel no conoce la librería
    * de sonidos — recibe las capas y el mapa de macros y con eso construye la
    * voz, así que un preset nuevo no obliga a tocar el motor.

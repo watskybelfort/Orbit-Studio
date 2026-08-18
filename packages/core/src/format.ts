@@ -2,6 +2,7 @@
 
 import type { Project } from './model/types';
 import { FORMAT_VERSION } from './model/types';
+import { normalizeSlicePoints } from './model/slices';
 
 export const ORBIT_EXTENSION = '.orbit';
 
@@ -35,6 +36,13 @@ export function parseProject(json: string): Project {
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
   // anteriores simplemente no los traen y arrancan vacíos/planos.
   p.lfos ??= {};
+  // Cortes del Slicer: llegan del disco sin garantías (archivo tocado a mano,
+  // versión futura) y el motor los usa tal cual, así que se sanean una vez aquí.
+  for (const channel of Object.values(p.channels ?? {})) {
+    const clean = normalizeSlicePoints(channel.slicePoints);
+    if (clean) channel.slicePoints = clean;
+    else delete channel.slicePoints;
+  }
   for (const track of p.mixer ?? []) {
     track.eqLow ??= 0;
     track.eqMid ??= 0;

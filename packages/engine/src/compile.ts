@@ -234,6 +234,11 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       audible: anyChannelSolo ? ch.solo : !ch.mute,
       mixerTrack: ch.mixerTrack,
       sampleId: ch.sampleId,
+      // Cortes propios del Slicer: con ellos el motor trocea por ahí en vez de
+      // repartir a partes iguales. Un solo punto no es un troceado.
+      ...(ch.slicePoints && ch.slicePoints.length > 1
+        ? { slicePoints: [...ch.slicePoints] }
+        : null),
     };
     // Plugin JS de instrumento: el canal lo declara por id y el kernel hace el
     // resto. El campo aún no vive en `Channel`, así que se lee de forma

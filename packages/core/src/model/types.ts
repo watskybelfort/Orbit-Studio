@@ -60,6 +60,13 @@ export interface Channel {
   params: Record<string, number>;
   /** Sample cargado (solo sampler). */
   sampleId?: Id;
+  /**
+   * Cortes propios del Slicer, normalizados 0..1 y ordenados (ver
+   * `model/slices.ts`): cada uno es el INICIO de un trozo. Los pone el detector
+   * de transientes o la mano. Ausente = trozos iguales según el parámetro
+   * `slices`, que es como funcionó siempre.
+   */
+  slicePoints?: number[];
   /** Preset cargado (solo kind='nova'); ver model/nova.ts. */
   novaPreset?: string;
   /** Preset cargado (solo kind='prisma'); ver model/prisma.ts. */

@@ -7,6 +7,7 @@ export * from './model/paramref';
 export * from './model/nova';
 export * from './model/prisma';
 export * from './model/templates';
+export * from './model/slices';
 export * from './model/notes';
 export * from './model/defaults';
 export * from './commands';
