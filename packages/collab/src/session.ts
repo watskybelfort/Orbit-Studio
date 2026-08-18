@@ -39,6 +39,11 @@ const MESSAGE_AWARENESS = 1;
 const BACKOFF_START_MS = 1000;
 const BACKOFF_MAX_MS = 15000;
 
+// Cierres del servidor que significan "no entras": 1008 = código de sala
+// inválido, 1013 = sala (o servidor) llena. Reintentar no los arregla.
+const CLOSE_POLICY = 1008;
+const CLOSE_TRY_LATER = 1013;
+
 /** Qué está haciendo un usuario ("Piano Roll de Orbit Sub"…). */
 export interface PeerActivity {
   editor: string;
@@ -86,6 +91,11 @@ export interface CollabSessionOptions {
   compactThreshold?: number;
   /** Rol con el que entramos a la sala (por defecto productor). */
   role?: CollabRole;
+  /**
+   * El servidor cierra la puerta y no vale reintentar: sala llena, servidor
+   * lleno o código de sala inválido. Llega con el motivo que mande el server.
+   */
+  onRejected?: (reason: string) => void;
   /** Aviso de comando rechazado por permisos (propio o de un remoto). */
   onDenied?: (info: DeniedInfo) => void;
   /**
@@ -112,6 +122,7 @@ export class CollabSession {
   private readonly user: CollabUser;
   private readonly compactThreshold: number | undefined;
   private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
+  private readonly onRejected: ((reason: string) => void) | undefined;
   private readonly onProjectReplaced: (() => void) | undefined;
   private currentRole: CollabRole;
 
@@ -135,6 +146,7 @@ export class CollabSession {
     this.compactThreshold = opts.compactThreshold;
     this.currentRole = opts.role ?? DEFAULT_ROLE;
     this.onDenied = opts.onDenied;
+    this.onRejected = opts.onRejected;
     this.onProjectReplaced = opts.onProjectReplaced;
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -381,7 +393,7 @@ export class CollabSession {
       this.handleMessage(new Uint8Array(event.data as ArrayBuffer));
     };
 
-    ws.onclose = () => this.handleClose(ws);
+    ws.onclose = (event: CloseEvent) => this.handleClose(ws, event.code, event.reason);
     ws.onerror = () => {
       // El onclose correspondiente programa la reconexión.
     };
@@ -438,7 +450,7 @@ export class CollabSession {
     }
   }
 
-  private handleClose(ws: WebSocket): void {
+  private handleClose(ws: WebSocket, code = 0, reason = ''): void {
     if (this.ws !== ws) return; // socket viejo (ya reemplazado)
     this.ws = null;
     this.wsOpen = false;
@@ -449,6 +461,22 @@ export class CollabSession {
     );
     if (remoteIds.length > 0) {
       awarenessProtocol.removeAwarenessStates(this.awareness, remoteIds, this);
+    }
+    // Cierres que NO se arreglan reintentando: el servidor nos ha dicho que no
+    // entramos — código de sala inválido (1008) o sala/servidor llenos (1013).
+    // Sin esto se reintentaba contra una puerta cerrada y el panel se quedaba
+    // en "Conectando…" hasta el timeout, con un mensaje genérico que no decía
+    // lo único que importaba: que la sala está llena.
+    if (code === CLOSE_POLICY || code === CLOSE_TRY_LATER) {
+      this.shouldReconnect = false;
+      const message = reason.trim() !== '' ? reason.trim() : 'El servidor rechazó la conexión';
+      if (this.firstSync) {
+        this.firstSync.reject(new Error(message));
+        this.firstSync = null;
+      } else {
+        this.onRejected?.(message);
+      }
+      return;
     }
     if (!this.shouldReconnect) return;
     this.reconnectTimer = setTimeout(() => {

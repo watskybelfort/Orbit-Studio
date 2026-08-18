@@ -249,6 +249,14 @@ async function startSession(code: string, url: string, userName: string): Promis
         info.local ? info.reason : `Cambio de ${info.user} descartado: ${info.reason}`,
       );
     },
+    // El servidor cierra la puerta (sala llena, código inválido…): eso no se
+    // arregla reintentando, así que la sesión se cae con el motivo delante en
+    // vez de quedarse "Conectando…" hasta el timeout.
+    onRejected: (reason) => {
+      if (session !== s) return;
+      teardownSession();
+      useCollabStore.setState({ phase: 'error', peers: [], error: reason });
+    },
     // Unirse o re-derivar deja el proyecto lleno de referencias y el kernel
     // vacío: aquí es donde hay que volver a llenarlo.
     onProjectReplaced: () => {
