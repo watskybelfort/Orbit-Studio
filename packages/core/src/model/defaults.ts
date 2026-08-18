@@ -162,6 +162,8 @@ export function createEmptyProject(title = 'Nuevo proyecto'): Project {
     swing: 0,
     channels: {},
     channelOrder: [],
+    channelGroups: {},
+    channelGroupOrder: [],
     patterns: { [pattern.id]: pattern },
     patternOrder: [pattern.id],
     arrangements: { [arrangement.id]: arrangement },

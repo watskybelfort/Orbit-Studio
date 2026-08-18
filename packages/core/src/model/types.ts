@@ -51,10 +51,31 @@ export type InstrumentKind =
  */
 export const CHANNEL_SLOTS = 4;
 
+/**
+ * Carpeta del Channel Rack: agrupa canales para no perderse en un proyecto de
+ * cuarenta. NO es un bus de audio (para eso está la pista de mixer): plegar,
+ * silenciar o soltar la carpeta es hacérselo a sus canales, uno por uno, en un
+ * solo paso de undo.
+ */
+export interface ChannelGroup {
+  id: Id;
+  name: string;
+  color: string;
+  /** Plegada: sus canales no se pintan en el rack (siguen sonando igual). */
+  collapsed: boolean;
+}
+
 export interface Channel {
   id: Id;
   name: string;
   color: string;
+  /**
+   * Carpeta a la que pertenece (v1.5). Ausente o cadena VACÍA = suelto, al
+   * final del rack. Se usa la cadena vacía al sacarlo de una carpeta: un
+   * `undefined` se pierde al serializar el comando y por la sala no llegaría a
+   * sacar a nadie de ningún sitio.
+   */
+  groupId?: Id;
   kind: InstrumentKind;
   /** Parámetros del instrumento; claves según PARAM_SPECS[kind]. */
   params: Record<string, number>;
@@ -386,6 +407,13 @@ export interface Project {
 
   channels: Record<Id, Channel>;
   channelOrder: Id[];
+  /**
+   * Carpetas del Channel Rack (v1.5): pura organización, no tocan el audio —
+   * un canal suena igual dentro que fuera. Los .orbit anteriores no las traen
+   * y arrancan vacías.
+   */
+  channelGroups: Record<Id, ChannelGroup>;
+  channelGroupOrder: Id[];
 
   patterns: Record<Id, Pattern>;
   patternOrder: Id[];

@@ -277,6 +277,9 @@ export function describeCommand(cmd: Command): string {
     case 'patchChannel': return 'Ajustar canal';
     case 'setChannelParam': return `Parámetro ${cmd.key}`;
     case 'moveChannel': return 'Reordenar canales';
+    case 'addChannelGroup': return `Carpeta "${cmd.group.name}"`;
+    case 'removeChannelGroup': return 'Deshacer carpeta';
+    case 'patchChannelGroup': return 'Ajustar carpeta';
     case 'setChannelEffect': return cmd.slot ? 'Insertar efecto en el canal' : 'Quitar efecto del canal';
     case 'patchChannelEffect': return 'Efecto del canal';
     case 'setChannelEffectParam': return `Efecto del canal: ${cmd.key}`;

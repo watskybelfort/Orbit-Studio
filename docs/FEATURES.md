@@ -143,6 +143,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Pack Instrumentos** | 24 instrumentos con altura por síntesis (pianos, EPs, guitarras Karplus-Strong, bajos, órganos, pads, campanas, leads — 3-4 variantes por familia), tocables por nota vía sampler + keytrack | v0.5 |
 | **Orbit Nova** | Instrumento de presets (estilo FLEX): 26 sonidos en 8 categorías con capas de síntesis, 8 perillas y 2 macros por preset, con su browser | v1.0 |
 | **Orbit Slicer** | Trocea un sample en N partes y dispara una por nota desde C3 | v1.0 |
+| **Orbit Slicer: cortar por transientes** | En la pestaña Sonido del canal, la onda con los cortes numerados encima y el botón que los pone EN los golpes (tres grados de detalle). Los cortes se guardan en el canal (`slicePoints`), se editan a mano —arrastrar mueve, doble clic añade, derecho quita— y se puede volver a N partes iguales cuando quieras | v1.5 |
 | **Orbit Vox** | Voz sintética por formantes (A/E/I/O/U) con soplo y vibrato | v1.0 |
 | **Orbit Prisma** | El instrumento grande de presets: **125 sonidos** en 16 categorías, hasta 4 capas por preset con 9 motores propios (tabla con morph, pulso PWM, ruido, FM con realimentación, cuerda pulsada, órgano aditivo, campana inarmónica, formantes y sub), filtro LP/HP/BP/Notch con envolvente y keytrack, envolvente de modulación, LFO por voz, unísono, modo Poly/Mono/Legato y **8 macros por preset**. Sus 38 perillas son ABSOLUTAS: el preset las carga y a partir de ahí mandas tú | v1.1 |
 

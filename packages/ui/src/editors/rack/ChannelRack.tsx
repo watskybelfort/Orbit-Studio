@@ -39,6 +39,8 @@ import {
   INSTRUMENT_LABELS,
   newId,
   type Channel,
+  type ChannelGroup,
+  type Command,
   type Id,
   type InstrumentKind,
   type Note,
@@ -141,6 +143,8 @@ export function ChannelRack() {
   const [patMenu, setPatMenu] = useState<MenuAt | null>(null);
   /** Canal cuyo nombre se está renombrando (desde el menú contextual). */
   const [renamingId, setRenamingId] = useState<Id | null>(null);
+  /** Carpeta cuyo nombre se está editando en el sitio (recién creada o F2). */
+  const [renamingGroupId, setRenamingGroupId] = useState<Id | null>(null);
   /** Graph editor de velocity abierto (vista local, como en FL). */
   const [graphOpen, setGraphOpen] = useState(false);
   /** Filtro de familia de instrumento y buscador por nombre (solo vista). */
@@ -185,6 +189,22 @@ export function ChannelRack() {
       const ch = project.channels[cid];
       return ch && matchesKind(ch, id) && matchesQuery(ch, query) ? acc + 1 : acc;
     }, 0);
+
+  // ── Carpetas ──────────────────────────────────────────────────────────────
+  // Se pintan en su orden y con sus canales dentro; lo que no está en ninguna
+  // (o apunta a una que ya no existe) va suelto al final, como siempre.
+  const groupedRows = project.channelGroupOrder
+    .map((gid) => project.channelGroups[gid])
+    .filter((g): g is ChannelGroup => g !== undefined)
+    .map((group) => ({
+      group,
+      rows: visibleRows.filter((r) => r.channel.groupId === group.id),
+    }))
+    // Con un filtro puesto, una carpeta sin nada que enseñar solo estorba.
+    .filter(({ rows }) => rows.length > 0 || (filterId === DEFAULT_FILTER_ID && query === ''));
+  const looseRows = visibleRows.filter(
+    (r) => !r.channel.groupId || !project.channelGroups[r.channel.groupId],
+  );
 
   // El graph editor sigue al canal seleccionado; si el filtro lo esconde,
   // cae al primero visible para no quedarse en blanco.
@@ -320,6 +340,111 @@ export function ChannelRack() {
       { label: 'Color de canal', mergeKey: `rack:${channelId}:color` },
     );
   };
+
+  // ── Carpetas ──────────────────────────────────────────────────────────────
+
+  /** Carpeta nueva, con el canal dado dentro si se pasa uno (un solo undo). */
+  const addGroup = (channelId?: Id) => {
+    const group: ChannelGroup = {
+      id: newId(),
+      name: `Carpeta ${project.channelGroupOrder.length + 1}`,
+      color: project.channels[channelId ?? '']?.color ?? '#5aa9e6',
+      collapsed: false,
+    };
+    const commands: Command[] = [{ type: 'addChannelGroup', group }];
+    if (channelId) {
+      commands.push({ type: 'patchChannel', channelId, patch: { groupId: group.id } });
+    }
+    const label = 'Carpeta nueva';
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label },
+    );
+    setRenamingGroupId(group.id);
+  };
+
+  /** Mueve un canal a una carpeta; cadena vacía = sacarlo (ver Channel.groupId). */
+  const moveToGroup = (channelId: Id, groupId: Id | '') => {
+    const name = groupId ? project.channelGroups[groupId]?.name : null;
+    store.dispatch(
+      { type: 'patchChannel', channelId, patch: { groupId } },
+      { label: name ? `Mover a "${name}"` : 'Sacar de la carpeta' },
+    );
+  };
+
+  const patchGroup = (groupId: Id, patch: Partial<Omit<ChannelGroup, 'id'>>, label: string) =>
+    store.dispatch({ type: 'patchChannelGroup', groupId, patch }, { label, mergeKey: `group:${groupId}:${label}` });
+
+  /** Canales de una carpeta, en el orden del rack. */
+  const membersOf = (groupId: Id): Id[] =>
+    project.channelOrder.filter((id) => project.channels[id]?.groupId === groupId);
+
+  /** ¿La carpeta entera lleva ese flag? (para encender su botón). */
+  const groupFlagOn = (groupId: Id, flag: 'mute' | 'solo'): boolean => {
+    const ids = membersOf(groupId);
+    return ids.length > 0 && ids.every((id) => project.channels[id]?.[flag] === true);
+  };
+
+  /**
+   * Mute/solo de la carpeta entera: NO es un bus, así que se le hace a cada
+   * canal en un solo paso de undo. Si queda alguno sin marcar, se marcan todos;
+   * si ya lo estaban todos, se quitan.
+   */
+  const toggleGroupFlag = (groupId: Id, flag: 'mute' | 'solo') => {
+    const ids = membersOf(groupId);
+    if (ids.length === 0) return;
+    const next = !ids.every((id) => project.channels[id]?.[flag] === true);
+    const group = project.channelGroups[groupId];
+    const label = `${next ? 'Activar' : 'Quitar'} ${flag} en "${group?.name ?? 'carpeta'}"`;
+    store.dispatch(
+      {
+        type: 'batch',
+        label,
+        commands: ids.map((id) => ({
+          type: 'patchChannel' as const,
+          channelId: id,
+          patch: { [flag]: next },
+        })),
+      },
+      { label },
+    );
+  };
+
+  const dissolveGroup = (groupId: Id) => {
+    const group = project.channelGroups[groupId];
+    store.dispatch(
+      { type: 'removeChannelGroup', groupId },
+      { label: `Deshacer carpeta "${group?.name ?? ''}"` },
+    );
+  };
+
+  /**
+   * Una fila de canal. Se saca a función porque ahora se pinta desde dos
+   * sitios (dentro de una carpeta y suelta) y la lista de props es larga.
+   */
+  const renderRow = ({ id, index, channel }: { id: Id; index: number; channel: Channel }) => (
+    <ChannelRow
+      key={id}
+      channel={channel}
+      channelIndex={index}
+      patternId={patternId}
+      notes={pattern.notes[id] ?? EMPTY_NOTES}
+      steps={steps}
+      patternLength={pattern.length}
+      selected={selectedChannelId === id}
+      audible={!channel.mute && (!anySolo || channel.solo)}
+      playStep={playStep}
+      renaming={renamingId === id}
+      onRenameDone={() => setRenamingId(null)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        // Sin clamp a mano: MenuPortal mide el menú y lo mete en la ventana
+        // que de verdad lo contiene (también si el rack está desacoplado,
+        // donde window.innerWidth era el de la principal).
+        setChanMenu({ id, ...menuAtEvent(e) });
+      }}
+    />
+  );
 
   const commitName = (raw: string) => {
     setEditingName(false);
@@ -531,29 +656,84 @@ export function ChannelRack() {
             </button>
           </div>
         )}
-        {visibleRows.map(({ id, index, channel }) => (
-          <ChannelRow
-            key={id}
-            channel={channel}
-            channelIndex={index}
-            patternId={patternId}
-            notes={pattern.notes[id] ?? EMPTY_NOTES}
-            steps={steps}
-            patternLength={pattern.length}
-            selected={selectedChannelId === id}
-            audible={!channel.mute && (!anySolo || channel.solo)}
-            playStep={playStep}
-            renaming={renamingId === id}
-            onRenameDone={() => setRenamingId(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              // Sin clamp a mano: MenuPortal mide el menú y lo mete en la
-              // ventana que de verdad lo contiene (también si el rack está
-              // desacoplado, donde window.innerWidth era el de la principal).
-              setChanMenu({ id, ...menuAtEvent(e) });
-            }}
-          />
+        {groupedRows.map(({ group, rows }) => (
+          <div className="rack-group" key={group.id}>
+            <div className="rack-group-head" style={{ borderLeftColor: group.color }}>
+              <button
+                className="rack-group-fold"
+                title={group.collapsed ? 'Desplegar carpeta' : 'Plegar carpeta'}
+                onClick={() =>
+                  patchGroup(group.id, { collapsed: !group.collapsed }, 'Plegar carpeta')
+                }
+              >
+                {group.collapsed ? '▸' : '▾'}
+              </button>
+              {renamingGroupId === group.id ? (
+                <input
+                  className="rack-group-name-input"
+                  defaultValue={group.name}
+                  autoFocus
+                  onBlur={(e) => {
+                    const name = e.target.value.trim();
+                    if (name && name !== group.name) patchGroup(group.id, { name }, 'Renombrar carpeta');
+                    setRenamingGroupId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.currentTarget.blur();
+                    if (e.key === 'Escape') setRenamingGroupId(null);
+                  }}
+                />
+              ) : (
+                <button
+                  className="rack-group-name"
+                  title="Doble clic para renombrar"
+                  onDoubleClick={() => setRenamingGroupId(group.id)}
+                  onClick={() =>
+                    patchGroup(group.id, { collapsed: !group.collapsed }, 'Plegar carpeta')
+                  }
+                >
+                  {group.name}
+                </button>
+              )}
+              <span className="rack-group-count">{rows.length}</span>
+              <button
+                className={`rack-group-btn${groupFlagOn(group.id, 'mute') ? ' on' : ''}`}
+                title="Mute de toda la carpeta"
+                onClick={() => toggleGroupFlag(group.id, 'mute')}
+              >
+                M
+              </button>
+              <button
+                className={`rack-group-btn${groupFlagOn(group.id, 'solo') ? ' on' : ''}`}
+                title="Solo de toda la carpeta"
+                onClick={() => toggleGroupFlag(group.id, 'solo')}
+              >
+                S
+              </button>
+              <label className="rack-group-color" title="Color de la carpeta">
+                <input
+                  type="color"
+                  value={group.color}
+                  onChange={(e) => patchGroup(group.id, { color: e.target.value }, 'Color de carpeta')}
+                />
+              </label>
+              <button
+                className="rack-group-btn"
+                title="Deshacer la carpeta (los canales se quedan sueltos)"
+                onClick={() => dissolveGroup(group.id)}
+              >
+                ✕
+              </button>
+            </div>
+            {!group.collapsed && rows.map(renderRow)}
+            {!group.collapsed && rows.length === 0 && (
+              <div className="rack-group-empty">
+                Carpeta vacía — muévele canales desde su menú (clic derecho en el nombre).
+              </div>
+            )}
+          </div>
         ))}
+        {looseRows.map(renderRow)}
       </div>
 
       {graphOpen && graphRow && (
@@ -739,6 +919,43 @@ export function ChannelRack() {
             />
           </label>
           <div className="menu-sep" />
+          <div className="rack-add-sep">Carpeta</div>
+          {project.channelGroupOrder
+            .map((gid) => project.channelGroups[gid])
+            .filter((g): g is ChannelGroup => g !== undefined)
+            .map((g) => (
+              <button
+                key={g.id}
+                className={`menu-item${menuChannel.groupId === g.id ? ' on' : ''}`}
+                onClick={() => {
+                  moveToGroup(chanMenu.id, g.id);
+                  setChanMenu(null);
+                }}
+              >
+                {g.name}
+              </button>
+            ))}
+          {menuChannel.groupId && (
+            <button
+              className="menu-item"
+              onClick={() => {
+                moveToGroup(chanMenu.id, '');
+                setChanMenu(null);
+              }}
+            >
+              Sacar de la carpeta
+            </button>
+          )}
+          <button
+            className="menu-item"
+            onClick={() => {
+              addGroup(chanMenu.id);
+              setChanMenu(null);
+            }}
+          >
+            Carpeta nueva con este canal…
+          </button>
+          <div className="menu-sep" />
           <button
             className="menu-item"
             onClick={() => {
@@ -768,6 +985,13 @@ export function ChannelRack() {
             }}
           >
             + Añadir canal
+          </button>
+          <button
+            className="rack-add-btn"
+            title="Agrupa canales para no perderte (no toca el audio)"
+            onClick={() => addGroup()}
+          >
+            + Carpeta
           </button>
           {addMenu && (
             <MenuPortal

@@ -36,12 +36,20 @@ export function parseProject(json: string): Project {
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
   // anteriores simplemente no los traen y arrancan vacíos/planos.
   p.lfos ??= {};
+  // Carpetas del rack (v1.5): aditivas, los archivos anteriores no las traen.
+  p.channelGroups ??= {};
+  p.channelGroupOrder ??= [];
   // Cortes del Slicer: llegan del disco sin garantías (archivo tocado a mano,
   // versión futura) y el motor los usa tal cual, así que se sanean una vez aquí.
   for (const channel of Object.values(p.channels ?? {})) {
     const clean = normalizeSlicePoints(channel.slicePoints);
     if (clean) channel.slicePoints = clean;
     else delete channel.slicePoints;
+    // Carpeta que ya no existe: el canal se queda suelto en vez de
+    // desaparecer del rack (se pinta por carpeta, y esa no se pinta).
+    if (channel.groupId !== undefined && !p.channelGroups?.[channel.groupId]) {
+      delete channel.groupId;
+    }
   }
   for (const track of p.mixer ?? []) {
     track.eqLow ??= 0;

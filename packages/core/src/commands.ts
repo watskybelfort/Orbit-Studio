@@ -8,6 +8,7 @@
 import type {
   Arrangement,
   Channel,
+  ChannelGroup,
   Clip,
   EffectSlot,
   Id,
@@ -48,6 +49,11 @@ export type Command =
   | { type: 'patchChannel'; channelId: Id; patch: Partial<Omit<Channel, 'id'>> }
   | { type: 'setChannelParam'; channelId: Id; key: string; value: number }
   | { type: 'moveChannel'; channelId: Id; toIndex: number }
+  // Carpetas del rack: organización pura, no tocan el audio. `members` solo lo
+  // usa el inverso de borrar una carpeta, para devolver a sus canales dentro.
+  | { type: 'addChannelGroup'; group: ChannelGroup; index?: number; members?: Id[] }
+  | { type: 'removeChannelGroup'; groupId: Id }
+  | { type: 'patchChannelGroup'; groupId: Id; patch: Partial<Omit<ChannelGroup, 'id'>> }
   // Inserts propios del canal (Channel.fx)
   | { type: 'setChannelEffect'; channelId: Id; slotIndex: number; slot: EffectSlot | null }
   | {
@@ -210,6 +216,39 @@ export function applyCommand(project: Project, cmd: Command): Command {
         if (pat) pat.notes[cmd.channel.id] = notes;
       }
       return { type: 'removeChannel', channelId: cmd.channel.id };
+    }
+    case 'addChannelGroup': {
+      const at = cmd.index ?? project.channelGroupOrder.length;
+      project.channelGroups[cmd.group.id] = { ...cmd.group };
+      project.channelGroupOrder.splice(at, 0, cmd.group.id);
+      // Al deshacer un borrado, los canales vuelven a su carpeta.
+      for (const id of cmd.members ?? []) {
+        const ch = project.channels[id];
+        if (ch) ch.groupId = cmd.group.id;
+      }
+      return { type: 'removeChannelGroup', groupId: cmd.group.id };
+    }
+    case 'removeChannelGroup': {
+      const group = must(project.channelGroups[cmd.groupId], `carpeta ${cmd.groupId}`);
+      const index = project.channelGroupOrder.indexOf(cmd.groupId);
+      // Borrar la carpeta NO borra sus canales: se quedan sueltos.
+      const members = project.channelOrder.filter(
+        (id) => project.channels[id]?.groupId === cmd.groupId,
+      );
+      for (const id of members) delete project.channels[id]!.groupId;
+      delete project.channelGroups[cmd.groupId];
+      if (index >= 0) project.channelGroupOrder.splice(index, 1);
+      return { type: 'addChannelGroup', group, index: Math.max(0, index), members };
+    }
+    case 'patchChannelGroup': {
+      const group = must(project.channelGroups[cmd.groupId], `carpeta ${cmd.groupId}`);
+      const inverse: Command = {
+        type: 'patchChannelGroup',
+        groupId: cmd.groupId,
+        patch: pickOld(group, cmd.patch),
+      };
+      Object.assign(group, cmd.patch);
+      return inverse;
     }
     case 'patchChannel': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
