@@ -10,8 +10,9 @@
  *
  * Una fila por canal: LED de mute (Ctrl+clic = solo), perillas mini de
  * volumen/pan, nombre (clic = seleccionar, doble clic = editor de sonido,
- * mantener pulsado = preview), número de pista de mixer y los pasos agrupados
- * de 4 en 4. Un canal con melodía del Piano Roll (notas fuera de rejilla o
+ * mantener pulsado = preview, ARRASTRAR = moverlo de sitio o meterlo en una
+ * carpeta), número de pista de mixer y los pasos agrupados de 4 en 4. Un
+ * canal con melodía del Piano Roll (notas fuera de rejilla o
  * duration > 1/16) muestra una franja mini-preview EN VEZ de los pasos, que
  * abre el Piano Roll — como hace FL.
  *
@@ -32,13 +33,20 @@
  * Toda mutación pasa por store.dispatch (bus de comandos de @orbit/core).
  */
 
-import { useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import {
   createChannel,
   gainToDb,
   INSTRUMENT_LABELS,
   newId,
+  planChannelDrop,
   type Channel,
+  type ChannelDropTarget,
   type ChannelGroup,
   type Command,
   type Id,
@@ -79,6 +87,7 @@ import {
   matchesQuery,
   RACK_FILTERS,
 } from './filters';
+import { getChannelDrag, isChannelDrag, setChannelDrag } from './channel-drag';
 import { humanizeStepsCommand, randomizeStepsCommand } from './step-tools';
 import { DEFAULT_VELOCITY, defaultKey, isMelodic, STEP, stepIndexOf } from './steps';
 import { VelocityGraph } from './VelocityGraph';
@@ -145,6 +154,10 @@ export function ChannelRack() {
   const [renamingId, setRenamingId] = useState<Id | null>(null);
   /** Carpeta cuyo nombre se está editando en el sitio (recién creada o F2). */
   const [renamingGroupId, setRenamingGroupId] = useState<Id | null>(null);
+  /** Canal que se está arrastrando ahora mismo (null = no hay arrastre). */
+  const [dragId, setDragId] = useState<Id | null>(null);
+  /** Dónde caería si se soltara aquí: solo para pintar la guía. */
+  const [dropAt, setDropAt] = useState<ChannelDropTarget | null>(null);
   /** Graph editor de velocity abierto (vista local, como en FL). */
   const [graphOpen, setGraphOpen] = useState(false);
   /** Filtro de familia de instrumento y buscador por nombre (solo vista). */
@@ -372,6 +385,80 @@ export function ChannelRack() {
     );
   };
 
+  // ── Arrastrar canales ─────────────────────────────────────────────────────
+  // El asa es el nombre del canal. Soltarlo sobre otra fila lo pone encima o
+  // debajo de ella —y con la carpeta de ESA fila—; sobre la cabecera de una
+  // carpeta entra al final de ella; en la zona de sueltos, sale. La cuenta
+  // (índice + carpeta) vive en planChannelDrop, en @orbit/core.
+
+  /** ¿El puntero está en la mitad de ARRIBA de la fila? Decide el lado. */
+  const dropsBefore = (e: ReactDragEvent<HTMLElement>): boolean => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2;
+  };
+
+  const endDrag = () => {
+    setDragId(null);
+    setDropAt(null);
+  };
+
+  /** Mismo destino que el ya marcado: evita repintar el rack en cada dragover. */
+  const sameTarget = (a: ChannelDropTarget | null, b: ChannelDropTarget): boolean => {
+    if (!a || a.kind !== b.kind) return false;
+    if (a.kind === 'row' && b.kind === 'row') return a.channelId === b.channelId && a.before === b.before;
+    if (a.kind === 'group' && b.kind === 'group') return a.groupId === b.groupId;
+    return true;
+  };
+
+  /** Acepta el arrastre y marca dónde caería (la guía la pinta `dropAt`). */
+  const dragOverTarget = (e: ReactDragEvent<HTMLElement>, target: ChannelDropTarget) => {
+    if (!isChannelDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    setDropAt((prev) => (sameTarget(prev, target) ? prev : target));
+  };
+
+  /**
+   * Suelta el canal. El destino se recalcula aquí con la geometría del propio
+   * drop —no se confía en el último dragover— y todo va en UN paso de undo.
+   */
+  const dropChannel = (e: ReactDragEvent<HTMLElement>, target: ChannelDropTarget) => {
+    if (!isChannelDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const channelId = getChannelDrag(e.dataTransfer) || dragId;
+    endDrag();
+    if (!channelId) return;
+    const plan = planChannelDrop(project, channelId, target);
+    if (!plan) return;
+
+    const commands: Command[] = [];
+    if (plan.changesGroup) {
+      commands.push({ type: 'patchChannel', channelId, patch: { groupId: plan.groupId } });
+    }
+    if (plan.moves) commands.push({ type: 'moveChannel', channelId, toIndex: plan.toIndex });
+    const name = project.channels[channelId]?.name ?? 'canal';
+    const dest = plan.groupId ? project.channelGroups[plan.groupId]?.name : null;
+    const label = plan.changesGroup
+      ? dest
+        ? `Mover ${name} a "${dest}"`
+        : `Sacar ${name} de la carpeta`
+      : `Mover ${name} de sitio`;
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label },
+    );
+  };
+
+  /** Lado por el que caería el canal en esta fila (null = no es el destino). */
+  const dropSideOf = (id: Id): 'before' | 'after' | null =>
+    dropAt?.kind === 'row' && dropAt.channelId === id
+      ? dropAt.before
+        ? 'before'
+        : 'after'
+      : null;
+
   const patchGroup = (groupId: Id, patch: Partial<Omit<ChannelGroup, 'id'>>, label: string) =>
     store.dispatch({ type: 'patchChannelGroup', groupId, patch }, { label, mergeKey: `group:${groupId}:${label}` });
 
@@ -436,6 +523,15 @@ export function ChannelRack() {
       playStep={playStep}
       renaming={renamingId === id}
       onRenameDone={() => setRenamingId(null)}
+      dragging={dragId === id}
+      dropSide={dropSideOf(id)}
+      onDragStart={(e) => {
+        setChannelDrag(e.dataTransfer, id);
+        setDragId(id);
+      }}
+      onDragEnd={endDrag}
+      onDragOverRow={(e) => dragOverTarget(e, { kind: 'row', channelId: id, before: dropsBefore(e) })}
+      onDropRow={(e) => dropChannel(e, { kind: 'row', channelId: id, before: dropsBefore(e) })}
       onContextMenu={(e) => {
         e.preventDefault();
         // Sin clamp a mano: MenuPortal mide el menú y lo mete en la ventana
@@ -658,7 +754,14 @@ export function ChannelRack() {
         )}
         {groupedRows.map(({ group, rows }) => (
           <div className="rack-group" key={group.id}>
-            <div className="rack-group-head" style={{ borderLeftColor: group.color }}>
+            <div
+              className={`rack-group-head${
+                dropAt?.kind === 'group' && dropAt.groupId === group.id ? ' drop' : ''
+              }`}
+              style={{ borderLeftColor: group.color }}
+              onDragOver={(e) => dragOverTarget(e, { kind: 'group', groupId: group.id })}
+              onDrop={(e) => dropChannel(e, { kind: 'group', groupId: group.id })}
+            >
               <button
                 className="rack-group-fold"
                 title={group.collapsed ? 'Desplegar carpeta' : 'Plegar carpeta'}
@@ -727,13 +830,33 @@ export function ChannelRack() {
             </div>
             {!group.collapsed && rows.map(renderRow)}
             {!group.collapsed && rows.length === 0 && (
-              <div className="rack-group-empty">
-                Carpeta vacía — muévele canales desde su menú (clic derecho en el nombre).
+              <div
+                className={`rack-group-empty${
+                  dropAt?.kind === 'group' && dropAt.groupId === group.id ? ' drop' : ''
+                }`}
+                onDragOver={(e) => dragOverTarget(e, { kind: 'group', groupId: group.id })}
+                onDrop={(e) => dropChannel(e, { kind: 'group', groupId: group.id })}
+              >
+                Carpeta vacía — arrástrale canales por su nombre (o muévelos desde su menú).
               </div>
             )}
           </div>
         ))}
-        {looseRows.map(renderRow)}
+        {/* Zona de sueltos: además de alojar los canales sin carpeta, es donde
+            se suelta uno para SACARLO de la suya, así que se deja una franja
+            viva debajo de la última fila aunque no haya nada. */}
+        <div
+          className={`rack-loose${dragId !== null ? ' active' : ''}${
+            dropAt?.kind === 'loose' ? ' drop' : ''
+          }`}
+          onDragOver={(e) => dragOverTarget(e, { kind: 'loose' })}
+          onDrop={(e) => dropChannel(e, { kind: 'loose' })}
+        >
+          {looseRows.map(renderRow)}
+          {dragId !== null && (
+            <div className="rack-loose-hint">Suelta aquí para dejarlo fuera de las carpetas</div>
+          )}
+        </div>
       </div>
 
       {graphOpen && graphRow && (
@@ -1047,6 +1170,16 @@ interface ChannelRowProps {
   /** El nombre está en modo edición (lo pide el menú contextual). */
   renaming: boolean;
   onRenameDone: () => void;
+  /** Esta fila es la que se está arrastrando (se pinta apagada). */
+  dragging: boolean;
+  /** Guía de inserción: por dónde caería el canal arrastrado. */
+  dropSide: 'before' | 'after' | null;
+  /** Arrastre desde el nombre (el asa). */
+  onDragStart: (e: ReactDragEvent<HTMLElement>) => void;
+  onDragEnd: () => void;
+  /** La fila entera acepta el drop de otro canal. */
+  onDragOverRow: (e: ReactDragEvent<HTMLElement>) => void;
+  onDropRow: (e: ReactDragEvent<HTMLElement>) => void;
   /** Clic derecho en el nombre: abre el menú contextual del canal. */
   onContextMenu: (e: ReactMouseEvent<HTMLElement>) => void;
 }
@@ -1063,6 +1196,12 @@ function ChannelRow({
   playStep,
   renaming,
   onRenameDone,
+  dragging,
+  dropSide,
+  onDragStart,
+  onDragEnd,
+  onDragOverRow,
+  onDropRow,
   onContextMenu,
 }: ChannelRowProps) {
   const [editingMix, setEditingMix] = useState(false);
@@ -1193,7 +1332,13 @@ function ChannelRow({
   };
 
   return (
-    <div className={`rack-row${selected ? ' sel' : ''}`}>
+    <div
+      className={`rack-row${selected ? ' sel' : ''}${dragging ? ' dragging' : ''}${
+        dropSide ? ` drop-${dropSide}` : ''
+      }`}
+      onDragOver={onDragOverRow}
+      onDrop={onDropRow}
+    >
       <button
         className={`rack-led${audible ? ' on' : ''}${channel.solo ? ' solo' : ''}`}
         title="Silenciar canal (Ctrl+clic: solo)"
@@ -1238,7 +1383,15 @@ function ChannelRow({
         <button
           className={`rack-name${selected ? ' sel' : ''}`}
           style={{ borderLeftColor: channel.color }}
-          title={`${channel.name} — clic: seleccionar · doble clic: editor de sonido · mantener: escuchar · clic derecho: menú (Piano Roll incluido)`}
+          title={`${channel.name} — clic: seleccionar · doble clic: editor de sonido · mantener: escuchar · arrastrar: mover de sitio o de carpeta · clic derecho: menú (Piano Roll incluido)`}
+          draggable
+          onDragStart={(e) => {
+            // El arrastre se lleva el puntero: sin esto la nota de la audición
+            // se queda sonando (no llega ningún pointerup).
+            preview(false);
+            onDragStart(e);
+          }}
+          onDragEnd={onDragEnd}
           onClick={select}
           onDoubleClick={openSoundEditor}
           onContextMenu={onContextMenu}

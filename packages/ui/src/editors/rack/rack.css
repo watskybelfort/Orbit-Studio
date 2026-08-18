@@ -363,6 +363,7 @@
 }
 
 .rack-row {
+  position: relative; /* ancla de la guía de inserción del arrastre */
   display: flex;
   align-items: center;
   gap: var(--rack-gap);
@@ -807,4 +808,67 @@
 .rack-group-btn.on {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* ── Arrastrar canales ──
+   El asa es el nombre del canal. La fila sobre la que caería enseña una guía
+   por el lado que toca; la carpeta destino (o la zona de sueltos) se ilumina
+   entera para que se vea que el canal va a CAMBIAR de sitio, no solo de fila. */
+
+.rack-row.dragging {
+  opacity: 0.4;
+}
+
+.rack-row.drop-before::before,
+.rack-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+  pointer-events: none;
+}
+
+.rack-row.drop-before::before {
+  top: -2px;
+}
+
+.rack-row.drop-after::after {
+  bottom: -2px;
+}
+
+.rack-group-head.drop,
+.rack-group-empty.drop {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.rack-loose {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-radius: 6px;
+}
+
+/* Con un arrastre en marcha la zona tiene que poder alcanzarse aunque no haya
+   ni una fila suelta: si no, sacar de su carpeta al único canal que hay sería
+   imposible. */
+.rack-loose.active {
+  min-height: 30px;
+  outline: 1px dashed color-mix(in srgb, var(--text) 20%, transparent);
+  outline-offset: 3px;
+}
+
+.rack-loose.drop {
+  outline-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.rack-loose-hint {
+  padding: 4px 12px;
+  font-size: 11px;
+  color: var(--text-dim);
+  pointer-events: none;
 }
