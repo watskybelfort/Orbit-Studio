@@ -9,10 +9,14 @@
  *   (código de 6 chars A-Z2-9 sin ambiguos; se aceptan guiones/minúsculas).
  * - messageType 0 → y-sync (step1/step2/update), messageType 1 → awareness.
  * - Persistencia: al cerrar el último socket de un room se guarda
- *   Y.encodeStateAsUpdate en ./rooms/<código>.bin; al abrirlo, se recarga. Ahí
- *   dentro van también los BYTES de los samples de la sala, así que el que
+ *   Y.encodeStateAsUpdate en <roomsDir>/<código>.bin; al abrirlo, se recarga.
+ *   Ahí dentro van también los BYTES de los samples de la sala, así que el que
  *   vuelva mañana sigue oyendo los sonidos que subió el otro.
  * - GET /health → {rooms: n}.
+ *
+ * Este módulo es una LIBRERÍA: `startServer()` arranca una instancia y devuelve
+ * un handle para cerrarla. La app de escritorio lo arranca en proceso (botón del
+ * panel de colaboración) y el CLI (`src/cli.ts`) lo corre suelto con `tsx`.
  */
 
 import { createServer } from 'node:http';
@@ -31,12 +35,14 @@ const MESSAGE_AWARENESS = 1;
 
 // 7900 evita los rangos que Hyper-V reserva en Windows (p. ej. 7698-7797,
 // donde caía el 7777 clásico): netsh interface ipv4 show excludedportrange
-const PORT = Number(process.env.PORT ?? 7900);
+const DEFAULT_PORT = Number(process.env.PORT ?? 7900);
 // Por defecto SOLO localhost: la colaboración es entre pestañas/máquina propia y
 // el server no tiene autenticación. Para colaborar entre máquinas hay que abrirlo
 // a la red a conciencia con HOST=0.0.0.0 (idealmente detrás de un túnel/VPN).
-const HOST = process.env.HOST ?? '127.0.0.1';
-const ROOMS_DIR = resolve('./rooms');
+const DEFAULT_HOST = process.env.HOST ?? '127.0.0.1';
+// Carpeta de persistencia de salas; startServer puede cambiarla (p. ej. a
+// userData cuando la arranca la app empaquetada, donde ./rooms sería de solo lectura).
+let roomsDir = resolve('./rooms');
 const PING_INTERVAL_MS = 30000;
 
 // Cotas para que un cliente hostil no agote memoria/disco abriendo salas y
@@ -45,8 +51,15 @@ const MAX_ROOMS = 200;
 const MAX_CONNS_PER_ROOM = 16;
 const MAX_CONNS_TOTAL = 512;
 
+// El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
+// (Y.Map 'assets', ver packages/collab/src/assets.ts). El primer sync manda el
+// estado ENTERO en un solo mensaje, así que el tope de payload tiene que quedar
+// por encima del presupuesto de assets (64 MB) MÁS el proyecto, el log y el
+// chat. Los 100 MiB por defecto de `ws` dan poco margen para una sala llena.
+const MAX_PAYLOAD_BYTES = 192 * 1024 * 1024;
+
 function roomFile(code: string): string {
-  return join(ROOMS_DIR, `${code}.bin`);
+  return join(roomsDir, `${code}.bin`);
 }
 
 function toUint8(data: RawData): Uint8Array {
@@ -188,7 +201,7 @@ class Room {
   }
 
   persist(): void {
-    mkdirSync(ROOMS_DIR, { recursive: true });
+    mkdirSync(roomsDir, { recursive: true });
     // Escritura atómica: a un temporal y rename. Un crash a mitad de escritura
     // no deja un .bin truncado que luego brickee la sala.
     const file = roomFile(this.code);
@@ -222,117 +235,152 @@ function getRoom(code: string): Room {
   return room;
 }
 
-const httpServer = createServer((req, res) => {
-  if (req.method === 'GET' && req.url === '/health') {
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({ rooms: rooms.size }));
-    return;
-  }
-  res.writeHead(404, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ error: 'not found' }));
-});
+export interface ServerOptions {
+  port?: number;
+  host?: string;
+  /** Carpeta donde persistir las salas (.bin). Por defecto ./rooms. */
+  roomsDir?: string;
+}
 
-// El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
-// (Y.Map 'assets', ver packages/collab/src/assets.ts). El primer sync manda el
-// estado ENTERO en un solo mensaje, así que el tope de payload tiene que quedar
-// por encima del presupuesto de assets (64 MB) MÁS el proyecto, el log y el
-// chat. Los 100 MiB por defecto de `ws` dan poco margen para una sala llena y
-// el fallo sería el peor posible: el socket cerrado justo al entrar.
-const MAX_PAYLOAD_BYTES = 192 * 1024 * 1024;
+export interface ServerHandle {
+  readonly port: number;
+  readonly host: string;
+  /** Guarda las salas, cierra sockets y libera el puerto. */
+  close(): Promise<void>;
+}
 
-const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD_BYTES });
+/**
+ * Arranca una instancia del servidor de colaboración. Resuelve cuando está
+ * escuchando; rechaza si el puerto está ocupado o no se puede enlazar.
+ */
+export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
+  const port = opts.port ?? DEFAULT_PORT;
+  const host = opts.host ?? DEFAULT_HOST;
+  if (opts.roomsDir) roomsDir = resolve(opts.roomsDir);
 
-// ws re-emite los errores de listen del http server por aquí; sin handler
-// tirarían el proceso con un stack crudo en vez del mensaje de abajo.
-wss.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') throw err;
-});
-
-/** Keepalive: sockets que no responden al ping se terminan. */
-const alive = new Map<WsSocket, boolean>();
-setInterval(() => {
-  for (const [conn, ok] of alive) {
-    if (!ok) {
-      conn.terminate();
-      continue;
+  const httpServer = createServer((req, res) => {
+    if (req.method === 'GET' && req.url === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ rooms: rooms.size }));
+      return;
     }
-    alive.set(conn, false);
-    conn.ping();
-  }
-}, PING_INTERVAL_MS);
-
-wss.on('connection', (conn, req) => {
-  const rawPath = (req.url ?? '').split('?')[0] ?? '';
-  const code = normalizeRoomCode(rawPath);
-  if (!code) {
-    console.warn(`[server] room inválido rechazado: "${rawPath}"`);
-    conn.close(1008, 'Código de room inválido');
-    return;
-  }
-
-  // Cotas antes de crear/entrar: sala nueva que superaría el máximo de salas,
-  // conexiones totales, o sala ya llena → se rechaza sin reservar recursos.
-  const existing = rooms.get(code);
-  if (!existing && rooms.size >= MAX_ROOMS) {
-    conn.close(1013, 'El servidor está lleno');
-    return;
-  }
-  if (alive.size >= MAX_CONNS_TOTAL) {
-    conn.close(1013, 'Demasiadas conexiones');
-    return;
-  }
-  if (existing && existing.conns.size >= MAX_CONNS_PER_ROOM) {
-    conn.close(1013, 'La sala está llena');
-    return;
-  }
-
-  const room = getRoom(code);
-  room.addConn(conn);
-  alive.set(conn, true);
-  console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
-
-  conn.on('pong', () => alive.set(conn, true));
-  conn.on('message', (data: RawData) => room.handleMessage(conn, toUint8(data)));
-  conn.on('error', (err) => console.error(`[room ${code}] error de socket:`, err.message));
-  conn.on('close', () => {
-    alive.delete(conn);
-    room.removeConn(conn);
-    console.log(`[room ${code}] peer desconectado (${room.conns.size} en el room)`);
-    if (room.empty) {
-      room.persist();
-      room.destroy();
-      rooms.delete(code);
-      console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
-    }
+    res.writeHead(404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
   });
-});
 
-httpServer.on('error', (err: NodeJS.ErrnoException) => {
-  if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
-    console.error(
-      `[server] no se pudo escuchar en el puerto ${PORT} (${err.code}): puede estar ` +
-        'ocupado o en un rango reservado de Windows. Elige otro con PORT, ' +
-        'p. ej.: PORT=7901 npm run server',
-    );
-    process.exit(1);
-  }
-  throw err;
-});
+  const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_PAYLOAD_BYTES });
 
-httpServer.listen(PORT, HOST, () => {
-  const shown = HOST === '127.0.0.1' || HOST === '::1' ? 'localhost' : HOST;
-  console.log(`Orbit Studio collab server en ws://${shown}:${PORT}/<room> (health: http://${shown}:${PORT}/health)`);
-  if (HOST !== '127.0.0.1' && HOST !== '::1') {
-    console.warn(`[server] ATENCIÓN: escuchando en ${HOST} (accesible desde la red) y SIN autenticación.`);
-  }
-});
+  // ws re-emite los errores de listen del http server por aquí; sin handler
+  // tirarían el proceso con un stack crudo.
+  wss.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') throw err;
+  });
 
-// Cierre limpio: guarda todos los rooms abiertos antes de salir.
-process.on('SIGINT', () => {
-  console.log('\n[server] cerrando: guardando rooms…');
-  for (const room of rooms.values()) {
-    room.persist();
-    room.destroy();
-  }
-  process.exit(0);
-});
+  /** Keepalive: sockets que no responden al ping se terminan. */
+  const alive = new Map<WsSocket, boolean>();
+  const keepalive = setInterval(() => {
+    for (const [conn, ok] of alive) {
+      if (!ok) {
+        conn.terminate();
+        continue;
+      }
+      alive.set(conn, false);
+      conn.ping();
+    }
+  }, PING_INTERVAL_MS);
+
+  wss.on('connection', (conn, req) => {
+    const rawPath = (req.url ?? '').split('?')[0] ?? '';
+    const code = normalizeRoomCode(rawPath);
+    if (!code) {
+      console.warn(`[server] room inválido rechazado: "${rawPath}"`);
+      conn.close(1008, 'Código de room inválido');
+      return;
+    }
+
+    // Cotas antes de crear/entrar: sala nueva que superaría el máximo de salas,
+    // conexiones totales, o sala ya llena → se rechaza sin reservar recursos.
+    const existing = rooms.get(code);
+    if (!existing && rooms.size >= MAX_ROOMS) {
+      conn.close(1013, 'El servidor está lleno');
+      return;
+    }
+    if (alive.size >= MAX_CONNS_TOTAL) {
+      conn.close(1013, 'Demasiadas conexiones');
+      return;
+    }
+    if (existing && existing.conns.size >= MAX_CONNS_PER_ROOM) {
+      conn.close(1013, 'La sala está llena');
+      return;
+    }
+
+    const room = getRoom(code);
+    room.addConn(conn);
+    alive.set(conn, true);
+    console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
+
+    conn.on('pong', () => alive.set(conn, true));
+    conn.on('message', (data: RawData) => room.handleMessage(conn, toUint8(data)));
+    conn.on('error', (err) => console.error(`[room ${code}] error de socket:`, err.message));
+    conn.on('close', () => {
+      alive.delete(conn);
+      room.removeConn(conn);
+      console.log(`[room ${code}] peer desconectado (${room.conns.size} en el room)`);
+      if (room.empty) {
+        room.persist();
+        room.destroy();
+        rooms.delete(code);
+        console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
+      }
+    });
+  });
+
+  return new Promise((resolveP, rejectP) => {
+    const onListenError = (err: NodeJS.ErrnoException) => {
+      clearInterval(keepalive);
+      if (err.code === 'EACCES' || err.code === 'EADDRINUSE') {
+        rejectP(
+          new Error(
+            `No se pudo escuchar en el puerto ${port} (${err.code}): puede estar ocupado o ` +
+              'en un rango reservado de Windows. Prueba otro puerto.',
+          ),
+        );
+      } else {
+        rejectP(err);
+      }
+    };
+    httpServer.once('error', onListenError);
+    httpServer.listen(port, host, () => {
+      httpServer.removeListener('error', onListenError);
+      const shown = host === '127.0.0.1' || host === '::1' ? 'localhost' : host;
+      console.log(
+        `Orbit Studio collab server en ws://${shown}:${port}/<room> (health: http://${shown}:${port}/health)`,
+      );
+      if (host !== '127.0.0.1' && host !== '::1') {
+        console.warn(`[server] ATENCIÓN: escuchando en ${host} (accesible desde la red) y SIN autenticación.`);
+      }
+      resolveP({
+        port,
+        host,
+        close: () =>
+          new Promise<void>((res) => {
+            clearInterval(keepalive);
+            for (const room of rooms.values()) {
+              room.persist();
+              room.destroy();
+            }
+            rooms.clear();
+            for (const conn of alive.keys()) {
+              try {
+                conn.terminate();
+              } catch {
+                // best-effort
+              }
+            }
+            alive.clear();
+            wss.close(() => httpServer.close(() => res()));
+          }),
+      });
+    });
+  });
+}

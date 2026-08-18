@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
@@ -7,6 +7,7 @@ import { release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
+import { startServer, type ServerHandle } from '@orbit/server';
 
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
@@ -80,6 +81,41 @@ function applyWindowTheme(win: BrowserWindow, theme: ThemeId): boolean {
   }
   win.setBackgroundColor(theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark);
   return false;
+}
+
+// ─── Content-Security-Policy ─────────────────────────────────────────────────
+// Red de seguridad contra inyección: aunque el renderer es código propio, una
+// CSP corta la exfiltración por fetch/XHR a hosts externos si algo llegara a
+// ejecutarse (p. ej. el código de un plugin en el export). Se aplica SOLO al
+// renderer empaquetado (loadFile): en desarrollo, vite inyecta un preámbulo
+// inline y usa HMR, y una CSP lo rompería.
+//
+// Notas de por qué cada relajación: 'unsafe-eval' porque el kernel compila los
+// plugins JS y el encoder MP3 con new Function; 'unsafe-inline' en style por los
+// estilos en línea de React; blob: para el AudioWorklet; y connect-src ws/wss
+// porque el servidor de colaboración es una URL configurable (no puede ser solo
+// 'self'). El grueso —bloquear fetch/XHR/img a http(s) externos— sigue en pie.
+function installCsp(): void {
+  if (process.env['ELECTRON_RENDERER_URL']) return; // dev: sin CSP (vite/HMR)
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' blob:",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' data: blob:",
+    "font-src 'self' data:",
+    "connect-src 'self' ws: wss:",
+    "worker-src 'self' blob:",
+    "child-src 'self' blob:",
+  ].join('; ');
+  session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
+    cb({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [csp],
+      },
+    });
+  });
 }
 
 // ─── Ventana principal ───────────────────────────────────────────────────────
@@ -177,6 +213,20 @@ function createWindow(): BrowserWindow {
 const CLAUDE_TOOL_TIMEOUT_MS = 60_000;
 
 let bridgeHost: BridgeHost | null = null;
+
+// ─── Servidor de colaboración en proceso ─────────────────────────────────────
+// El panel de colaboración puede arrancar el servidor (apps/server) DENTRO del
+// proceso main, para no tener que abrir una terminal aparte. Escucha en
+// localhost por defecto (sin auth, ver el hardening del server). Las salas se
+// guardan en userData/collab-rooms (./rooms sería de solo lectura empaquetado).
+
+let collabServer: ServerHandle | null = null;
+
+function collabServerStatus(): { running: boolean; port?: number; host?: string } {
+  return collabServer
+    ? { running: true, port: collabServer.port, host: collabServer.host }
+    : { running: false };
+}
 
 function dispatchClaudeTool(req: {
   tool: string;
@@ -306,6 +356,30 @@ function registerIpc(): void {
       typeof patch === 'object' && patch !== null ? { ...base, ...(patch as Settings) } : base;
     writeSettings(merged);
     return merged;
+  });
+
+  // ── Servidor de colaboración (arrancarlo desde el panel) ───────────────────
+  ipcMain.handle('server:status', () => collabServerStatus());
+
+  ipcMain.handle('server:start', async () => {
+    if (collabServer) return collabServerStatus();
+    try {
+      collabServer = await startServer({
+        host: '127.0.0.1',
+        roomsDir: join(app.getPath('userData'), 'collab-rooms'),
+      });
+      return collabServerStatus();
+    } catch (err) {
+      return { running: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('server:stop', async () => {
+    if (collabServer) {
+      await collabServer.close();
+      collabServer = null;
+    }
+    return collabServerStatus();
   });
 
   // Pasarela genérica del renderer para responder tool calls de Claude:
@@ -662,6 +736,7 @@ function registerIpc(): void {
 // ─── Ciclo de vida ───────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  installCsp();
   registerIpc();
   startClaudeBridge();
   createWindow();
@@ -673,6 +748,8 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   bridgeHost?.close();
   bridgeHost = null;
+  void collabServer?.close();
+  collabServer = null;
 });
 
 app.on('window-all-closed', () => {

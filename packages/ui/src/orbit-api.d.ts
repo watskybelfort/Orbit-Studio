@@ -87,6 +87,14 @@ interface OrbitApi {
     /** Solo QA: siempre-encima para capturas (el main solo lo atiende con ORBIT_DEBUG_PORT). */
     alwaysOnTop(on: boolean): Promise<void>;
   };
+  readonly server: {
+    /** Estado del servidor de colaboración arrancado en proceso. */
+    status(): Promise<{ running: boolean; port?: number; host?: string }>;
+    /** Arranca el servidor (localhost); devuelve el estado o un error legible. */
+    start(): Promise<{ running: boolean; port?: number; host?: string; error?: string }>;
+    /** Detiene el servidor y libera el puerto. */
+    stop(): Promise<{ running: boolean }>;
+  };
 }
 
 interface Window {

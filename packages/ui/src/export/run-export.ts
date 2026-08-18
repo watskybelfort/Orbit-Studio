@@ -42,6 +42,7 @@ import {
 } from '@orbit/engine';
 import { encodeMp3 } from './mp3';
 import { collectPluginSources, collectSamples } from './render-inputs';
+import { canUseRenderWorker, renderProjectInWorker, renderStemsInWorker } from './render-in-worker';
 import { store } from '../state/app';
 import { useBounceStore } from '../state/bounce';
 import { nextPaint } from '../state/next-paint';
@@ -299,7 +300,11 @@ async function renderAndWrite(
     tailSeconds: opts.tailSeconds,
     plugins: pluginSources.plugins,
   };
-  let mix = renderProject(compiled, renderOpts);
+  // El render (donde se ejecutan los plugins JS) va en un worker aislado; en
+  // Node/tests, donde no hay Worker, cae al render directo.
+  let mix = canUseRenderWorker()
+    ? await renderProjectInWorker(compiled, renderOpts)
+    : renderProject(compiled, renderOpts);
   const spb = 60 / proj.tempo;
   const cut = (res: RenderResult): RenderResult => {
     if (!region) return res;
@@ -388,7 +393,10 @@ async function renderAndWrite(
     for (let i = 0; i < stemTracks.length; i++) {
       const t = stemTracks[i]!;
       await report(`Renderizando stem ${i + 1}/${stemTracks.length} (${t.name})…`);
-      let res = renderStems(compiled, [t.idx], renderOpts).get(t.idx);
+      const stemMap = canUseRenderWorker()
+        ? await renderStemsInWorker(compiled, [t.idx], renderOpts)
+        : renderStems(compiled, [t.idx], renderOpts);
+      let res = stemMap.get(t.idx);
       if (!res) continue;
       res = cut(res);
       if (gainDb !== null) applyGain(res, gainDb); // misma ganancia que el master

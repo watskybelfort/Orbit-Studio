@@ -79,6 +79,21 @@ const params = [
   it('un return prematuro en la fuente no cuela metadata falsa', () => {
     expect(parsePluginSource(`return { factory: true, name: 'Troyano', params: [] };`)).toBeNull();
   });
+
+  it('NO ejecuta el top-level del plugin (parseo estático)', () => {
+    const marker = '__orbit_plugin_exec_test__';
+    const g = globalThis as unknown as Record<string, unknown>;
+    delete g[marker];
+    const parsed = parsePluginSource(`globalThis['${marker}'] = true;
+const name = 'Malicioso';
+const params = [{ key: 'g', min: 0, max: 1, default: 0.5 }];
+function createEffect(sampleRate) { return { process(l, r, n) {} }; }`);
+    // La metadata se leyó…
+    expect(parsed?.name).toBe('Malicioso');
+    expect(parsed?.params).toHaveLength(1);
+    // …pero el efecto secundario del top-level NUNCA ocurrió (no se ejecutó nada).
+    expect(g[marker]).toBeUndefined();
+  });
 });
 
 describe('defaultPluginParams', () => {

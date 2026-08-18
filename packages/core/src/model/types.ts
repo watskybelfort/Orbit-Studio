@@ -148,6 +148,13 @@ export interface PlaylistTrack {
   muted: boolean;
   /** Posición vertical (0 arriba). */
   order: number;
+  /**
+   * Pista de mixer a la que van los clips de AUDIO de este carril (índice en
+   * `project.mixer`; 0 = master). Ausente = master. Da a las tomas de voz y a
+   * las pistas congeladas su propio canal de mixer (EQ, compresor, sends). Los
+   * clips de PATRÓN no lo usan: sus canales ya declaran su pista de mixer.
+   */
+  mixerTrack?: number;
 }
 
 export type ClipKind = 'pattern' | 'audio' | 'automation';
