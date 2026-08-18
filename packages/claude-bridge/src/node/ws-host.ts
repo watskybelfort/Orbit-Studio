@@ -13,6 +13,7 @@
  */
 
 import { WebSocketServer, type WebSocket } from 'ws';
+import { clearBridgeInfo, writeBridgeInfo } from './bridge-auth';
 
 export const BRIDGE_DEFAULT_PORT = 7855;
 
@@ -23,6 +24,13 @@ export interface BridgeDispatch {
 export interface BridgeHostOptions {
   /** Puerto local (por defecto 7855). */
   port?: number;
+  /**
+   * Token de sesión. Si se da, toda conexión debe presentarlo como primer
+   * mensaje ({ type:'auth', token }) o se cierra; además se publica junto al
+   * puerto en ~/.orbit/bridge.json para que el relay lo lea. Sin token no hay
+   * autenticación (solo para tests/uso embebido).
+   */
+  token?: string;
   /** Ejecuta una tool y devuelve el resultado o un error legible. */
   dispatch: BridgeDispatch;
   /** Notifica si hay algún cliente MCP conectado (indicador de la UI). */
@@ -36,14 +44,22 @@ export interface BridgeHost {
 
 export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
   const port = opts.port ?? BRIDGE_DEFAULT_PORT;
+  const requireAuth = typeof opts.token === 'string' && opts.token.length > 0;
   const wss = new WebSocketServer({ host: '127.0.0.1', port });
   const clients = new Set<WebSocket>();
 
+  if (requireAuth) writeBridgeInfo({ port, token: opts.token! });
+
   const notify = () => opts.onStatus?.({ connected: clients.size > 0 });
 
-  wss.on('connection', (socket) => {
-    clients.add(socket);
-    notify();
+  wss.on('connection', (socket, req) => {
+    // Un WebSocket desde una página web SIEMPRE manda cabecera Origin; el relay
+    // Node no. Rechazarlas corta el vector navegador aunque supieran el token.
+    if (req.headers.origin) {
+      socket.close(1008, 'Origin no permitido');
+      return;
+    }
+    let authed = !requireAuth;
 
     socket.on('message', (raw) => {
       let msg: unknown;
@@ -52,6 +68,20 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
         msg = JSON.parse(String(raw));
       } catch {
         safeSend(socket, { error: 'Mensaje no es JSON válido' });
+        return;
+      }
+      // Handshake: el PRIMER mensaje de una conexión no autenticada debe traer
+      // el token. Cualquier otra cosa antes de autenticarse cierra el socket.
+      if (!authed) {
+        const { type, token } = (msg ?? {}) as { type?: unknown; token?: unknown };
+        if (type === 'auth' && typeof token === 'string' && token === opts.token) {
+          authed = true;
+          clients.add(socket);
+          notify();
+          return;
+        }
+        safeSend(socket, { error: 'No autenticado' });
+        socket.close(1008, 'No autenticado');
         return;
       }
       const { id, tool, args } = (msg ?? {}) as { id?: unknown; tool?: unknown; args?: unknown };
@@ -99,6 +129,7 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
       }
       clients.clear();
       wss.close();
+      if (requireAuth) clearBridgeInfo();
       notify();
     },
   };
