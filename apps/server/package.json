@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "start": "tsx src/index.ts"
+    "dev": "tsx watch src/cli.ts",
+    "start": "tsx src/cli.ts"
   },
   "dependencies": {
     "ws": "^8.21.3",

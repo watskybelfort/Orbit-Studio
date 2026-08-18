@@ -72,7 +72,29 @@ export function CollabPanel() {
   const [barDraft, setBarDraft] = useState('');
   const feedRef = useRef<HTMLDivElement>(null);
 
+  // Servidor de colaboración arrancable desde aquí (solo app de escritorio).
+  const canHostServer = typeof window !== 'undefined' && !!window.orbit?.server;
+  const [server, setServer] = useState<{ running: boolean; port?: number; error?: string }>({
+    running: false,
+  });
+  const [serverBusy, setServerBusy] = useState(false);
+
   const beatsPerBar = store.project.timeSig.num;
+
+  // Estado inicial del servidor (por si ya estaba arrancado en esta sesión).
+  useEffect(() => {
+    if (canHostServer) void window.orbit!.server.status().then(setServer);
+  }, [canHostServer]);
+
+  const toggleServer = async () => {
+    if (!window.orbit?.server) return;
+    setServerBusy(true);
+    try {
+      setServer(server.running ? await window.orbit.server.stop() : await window.orbit.server.start());
+    } finally {
+      setServerBusy(false);
+    }
+  };
 
   // Nombre, URL y rol persistidos en settings.json (window.orbit.settings).
   useEffect(() => {
@@ -403,10 +425,37 @@ export function CollabPanel() {
           onBlur={persistFields}
         />
       </div>
-      <p className="collab-note">
-        El servidor local se arranca con <code>npm run server</code> y escucha en{' '}
-        {DEFAULT_SERVER_URL}.
-      </p>
+      {canHostServer ? (
+        <div className="collab-row collab-server-ctl">
+          <button
+            className={`collab-btn${server.running ? ' danger' : ''}`}
+            onClick={() => void toggleServer()}
+            disabled={serverBusy}
+          >
+            {serverBusy
+              ? '…'
+              : server.running
+                ? 'Detener servidor'
+                : 'Iniciar servidor'}
+          </button>
+          <span className="collab-note">
+            {server.running ? (
+              <>
+                <span className="collab-dot online" /> En marcha en localhost:{server.port}
+              </>
+            ) : server.error ? (
+              `No arrancó: ${server.error}`
+            ) : (
+              `Arráncalo aquí (o con npm run server) y escucha en ${DEFAULT_SERVER_URL}.`
+            )}
+          </span>
+        </div>
+      ) : (
+        <p className="collab-note">
+          El servidor local se arranca con <code>npm run server</code> y escucha en{' '}
+          {DEFAULT_SERVER_URL}.
+        </p>
+      )}
 
       {phase === 'error' && error && (
         <div className="collab-error-box">

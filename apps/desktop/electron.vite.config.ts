@@ -14,6 +14,7 @@ const alias = {
   '@orbit/engine': r('../../packages/engine/src/index.ts'),
   '@orbit/ui': r('../../packages/ui/src/index.ts'),
   '@orbit/collab': r('../../packages/collab/src/index.ts'),
+  '@orbit/server': r('../../apps/server/src/index.ts'),
 };
 
 export default defineConfig({
