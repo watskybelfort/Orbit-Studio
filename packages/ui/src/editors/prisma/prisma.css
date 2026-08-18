@@ -714,3 +714,15 @@ html[data-theme='acrylic'] .prisma-key.black {
   color: var(--text-dim);
   pointer-events: none;
 }
+
+/* Tecla que está sonando. Mismo criterio que en el piano roll: los temas de
+   arriba pintan `.prisma-key.black` con más especificidad, así que aquí se
+   repiten para que la negra encendida se vea encendida en los tres. */
+.prisma-key.active,
+html[data-theme='light'] .prisma-key.active,
+html[data-theme='light'] .prisma-key.black.active,
+html[data-theme='acrylic'] .prisma-key.active,
+html[data-theme='acrylic'] .prisma-key.black.active {
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 65%, transparent);
+}

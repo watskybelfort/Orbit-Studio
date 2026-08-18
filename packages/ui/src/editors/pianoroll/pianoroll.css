@@ -296,3 +296,16 @@ html[data-theme='light'] .pr-key.black {
   border-color: var(--titlebar-close-hover);
   background: var(--titlebar-close-hover);
 }
+
+/* Tecla que está sonando (la pulsas tú o la dispara el secuenciador).
+   Va al final y con el selector de tema repetido a propósito: las reglas
+   por tema de arriba son más específicas que `.pr-key.active` y si no se
+   repiten aquí, en claro y en acrílico la negra encendida seguiría oscura. */
+.pr-key.active,
+html[data-theme='light'] .pr-key.active,
+html[data-theme='light'] .pr-key.black.active,
+html[data-theme='acrylic'] .pr-key.active,
+html[data-theme='acrylic'] .pr-key.black.active {
+  background: var(--accent);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 65%, transparent);
+}

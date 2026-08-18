@@ -23,7 +23,7 @@ import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { canRemovePattern, patternClipsHint, removePattern } from '../../palette/default-commands';
 import { setActivePattern, store } from '../../state/app';
-import { previewNote } from '../../state/active-notes';
+import { previewNote, useActiveKeys } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -143,6 +143,8 @@ export function PianoRoll() {
     [pattern, channelId, project],
   );
   const channelIndex = channelId ? project.channelOrder.indexOf(channelId) : -1;
+  /** Teclas de este canal que están sonando (se iluminan en el teclado lateral). */
+  const activeKeys = useActiveKeys(channelIndex);
   const snap = SNAPS[snapIdx]?.value ?? 0.25;
   const scale = SCALES[scaleName] ?? SCALES['Menor natural']!;
   /** Paso numérico del snap para herramientas (Q, resize, arp...): el
@@ -1227,7 +1229,7 @@ export function PianoRoll() {
       keys.push(
         <div
           key={k}
-          className={`pr-key${isBlack ? ' black' : ''}`}
+          className={`pr-key${isBlack ? ' black' : ''}${activeKeys.has(k) ? ' active' : ''}`}
           style={{ height: KEY_H }}
           onPointerDown={() => {
             if (channelIndex >= 0) previewNote(channelIndex, k, true);
@@ -1238,13 +1240,16 @@ export function PianoRoll() {
           onPointerLeave={() => {
             if (channelIndex >= 0) previewNote(channelIndex, k, false);
           }}
+          onPointerCancel={() => {
+            if (channelIndex >= 0) previewNote(channelIndex, k, false);
+          }}
         >
           {semitone === 0 && <span className="pr-key-label">{midiToNote(k)}</span>}
         </div>,
       );
     }
     return keys;
-  }, [channelIndex]);
+  }, [channelIndex, activeKeys]);
 
   if (!pattern || !channel) {
     return (
