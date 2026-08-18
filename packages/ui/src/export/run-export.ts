@@ -44,6 +44,7 @@ import { encodeMp3 } from './mp3';
 import { collectPluginSources, collectSamples } from './render-inputs';
 import { store } from '../state/app';
 import { useBounceStore } from '../state/bounce';
+import { nextPaint } from '../state/next-paint';
 import { useUiStore } from '../state/ui';
 
 /** Objetivo de loudness para la normalización de streaming. */
@@ -208,24 +209,6 @@ export function usedMixerTracks(project: Project): { idx: number; name: string }
   return [...used]
     .sort((a, b) => a - b)
     .map((idx) => ({ idx, name: project.mixer[idx]?.name ?? `Pista ${idx}` }));
-}
-
-/**
- * Cede un frame real al navegador: una microtarea no basta para repintar antes
- * del render bloqueante, así que esperamos rAF + macrotarea. Con la ventana
- * oculta no hay rAF, así que un timeout de respaldo evita quedarse colgado.
- */
-function nextPaint(): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    requestAnimationFrame(() => setTimeout(finish, 0));
-    setTimeout(finish, 250);
-  });
 }
 
 function errorText(e: unknown): string {

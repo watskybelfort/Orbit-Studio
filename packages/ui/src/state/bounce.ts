@@ -20,6 +20,7 @@ import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
 import { collectPluginSources, collectSamples } from '../export/render-inputs';
 import { engine, store } from './app';
+import { nextPaint } from './next-paint';
 
 /** Cola que se renderiza más allá del final de la selección. */
 const TAIL_SECONDS = 2;
@@ -135,7 +136,9 @@ async function bounceClips(
   useBounceStore.setState({ busy: `${opts.freeze ? 'Congelando' : 'Consolidando'} ${what}…` });
   try {
     // Ceder un frame para que la UI pinte el estado antes del render (bloquea).
-    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    // nextPaint lleva un timeout de respaldo: con la ventana oculta no hay rAF y
+    // sin él el freeze se quedaba clavado en "Congelando…" indefinidamente.
+    await nextPaint();
 
     const compiled = compileProject(project, { mode: 'song', clipIds: clips.map((c) => c.id) });
     const { samples, missing } = await collectSamples(project, compiled);
