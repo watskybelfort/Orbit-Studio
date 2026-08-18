@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.4.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-441%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.4.1-5aa9e6)
+![tests](https://img.shields.io/badge/tests-445%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,16 @@ guardables con nombre).
 
 ## Lo último
 
+**v1.4.1 — el loop ya no se pisa a sí mismo.** Una nota que acababa justo en el
+final del patrón no encontraba nunca su note-off: seguía sonando vuelta tras
+vuelta, el sonido se solapaba consigo mismo y, al llenarse el pool de 64 voces,
+se robaba la más antigua — parecía que se cortaba la **primera** nota mientras
+las de más adelante sonaban. Ahora el cierre del loop (y el salto del playhead)
+sueltan lo del pase anterior, con release: las colas siguen sonando. Además, al
+dibujar una nota, **el arrastre horizontal le da la duración como en FL** y esa
+duración queda de plantilla; el tirador del borde derecho es más fácil de
+agarrar y el cursor lo delata.
+
 **v1.4.0 — "por dónde entra la gente".** El panel de colaboración trae un
 desplegable **"Escucha en"** con las direcciones reales de la máquina,
 etiquetadas y ordenadas (VPN primero, luego la LAN, y al final lo virtual):
@@ -125,7 +135,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 441 tests (core, engine, collab, claude-bridge, sound-library, ui, server)
+npm test           # 445 tests (core, engine, collab, claude-bridge, sound-library, ui, server)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
