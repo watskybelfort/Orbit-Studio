@@ -71,6 +71,19 @@ function vinylUnit(params: Record<string, number> = {}): EffectUnit {
   return u;
 }
 
+function distortionUnit(params: Record<string, number> = {}): EffectUnit {
+  const u = createEffect('distortion', SR);
+  u.setParams({ ...defaultEffectParams('distortion'), ...params });
+  return u;
+}
+
+/** Salida ya asentada para una entrada CONSTANTE v (el tone-lowpass tiene ganancia 1 en DC). */
+function settledOut(mode: number, drive: number, v: number): number {
+  const u = distortionUnit({ mode, drive });
+  const { l } = render(u, 2048, () => [v, v]);
+  return l[l.length - 1]!;
+}
+
 // ── Registro de parámetros ───────────────────────────────────────────────────
 
 describe('registro', () => {
@@ -344,5 +357,33 @@ describe('Orbit Vinyl', () => {
     expect(ratio).toBeGreaterThan(0.8);
     expect(ratio).toBeLessThan(1.2);
     expect(peak(out.l)).toBeLessThan(0.7);
+  });
+});
+
+// ── Orbit Drive: foldback ─────────────────────────────────────────────────────
+
+describe('distorsión foldback (mode Fold)', () => {
+  it('es simétrica: shape(-x) = -shape(x)', () => {
+    // El foldback es una función impar; el bug del % con signo rompía justo el
+    // semiciclo negativo, así que comprobamos varios puntos, incluidos los que
+    // se pliegan más de una vez (|v| > 1).
+    for (const v of [0.3, 0.6, 0.9, 1.5, 3]) {
+      const pos = settledOut(2, 1, v);
+      const neg = settledOut(2, 1, -v);
+      expect(neg).toBeCloseTo(-pos, 4);
+    }
+  });
+
+  it('mantiene la salida en rango, sin el disparo del semiciclo negativo', () => {
+    // Con el bug, una entrada de -0,9 (drive 0,4) salía a +1,9 (≈4× fuera de
+    // rango); plegada de verdad, la salida no pasa de |shape|·output·0,5 = 0,5.
+    const u = distortionUnit({ mode: 2, drive: 0.4 });
+    const { l, r } = render(u, 4096, (i) => {
+      const x = Math.sin((2 * Math.PI * 220 * i) / SR) * 0.95; // barre casi todo [-1, 1]
+      return [x, x];
+    });
+    expect(hasNaN(l)).toBe(false);
+    expect(peak(l)).toBeLessThanOrEqual(1);
+    expect(peak(r)).toBeLessThanOrEqual(1);
   });
 });

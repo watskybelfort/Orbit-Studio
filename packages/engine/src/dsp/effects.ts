@@ -444,10 +444,13 @@ class DistortionUnit implements EffectUnit {
         return Math.max(-1, Math.min(1, y));
       }
       case 2: {
-        let y = x * k * 0.4;
-        // Foldback simple
-        y = Math.abs(((y + 1) % 4) - 2) - 1;
-        return y;
+        const y = x * k * 0.4;
+        // Foldback: pliega la señal dentro de [-1, 1]. El % de JS conserva el
+        // signo del dividendo, así que un semiciclo negativo daría módulo
+        // negativo y rompería el plegado; normalizamos a módulo positivo para
+        // que la curva sea simétrica.
+        const m = (((y + 1) % 4) + 4) % 4;
+        return Math.abs(m - 2) - 1;
       }
       default:
         return Math.tanh(x * k) / Math.tanh(k * 0.25);
