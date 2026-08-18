@@ -74,8 +74,37 @@ Panel de Claude).
 
 ## Estado
 
-**v1.1.0 — "cada sonido a solas".** Lo que faltaba para trabajar un sonido sin
-salir de él, y tres bugs que hacían que el estudio pareciera caprichoso.
+**v1.3.0 — "que se vea quién toca".** Dos cosas que se piden solas cuando el
+estudio ya funciona: saber qué está sonando y caber más de dos en una sesión.
+
+**Las teclas se iluminan mientras suenan.** El teclado lateral del Piano Roll y
+el de audición de Orbit Prisma encienden la tecla que suena: la que pulsas con
+el ratón, con la fila Z/Q del PC o con el MIDI, y también las que dispara el
+secuenciador durante la reproducción. El dato lo da el KERNEL (`MeterFrame.notes`,
+una entrada por voz sin soltar), así que se enciende lo que suena de verdad; lo
+que tienes pulsado se suma aparte para que la tecla responda en el mismo gesto,
+sin esperar al siguiente frame de medidores.
+
+**Salas de más de dos.** El aforo era una constante escondida: ahora se elige en
+el panel ("Caben", 2–64) o con `ORBIT_ROOM_CAPACITY`, `/health` lo publica y el
+panel dice "N conectados de M". Al que no cabe se le cierra con el motivo dentro
+y el cliente deja de reintentar en silencio: se lee "La sala está llena" en
+pantalla. Cada persona tiene **su color** aunque tres entren llamándose
+"Productor" — quien choca con alguien de `clientId` más bajo se aparta al primer
+color libre y la lista numera los nombres repetidos. Y el servidor que arranca la
+app puede **abrirse a la red** (casilla, apagada por defecto) para hospedar por
+LAN o VPN, enseñando las direcciones para compartir y avisando de que la sala no
+lleva contraseña.
+
+**v1.2.0 — "la casa en orden".** Auditoría extensa cerrada: aislamiento de los
+plugins JS, endurecimiento del servidor y de Electron, render offline en un
+worker, `mixerTrack` por carril de la playlist y botón para arrancar el servidor
+desde el panel.
+
+### v1.1.0 — "cada sonido a solas"
+
+Lo que faltaba para trabajar un sonido sin salir de él, y tres bugs que hacían
+que el estudio pareciera caprichoso.
 
 **Orbit Prisma**, el instrumento grande de presets: **125 sonidos** en 16
 categorías, hasta cuatro capas por preset sobre **nueve motores propios** (tabla
