@@ -199,7 +199,11 @@ export function PianoRoll() {
         const n = current?.get(notes[i]!.id) ?? notes[i]!;
         if (n.key === key && beat >= n.start && beat < n.start + n.duration) {
           const endX = beatToX(n.start + n.duration);
-          return { note: notes[i]!, edge: endX - x < 7 };
+          // Tirador del borde derecho, proporcional al ancho de la nota pero
+          // acotado: con 7 px fijos, una nota corta era casi todo tirador y en
+          // una larga con el zoom bajo había que acertar en una rendija.
+          const grip = Math.max(4, Math.min(12, (endX - beatToX(n.start)) * 0.3));
+          return { note: notes[i]!, edge: endX - x <= grip };
         }
       }
       return null;
@@ -676,10 +680,14 @@ export function PianoRoll() {
         );
       }
       setSelection(new Set(created.map((n) => n.id)));
-      // El drag posterior mueve TODO lo creado (la fundamental es created[0]).
+      // Gesto de dibujo, como en FL: el arrastre que sigue decide qué hace.
+      // Si va en horizontal, ESTIRA la nota recién puesta (y esa duración
+      // queda de plantilla para las siguientes); si va en vertical, la mueve.
+      // Se resuelve en `onPointerMove` con el primer movimiento que pase del
+      // umbral, y a partir de ahí el modo ya no cambia.
       const orig = new Map(created.map((n) => [n.id, { ...n }]));
       ghost.current = new Map(created.map((n) => [n.id, { ...n }]));
-      drag.current = { mode: 'move', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
+      drag.current = { mode: 'create', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
       previewNote(channelIndex, key, true);
     },
     [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt],
@@ -727,8 +735,28 @@ export function PianoRoll() {
       });
 
       const d = drag.current;
-      if (!d) return;
+      if (!d) {
+        // Sin gesto: el cursor delata qué haría un clic aquí — el tirador del
+        // borde derecho estira la nota, el cuerpo la mueve.
+        if (tool === 'draw') {
+          const over = noteAt(x, y);
+          canvas.style.cursor = over ? (over.edge ? 'ew-resize' : 'move') : '';
+        } else if (canvas.style.cursor !== '') {
+          canvas.style.cursor = '';
+        }
+        return;
+      }
       d.moved = true;
+
+      // Gesto de dibujo recién empezado: el primer movimiento que pase del
+      // umbral decide si se estira (horizontal, como el arrastre de FL) o se
+      // mueve (vertical). Una vez decidido, el modo se queda fijo.
+      if (d.mode === 'create') {
+        const dx = x - d.startX;
+        const dy = y - d.startY;
+        if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+        d.mode = Math.abs(dx) >= Math.abs(dy) ? 'resize' : 'move';
+      }
 
       if (d.mode === 'velocity') {
         applyVelocityAt(x, y, rect.height);
@@ -791,7 +819,7 @@ export function PianoRoll() {
       }
       draw();
     },
-    [zoomX, yToKey, doSnap, snap, snapStep, scaleLock, snapToScale, xToBeat, draw, applyVelocityAt, paintAt, eraseAt, channelIndex, channel],
+    [zoomX, yToKey, doSnap, snap, snapStep, scaleLock, snapToScale, xToBeat, draw, applyVelocityAt, paintAt, eraseAt, channelIndex, channel, tool, noteAt],
   );
 
   const onPointerUp = useCallback(() => {
