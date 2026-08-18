@@ -32,6 +32,19 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import { normalizeRoomCode } from './room-path';
 
+// Dónde escuchar (localhost, una IP concreta, todas) vive aparte y se
+// reexporta: la app de escritorio lo necesita para su desplegable.
+export {
+  HOST_ALL,
+  HOST_LOCAL,
+  describeAddress,
+  hostWasHonored,
+  isOpenToNetwork,
+  resolveHost,
+  sortAddresses,
+  type HostAddress,
+} from './host';
+
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 
