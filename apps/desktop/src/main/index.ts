@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
+import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
@@ -212,6 +213,9 @@ function normalizeToolResult(result: unknown): { text: string } | { error: strin
 
 function startClaudeBridge(): void {
   bridgeHost = startBridgeHost({
+    // Token por sesión: solo el relay MCP que lee ~/.orbit/bridge.json puede
+    // hablar con el host. Corta que cualquier proceso local ejecute las tools.
+    token: generateBridgeToken(),
     dispatch: dispatchClaudeTool,
     onStatus: (s) => {
       // Indicador de conexión para la UI (panel de Claude).

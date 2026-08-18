@@ -21,8 +21,13 @@ import {
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import { TOOLS } from '../tools';
+import { readBridgeInfo } from './bridge-auth';
 
-const PORT = Number(process.env['ORBIT_BRIDGE_PORT'] ?? '7855');
+// Puerto y token de la sesión viva: el main los deja en ~/.orbit/bridge.json. El
+// override por env manda (útil para pruebas); si no, se usa lo del archivo.
+const bridgeInfo = readBridgeInfo();
+const PORT = Number(process.env['ORBIT_BRIDGE_PORT'] ?? bridgeInfo?.port ?? '7855');
+const AUTH_TOKEN = bridgeInfo?.token ?? null;
 const URL_WS = `ws://127.0.0.1:${PORT}`;
 const CONNECT_ATTEMPTS = 5;
 const CONNECT_RETRY_MS = 400;
@@ -58,6 +63,9 @@ function connectOnce(): Promise<WebSocket> {
     let settled = false;
 
     ws.on('open', () => {
+      // Handshake: presentarse con el token de la sesión antes que nada. El host
+      // cierra la conexión si no llega o no coincide.
+      if (AUTH_TOKEN) ws.send(JSON.stringify({ type: 'auth', token: AUTH_TOKEN }));
       settled = true;
       resolve(ws);
     });
