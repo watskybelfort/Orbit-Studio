@@ -180,6 +180,9 @@ export class KernelCore {
         this.posBeats = msg.beat;
         this.resyncCursor();
         this.applyMaps();
+        // Saltar deja huérfanas las notas que estaban sonando: su note-off
+        // vivía en un punto del timeline que ya no vamos a pisar.
+        this.releaseSequencedVoices();
         break;
       case 'setLoop':
         this.loopEnabled = msg.enabled;
@@ -616,6 +619,31 @@ export class KernelCore {
     }
   }
 
+  /**
+   * Suelta lo que venía sonando del pase que se acaba de cerrar (el loop dio la
+   * vuelta, o el playhead saltó). Las audiciones NO se tocan: esas las suelta
+   * quien las está pulsando.
+   *
+   * Sin esto, una nota que termina JUSTO en el final del patrón —o que lo
+   * cruza— no encontraba nunca su note-off: la comparación `posBeats >=
+   * offBeat` deja de cumplirse en cuanto el playhead vuelve al principio, así
+   * que la voz se quedaba sonando pase tras pase. El resultado eran dos cosas
+   * que se notan enseguida: el sonido se solapa consigo mismo, y cuando el pool
+   * de 64 voces se llena se roba la MÁS ANTIGUA, que es justo la primera nota
+   * del patrón — parecía que se cortaba la primera y las de más adelante no.
+   *
+   * Soltar no es cortar: arranca la envolvente de release, así que las colas
+   * largas siguen sonando como en FL.
+   */
+  private releaseSequencedVoices(): void {
+    for (const v of this.voices) {
+      if (!v.released && v.previewKey === null) {
+        v.voice.noteOff();
+        v.released = true;
+      }
+    }
+  }
+
   private previewOn(channelIndex: number, key: number): void {
     this.spawnVoice(channelIndex, key, 0.9, 0, Infinity, `${channelIndex}:${key}`);
   }
@@ -940,6 +968,9 @@ export class KernelCore {
         // El loop envuelve dentro de este bloque: dos segmentos.
         const wrapSamples = Math.round((this.loopEnd - this.posBeats) / spb);
         this.triggerRange(this.posBeats, this.loopEnd, 0, spb);
+        // El pase termina aquí: lo que siguiera sonando se suelta EN el cierre.
+        // Si no, nada lo suelta ya (el playhead vuelve atrás) y se acumula.
+        this.releaseSequencedVoices();
         const remainBeats = end - this.loopEnd;
         // Cambio cuantizado (vista Live): el snapshot en cola entra EXACTO
         // en el cierre del loop, con precisión de sample.
