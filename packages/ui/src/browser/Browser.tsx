@@ -36,7 +36,7 @@ import { engine, ensureAudioReady } from '../state/app';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, loadIntoEngine, setDragEntry } from './sound-actions';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
-import { generatePack } from './pack-generator';
+import { generatePack, packEntries } from './pack-generator';
 import {
   BPM_MAX,
   BPM_MIN,
@@ -361,14 +361,7 @@ export function Browser() {
    */
   const packEntriesBySlug = useMemo(() => {
     const out: Record<string, SoundEntry[]> = {};
-    for (const pack of packs) {
-      out[pack.slug] = pack.manifest.entries.map((entry) => ({
-        ...entry,
-        id: `pack:${entry.id}`,
-        file: `${pack.slug}/${entry.file}`,
-        tags: [...entry.tags, 'generado'],
-      }));
-    }
+    for (const pack of packs) out[pack.slug] = packEntries(pack.slug, pack.manifest);
     return out;
   }, [packs]);
 

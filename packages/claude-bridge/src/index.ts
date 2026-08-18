@@ -6,7 +6,12 @@
 export const BRIDGE_VERSION = '0.1.0';
 
 export { TOOLS, findTool, type ToolDef, type ToolInputSchema } from './tools';
-export { ToolExecutor, type SaveFileFn } from './executor';
+export {
+  ToolExecutor,
+  type GeneratePackFn,
+  type GeneratedPackInfo,
+  type SaveFileFn,
+} from './executor';
 export {
   CEILING_DB,
   GENRE_LABELS,

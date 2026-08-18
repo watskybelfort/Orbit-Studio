@@ -48,6 +48,14 @@ import {
   type PlayMode,
 } from '@orbit/engine';
 import {
+  MAX_PACK_SOUNDS,
+  PACK_FAMILIES,
+  PACK_STYLES,
+  isPackFamily,
+  isPackStyle,
+  type PackRequest,
+} from '@orbit/sound-library';
+import {
   STREAMING_LUFS,
   adviseMix,
   formatAdvice,
@@ -60,6 +68,29 @@ import {
 
 /** Guarda `data` con nombre sugerido y devuelve la ruta final. */
 export type SaveFileFn = (suggestedName: string, data: Uint8Array) => Promise<string>;
+
+/** Resumen de un pack recién generado (lo que el modelo necesita saber). */
+export interface GeneratedPackInfo {
+  slug: string;
+  name: string;
+  /** Sonidos escritos. */
+  count: number;
+  /** Carpeta donde han quedado. */
+  dir: string;
+  /** Duración total en segundos. */
+  seconds: number;
+  /** Canales sampler creados (0 si no se pidieron). */
+  added: number;
+}
+
+/**
+ * Genera un pack de sonidos. La inyecta el renderer (el executor no toca ni el
+ * disco ni el browser), igual que `saveFile` con los WAV del render.
+ */
+export type GeneratePackFn = (
+  request: PackRequest,
+  opts: { addChannels: boolean },
+) => Promise<GeneratedPackInfo>;
 
 // Del registro de core, igual que los efectos: si core gana un instrumento
 // (nova, vox, slicer…) la tool lo acepta sola y no se queda corta respecto al
@@ -158,6 +189,8 @@ export class ToolExecutor {
     private readonly saveFile?: SaveFileFn,
     /** Petición pendiente del usuario (panel de Claude); consumirla la borra. */
     private readonly takeUserRequest?: () => string | null,
+    /** Generador de packs de sonidos (lo cablea el renderer). */
+    private readonly generatePack?: GeneratePackFn,
   ) {}
 
   /** Adjunta la petición pendiente del usuario al texto de get_project. */
@@ -197,6 +230,7 @@ export class ToolExecutor {
       case 'render': return { text: await this.render(a) };
       case 'analyze_mix': return { text: this.analyzeMixTool() };
       case 'advise_mix': return { text: this.adviseMixTool(a) };
+      case 'generate_pack': return { text: await this.generatePackTool(a) };
       case 'undo': return { text: this.undo() };
       case 'redo': return { text: this.redo() };
       default:
@@ -1144,7 +1178,64 @@ export class ToolExecutor {
     return `Aplicado en un solo paso de undo: ${done.join(', ')}.`;
   }
 
-  // ── Undo / redo ────────────────────────────────────────────────────────────
+  // ── Packs de sonidos a medida ─────────────────────────────────────
+
+  /**
+   * "Dame 12 hats de drill": el encargo se valida aquí (la familia es
+   * obligatoria y el estilo tiene que existir) y el trabajo sucio —renderizar
+   * con el motor y escribir los WAV— lo hace el renderer por la función
+   * inyectada, igual que con los WAV de `render`.
+   */
+  private async generatePackTool(a: Record<string, unknown>): Promise<string> {
+    if (!this.generatePack) {
+      throw new ToolError(
+        'Generar packs no está disponible en esta sesión (falta el puente de la librería)',
+      );
+    }
+    const family = a['family'];
+    if (!isPackFamily(family)) {
+      throw new ToolError(
+        `Familia desconocida: "${String(family)}". Válidas: ${PACK_FAMILIES.join(', ')}`,
+      );
+    }
+    const request: PackRequest = { family };
+
+    const style = a['style'];
+    if (style !== undefined) {
+      if (!isPackStyle(style)) {
+        throw new ToolError(
+          `Estilo desconocido: "${String(style)}". Válidos: ${PACK_STYLES.join(', ')}`,
+        );
+      }
+      request.style = style;
+    }
+
+    const count = a['count'];
+    if (count !== undefined) {
+      if (typeof count !== 'number' || !Number.isFinite(count)) {
+        throw new ToolError('count debe ser un número');
+      }
+      request.count = Math.round(clamp(count, 1, MAX_PACK_SOUNDS));
+    }
+
+    const name = a['name'];
+    if (typeof name === 'string' && name.trim() !== '') request.name = name.trim();
+    const key = a['key'];
+    if (typeof key === 'string' && key.trim() !== '') request.key = key.trim().toUpperCase();
+    const seed = a['seed'];
+    if (typeof seed === 'number' && Number.isFinite(seed)) request.seed = Math.round(seed);
+
+    const pack = await this.generatePack(request, { addChannels: a['addChannels'] === true });
+    const added =
+      pack.added > 0 ? ` Y ${pack.added} canal(es) sampler nuevos en el proyecto.` : '';
+    return (
+      `Pack "${pack.name}" generado: ${pack.count} sonidos (${f(pack.seconds, 2)} s de audio) en ${pack.dir}.
+` +
+      `Ya está en el browser, sección "Packs generados": se arrastran al rack o a la playlist como los de fábrica.${added}`
+    );
+  }
+
+  // ── Undo / redo ──────────────────────────────────────────────────────────
 
   private undo(): string {
     const entry = [...this.store.history].reverse().find((e) => e.origin === 'claude');

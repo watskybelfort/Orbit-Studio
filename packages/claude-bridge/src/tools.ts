@@ -16,6 +16,7 @@
  */
 
 import { EFFECT_PARAMS, INSTRUMENT_PARAMS } from '@orbit/core';
+import { MAX_PACK_SOUNDS, PACK_FAMILIES, PACK_STYLES } from '@orbit/sound-library';
 
 /** JSON Schema (draft-07 compatible) del input de una tool. */
 export interface ToolInputSchema {
@@ -462,6 +463,48 @@ export const TOOLS: ToolDef[] = [
           description: 'Pista del 808/sub (si no, se busca por nombre).',
         },
       },
+    },
+  },
+  {
+    name: 'generate_pack',
+    description:
+      'Genera un pack de sonidos NUEVO por síntesis ("12 hats de drill") con el MISMO motor que ' +
+      'suena en vivo y lo deja en la librería de la app (sección "Packs generados"), listo para ' +
+      'arrastrar al rack o a la playlist. `family` manda (kicks, snares, claps, hats, openhats, ' +
+      'percs, 808s, impacts, risers, downlifters) y `style` le da el carácter (trap, drill, ' +
+      'boombap, latin, house, techno, lofi; por defecto trap). `count` 1..' + String(MAX_PACK_SOUNDS) +
+      ' (por defecto 8): las variaciones recorren TODO el rango de la familia, de lo más oscuro a ' +
+      'lo más brillante. `key` es la nota raíz de los 808s ("C", "F", "A#"). `seed` cambia las ' +
+      'variaciones sin cambiar nada más (mismo encargo + misma semilla = mismo pack, siempre). ' +
+      'Con `addChannels` true, además mete cada sonido en un canal sampler del proyecto.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        family: {
+          type: 'string',
+          enum: [...PACK_FAMILIES],
+          description: 'Qué familia de sonidos.',
+        },
+        style: {
+          type: 'string',
+          enum: [...PACK_STYLES],
+          description: 'Carácter del pack (por defecto "trap").',
+        },
+        count: {
+          type: 'number',
+          minimum: 1,
+          maximum: MAX_PACK_SOUNDS,
+          description: 'Cuántos sonidos (por defecto 8).',
+        },
+        name: { type: 'string', description: 'Nombre del pack (por defecto, familia + estilo).' },
+        key: { type: 'string', description: 'Nota raíz de los 808s ("C", "D#", "F"...).' },
+        seed: { type: 'number', description: 'Semilla de las variaciones.' },
+        addChannels: {
+          type: 'boolean',
+          description: 'Además de generarlo, mete cada sonido en un canal sampler.',
+        },
+      },
+      required: ['family'],
     },
   },
   {

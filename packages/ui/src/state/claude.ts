@@ -5,7 +5,9 @@
  */
 
 import { create } from 'zustand';
-import { ToolExecutor, type SaveFileFn } from '@orbit/claude-bridge';
+import { ToolExecutor, type GeneratePackFn, type SaveFileFn } from '@orbit/claude-bridge';
+import { addSamplerChannel } from '../browser/sound-actions';
+import { generatePack, readPackEntries } from '../browser/pack-generator';
 import { store } from './app';
 
 export interface ClaudeActivityEntry {
@@ -84,11 +86,34 @@ export function initClaudeBridge(): void {
     return path;
   };
 
-  const executor = new ToolExecutor(store, saveFile, () => {
-    const request = useClaudeStore.getState().pendingRequest;
-    if (request) useClaudeStore.setState({ pendingRequest: null });
-    return request;
-  });
+  /**
+   * Packs de sonidos que pida Claude (tool generate_pack): las recetas y el
+   * render viven en la UI, el executor solo pide el trabajo. Con addChannels
+   * cada sonido entra además en un canal sampler por el MISMO camino que el
+   * doble clic del browser — registra el sample y despacha por el bus.
+   */
+  const makePack: GeneratePackFn = async (request, opts) => {
+    const pack = await generatePack(request);
+    let added = 0;
+    if (opts.addChannels) {
+      for (const entry of await readPackEntries(pack.slug)) {
+        await addSamplerChannel(entry);
+        added++;
+      }
+    }
+    return { ...pack, added };
+  };
+
+  const executor = new ToolExecutor(
+    store,
+    saveFile,
+    () => {
+      const request = useClaudeStore.getState().pendingRequest;
+      if (request) useClaudeStore.setState({ pendingRequest: null });
+      return request;
+    },
+    makePack,
+  );
 
   api.claude.onBridgeStatus((s) => {
     useClaudeStore.setState({ connected: s.connected });

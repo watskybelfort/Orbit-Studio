@@ -1,9 +1,28 @@
 // QA del puente Claude: habla el protocolo del relay contra la app viva.
+//
+// Uso: node tools/qa/drive-bridge.mjs            → monta un beat de prueba
+//      node tools/qa/drive-bridge.mjs pack       → solo pide un pack de sonidos
+//
+// El host pide token desde el endurecimiento de v1.2: puerto y token viven en
+// ~/.orbit/bridge.json (ORBIT_BRIDGE_INFO lo redirige) y hay que presentarlo
+// en el PRIMER mensaje o el socket se cierra.
 import { createRequire } from 'module';
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-const ws = new WebSocket('ws://127.0.0.1:7855');
+const modo = process.argv[2] ?? 'beat';
+const infoPath = process.env.ORBIT_BRIDGE_INFO ?? join(homedir(), '.orbit', 'bridge.json');
+let info = { port: 7855, token: null };
+try {
+  info = { port: 7855, ...JSON.parse(readFileSync(infoPath, 'utf8')) };
+} catch {
+  console.warn(`Sin ${infoPath}: se prueba sin token (la app antigua no lo pedia).`);
+}
+
+const ws = new WebSocket(`ws://127.0.0.1:${info.port}`);
 const pending = new Map();
 let seq = 0;
 
@@ -29,6 +48,17 @@ ws.on('message', (raw) => {
 
 ws.on('open', async () => {
   try {
+    if (info.token) ws.send(JSON.stringify({ type: 'auth', token: info.token }));
+
+    if (modo === 'pack') {
+      console.log('— generate_pack —');
+      console.log(
+        await call('generate_pack', { family: 'percs', style: 'latin', count: 4, name: 'QA Percs' }),
+      );
+      ws.close();
+      process.exit(0);
+    }
+
     console.log('— get_project inicial —');
     console.log(await call('get_project', {}));
 

@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ProjectStore, noteToMidi } from '@orbit/core';
+import { MAX_PACK_SOUNDS, type PackRequest } from '@orbit/sound-library';
 import { ToolExecutor } from '../src/executor';
 
 /** Store nuevo + executor; devuelve también helpers de lectura frecuentes. */
@@ -159,5 +160,89 @@ describe('ToolExecutor', () => {
     expect(saved).not.toBeNull();
     const header = new TextDecoder().decode(saved!.slice(0, 4));
     expect(header).toBe('RIFF');
+  });
+  // ── generate_pack ───────────────────────────────────────────────
+  // El render y el disco los pone el renderer: aquí se comprueba que el
+  // encargo se valida y llega normalizado a esa función inyectada.
+
+  it('generate_pack pasa el encargo normalizado al generador', async () => {
+    const store = new ProjectStore();
+    const encargos: PackRequest[] = [];
+    const executor = new ToolExecutor(store, undefined, undefined, async (request, opts) => {
+      encargos.push(request);
+      return {
+        slug: 'hats-de-drill',
+        name: 'Hats de drill',
+        count: request.count ?? 8,
+        dir: 'C:\fake\packs\hats-de-drill',
+        seconds: 1.2,
+        added: opts.addChannels ? 6 : 0,
+      };
+    });
+
+    const { text } = await executor.execute('generate_pack', {
+      family: 'hats',
+      style: 'drill',
+      count: 6,
+      name: '  Hats del Doctor  ',
+      key: 'f',
+      seed: 3.6,
+    });
+
+    expect(encargos).toEqual([
+      { family: 'hats', style: 'drill', count: 6, name: 'Hats del Doctor', key: 'F', seed: 4 },
+    ]);
+    expect(text).toContain('Hats de drill');
+    expect(text).toContain('Packs generados');
+  });
+
+  it('generate_pack recorta la cantidad a lo que admite el generador', async () => {
+    const store = new ProjectStore();
+    const encargos: PackRequest[] = [];
+    const executor = new ToolExecutor(store, undefined, undefined, async (request) => {
+      encargos.push(request);
+      return { slug: 'p', name: 'P', count: 1, dir: 'd', seconds: 0.1, added: 0 };
+    });
+    await executor.execute('generate_pack', { family: 'kicks', count: 500 });
+    expect(encargos[0]?.count).toBe(MAX_PACK_SOUNDS);
+  });
+
+  it('generate_pack cuenta los canales que ha metido en el proyecto', async () => {
+    const store = new ProjectStore();
+    const executor = new ToolExecutor(store, undefined, undefined, async (_r, opts) => ({
+      slug: 'p',
+      name: 'P',
+      count: 3,
+      dir: 'd',
+      seconds: 0.3,
+      added: opts.addChannels ? 3 : 0,
+    }));
+    const { text } = await executor.execute('generate_pack', { family: 'claps', addChannels: true });
+    expect(text).toContain('3 canal(es) sampler');
+  });
+
+  it('generate_pack rechaza familias y estilos que no existen', async () => {
+    const store = new ProjectStore();
+    const executor = new ToolExecutor(store, undefined, undefined, async () => ({
+      slug: 'p',
+      name: 'P',
+      count: 1,
+      dir: 'd',
+      seconds: 0.1,
+      added: 0,
+    }));
+    await expect(executor.execute('generate_pack', { family: 'guitarras' })).rejects.toThrow(
+      /Familia desconocida/,
+    );
+    await expect(
+      executor.execute('generate_pack', { family: 'hats', style: 'cumbia' }),
+    ).rejects.toThrow(/Estilo desconocido/);
+  });
+
+  it('sin generador cableado lo dice en vez de fallar raro', async () => {
+    const { executor } = setup();
+    await expect(executor.execute('generate_pack', { family: 'hats' })).rejects.toThrow(
+      /no está disponible/,
+    );
   });
 });

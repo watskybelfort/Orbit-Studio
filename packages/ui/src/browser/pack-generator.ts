@@ -14,6 +14,7 @@
 
 import { encodeWav, renderProject } from '@orbit/engine';
 import {
+  loadManifest,
   planPack,
   type PackPlan,
   type PackRequest,
@@ -184,6 +185,29 @@ export async function renderPackPlan(
     dir: saved.dir,
     seconds: Math.round(seconds * 100) / 100,
   };
+}
+
+/**
+ * Entradas de un pack tal y como las entiende el resto de la app: el manifest
+ * guarda rutas relativas a SU carpeta, así que aquí se les antepone el pack
+ * (y el esquema `pack:` al id) para que loadIntoEngine sepa por dónde leerlas.
+ * Lo usan el browser y el puente de Claude: una sola forma de prefijar.
+ */
+export function packEntries(slug: string, manifest: SoundManifest): SoundEntry[] {
+  return manifest.entries.map((entry) => ({
+    ...entry,
+    id: `pack:${entry.id}`,
+    file: `${slug}/${entry.file}`,
+    tags: [...entry.tags, 'generado'],
+  }));
+}
+
+/** Entradas de un pack ya escrito, leídas de su manifest en el disco. */
+export async function readPackEntries(slug: string): Promise<SoundEntry[]> {
+  const packs = (await window.orbit?.pack.list()) ?? [];
+  const found = packs.find((p) => p.slug === slug);
+  if (!found) return [];
+  return packEntries(slug, loadManifest(found.manifest));
 }
 
 /** Encargo → pack en el disco (planificar + renderizar + escribir). */
