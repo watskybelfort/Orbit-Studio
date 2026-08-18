@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.7.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-545%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.8.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-578%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,29 @@ guardables con nombre).
 
 ## Lo último
 
+**v1.8.0 — "quién manda y qué se oye".** Las tres del "Siguiente".
+
+**El rol ya no es lo que tú digas.** Hasta ahora cada cliente declaraba el
+suyo y los demás lo creían: cambiar un campo bastaba para ascender a productor
+y borrarle el proyecto a otro. Ahora **lo reparte la sala** — el primero que
+entra manda y desde su lista cambia el de los demás; si se va, hereda el más
+antiguo — y el **servidor vigila el log**: cada cambio se juzga con el rol que
+él tiene apuntado y lo que no pasa se retira. El que lo intentó ve su propio
+proyecto volver a lo que dice la sala.
+
+**Oír el master del otro.** El proyecto converge, pero lo que suena no: cada
+uno renderiza en su máquina. Con **"Emitir mi master"** tu salida final viaja a
+la sala y el botón **Oír** de cada fila la reproduce en la tuya, con su propio
+volumen y sin tocar nada del proyecto. Se acabó el "¿lo estás oyendo igual que
+yo?".
+
+**Packs con más cuerpo.** A las diez familias de one-shots se suman **loops de
+verdad**: melódicos con progresión (la de cada género: i–VI–III–VII para el
+trap, i–VII–VI–V para el drill…), breaks de batería con su bombo, su caja y sus
+hats —con redoble de tresillos al cerrar en trap y drill— y líneas de 808 que
+siguen los acordes con glide. Salen al tempo del estilo, con su tonalidad, y
+cortados **exactos en el beat** para que encajen con cualquier proyecto.
+
 **v1.7.0 — "el cable y el sonido".** Se vacía el "Siguiente" del roadmap.
 
 **El enrutado, como grafo.** Ventana **Enrutado**: el camino entero de la
@@ -111,21 +134,6 @@ se dibuja sola en cuanto empiezas a arrastrar— sale de la suya. Guía de
 inserción mientras arrastras y **un solo Ctrl+Z** para deshacerlo entero,
 carpeta y sitio.
 
-**v1.5.0 — "cada cosa en su sitio".** Dos del roadmap, terminadas.
-
-**El Slicer trocea por los golpes.** En la pestaña Sonido de un canal Slicer
-tienes la onda con los cortes numerados encima y el botón que los pone **en los
-transientes** (tres grados de detalle, del golpe gordo al hi-hat). Los cortes
-son del canal, se guardan con el proyecto y se retocan a mano: arrastrar mueve
-uno, doble clic añade, el derecho quita. Sin cortes propios el motor reparte en
-partes iguales exactamente como siempre.
-
-**Carpetas en el Channel Rack.** Cabecera con su color, plegado, contador y
-M/S de todo el grupo; el menú del canal mueve, saca o crea carpeta con él. Es
-organización pura —no hay bus de carpeta—: el mute del grupo se le hace a sus
-canales en un solo paso de undo, y deshacer la carpeta los deja sueltos sin
-borrar nada.
-
 **v1.4.1 — el loop ya no se pisa a sí mismo.** Una nota que acababa justo en el
 final del patrón no encontraba nunca su note-off: seguía sonando vuelta tras
 vuelta, el sonido se solapaba consigo mismo y, al llenarse el pool de 64 voces,
@@ -148,17 +156,17 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **El servidor valida los roles** | Hoy el rol es autodeclarado (mismo modelo de confianza que el código de sala): que sea inviolable exige validar el log en el servidor |
-| **Streaming del master de la sesión** | Cada cliente renderiza lo suyo; oír el master del otro cierra el "¿lo estás oyendo igual que yo?" |
-| **Packs generados con más cuerpo** | Las familias de v1.7 son one-shots; los loops (melodías, breaks) piden armonía y estructura, no solo variación de parámetros |
+| **Historial de versiones con diff musical** | "¿Qué cambió en el drop?" respondido con música, no con bytes |
+| **Encoder Opus propio** | Lo pide dos veces la casa: el export a OGG (hoy descartado) y el streaming del master, que hoy viaja crudo |
+| **Galería de plugins de la comunidad** | El SDK de plugins JS ya está ([docs/PLUGINS.md](docs/PLUGINS.md)); falta el sitio donde compartirlos |
 
 ### Después
 
 | Qué | Por qué |
 |---|---|
-| **Historial de versiones con diff musical** | "¿Qué cambió en el drop?" respondido con música, no con bytes |
-| **Galería de plugins de la comunidad** | El SDK de plugins JS ya está ([docs/PLUGINS.md](docs/PLUGINS.md)); falta el sitio donde compartirlos |
-| **Nodos con más que enrutado** | El graph editor de v1.7 recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
+| **Nodos con más que enrutado** | El graph editor recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
+| **Contraseña de sala** | El rol ya lo decide el servidor, pero entrar sigue siendo saber el código: la puerta es lo siguiente |
+| **Packs con estructura entera** | Un loop de cuatro compases no es un beat: encadenar secciones (intro, drop, vuelta) es otro problema |
 
 ### Horizonte
 
@@ -174,7 +182,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 545 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 578 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
