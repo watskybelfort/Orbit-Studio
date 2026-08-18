@@ -31,6 +31,7 @@ import {
   type SampleAsset,
 } from './assets';
 import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
+import { MESSAGE_CONTROL, encodeControl, readControlBody } from './control';
 import { normalizeRoomCode } from './room-code';
 
 const MESSAGE_SYNC = 0;
@@ -104,6 +105,14 @@ export interface CollabSessionOptions {
    * lleno de referencias y el kernel local, vacío.
    */
   onProjectReplaced?: () => void;
+  /**
+   * El servidor ha dicho qué rol tenemos. Desde v1.8 el rol NO es lo que uno
+   * declare: lo reparte la sala (el primero que entra es el productor) y esto
+   * llega al conectar y cada vez que cambia.
+   */
+  onRole?: (role: CollabRole) => void;
+  /** Tabla de roles de la sala por clientID (para pintar quién es qué). */
+  onRoles?: (roles: Record<string, CollabRole>) => void;
   /** Llegó a la sala el contenido de un sample que aún no teníamos. */
   onAsset?: (asset: SampleAsset) => void;
   /** Un sample no cupo en la sala (demasiado grande o sala llena). */
@@ -124,6 +133,8 @@ export class CollabSession {
   private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
   private readonly onRejected: ((reason: string) => void) | undefined;
   private readonly onProjectReplaced: (() => void) | undefined;
+  private readonly onRole: ((role: CollabRole) => void) | undefined;
+  private readonly onRoles: ((roles: Record<string, CollabRole>) => void) | undefined;
   private currentRole: CollabRole;
 
   private readonly chatBinding: ChatBinding;
@@ -148,6 +159,8 @@ export class CollabSession {
     this.onDenied = opts.onDenied;
     this.onRejected = opts.onRejected;
     this.onProjectReplaced = opts.onProjectReplaced;
+    this.onRole = opts.onRole;
+    this.onRoles = opts.onRoles;
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
@@ -277,6 +290,45 @@ export class CollabSession {
   // ── Rol ────────────────────────────────────────────────────────────────────
 
   /** Rol propio en la sala. */
+  /**
+   * Mensajes del servidor sobre la sala. El rol que manda es el SUYO: aquí se
+   * adopta tal cual (y se publica en la presencia para que los demás lo vean
+   * igual), en vez de seguir anunciando el que uno se puso.
+   */
+  private handleControl(decoder: decoding.Decoder): void {
+    const message = readControlBody(decoder);
+    if (!message) return;
+    switch (message.type) {
+      case 'role':
+        if (message.role !== this.currentRole) {
+          this.currentRole = message.role;
+          this.awareness.setLocalStateField('role', message.role);
+        }
+        this.onRole?.(message.role);
+        break;
+      case 'roles':
+        this.onRoles?.(message.roles);
+        break;
+      case 'denied':
+        this.onRejected?.(
+          message.command
+            ? `${message.reason} (${message.command} no entró en la sala)`
+            : message.reason,
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  /**
+   * Pide al servidor el cambio de rol de otro (solo lo atiende si quien lo
+   * pide es productor: la decisión no es de este lado).
+   */
+  requestPeerRole(clientId: number, role: CollabRole): void {
+    this.send(encodeControl({ type: 'setRole', client: clientId, role }));
+  }
+
   get role(): CollabRole {
     return this.currentRole;
   }
@@ -427,6 +479,10 @@ export class CollabSession {
           this.synced = true;
           this.onSynced();
         }
+        break;
+      }
+      case MESSAGE_CONTROL: {
+        this.handleControl(decoder);
         break;
       }
       case MESSAGE_AWARENESS: {

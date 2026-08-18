@@ -319,3 +319,33 @@ describe('CommandLogBinding: compactación', () => {
     expect(storeB.project.tempo).toBe(77);
   });
 });
+
+describe('la sala retira entradas (el servidor valida los roles)', () => {
+  it('lo que el servidor borra del log también se deshace en quien lo mandó', () => {
+    const { storeA, storeB, docA } = setupTwoClients();
+
+    storeA.dispatch({ type: 'setTempo', tempo: 133 });
+    expect(storeB.project.tempo).toBe(133);
+
+    // El servidor juzga la entrada y la retira (transacción ajena, como la
+    // suya): los dos clientes tienen que volver a lo que dice el log.
+    const log = docA.getArray<LogEntry>('commands');
+    const at = log.toArray().findIndex((entry) => entry.cmd.type === 'setTempo');
+    expect(at).toBeGreaterThanOrEqual(0);
+    docA.transact(() => log.delete(at, 1), 'orbit:roles');
+
+    expect(storeA.project.tempo).not.toBe(133);
+    expect(storeB.project.tempo).not.toBe(133);
+    expectConverged(storeA, storeB);
+  });
+
+  it('compactar también vacía el log y eso NO deshace nada', () => {
+    const { storeA, storeB } = setupTwoClients({ compactThreshold: 3 });
+
+    for (const tempo of [100, 110, 120, 130]) storeA.dispatch({ type: 'setTempo', tempo });
+
+    expect(storeA.project.tempo).toBe(130);
+    expect(storeB.project.tempo).toBe(130);
+    expectConverged(storeA, storeB);
+  });
+});

@@ -8,7 +8,13 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { COLLAB_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, formatRoomCode } from '@orbit/collab';
+import {
+  COLLAB_ROLES,
+  ROLE_DESCRIPTIONS,
+  ROLE_LABELS,
+  formatRoomCode,
+  type CollabRole,
+} from '@orbit/collab';
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
 import {
@@ -27,6 +33,7 @@ import {
   removeChat,
   saveCollabSettings,
   sendChat,
+  requestPeerRole,
   setCollabRole,
   toggleAudioFrozen,
   useCollabStore,
@@ -61,6 +68,8 @@ export function CollabPanel() {
   const peers = useCollabStore((s) => s.peers);
   const error = useCollabStore((s) => s.error);
   const role = useCollabStore((s) => s.role);
+  const assignedRole = useCollabStore((s) => s.assignedRole);
+  const peerRoles = useCollabStore((s) => s.peerRoles);
   const following = useCollabStore((s) => s.following);
   const audioFrozen = useCollabStore((s) => s.audioFrozen);
   const frozenPending = useCollabStore((s) => s.frozenPending);
@@ -240,7 +249,16 @@ export function CollabPanel() {
                 server.running && server.roomCapacity ? ` de ${server.roomCapacity}` : ''
               }`
             : 'Conectando…'}
-          <span className="collab-role-chip">{ROLE_LABELS[role]}</span>
+          <span
+            className="collab-role-chip"
+            title={
+              assignedRole
+                ? 'Rol asignado por la sala (el servidor lo reparte y lo hace cumplir)'
+                : 'Rol con el que te presentarás al entrar'
+            }
+          >
+            {ROLE_LABELS[role]}
+          </span>
         </div>
 
         {denied && <p className="collab-error">{denied}</p>}
@@ -255,7 +273,26 @@ export function CollabPanel() {
                     {peerLabels.get(p.clientId) ?? p.user.name}
                     {p.isSelf ? ' (tú)' : ''}
                   </span>
-                  <span className="collab-role-chip">{ROLE_LABELS[p.role]}</span>
+                  {assignedRole === 'productor' && !p.isSelf ? (
+                    <select
+                      className="collab-role-select"
+                      value={peerRoles[String(p.clientId)] ?? p.role}
+                      title="Cambiar su rol en la sala (lo aplica el servidor)"
+                      onChange={(e) =>
+                        requestPeerRole(p.clientId, e.target.value as CollabRole)
+                      }
+                    >
+                      {COLLAB_ROLES.map((r) => (
+                        <option key={r} value={r}>
+                          {ROLE_LABELS[r]}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="collab-role-chip">
+                      {ROLE_LABELS[peerRoles[String(p.clientId)] ?? p.role]}
+                    </span>
+                  )}
                   {p.activity && (
                     <span className="collab-peer-activity">
                       · {p.activity.editor}
@@ -471,6 +508,12 @@ export function CollabPanel() {
         <select
           className="collab-input"
           value={role}
+          disabled={assignedRole !== null}
+          title={
+            assignedRole !== null
+              ? 'Dentro de una sala el rol lo reparte el servidor'
+              : 'Rol con el que te presentas al entrar'
+          }
           onChange={(e) => setCollabRole(e.target.value as (typeof COLLAB_ROLES)[number])}
         >
           {COLLAB_ROLES.map((r) => (
@@ -480,7 +523,11 @@ export function CollabPanel() {
           ))}
         </select>
       </div>
-      <p className="collab-note">{ROLE_DESCRIPTIONS[role]}</p>
+      <p className="collab-note">
+        {assignedRole !== null
+          ? `${ROLE_DESCRIPTIONS[role]} Te lo ha asignado la sala: el primero que entra es el productor y reparte los demás.`
+          : ROLE_DESCRIPTIONS[role]}
+      </p>
 
       <div className="collab-row">
         <span className="collab-label">Servidor</span>

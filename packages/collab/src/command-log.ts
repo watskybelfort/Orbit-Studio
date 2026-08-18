@@ -132,6 +132,8 @@ export class CommandLogBinding {
 
   /** Entradas ya aplicadas a (u originadas por) nuestro store. */
   private applied = new Set<string>();
+  /** Último `snapshotSeq` visto: distingue compactar de retirar una entrada. */
+  private lastSnapshotSeq = 0;
   /** Ids de pistas/patrones creados por NOSOTROS en esta sesión (ver roles.ts). */
   private ownCreations = new Set<Id>();
   /** Estamos revirtiendo un comando denegado: no re-anexar el inverso. */
@@ -343,18 +345,46 @@ export class CommandLogBinding {
   private process(): void {
     const entries = this.log.toArray();
     const pending: LogEntry[] = [];
+    const present = new Set<string>();
     let sawPending = false;
     let outOfOrder = false;
     for (const entry of entries) {
-      if (this.applied.has(entryKey(entry.client, entry.seq))) {
+      const key = entryKey(entry.client, entry.seq);
+      present.add(key);
+      if (this.applied.has(key)) {
         if (sawPending) {
           outOfOrder = true;
-          break;
         }
       } else {
         sawPending = true;
         pending.push(entry);
       }
+    }
+
+    // ¿Ha DESAPARECIDO del log algo que ya habíamos aplicado? Dos motivos
+    // posibles: una compactación (el snapshot se lo tragó y avanza
+    // `snapshotSeq`) o que el servidor RETIRARA una entrada que nuestro rol no
+    // permitía. Lo primero es rutina; lo segundo obliga a re-derivar, o nos
+    // quedaríamos con un cambio aplicado que la sala ya no tiene.
+    let retired = false;
+    for (const key of this.applied) {
+      if (!present.has(key)) {
+        retired = true;
+        break;
+      }
+    }
+    const snapshotSeq = Number(this.meta.get('snapshotSeq') ?? 0);
+    const compacted = snapshotSeq !== this.lastSnapshotSeq;
+    this.lastSnapshotSeq = snapshotSeq;
+    if (retired && !compacted) {
+      this.replay(entries);
+      this.maybeCompact();
+      return;
+    }
+    if (retired) {
+      // Compactación: lo absorbido por el snapshot sale de `applied` para que
+      // la comprobación de arriba no mienta la próxima vez.
+      this.applied = new Set([...this.applied].filter((key) => present.has(key)));
     }
 
     if (outOfOrder) {

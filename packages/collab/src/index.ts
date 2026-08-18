@@ -23,6 +23,14 @@ export {
 } from './roles';
 export type { CollabRole, RoleContext, RoleVerdict } from './roles';
 
+export {
+  MESSAGE_CONTROL,
+  encodeControl,
+  parseControl,
+  readControlBody,
+  type ControlMessage,
+} from './control';
+
 export { USER_COLORS, colorForName, pickDistinctColor } from './colors';
 
 export { ChatBinding, MAX_CHAT_MESSAGES } from './chat';

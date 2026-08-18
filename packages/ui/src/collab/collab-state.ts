@@ -102,6 +102,13 @@ export interface CollabState {
   error: string | null;
   /** Rol con el que entramos a la sala (se publica por awareness). */
   role: CollabRole;
+  /**
+   * Rol que ha asignado el SERVIDOR en esta sala (null fuera de sala). Manda
+   * sobre el elegido a mano: desde v1.8 el rol no es autodeclarado.
+   */
+  assignedRole: CollabRole | null;
+  /** Rol de cada peer por clientID, tal y como lo reparte el servidor. */
+  peerRoles: Record<string, CollabRole>;
   /** clientId del peer al que estamos siguiendo (modo seguidor), o null. */
   following: number | null;
   /**
@@ -127,6 +134,8 @@ export const useCollabStore = create<CollabState>(() => ({
   peers: [],
   error: null,
   role: DEFAULT_ROLE,
+  assignedRole: null,
+  peerRoles: {},
   following: null,
   audioFrozen: false,
   frozenPending: false,
@@ -179,6 +188,9 @@ function teardownSession(): void {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  // Fuera de la sala no hay rol asignado: el que valga es otra vez el que uno
+  // elija para presentarse.
+  useCollabStore.setState({ assignedRole: null, peerRoles: {} });
   // destroy() = disconnect (avisa a los demás, cierra socket, suelta el
   // binding del log) + destruye awareness y el Y.Doc. Teardown real.
   s?.destroy();
@@ -269,6 +281,16 @@ async function startSession(code: string, url: string, userName: string): Promis
       if (session !== s) return;
       teardownSession();
       useCollabStore.setState({ phase: 'error', peers: [], error: reason });
+    },
+    // El rol lo reparte la SALA (v1.8): el que uno elige aquí es solo con lo
+    // que se presenta, y el servidor manda el definitivo al entrar.
+    onRole: (assigned) => {
+      if (session !== s) return;
+      useCollabStore.setState({ role: assigned, assignedRole: assigned });
+    },
+    onRoles: (table) => {
+      if (session !== s) return;
+      useCollabStore.setState({ peerRoles: table });
     },
     // Unirse o re-derivar deja el proyecto lleno de referencias y el kernel
     // vacío: aquí es donde hay que volver a llenarlo.
@@ -450,10 +472,20 @@ export function toggleAudioFrozen(): void {
  * Cambia el rol propio (fuera o dentro de la sala) y lo persiste. Dentro de
  * la sala se publica al momento: el log de comandos filtra desde ya.
  */
+/**
+ * Rol con el que uno se presenta. Dentro de una sala NO manda: el servidor ya
+ * ha repartido y lo suyo es lo que vale (por eso el panel deshabilita el
+ * selector en cuanto hay sala).
+ */
 export function setCollabRole(role: CollabRole): void {
   useCollabStore.setState({ role });
   session?.setRole(role);
   void window.orbit?.settings.set({ [SETTINGS_KEY_ROLE]: role });
+}
+
+/** Pide al servidor el rol de otro (solo lo atiende si somos productores). */
+export function requestPeerRole(clientId: number, role: CollabRole): void {
+  session?.requestPeerRole(clientId, role);
 }
 
 // ── Chat de sala ─────────────────────────────────────────────────────────────

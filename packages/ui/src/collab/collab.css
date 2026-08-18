@@ -437,3 +437,22 @@
   flex: none;
   max-width: 210px;
 }
+
+/* Reparto de roles: el productor los cambia desde la lista de la sala.
+   (Quien no lo es ve la chapa de siempre: el rol lo decide el servidor.) */
+.collab-role-select {
+  padding: 0 4px;
+  font: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.collab-role-select:hover {
+  border-color: var(--accent);
+}

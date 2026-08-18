@@ -30,7 +30,14 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
+import {
+  MESSAGE_CONTROL,
+  encodeControl,
+  parseControl,
+  type CollabRole,
+} from '@orbit/collab';
 import { normalizeRoomCode } from './room-path';
+import { RoomRoles, checkEntry, entryKey, type RawLogEntry } from './room-roles';
 
 // Dónde escuchar (localhost, una IP concreta, todas) vive aparte y se
 // reexporta: la app de escritorio lo necesita para su desplegable.
@@ -47,6 +54,8 @@ export {
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
+// MESSAGE_CONTROL (2) lo define @orbit/collab: es el canal por el que el
+// servidor reparte los roles y retira lo que un rol no permite.
 
 // 7900 evita los rangos que Hyper-V reserva en Windows (p. ej. 7698-7797,
 // donde caía el 7777 clásico): netsh interface ipv4 show excludedportrange
@@ -81,6 +90,9 @@ export function clampRoomCapacity(value: number | undefined): number {
 }
 const MAX_CONNS_TOTAL = 512;
 
+/** Origen de las transacciones del guardia de roles (para no re-juzgarlas). */
+const ROLE_ENFORCER = 'orbit:roles';
+
 // El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
 // (Y.Map 'assets', ver packages/collab/src/assets.ts). El primer sync manda el
 // estado ENTERO en un solo mensaje, así que el tope de payload tiene que quedar
@@ -106,6 +118,15 @@ class Room {
   readonly awareness = new awarenessProtocol.Awareness(this.doc);
   /** Socket → clientIDs de awareness que controla (para limpiar al cerrar). */
   readonly conns = new Map<WsSocket, Set<number>>();
+  /** Roles de la sala: los decide el servidor, no el cliente (room-roles.ts). */
+  private readonly roles = new RoomRoles();
+  /** Socket → su identificador interno en la tabla de roles. */
+  private readonly connKeys = new Map<WsSocket, number>();
+  private nextConnKey = 1;
+  /** clientID de Yjs → socket que lo controla (para saber quién firma qué). */
+  private readonly clientOwner = new Map<number, WsSocket>();
+  /** Entradas del log ya juzgadas (se re-siembra con lo que queda en el log). */
+  private validated = new Set<string>();
 
   constructor(code: string) {
     this.code = code;
@@ -131,6 +152,20 @@ class Room {
       console.log(`[room ${code}] abierto (nuevo)`);
     }
 
+    // Lo que ya estaba guardado se da por bueno: se validó cuando se escribió
+    // y sus emisores hace tiempo que no están (juzgarlo ahora con el rol de un
+    // desconocido borraría trabajo legítimo).
+    this.validated = new Set(
+      this.doc.getArray<RawLogEntry>('commands').toArray().map((entry) => entryKey(entry)),
+    );
+
+    // El log es el proyecto: cada entrada nueva se juzga con el rol que ESTE
+    // servidor le da a su emisor, no con el que la entrada dice traer.
+    this.doc.getArray<RawLogEntry>('commands').observe((_event, transaction) => {
+      if (transaction.origin === ROLE_ENFORCER) return;
+      this.enforceRoles();
+    });
+
     // Cualquier update del doc (venga del socket que venga) → a todos.
     this.doc.on('update', (update: Uint8Array) => {
       const encoder = encoding.createEncoder();
@@ -149,9 +184,21 @@ class Room {
       ) => {
         const controlled = this.conns.get(origin as WsSocket);
         if (controlled) {
-          for (const id of changes.added) controlled.add(id);
-          for (const id of changes.updated) controlled.add(id);
-          for (const id of changes.removed) controlled.delete(id);
+          for (const id of changes.added) {
+            controlled.add(id);
+            this.clientOwner.set(id, origin as WsSocket);
+          }
+          for (const id of changes.updated) {
+            controlled.add(id);
+            this.clientOwner.set(id, origin as WsSocket);
+          }
+          for (const id of changes.removed) {
+            controlled.delete(id);
+            this.clientOwner.delete(id);
+          }
+          // Con la presencia ya sabemos quién firma qué: la tabla de roles se
+          // reparte otra vez para que la UI pueda pintarla.
+          if (changes.added.length > 0) this.broadcastRoles();
         }
         const changed = changes.added.concat(changes.updated, changes.removed);
         if (changed.length === 0) return;
@@ -168,6 +215,11 @@ class Room {
 
   addConn(conn: WsSocket): void {
     this.conns.set(conn, new Set());
+    const key = this.nextConnKey++;
+    this.connKeys.set(conn, key);
+    const { role } = this.roles.join(key);
+    this.sendControl(conn, { type: 'role', role });
+    this.broadcastRoles();
     // El server también inicia el sync (modelo cliente-servidor de y-sync).
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
@@ -209,6 +261,10 @@ class Room {
           );
           break;
         }
+        case MESSAGE_CONTROL: {
+          this.handleControl(conn, decoding.readVarString(decoder));
+          break;
+        }
         default:
           break; // tipos desconocidos: se ignoran
       }
@@ -221,9 +277,21 @@ class Room {
     const controlled = this.conns.get(conn);
     if (!controlled) return;
     this.conns.delete(conn);
+    for (const client of controlled) this.clientOwner.delete(client);
     if (controlled.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.awareness, [...controlled], null);
     }
+    const key = this.connKeys.get(conn);
+    this.connKeys.delete(conn);
+    if (key === undefined) return;
+    const { promoted } = this.roles.leave(key);
+    if (promoted !== null) {
+      for (const [socket, other] of this.connKeys) {
+        if (other === promoted) this.sendControl(socket, { type: 'role', role: 'productor' });
+      }
+      console.log(`[room ${this.code}] el mando pasa a la conexión ${promoted}`);
+    }
+    if (this.conns.size > 0) this.broadcastRoles();
   }
 
   get empty(): boolean {
@@ -243,6 +311,95 @@ class Room {
   destroy(): void {
     this.awareness.destroy();
     this.doc.destroy();
+  }
+
+  /** Un mensaje de control a una conexión concreta. */
+  private sendControl(conn: WsSocket, message: Parameters<typeof encodeControl>[0]): void {
+    if (conn.readyState === WsSocket.OPEN) conn.send(encodeControl(message));
+  }
+
+  /** La tabla de roles por clientID de Yjs (lo que la UI sabe pintar). */
+  private broadcastRoles(): void {
+    const table: Record<string, CollabRole> = {};
+    for (const [conn, key] of this.connKeys) {
+      const role = this.roles.get(key);
+      if (!role) continue;
+      for (const client of this.conns.get(conn) ?? []) table[String(client)] = role;
+    }
+    this.broadcast(encodeControl({ type: 'roles', roles: table }));
+  }
+
+  /** Petición de control de un cliente (hoy solo el reparto de roles). */
+  private handleControl(conn: WsSocket, json: string): void {
+    const message = parseControl(json);
+    if (!message || message.type !== 'setRole') return;
+    const by = this.connKeys.get(conn);
+    if (by === undefined) return;
+    // El destino viaja como clientID de Yjs (es lo que la UI conoce).
+    const target = this.clientOwner.get(message.client);
+    const targetKey = target === undefined ? undefined : this.connKeys.get(target);
+    if (targetKey === undefined) return;
+    if (!this.roles.setRole(by, targetKey, message.role)) {
+      this.sendControl(conn, {
+        type: 'denied',
+        reason: 'No puedes cambiar ese rol (o dejarías la sala sin productor).',
+      });
+      return;
+    }
+    if (target) this.sendControl(target, { type: 'role', role: message.role });
+    this.broadcastRoles();
+    console.log(`[room ${this.code}] rol de ${message.client} → ${message.role}`);
+  }
+
+  /**
+   * Juzga las entradas nuevas del log y RETIRA las que el rol de su emisor no
+   * permite. Borrarlas es una operación normal del CRDT: converge en todos los
+   * clientes, y el que las mandó re-deriva su estado y se queda como la sala.
+   */
+  private enforceRoles(): void {
+    const log = this.doc.getArray<RawLogEntry>('commands');
+    const entries = log.toArray();
+    const offenders: { index: number; conn: WsSocket | undefined; reason: string; type: string }[] =
+      [];
+
+    entries.forEach((entry, index) => {
+      const key = entryKey(entry);
+      if (this.validated.has(key)) return;
+      const client = typeof entry.client === 'number' ? entry.client : undefined;
+      const conn = client === undefined ? undefined : this.clientOwner.get(client);
+      const role = this.roles.roleOf(conn === undefined ? undefined : this.connKeys.get(conn));
+      const verdict = checkEntry(entry, role);
+      if (!verdict.allowed) {
+        const cmd = entry.cmd as { type?: unknown } | undefined;
+        offenders.push({
+          index,
+          conn,
+          reason: verdict.reason ?? 'Tu rol no permite ese cambio.',
+          type: typeof cmd?.type === 'string' ? cmd.type : '?',
+        });
+      }
+    });
+
+    if (offenders.length > 0) {
+      // De atrás hacia delante: borrar por índice mueve lo que viene después.
+      this.doc.transact(() => {
+        for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
+      }, ROLE_ENFORCER);
+      for (const offender of offenders) {
+        console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
+        if (offender.conn) {
+          this.sendControl(offender.conn, {
+            type: 'denied',
+            reason: offender.reason,
+            command: offender.type,
+          });
+        }
+      }
+    }
+
+    // Se re-siembra con lo que queda: así la lista no crece sin fin y lo que
+    // se lleve una compactación deja de ocupar sitio.
+    this.validated = new Set(log.toArray().map((entry) => entryKey(entry)));
   }
 
   private broadcast(message: Uint8Array): void {
