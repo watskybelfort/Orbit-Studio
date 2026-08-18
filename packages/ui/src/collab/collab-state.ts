@@ -36,6 +36,16 @@ export const DEFAULT_USER_NAME = 'Productor';
 const SETTINGS_KEY_NAME = 'collabUserName';
 const SETTINGS_KEY_URL = 'collabServerUrl';
 const SETTINGS_KEY_ROLE = 'collabRole';
+const SETTINGS_KEY_CAPACITY = 'collabRoomCapacity';
+
+/**
+ * Cuánta gente cabe en una sala del servidor que arranca la app. El que manda
+ * de verdad es el servidor (apps/server recorta el valor a su rango); esta
+ * copia solo sirve para que el campo del panel no ofrezca imposibles.
+ */
+export const DEFAULT_ROOM_CAPACITY = 16;
+export const MIN_ROOM_CAPACITY = 2;
+export const MAX_ROOM_CAPACITY = 64;
 
 /** Cuánto se queda en pantalla el aviso de "tu rol no te deja hacer eso". */
 const DENIED_NOTICE_MS = 6000;
@@ -441,24 +451,34 @@ export function removeChat(id: string): void {
   session?.removeChat(id);
 }
 
-// ── Ajustes persistidos (nombre y URL del servidor) ──────────────────────────
+// ── Ajustes persistidos (nombre, URL del servidor y capacidad de sala) ──────
 
 export interface CollabSettings {
   userName: string;
   serverUrl: string;
   role: CollabRole;
+  /** Cuánta gente dejará entrar en cada sala el servidor que arranca la app. */
+  roomCapacity: number;
 }
 
-/** Lee nombre/URL/rol de settings.json (con defaults si faltan o fuera de Electron). */
+/** Capacidad de sala válida a partir de lo que haya guardado (o de nada). */
+export function clampRoomCapacity(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_ROOM_CAPACITY;
+  return Math.min(MAX_ROOM_CAPACITY, Math.max(MIN_ROOM_CAPACITY, Math.round(value)));
+}
+
+/** Lee nombre/URL/rol/capacidad de settings.json (con defaults si faltan o fuera de Electron). */
 export async function loadCollabSettings(): Promise<CollabSettings> {
   const settings = (await window.orbit?.settings.get()) ?? {};
   const name = settings[SETTINGS_KEY_NAME];
   const url = settings[SETTINGS_KEY_URL];
   const role = settings[SETTINGS_KEY_ROLE];
+  const capacity = settings[SETTINGS_KEY_CAPACITY];
   const loaded: CollabSettings = {
     userName: typeof name === 'string' && name.trim() !== '' ? name : DEFAULT_USER_NAME,
     serverUrl: typeof url === 'string' && url.trim() !== '' ? url : DEFAULT_SERVER_URL,
     role: isCollabRole(role) ? role : DEFAULT_ROLE,
+    roomCapacity: clampRoomCapacity(capacity),
   };
   // El rol vive en el store (lo lee startSession al crear la sesión).
   useCollabStore.setState({ role: loaded.role });
@@ -470,10 +490,11 @@ export function roleLabel(role: CollabRole): string {
   return ROLE_LABELS[role];
 }
 
-/** Persiste nombre y/o URL en settings.json (merge superficial). */
+/** Persiste nombre, URL y/o capacidad de sala en settings.json (merge superficial). */
 export function saveCollabSettings(patch: Partial<CollabSettings>): void {
   const p: Record<string, unknown> = {};
   if (patch.userName !== undefined) p[SETTINGS_KEY_NAME] = patch.userName;
   if (patch.serverUrl !== undefined) p[SETTINGS_KEY_URL] = patch.serverUrl;
+  if (patch.roomCapacity !== undefined) p[SETTINGS_KEY_CAPACITY] = clampRoomCapacity(patch.roomCapacity);
   if (Object.keys(p).length > 0) void window.orbit?.settings.set(p);
 }

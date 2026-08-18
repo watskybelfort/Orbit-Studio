@@ -12,8 +12,12 @@ import { COLLAB_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, formatRoomCode } from '@o
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
 import {
+  DEFAULT_ROOM_CAPACITY,
   DEFAULT_SERVER_URL,
   DEFAULT_USER_NAME,
+  MAX_ROOM_CAPACITY,
+  MIN_ROOM_CAPACITY,
+  clampRoomCapacity,
   createRoom,
   joinRoom,
   leaveRoom,
@@ -66,6 +70,9 @@ export function CollabPanel() {
   const [userName, setUserName] = useState(DEFAULT_USER_NAME);
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [joinCode, setJoinCode] = useState('');
+  /** Capacidad de sala del servidor propio, tal y como se está escribiendo. */
+  const [capacityDraft, setCapacityDraft] = useState(String(DEFAULT_ROOM_CAPACITY));
+  const capacity = clampRoomCapacity(Number(capacityDraft));
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
@@ -74,7 +81,12 @@ export function CollabPanel() {
 
   // Servidor de colaboración arrancable desde aquí (solo app de escritorio).
   const canHostServer = typeof window !== 'undefined' && !!window.orbit?.server;
-  const [server, setServer] = useState<{ running: boolean; port?: number; error?: string }>({
+  const [server, setServer] = useState<{
+    running: boolean;
+    port?: number;
+    roomCapacity?: number;
+    error?: string;
+  }>({
     running: false,
   });
   const [serverBusy, setServerBusy] = useState(false);
@@ -101,6 +113,7 @@ export function CollabPanel() {
     void loadCollabSettings().then((s) => {
       setUserName(s.userName);
       setServerUrl(s.serverUrl);
+      setCapacityDraft(String(s.roomCapacity));
     });
   }, []);
 
@@ -111,6 +124,13 @@ export function CollabPanel() {
   }, [chat]);
 
   const persistFields = () => saveCollabSettings({ userName, serverUrl });
+
+  /** Deja el campo en un valor posible y lo guarda (lo aplica el próximo arranque). */
+  const commitCapacity = () => {
+    const value = clampRoomCapacity(Number(capacityDraft));
+    setCapacityDraft(String(value));
+    saveCollabSettings({ roomCapacity: value });
+  };
 
   const handleCreate = () => {
     persistFields();
@@ -170,7 +190,9 @@ export function CollabPanel() {
         <div className="collab-status">
           <span className={`collab-dot ${phase === 'online' ? 'online' : 'connecting'}`} />
           {phase === 'online'
-            ? `En línea — ${peers.length} conectado${peers.length === 1 ? '' : 's'}`
+            ? `En línea — ${peers.length} conectado${peers.length === 1 ? '' : 's'}${
+                server.running && server.roomCapacity ? ` de ${server.roomCapacity}` : ''
+              }`
             : 'Conectando…'}
           <span className="collab-role-chip">{ROLE_LABELS[role]}</span>
         </div>
@@ -438,10 +460,28 @@ export function CollabPanel() {
                 ? 'Detener servidor'
                 : 'Iniciar servidor'}
           </button>
+          <label className="collab-check" title={`Cuánta gente cabe en cada sala (${MIN_ROOM_CAPACITY}–${MAX_ROOM_CAPACITY})`}>
+            Caben
+            <input
+              className="collab-input collab-bar-input"
+              value={capacityDraft}
+              inputMode="numeric"
+              maxLength={2}
+              onChange={(e) => setCapacityDraft(e.target.value.replace(/[^0-9]/g, ''))}
+              onBlur={commitCapacity}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitCapacity();
+              }}
+            />
+          </label>
           <span className="collab-note">
             {server.running ? (
               <>
-                <span className="collab-dot online" /> En marcha en localhost:{server.port}
+                <span className="collab-dot online" /> En marcha en localhost:{server.port} —
+                caben {server.roomCapacity ?? capacity} por sala
+                {server.roomCapacity !== undefined && server.roomCapacity !== capacity
+                  ? ` (reinícialo para dejar entrar a ${capacity})`
+                  : ''}
               </>
             ) : server.error ? (
               `No arrancó: ${server.error}`

@@ -89,9 +89,16 @@ interface OrbitApi {
   };
   readonly server: {
     /** Estado del servidor de colaboración arrancado en proceso. */
-    status(): Promise<{ running: boolean; port?: number; host?: string }>;
+    status(): Promise<{ running: boolean; port?: number; host?: string; roomCapacity?: number }>;
     /** Arranca el servidor (localhost); devuelve el estado o un error legible. */
-    start(): Promise<{ running: boolean; port?: number; host?: string; error?: string }>;
+    start(): Promise<{
+      running: boolean;
+      port?: number;
+      host?: string;
+      /** Cuánta gente cabe en cada sala (lo decide settings.json). */
+      roomCapacity?: number;
+      error?: string;
+    }>;
     /** Detiene el servidor y libera el puerto. */
     stop(): Promise<{ running: boolean }>;
   };

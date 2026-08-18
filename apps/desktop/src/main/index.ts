@@ -222,9 +222,19 @@ let bridgeHost: BridgeHost | null = null;
 
 let collabServer: ServerHandle | null = null;
 
-function collabServerStatus(): { running: boolean; port?: number; host?: string } {
+function collabServerStatus(): {
+  running: boolean;
+  port?: number;
+  host?: string;
+  roomCapacity?: number;
+} {
   return collabServer
-    ? { running: true, port: collabServer.port, host: collabServer.host }
+    ? {
+        running: true,
+        port: collabServer.port,
+        host: collabServer.host,
+        roomCapacity: collabServer.roomCapacity,
+      }
     : { running: false };
 }
 
@@ -363,10 +373,15 @@ function registerIpc(): void {
 
   ipcMain.handle('server:start', async () => {
     if (collabServer) return collabServerStatus();
+    const capacity = readSettings()['collabRoomCapacity'];
     try {
       collabServer = await startServer({
         host: '127.0.0.1',
         roomsDir: join(app.getPath('userData'), 'collab-rooms'),
+        // Cuánta gente cabe en cada sala: lo elige el usuario en el panel de
+        // colaboración y se guarda en settings.json (el server lo recorta a su
+        // rango, así que un valor raro no impide arrancar).
+        ...(typeof capacity === 'number' ? { roomCapacity: capacity } : null),
       });
       return collabServerStatus();
     } catch (err) {
