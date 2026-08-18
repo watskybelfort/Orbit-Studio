@@ -10,10 +10,12 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
 
-// QA/depuración: ORBIT_DEBUG_PORT=9223 abre el protocolo CDP en localhost
-// (solo si se pide explícitamente; nunca por defecto).
-if (process.env['ORBIT_DEBUG_PORT']) {
-  app.commandLine.appendSwitch('remote-debugging-port', process.env['ORBIT_DEBUG_PORT']);
+// QA/depuración: ORBIT_DEBUG_PORT=9223 abre el protocolo CDP en localhost (solo
+// si se pide explícitamente y NUNCA en la app empaquetada: en producción, el CDP
+// abierto daría control total del renderer a cualquier proceso local).
+const debugPort = !app.isPackaged ? process.env['ORBIT_DEBUG_PORT'] : undefined;
+if (debugPort) {
+  app.commandLine.appendSwitch('remote-debugging-port', debugPort);
 }
 
 const OPAQUE_BG = { dark: '#141518', light: '#f4f5f7' } as const;
@@ -114,17 +116,39 @@ function createWindow(): BrowserWindow {
 
   // Ventanas desacopladas: el renderer hace window.open('') y porta el editor
   // ahí (mismo contexto JS). Frame nativo normal — mover/cerrar es del OS.
-  win.webContents.setWindowOpenHandler(() => ({
-    action: 'allow',
-    overrideBrowserWindowOptions: {
-      title: 'Orbit Studio',
-      icon: join(__dirname, '../../resources/icon.ico'),
-      minWidth: 320,
-      minHeight: 220,
-      autoHideMenuBar: true,
-      backgroundColor: theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark,
-    },
-  }));
+  // SOLO se permite about:blank/'' : las ventanas hijas heredan el preload con
+  // la API orbit y sandbox:false, así que abrir una URL externa aquí sería darle
+  // a esa página acceso a file.write, settings, etc. Los enlaces http(s) van al
+  // navegador del sistema; el resto se deniega.
+  win.webContents.setWindowOpenHandler((details) => {
+    const url = details.url;
+    if (url !== '' && url !== 'about:blank') {
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        title: 'Orbit Studio',
+        icon: join(__dirname, '../../resources/icon.ico'),
+        minWidth: 320,
+        minHeight: 220,
+        autoHideMenuBar: true,
+        backgroundColor: theme === 'light' ? OPAQUE_BG.light : OPAQUE_BG.dark,
+      },
+    };
+  });
+
+  // La app es una SPA: nunca navega el documento de nivel superior. Cualquier
+  // will-navigate a una URL distinta (un enlace, un location.href inyectado) se
+  // bloquea; los http(s) se abren fuera. HMR recarga la MISMA URL, así que en
+  // desarrollo no molesta.
+  win.webContents.on('will-navigate', (e, url) => {
+    if (url !== win.webContents.getURL()) {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    }
+  });
 
   win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
   win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
@@ -207,7 +231,10 @@ const grantedWritePaths = new Set<string>();
 
 function isWriteAllowed(target: string): boolean {
   if (grantedWritePaths.has(target)) return true;
-  const roots = ['downloads', 'music', 'documents', 'desktop', 'userData', 'temp'] as const;
+  // 'userData' NO está: autosave, grabaciones y settings tienen sus propios
+  // canales, y dejar file:write llegar ahí permitiría reescribir settings.json
+  // o plantar plugins. Las carpetas de usuario son para exports.
+  const roots = ['downloads', 'music', 'documents', 'desktop', 'temp'] as const;
   return roots.some((root) => {
     try {
       const base = resolvePath(app.getPath(root));
@@ -251,7 +278,7 @@ function registerIpc(): void {
   // Solo QA (con ORBIT_DEBUG_PORT): la ventana se pone siempre-encima a sí
   // misma para capturas de pantalla — sin SetForegroundWindow, que Windows
   // bloquea desde procesos en segundo plano y dejaría la captura sobre otra app.
-  if (process.env['ORBIT_DEBUG_PORT']) {
+  if (debugPort) {
     ipcMain.handle('debug:always-on-top', (event, on: unknown) => {
       const win = windowOf(event.sender);
       if (!win) return;
@@ -344,8 +371,12 @@ function registerIpc(): void {
       : await dialog.showOpenDialog(options);
     const path = result.filePaths[0];
     if (result.canceled || !path) return null;
+    const chosen = resolvePath(path);
+    // El usuario abrió este .orbit por diálogo: puede guardarlo de vuelta sin
+    // pedir ruta otra vez, aunque esté fuera de las carpetas de usuario.
+    grantedWritePaths.add(chosen);
     const json = await readFile(path, 'utf8');
-    return { path: resolvePath(path), json };
+    return { path: chosen, json };
   });
 
   // path null = "guardar como" (diálogo); si no, sobrescribe la ruta dada.
@@ -356,7 +387,14 @@ function registerIpc(): void {
         throw new Error('project:save requiere el JSON del proyecto');
       }
       let target = typeof path === 'string' && path.length > 0 ? resolvePath(path) : null;
-      if (!target) {
+      if (target) {
+        // Una ruta suministrada por el renderer debe estar autorizada: elegida
+        // antes por diálogo (project:save/open) o en una carpeta de usuario. Si
+        // no, se rechaza para que no se pueda escribir a rutas arbitrarias.
+        if (!isWriteAllowed(target)) {
+          throw new Error(`Ruta no permitida: ${target}. Usa "Guardar como".`);
+        }
+      } else {
         const win = windowOf(event.sender);
         const name =
           typeof suggestedName === 'string' && suggestedName.length > 0
@@ -372,6 +410,7 @@ function registerIpc(): void {
           : await dialog.showSaveDialog(options);
         if (result.canceled || !result.filePath) return null;
         target = resolvePath(result.filePath);
+        grantedWritePaths.add(target); // el usuario la eligió: queda autorizada
       }
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, json, 'utf8');
