@@ -324,6 +324,9 @@
   position: absolute;
   right: 8px;
   bottom: 6px;
+  padding: 1px 5px;
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  border-radius: 4px;
   color: var(--text-dim);
   font-size: 10px;
   pointer-events: none;
@@ -484,4 +487,38 @@
   color: var(--text-dim);
   font-size: 10px;
   line-height: 1.4;
+}
+
+/* Botonera de los trozos del Slicer (debajo de la onda con los cortes). */
+.chan-slice-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.chan-slice-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chan-slice-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.chan-slice-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.chan-slice-btn.primary {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
 }

@@ -70,12 +70,31 @@ export interface SampleWaveProps {
   /** Color del canal: la región activa se pinta con él. */
   color: string;
   onTrim: (patch: { start?: number; end?: number }) => void;
+  /**
+   * Modo TROZOS (Slicer): en vez de las dos marcas de recorte se pintan los
+   * cortes, numerados y arrastrables. Presente (aunque venga vacío) = modo
+   * trozos; ausente = el recorte de siempre del sampler.
+   */
+  slicePoints?: readonly number[];
+  /** Cambio de los cortes: arrastrar mueve, doble clic añade, derecho quita. */
+  onSlicePoints?: (points: number[]) => void;
 }
 
-export function SampleWave({ sample, start, end, color, onTrim }: SampleWaveProps) {
+export function SampleWave({
+  sample,
+  start,
+  end,
+  color,
+  onTrim,
+  slicePoints,
+  onSlicePoints,
+}: SampleWaveProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<'start' | 'end' | null>(null);
+  /** Modo trozos: qué corte se está arrastrando (el 0 no se mueve nunca). */
+  const sliceDrag = useRef<number | null>(null);
+  const sliceMode = slicePoints !== undefined;
   const [peaks, setPeaks] = useState<Peaks | null>(null);
   const [failed, setFailed] = useState(false);
   const themeVersion = useThemeVersion();
@@ -146,12 +165,34 @@ export function SampleWave({ sample, start, end, color, onTrim }: SampleWaveProp
       const y1 = mid - peaks.min[c]! * amp;
       // Fuera del recorte la onda sigue viéndose, pero apagada: es lo que se
       // está tirando y conviene saber qué hay ahí antes de mover la marca.
-      const inside = x >= x0 && x <= x1;
+      // En modo trozos no se tira nada, así que todo va encendido.
+      const inside = sliceMode || (x >= x0 && x <= x1);
       ctx.fillStyle = inside ? color : col('--text-dim');
       ctx.globalAlpha = inside ? 1 : 0.25;
       ctx.fillRect(x, y0, 1, Math.max(1, y1 - y0));
     }
     ctx.globalAlpha = 1;
+
+    if (sliceMode) {
+      // Cortes numerados: el número es la tecla que dispara ese trozo contando
+      // desde C3, que es lo que hace falta saber para tocarlo.
+      ctx.font = `10px ${css.fontFamily}`;
+      slicePoints!.forEach((p, i) => {
+        const x = p * w;
+        ctx.fillStyle = col('--meter-hot');
+        ctx.fillRect(x, 0, i === 0 ? 1 : 2, h);
+        if (i > 0) ctx.fillRect(x - 3, 0, 8, 8);
+        // El número solo si cabe: en una ráfaga de golpes los cortes se juntan
+        // y los números se pisan hasta ser una mancha ilegible.
+        const next = slicePoints![i + 1];
+        const room = next === undefined ? w - x : (next - p) * w;
+        if (room >= 14) {
+          ctx.fillStyle = col('--text-dim');
+          ctx.fillText(String(i + 1), x + 4, h - 4);
+        }
+      });
+      return;
+    }
 
     // Marcas de recorte.
     ctx.fillStyle = col('--meter-hot');
@@ -159,7 +200,7 @@ export function SampleWave({ sample, start, end, color, onTrim }: SampleWaveProp
     ctx.fillRect(Math.max(0, x1 - 2), 0, 2, h);
     ctx.fillRect(x0, 0, 8, 8);
     ctx.fillRect(Math.max(0, x1 - 8), h - 8, 8, 8);
-  }, [peaks, failed, start, end, color, themeVersion]);
+  }, [peaks, failed, start, end, color, themeVersion, sliceMode, slicePoints]);
 
   useEffect(() => {
     draw();
@@ -180,24 +221,77 @@ export function SampleWave({ sample, start, end, color, onTrim }: SampleWaveProp
     return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
   };
 
+  /** Corte más cercano a esa posición, si cae dentro del radio de agarre. */
+  const sliceNear = (t: number): number | null => {
+    const canvas = canvasRef.current;
+    if (!canvas || !slicePoints) return null;
+    const radius = 8 / Math.max(1, canvas.getBoundingClientRect().width);
+    let best: number | null = null;
+    let bestDist = radius;
+    // El primero (0) no se coge: el primer trozo empieza donde empieza el
+    // sample, y moverlo sería inventarse un silencio inicial.
+    for (let i = 1; i < slicePoints.length; i++) {
+      const d = Math.abs(slicePoints[i]! - t);
+      if (d <= bestDist) {
+        best = i;
+        bestDist = d;
+      }
+    }
+    return best;
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     if (!peaks) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     capturePointer(canvas, e.pointerId);
     const t = posOf(e.clientX);
+    if (sliceMode) {
+      sliceDrag.current = sliceNear(t);
+      if (sliceDrag.current !== null) move(e.clientX);
+      return;
+    }
     drag.current = Math.abs(t - start) <= Math.abs(t - end) ? 'start' : 'end';
     move(e.clientX);
   };
 
   const move = (clientX: number) => {
+    const t = posOf(clientX);
+    if (sliceMode) {
+      const i = sliceDrag.current;
+      if (i === null || !slicePoints || !onSlicePoints) return;
+      // Un corte no adelanta al anterior ni pasa al siguiente: si no, la lista
+      // deja de estar ordenada y los trozos se cruzan.
+      const min = (slicePoints[i - 1] ?? 0) + 0.002;
+      const max = (slicePoints[i + 1] ?? 1) - 0.002;
+      const next = [...slicePoints];
+      next[i] = Math.min(max, Math.max(min, t));
+      onSlicePoints(next);
+      return;
+    }
     const d = drag.current;
     if (!d) return;
-    const t = posOf(clientX);
     // Un margen mínimo entre marcas: con start === end el sampler no lee nada
     // y parecería que el canal se ha quedado mudo.
     if (d === 'start') onTrim({ start: Math.min(t, end - 0.002) });
     else onTrim({ end: Math.max(t, start + 0.002) });
+  };
+
+  /** Doble clic: corte nuevo aquí (y el trozo de al lado se parte en dos). */
+  const onDoubleClick = (e: React.MouseEvent) => {
+    if (!sliceMode || !slicePoints || !onSlicePoints) return;
+    const t = posOf(e.clientX);
+    if (slicePoints.some((p) => Math.abs(p - t) < 0.002)) return;
+    onSlicePoints([...slicePoints, t].sort((a, b) => a - b));
+  };
+
+  /** Clic derecho sobre un corte: fuera (los dos trozos se funden en uno). */
+  const onContextMenu = (e: React.MouseEvent) => {
+    if (!sliceMode || !slicePoints || !onSlicePoints) return;
+    e.preventDefault();
+    const i = sliceNear(posOf(e.clientX));
+    if (i === null) return;
+    onSlicePoints(slicePoints.filter((_, idx) => idx !== i));
   };
 
   return (
@@ -205,15 +299,26 @@ export function SampleWave({ sample, start, end, color, onTrim }: SampleWaveProp
       <canvas
         ref={canvasRef}
         onPointerDown={onPointerDown}
-        onPointerMove={(e) => move(e.clientX)}
+        onPointerMove={(e) => {
+          if (sliceMode && sliceDrag.current === null) return;
+          move(e.clientX);
+        }}
         onPointerUp={() => {
           drag.current = null;
+          sliceDrag.current = null;
         }}
         onPointerCancel={() => {
           drag.current = null;
+          sliceDrag.current = null;
         }}
+        onDoubleClick={onDoubleClick}
+        onContextMenu={onContextMenu}
       />
-      <span className="chan-wave-hint">Arrastra las marcas para recortar el sonido</span>
+      <span className="chan-wave-hint">
+        {sliceMode
+          ? 'Arrastra un corte para moverlo · doble clic añade · derecho quita'
+          : 'Arrastra las marcas para recortar el sonido'}
+      </span>
     </div>
   );
 }
