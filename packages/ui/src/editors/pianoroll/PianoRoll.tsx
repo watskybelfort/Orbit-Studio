@@ -904,7 +904,16 @@ export function PianoRoll() {
     const onKey = (e: KeyboardEvent) => {
       if (!activePatternId || !channelId) return;
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'SELECT') return;
+      // Si el foco está en un campo de texto (p. ej. el textarea de Notas del
+      // proyecto), estas teclas son para escribir: Ctrl+A seleccionaría todas
+      // las notas y Supr las borraría sin que el usuario mire el Piano Roll.
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'SELECT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      )
+        return;
       // Supr A SECAS borra las notas; con Ctrl+Shift es el atajo global de
       // borrar el patrón (useShortcuts) y aquí no se toca la selección.
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey && selection.size > 0) {
