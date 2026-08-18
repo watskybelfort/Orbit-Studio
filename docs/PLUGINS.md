@@ -44,17 +44,19 @@ los proyectos que lo usan (mostrarán «Plugin no encontrado»).
 ## Seguridad y robustez
 
 > **Un plugin es código que tú ejecutas.** Instala solo `.js` de fuentes en las
-> que confíes, igual que cualquier script. Ahora mismo el aislamiento NO es
-> total (ver abajo): un plugin malicioso podría, al arrancar la app o al
-> exportar, hacer cosas fuera del audio.
+> que confíes, igual que cualquier script.
 
+- **Al arrancar**, la app lee `name`/`params` con un **parseo estático**: NO
+  ejecuta el código del plugin, así que dejar un `.js` en la carpeta ya no corre
+  nada por sí solo. (Por eso `params` tiene que ser un array literal en línea; si
+  lo declaras con una variable o una expresión, las perillas no se leen, pero el
+  plugin funciona igual.)
 - **Durante la reproducción en vivo**, el DSP corre dentro del worklet de audio:
   sin DOM, sin red, sin filesystem — solo números.
-- **Al arrancar** (para leer `name`/`params`) y **al exportar**, hoy el código
-  del plugin se evalúa en el hilo del renderer, que sí tiene acceso a APIs del
-  navegador. Es una limitación conocida en vías de cerrarse (leer la metadata
-  con parseo estático y mover el export a un worker aislado); hasta entonces, la
-  frase de arriba es la que manda.
+- **Al exportar**, hoy el código del plugin todavía se evalúa en el hilo del
+  renderer (que sí tiene acceso a APIs del navegador). Es la última pieza del
+  aislamiento pendiente (mover el render offline con plugins a un worker); hasta
+  entonces, un export que USE un plugin sí corre su código.
 - Si el plugin **lanza una excepción** (al instanciarse, en `setParams` o en
   `process`), el slot pasa a **bypass automático**: el audio sigue limpio y el
   resto de la cadena no se entera. (Un bucle infinito, en cambio, NO se

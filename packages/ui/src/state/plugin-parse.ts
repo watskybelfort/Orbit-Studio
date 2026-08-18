@@ -8,6 +8,18 @@
  *   `const params = [{ key, label, min, max, default }, ...]` (mismo shape que
  *   ParamSpec de @orbit/core; curve/unit/options son opcionales).
  *
+ * La metadata (name/params/qué fábricas trae) se lee de forma ESTÁTICA: NO se
+ * ejecuta el código del plugin. Antes se evaluaba con `new Function` en el hilo
+ * del renderer solo para leerla, pero eso corría el top-level del plugin (con
+ * acceso a window/fetch/window.orbit) con solo dejar el .js en la carpeta y
+ * reiniciar. Ahora se detectan las fábricas por su declaración y se leen name y
+ * params como LITERALES; el DSP sigue corriendo en el worklet, que compila la
+ * fuente por su cuenta y hace bypass si el plugin lanza.
+ *
+ * Limitación consciente del parseo estático: `params` tiene que ser un ARRAY
+ * literal en línea (como en la doc). Si se declara con una variable o una
+ * expresión, no se leen las perillas (el plugin funciona igual, sin knobs).
+ *
  * Módulo puro a propósito: sin imports de Vite (CSS, ?worker) ni del estado de
  * la app, para poder testearlo bajo Node con vitest.
  */
@@ -68,52 +80,217 @@ function sanitizeParam(raw: unknown): ParamSpec | null {
   return spec;
 }
 
-/**
- * Evalúa la fuente de un plugin y extrae su metadata (name/params) saneada.
- * Devuelve null si el código no compila, lanza al evaluarse o no define
- * `createEffect` — plugin descartado (el llamante avisa por consola).
- *
- * Nota: se evalúa con `new Function` en el hilo UI SOLO para leer la metadata;
- * el DSP corre en el worklet, que compila la fuente por su cuenta y hace
- * bypass automático si el plugin lanza.
- */
-/** Nonce del objeto de metadata: un `return` prematuro del plugin no lo trae. */
-const META_MARKER = '__orbit_plugin_meta__';
+// ── Lector de literales (no ejecuta código) ──────────────────────────────────
+// Lee lo justo del contrato de `params`: arrays, objetos (claves identificador o
+// string), strings, números (incluidos NaN/Infinity), booleanos, null/undefined.
+// Cualquier otra cosa (un identificador, una llamada) hace fallar el parseo, y la
+// entrada se descarta. Nunca corre nada del plugin.
 
-export function parsePluginSource(source: string): ParsedPlugin | null {
-  let raw: unknown;
-  try {
-    raw = new Function(
-      `${source}\n;return {` +
-        ` marker: '${META_MARKER}',` +
-        ` factory: typeof createEffect === 'function',` +
-        ` instrument: typeof createInstrument === 'function',` +
-        ` name: typeof name !== 'undefined' ? String(name) : null,` +
-        ` params: Array.isArray(typeof params !== 'undefined' ? params : null) ? params : [] };`,
-    )();
-  } catch {
-    return null; // sintaxis rota o el top-level lanza
+const FAIL = Symbol('fail');
+
+class LiteralReader {
+  private i = 0;
+  constructor(private readonly s: string) {}
+
+  private ws(): void {
+    for (;;) {
+      const c = this.s[this.i];
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+        this.i++;
+        continue;
+      }
+      if (c === '/' && this.s[this.i + 1] === '/') {
+        this.i += 2;
+        while (this.i < this.s.length && this.s[this.i] !== '\n') this.i++;
+        continue;
+      }
+      if (c === '/' && this.s[this.i + 1] === '*') {
+        this.i += 2;
+        while (this.i < this.s.length && !(this.s[this.i] === '*' && this.s[this.i + 1] === '/')) this.i++;
+        this.i += 2;
+        continue;
+      }
+      break;
+    }
   }
-  if (typeof raw !== 'object' || raw === null) return null;
-  const meta = raw as {
-    marker?: unknown;
-    factory?: unknown;
-    instrument?: unknown;
-    name?: unknown;
-    params?: unknown;
-  };
-  if (meta.marker !== META_MARKER) return null; // el plugin cortó con un return propio
-  // Un archivo vale si trae efecto, instrumento o los dos; sin ninguna de las
-  // dos fábricas no hay nada que registrar.
-  const isEffect = meta.factory === true;
-  const isInstrument = meta.instrument === true;
+
+  value(): unknown {
+    this.ws();
+    const c = this.s[this.i];
+    if (c === undefined) return FAIL;
+    if (c === '[') return this.array();
+    if (c === '{') return this.object();
+    if (c === '"' || c === "'") return this.string(c);
+    if (c === '-' || c === '+' || c === '.' || (c >= '0' && c <= '9')) return this.number();
+    return this.word();
+  }
+
+  private array(): unknown {
+    this.i++; // [
+    const out: unknown[] = [];
+    this.ws();
+    if (this.s[this.i] === ']') {
+      this.i++;
+      return out;
+    }
+    for (;;) {
+      const v = this.value();
+      if (v === FAIL) return FAIL;
+      out.push(v);
+      this.ws();
+      const c = this.s[this.i];
+      if (c === ',') {
+        this.i++;
+        this.ws();
+        if (this.s[this.i] === ']') {
+          this.i++;
+          return out;
+        }
+        continue;
+      }
+      if (c === ']') {
+        this.i++;
+        return out;
+      }
+      return FAIL;
+    }
+  }
+
+  private object(): unknown {
+    this.i++; // {
+    const out: Record<string, unknown> = {};
+    this.ws();
+    if (this.s[this.i] === '}') {
+      this.i++;
+      return out;
+    }
+    for (;;) {
+      this.ws();
+      const c = this.s[this.i];
+      const key = c === '"' || c === "'" ? this.string(c) : this.identifier();
+      if (key === FAIL || typeof key !== 'string') return FAIL;
+      this.ws();
+      if (this.s[this.i] !== ':') return FAIL;
+      this.i++;
+      const v = this.value();
+      if (v === FAIL) return FAIL;
+      out[key] = v;
+      this.ws();
+      const d = this.s[this.i];
+      if (d === ',') {
+        this.i++;
+        this.ws();
+        if (this.s[this.i] === '}') {
+          this.i++;
+          return out;
+        }
+        continue;
+      }
+      if (d === '}') {
+        this.i++;
+        return out;
+      }
+      return FAIL;
+    }
+  }
+
+  private string(q: string): unknown {
+    this.i++; // comilla de apertura
+    let out = '';
+    while (this.i < this.s.length) {
+      const c = this.s[this.i++]!;
+      if (c === '\\') {
+        const e = this.s[this.i++];
+        out += e === 'n' ? '\n' : e === 't' ? '\t' : e === 'r' ? '\r' : (e ?? '');
+        continue;
+      }
+      if (c === q) return out;
+      out += c;
+    }
+    return FAIL; // string sin cerrar
+  }
+
+  private number(): unknown {
+    const start = this.i;
+    if (this.s[this.i] === '+' || this.s[this.i] === '-') this.i++;
+    if (this.s.startsWith('Infinity', this.i)) {
+      this.i += 8;
+      return this.s[start] === '-' ? -Infinity : Infinity;
+    }
+    while (this.i < this.s.length && /[0-9.eE+-]/.test(this.s[this.i]!)) this.i++;
+    const raw = this.s.slice(start, this.i);
+    if (raw === '' || raw === '+' || raw === '-' || raw === '.') return FAIL;
+    const num = Number(raw);
+    return Number.isNaN(num) ? FAIL : num;
+  }
+
+  private word(): unknown {
+    const id = this.identifier();
+    switch (id) {
+      case 'true':
+        return true;
+      case 'false':
+        return false;
+      case 'null':
+        return null;
+      case 'undefined':
+        return undefined;
+      case 'NaN':
+        return NaN;
+      case 'Infinity':
+        return Infinity;
+      default:
+        return FAIL; // cualquier otro identificador NO es un literal
+    }
+  }
+
+  private identifier(): string | typeof FAIL {
+    const start = this.i;
+    while (this.i < this.s.length && /[\w$]/.test(this.s[this.i]!)) this.i++;
+    return this.i === start ? FAIL : this.s.slice(start, this.i);
+  }
+}
+
+/** ¿El archivo DECLARA una fábrica con ese nombre (no una simple asignación de valor)? */
+function hasFactory(source: string, fn: string): boolean {
+  const decl = new RegExp(`\\bfunction\\s+${fn}\\b`);
+  const assign = new RegExp(`\\b${fn}\\s*=\\s*(?:async\\s+)?(?:function\\b|\\(|[\\w$]+\\s*=>)`);
+  return decl.test(source) || assign.test(source);
+}
+
+/** Lee `const name = '...'` como literal string. */
+function parseName(source: string): string | null {
+  const m = /(?:const|let|var)\s+name\s*=\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/.exec(source);
+  if (!m) return null;
+  const val = m[2]!.replace(/\\(.)/g, '$1').trim();
+  return val !== '' ? val : null;
+}
+
+/** Lee `const params = [ ... ]` como array de literales, o null si no es un array literal. */
+function parseParams(source: string): unknown[] | null {
+  const m = /(?:const|let|var)\s+params\s*=\s*(?=\[)/.exec(source);
+  if (!m) return null;
+  const value = new LiteralReader(source.slice(m.index + m[0].length)).value();
+  return Array.isArray(value) ? value : null;
+}
+
+/**
+ * Extrae la metadata (name/params/fábricas) de la fuente de un plugin SIN
+ * ejecutarla. Devuelve null si el archivo no declara ninguna fábrica
+ * (`createEffect`/`createInstrument`) — no hay nada que registrar.
+ */
+export function parsePluginSource(source: string): ParsedPlugin | null {
+  if (typeof source !== 'string') return null;
+  const isEffect = hasFactory(source, 'createEffect');
+  const isInstrument = hasFactory(source, 'createInstrument');
   if (!isEffect && !isInstrument) return null;
 
-  const name = typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name.trim() : null;
+  const name = parseName(source);
+  const rawParams = parseParams(source);
   const params: ParamSpec[] = [];
   const seen = new Set<string>();
-  if (Array.isArray(meta.params)) {
-    for (const entry of meta.params) {
+  if (Array.isArray(rawParams)) {
+    for (const entry of rawParams) {
       if (params.length >= MAX_PARAMS) break;
       const spec = sanitizeParam(entry);
       if (spec && !seen.has(spec.key)) {
