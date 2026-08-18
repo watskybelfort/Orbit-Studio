@@ -27,14 +27,45 @@ function roundTrip(bytes: Uint8Array) {
 }
 
 describe('mensaje de audio', () => {
-  it('va y vuelve igual', () => {
+  it('sin comprimir va y vuelve igual', () => {
     const samples = new Int16Array([0, 1000, -1000, 32767, -32768]);
-    const chunk = roundTrip(encodeAudioChunk({ from: 42, sampleRate: 44100, seq: 7, samples }));
+    const chunk = roundTrip(
+      encodeAudioChunk({ from: 42, sampleRate: 44100, seq: 7, samples, codec: 'pcm16' }),
+    );
     expect(chunk).not.toBeNull();
     expect(chunk!.from).toBe(42);
     expect(chunk!.sampleRate).toBe(44100);
     expect(chunk!.seq).toBe(7);
+    expect(chunk!.codec).toBe('pcm16');
     expect([...chunk!.samples]).toEqual([...samples]);
+  });
+
+  it('por defecto viaja COMPRIMIDO y ocupa la mitad', () => {
+    const samples = new Int16Array(1000);
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] = Math.round(Math.sin((i * 2 * Math.PI * 440) / 48000) * 16000);
+    }
+    const crudo = encodeAudioChunk({ from: 1, sampleRate: 48000, seq: 0, samples, codec: 'pcm16' });
+    const comprimido = encodeAudioChunk({ from: 1, sampleRate: 48000, seq: 0, samples });
+    expect(comprimido.byteLength).toBeLessThan(crudo.byteLength / 1.9);
+
+    const chunk = roundTrip(comprimido);
+    expect(chunk!.codec).toBe('adpcm');
+    expect(chunk!.samples).toHaveLength(1000);
+    // Con pérdida, pero parecido: el error no puede ser el de otra señal.
+    let error = 0;
+    let señal = 0;
+    for (let i = 100; i < samples.length; i++) {
+      error += (samples[i]! - chunk!.samples[i]!) ** 2;
+      señal += samples[i]! ** 2;
+    }
+    expect(10 * Math.log10(señal / error)).toBeGreaterThan(20);
+  });
+
+  it('un número impar de muestras sobrevive al viaje', () => {
+    const samples = new Int16Array([100, -200, 300]);
+    const chunk = roundTrip(encodeAudioChunk({ from: 1, sampleRate: 48000, seq: 0, samples }));
+    expect(chunk!.samples).toHaveLength(3);
   });
 
   it('no comparte memoria con el mensaje (que se reutiliza)', () => {
@@ -43,6 +74,7 @@ describe('mensaje de audio', () => {
       sampleRate: 48000,
       seq: 1,
       samples: new Int16Array([500, -500]),
+      codec: 'pcm16',
     });
     const chunk = roundTrip(bytes);
     bytes.fill(0); // el buffer del socket se reaprovecha
@@ -52,7 +84,7 @@ describe('mensaje de audio', () => {
   it('descarta lo que no cuadra', () => {
     const bad = (sampleRate: number, count: number) => {
       const samples = new Int16Array(count);
-      return roundTrip(encodeAudioChunk({ from: 1, sampleRate, seq: 0, samples }));
+      return roundTrip(encodeAudioChunk({ from: 1, sampleRate, seq: 0, samples, codec: 'pcm16' }));
     };
     expect(bad(44100, 0)).toBeNull(); // sin muestras
     expect(bad(1000, 10)).toBeNull(); // sample rate imposible

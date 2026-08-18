@@ -7,10 +7,12 @@
  * igual que yo?": quien quiera puede emitir su salida final y los demás
  * escucharla, sin tocar el proyecto ni el kernel.
  *
- * El audio va crudo y en mono —Int16, a la sample rate del emisor— porque no
- * hay encoder propio todavía (el de Opus está en el horizonte, igual que para
- * el OGG) y porque en una sala de trabajo el enlace es una LAN o un VPN. Es
- * monitorización, no masterización: la referencia sigue siendo el render.
+ * El audio va en mono a la sample rate del emisor y COMPRIMIDO con el ADPCM
+ * propio (4 bits por muestra, ver adpcm.ts): en v1.8 viajaba crudo y eso son
+ * ~1,4 Mbit/s, que sobra para una LAN y molesta para todo lo demás. El tipo de
+ * codificación viaja en el mensaje, así que un trozo sin comprimir (pcm16)
+ * sigue siendo válido. Es monitorización, no masterización: la referencia
+ * sigue siendo el render.
  *
  * Aquí solo vive lo que se puede probar sin sonido: el formato del mensaje y
  * el RELOJ de reproducción, que es lo que de verdad decide si esto se oye bien
@@ -19,6 +21,7 @@
 
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
+import { decodeAdpcm, encodeAdpcm } from './adpcm';
 
 /** Tipo de mensaje del protocolo de sala (0 sync · 1 awareness · 2 control · 3 audio). */
 export const MESSAGE_AUDIO = 3;
@@ -29,26 +32,52 @@ export const MESSAGE_AUDIO = 3;
  */
 export const AUDIO_MAX_SAMPLES = 96000;
 
+/** Cómo viaja el audio: crudo o comprimido con el ADPCM propio. */
+export type AudioCodec = 'pcm16' | 'adpcm';
+
+const CODEC_PCM16 = 0;
+const CODEC_ADPCM = 1;
+
 export interface AudioChunk {
   /** clientID de Yjs de quien emite. */
   from: number;
   sampleRate: number;
   /** Contador del emisor: un salto = hubo un hueco. */
   seq: number;
-  /** Muestras mono. */
+  /** Muestras mono, ya descomprimidas. */
   samples: Int16Array;
+  /** Con qué llegó (informativo: el contador de bytes del panel). */
+  codec: AudioCodec;
+  /** Bytes que ocupó en la red. */
+  bytes: number;
 }
 
-export function encodeAudioChunk(chunk: AudioChunk): Uint8Array {
+export interface AudioChunkInput {
+  from: number;
+  sampleRate: number;
+  seq: number;
+  samples: Int16Array;
+  /** Por defecto comprimido; 'pcm16' deja el trozo tal cual. */
+  codec?: AudioCodec;
+}
+
+export function encodeAudioChunk(chunk: AudioChunkInput): Uint8Array {
+  const codec: AudioCodec = chunk.codec ?? 'adpcm';
+  const payload =
+    codec === 'adpcm'
+      ? encodeAdpcm(chunk.samples)
+      : new Uint8Array(chunk.samples.buffer, chunk.samples.byteOffset, chunk.samples.byteLength);
+
   const encoder = encoding.createEncoder();
   encoding.writeVarUint(encoder, MESSAGE_AUDIO);
   encoding.writeVarUint(encoder, chunk.from);
   encoding.writeVarUint(encoder, chunk.sampleRate);
   encoding.writeVarUint(encoder, chunk.seq);
-  encoding.writeVarUint8Array(
-    encoder,
-    new Uint8Array(chunk.samples.buffer, chunk.samples.byteOffset, chunk.samples.byteLength),
-  );
+  encoding.writeVarUint(encoder, codec === 'adpcm' ? CODEC_ADPCM : CODEC_PCM16);
+  // Las muestras van aparte del payload: con 4 bits por muestra, el número de
+  // bytes no dice cuántas había (un trozo impar deja medio byte sin usar).
+  encoding.writeVarUint(encoder, chunk.samples.length);
+  encoding.writeVarUint8Array(encoder, payload);
   return encoding.toUint8Array(encoder);
 }
 
@@ -58,16 +87,33 @@ export function readAudioChunkBody(decoder: decoding.Decoder): AudioChunk | null
     const from = decoding.readVarUint(decoder);
     const sampleRate = decoding.readVarUint(decoder);
     const seq = decoding.readVarUint(decoder);
-    const bytes = decoding.readVarUint8Array(decoder);
+    const codecId = decoding.readVarUint(decoder);
+    const count = decoding.readVarUint(decoder);
+    const payload = decoding.readVarUint8Array(decoder);
     if (sampleRate < 8000 || sampleRate > 192000) return null;
-    if (bytes.byteLength % 2 !== 0) return null;
-    const count = bytes.byteLength / 2;
     if (count === 0 || count > AUDIO_MAX_SAMPLES) return null;
-    // La vista se copia: `bytes` apunta al buffer del mensaje, que se reutiliza.
-    const samples = new Int16Array(count);
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true);
-    return { from, sampleRate, seq, samples };
+    const bytes = payload.byteLength;
+
+    if (codecId === CODEC_ADPCM) {
+      if (bytes !== Math.ceil(count / 2)) return null;
+      // Se copia: `payload` apunta al buffer del mensaje, que se reutiliza.
+      return {
+        from,
+        sampleRate,
+        seq,
+        samples: decodeAdpcm(payload.slice(), count),
+        codec: 'adpcm',
+        bytes,
+      };
+    }
+    if (codecId === CODEC_PCM16) {
+      if (bytes !== count * 2) return null;
+      const samples = new Int16Array(count);
+      const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+      for (let i = 0; i < count; i++) samples[i] = view.getInt16(i * 2, true);
+      return { from, sampleRate, seq, samples, codec: 'pcm16', bytes };
+    }
+    return null; // codec que no conocemos: mejor callar que reproducir ruido
   } catch {
     return null;
   }

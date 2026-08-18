@@ -32,6 +32,8 @@ import {
   analyzeMix,
   compileProject,
   encodeFlac,
+  encodeFlacStream,
+  encodeOggFlac,
   encodeWav,
   gainToTarget,
   renderProject,
@@ -78,6 +80,8 @@ export interface ExportOptions {
   midi: boolean;
   mp3: boolean;
   flac: boolean;
+  /** También un .ogg (Ogg FLAC: sin pérdida, contenedor propio). */
+  ogg: boolean;
   depth: WavDepth;
   sampleRate: number;
   tailSeconds: number;
@@ -92,6 +96,7 @@ export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
   midi: true,
   mp3: false,
   flac: false,
+  ogg: false,
   depth: 16,
   sampleRate: 44100,
   tailSeconds: 2,
@@ -112,6 +117,8 @@ export interface ExportSummary {
   mp3Path: string | null;
   /** Ruta del .flac exportado junto al WAV, o null si no se pidió/falló. */
   flacPath: string | null;
+  /** Ruta del .ogg (Ogg FLAC), o null. */
+  oggPath: string | null;
   warnings: string[];
 }
 
@@ -373,6 +380,24 @@ async function renderAndWrite(
     }
   }
 
+  // OGG al lado del WAV. Es Ogg FLAC: el mismo audio sin pérdida del .flac,
+  // en el contenedor que hasta v1.8 estaba descartado por no tener con qué
+  // escribirlo (ver render/ogg.ts).
+  let oggPath: string | null = null;
+  if (opts.ogg) {
+    oggPath = `${splitExtension(target).base}.ogg`;
+    try {
+      await report('Empaquetando OGG…');
+      const oggDepth: FlacDepth = opts.depth === 16 ? 16 : 24;
+      if (opts.depth === 32) warnings.push('OGG (FLAC) no admite float: el .ogg va a 24 bits.');
+      const stream = encodeFlacStream(mix.left, mix.right, mix.sampleRate, oggDepth);
+      await orbit.file.write(oggPath, encodeOggFlac(stream));
+    } catch (e) {
+      warnings.push(`No se pudo escribir ${oggPath}: ${errorText(e)}`);
+      oggPath = null;
+    }
+  }
+
   // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
   let midiPath: string | null = null;
   if (opts.midi) {
@@ -426,6 +451,7 @@ async function renderAndWrite(
     midiPath,
     mp3Path,
     flacPath,
+    oggPath,
     warnings,
   };
 }
@@ -481,6 +507,7 @@ function parseLastExport(raw: unknown): LastExport | null {
       midi: bool(o['midi'], DEFAULT_EXPORT_OPTIONS.midi),
       mp3: bool(o['mp3'], DEFAULT_EXPORT_OPTIONS.mp3),
       flac: bool(o['flac'], DEFAULT_EXPORT_OPTIONS.flac),
+      ogg: bool(o['ogg'], DEFAULT_EXPORT_OPTIONS.ogg),
       depth: (depth === 24 || depth === 32 ? depth : 16) as WavDepth,
       sampleRate: num(o['sampleRate'], DEFAULT_EXPORT_OPTIONS.sampleRate),
       tailSeconds: num(o['tailSeconds'], DEFAULT_EXPORT_OPTIONS.tailSeconds),

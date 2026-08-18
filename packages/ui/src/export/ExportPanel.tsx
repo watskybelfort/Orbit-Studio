@@ -257,6 +257,16 @@ export function ExportPanel() {
         También FLAC sin pérdida (.flac junto al WAV)
       </label>
 
+      <label className="exp-check" title="Ogg FLAC: el mismo audio sin pérdida, en contenedor Ogg">
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={opts.ogg}
+          onChange={(e) => set('ogg', e.target.checked)}
+        />
+        También OGG (Ogg FLAC, sin pérdida)
+      </label>
+
       <div className="exp-row">
         <span className="exp-label">Profundidad</span>
         <select
@@ -382,6 +392,12 @@ export function ExportPanel() {
             <div className="exp-summary-row">
               <span className="exp-summary-key">FLAC</span>
               <span className="exp-summary-val">{fileNameOf(status.summary.flacPath)}</span>
+            </div>
+          )}
+          {status.summary.oggPath && (
+            <div className="exp-summary-row">
+              <span className="exp-summary-key">OGG</span>
+              <span className="exp-summary-val">{fileNameOf(status.summary.oggPath)}</span>
             </div>
           )}
           <span className="exp-path">{status.summary.path}</span>

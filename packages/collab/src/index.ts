@@ -31,6 +31,8 @@ export {
   type ControlMessage,
 } from './control';
 
+export { adpcmBytes, decodeAdpcm, encodeAdpcm } from './adpcm';
+
 export {
   AUDIO_MAX_SAMPLES,
   MESSAGE_AUDIO,
@@ -40,6 +42,7 @@ export {
   readAudioChunkBody,
   toMonoInt16,
   type AudioChunk,
+  type AudioCodec,
   type ChunkPlan,
 } from './audio-stream';
 

@@ -242,12 +242,51 @@ const SAMPLE_SIZE_CODE: Record<FlacDepth, number> = { 16: 0b100, 24: 0b110 };
 
 // ── API ──────────────────────────────────────────────────────────────────────
 
+/**
+ * El mismo flujo, pero por PIEZAS: la cabecera (fLaC + STREAMINFO) y cada
+ * frame por separado. Lo pide el contenedor Ogg, que necesita empaquetar cada
+ * frame como un paquete suyo; concatenarlo todo da byte a byte lo mismo que
+ * `encodeFlac`.
+ */
+export interface FlacStream {
+  /** "fLaC" + STREAMINFO. */
+  header: Uint8Array;
+  /** Un frame FLAC por elemento, en orden. */
+  frames: Uint8Array[];
+  sampleRate: number;
+  depth: FlacDepth;
+  /** Muestras por canal. */
+  totalSamples: number;
+  /** Tamaño de bloque (el último frame puede tener menos). */
+  blockSize: number;
+}
+
 export function encodeFlac(
   left: Float32Array,
   right: Float32Array,
   sampleRate: number,
   depth: FlacDepth = 16,
 ): Uint8Array {
+  const stream = encodeFlacStream(left, right, sampleRate, depth);
+  let total = stream.header.length;
+  for (const frame of stream.frames) total += frame.length;
+  const out = new Uint8Array(total);
+  let at = 0;
+  out.set(stream.header, at);
+  at += stream.header.length;
+  for (const frame of stream.frames) {
+    out.set(frame, at);
+    at += frame.length;
+  }
+  return out;
+}
+
+export function encodeFlacStream(
+  left: Float32Array,
+  right: Float32Array,
+  sampleRate: number,
+  depth: FlacDepth = 16,
+): FlacStream {
   const nFrames = left.length;
   const scale = depth === 16 ? 32767 : 8388607;
 
@@ -280,6 +319,9 @@ export function encodeFlac(
   bw.write(nFrames >>> 0, 32);
   for (let i = 0; i < 16; i++) bw.write(0, 8); // MD5 desconocido
 
+  const headerEnd = bw.byteLength;
+  const frameBounds: number[] = [headerEnd];
+
   // Frames.
   const chL = new Int32Array(BLOCK_SIZE);
   const chR = new Int32Array(BLOCK_SIZE);
@@ -310,7 +352,20 @@ export function encodeFlac(
     writeSubframe(bw, xR, depth);
     bw.align();
     bw.write(crc16(bw.slice(frameStart)), 16);
+    frameBounds.push(bw.byteLength);
   }
 
-  return bw.bytes();
+  const all = bw.bytes();
+  const frames: Uint8Array[] = [];
+  for (let i = 1; i < frameBounds.length; i++) {
+    frames.push(all.slice(frameBounds[i - 1]!, frameBounds[i]!));
+  }
+  return {
+    header: all.slice(0, headerEnd),
+    frames,
+    sampleRate,
+    depth,
+    totalSamples: nFrames,
+    blockSize: BLOCK_SIZE,
+  };
 }

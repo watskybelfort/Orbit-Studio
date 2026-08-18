@@ -31,6 +31,8 @@ let energy = 0;
 let gaps = 0;
 let lastSeq: number | null = null;
 let rate = 0;
+let bytes = 0;
+let codec = '';
 
 const session = new CollabSession(store, {
   user: { name, color: colorForName(name) },
@@ -39,6 +41,8 @@ const session = new CollabSession(store, {
     chunks++;
     samples += chunk.samples.length;
     rate = chunk.sampleRate;
+    bytes += chunk.bytes;
+    codec = chunk.codec;
     if (lastSeq !== null && chunk.seq !== lastSeq + 1) gaps++;
     lastSeq = chunk.seq;
     for (const s of chunk.samples) {
@@ -59,6 +63,12 @@ setTimeout(() => {
     `trozos=${chunks} muestras=${samples} (${(samples / (rate || 1)).toFixed(2)} s de audio a ${rate} Hz)`,
   );
   console.log(`pico=${db(peak)} rms=${db(rms)} huecos=${gaps}`);
+  const seconds = samples / (rate || 1);
+  const kbps = seconds > 0 ? (bytes * 8) / seconds / 1000 : 0;
+  console.log(
+    `codec=${codec || '?'} · ${bytes} bytes (${kbps.toFixed(0)} kbit/s) · ` +
+      `crudo serían ${((samples * 16) / seconds / 1000).toFixed(0)} kbit/s`,
+  );
   console.log(
     chunks === 0
       ? 'NADA: nadie está emitiendo (o no llega)'

@@ -7,7 +7,8 @@ export { KernelCore, MAX_BLOCK } from './kernel-core';
 export { AudioEngine } from './engine';
 export { renderProject, renderStems, type RenderOptions, type RenderResult } from './render/offline';
 export { encodeWav, type WavDepth } from './render/wav';
-export { encodeFlac, type FlacDepth } from './render/flac';
+export { encodeOggFlac, lacing, oggCrc, type OggFlacOptions } from './render/ogg';
+export { encodeFlac, encodeFlacStream, type FlacDepth } from './render/flac';
 export { analyzeMix, gainToTarget, type MixAnalysis } from './render/analysis';
 export {
   correctPitch,
