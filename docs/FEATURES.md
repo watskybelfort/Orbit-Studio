@@ -29,6 +29,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Undo/redo por origen (500 niveles, fusión de ráfagas de perilla) | v0.1 |
 | **Historial de undo navegable**: panel con quién hizo qué y salto a cualquier punto, sin romper el undo por origen | v1.0 |
 | Autosave por minuto + anillo de 5 backups + recuperación tras crash | v0.2 |
+| **Versiones del proyecto con diff musical**: instantáneas con nombre (una en cada Ctrl+S y las que pidas), cada una desplegable con lo que ha cambiado desde entonces contado en música — "+3 notas en «Patrón 1» · Kit", "Canal nuevo «Voz»", "Tempo 140 → 76.25", "fader +2.5 dB", "efecto nuevo: limiter". Las notas se casan por id, así que mover una no se cuenta como borrarla y crearla. Restaurar guarda antes el estado actual: volver atrás no es una puerta de un solo sentido | v1.9 |
 | Formato `.orbit` (JSON versionado), abrir/guardar/guardar como (Ctrl+O/S) | v0.1 |
 | Import MIDI (Archivo → Importar: canales + patrón + tempo, en un undo) | v0.4 |
 | Info del proyecto: título, autor, notas y recuento de todo lo que hay dentro | v1.0 |
@@ -265,7 +266,8 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Export de la **selección** de la playlist (la región marcada en ese momento) | v1.0 |
 | MP3 a 192 kbps junto al WAV | v0.5 |
 | FLAC sin pérdida (codificador propio: FIXED + Rice, bit-exacto vs ffmpeg) | v0.6 |
-| OGG — **descartado**: en este Electron `MediaRecorder` no soporta ningún contenedor Ogg y además graba en tiempo real; el camino sensato sería un encoder Opus propio, como el FLAC | v1+ |
+| **OGG (Ogg FLAC)**: lo que faltaba no era un códec, era el CONTENEDOR — y ese sí se escribe. Páginas Ogg con su CRC (el del formato, no el de zip), tabla de trozos y granulado, con el mapeo de FLAC sobre Ogg: un `.ogg` de Orbit es sin pérdida y lo abre cualquier reproductor. Verificado con ffmpeg: decodifica bit a bit igual que el original | v1.9 |
+| Opus propio — sigue **fuera**: eso es un códec entero (MDCT, PVQ, range coder), no un contenedor. El `.ogg` de arriba cubre el hueco de formato; el streaming de la sala se comprime con el ADPCM propio | v1+ |
 | Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real
@@ -289,7 +291,8 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | **Chat de sesión** por el mismo documento Yjs, con notas ancladas a un compás | v1.0 |
 | **Permisos por rol** (productor / invitado / oyente) aplicados en el log de comandos | v1.0 |
 | **El rol lo reparte y lo hace cumplir el SERVIDOR**: hasta v1.7 era autodeclarado (cambiar un campo bastaba para ascender). Ahora el primero que entra es productor, los demás invitados, y el productor reparte desde la lista de la sala; si se va, hereda el más antiguo. El servidor juzga cada entrada del log con el rol que ÉL tiene apuntado y retira la que no pasa — borrar es una operación normal del CRDT, así que converge y el infractor re-deriva su proyecto | v1.8 |
-| **Streaming del master de la sesión**: "Emitir mi master" manda tu salida final (mono, sin comprimir, por un mensaje que el servidor reparte y no guarda) y el botón **Oír** de cada fila la reproduce en tu máquina, fuera del kernel y con su propio volumen. Cierra el "¿lo estás oyendo igual que yo?"; es monitorización, la referencia sigue siendo el render | v1.8 |
+| **Streaming del master de la sesión**: "Emitir mi master" manda tu salida final (por un mensaje que el servidor reparte y no guarda) y el botón **Oír** de cada fila la reproduce en tu máquina, fuera del kernel y con su propio volumen. Cierra el "¿lo estás oyendo igual que yo?"; es monitorización, la referencia sigue siendo el render | v1.8 |
+| El stream va **comprimido** con el ADPCM propio (4 bits por muestra): 192 kbit/s en vez de los 768 de v1.8, con cada trozo codificado desde cero para que un paquete perdido no arrastre al siguiente. El tipo de codificación viaja en el mensaje, así que un trozo crudo sigue siendo válido | v1.9 |
 | **Los sonidos viajan por la sala**: los samples se publican por hash en el mismo documento Yjs y se rehidratan en el kernel del otro. Antes solo viajaban los comandos, así que un canal sampler o un clip de audio sonaba en tu máquina y era MUDO en la suya salvo que él hubiera pinchado ese mismo sonido de fábrica antes. Topes: 16 MB por sample, 64 MB por sala; el contenido de fábrica no viaja (se resuelve por ruta en las dos) | v1.1 |
 | Reconciliación al conectar, al registrar un sample y tras cada resincronización (join y replay dejaban el proyecto lleno de referencias y el kernel vacío) | v1.1 |
 | **Congelar tu audio** mientras el otro trastea: los comandos remotos se siguen aplicando al modelo, pero tu motor se queda con el último snapshot hasta que lo sueltas. No silencia al otro — lo que oyes es tu propio motor tocando el proyecto común | v1.1 |
@@ -357,6 +360,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | **SDK de plugins JS** (efectos): carpeta de usuario, perillas propias, sandbox del worklet con bypass anti-crash, en vivo y en el export (docs/PLUGINS.md) | v0.7 |
+| **Galería de la comunidad**: se añaden fuentes (la URL de un índice JSON publicado donde sea; formato en `docs/plugin-gallery.json`), se ve qué ofrecen y se instala de un clic. La descarga la hace el main (el renderer tiene la red cortada por CSP), lo que baja NO se ejecuta para saber qué es —se lee con el mismo parseo estático— y si no declara `createEffect` ni `createInstrument` no llega al disco. Tras instalar se re-escanea: el plugin aparece sin reiniciar | v1.9 |
 | **Plugins JS de instrumento** (`createInstrument`): canal propio en el rack, con bypass si falla | v1.0 |
 | Galería de plugins de la comunidad en el browser | v1+ |
 | Puente CLAP / VST3 vía proceso host nativo (necesita host nativo con GUI embebida: proyecto aparte) | v1+ |

@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.8.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-578%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.9.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-617%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,30 @@ guardables con nombre).
 
 ## Lo último
 
+**v1.9.0 — "mirar atrás y repartir".** Otras tres del "Siguiente".
+
+**Versiones con diff musical.** El proyecto se guarda entero como versión (una
+en cada Ctrl+S, y las que pidas con nombre) y cada una se despliega con **lo
+que ha cambiado desde entonces contado en música**: "+3 notas en «Patrón 1» ·
+Kit", "Canal nuevo «Voz»", "Tempo 140 → 76.25", "fader +2.5 dB". Las notas se
+casan por id, así que mover una no se cuenta como borrarla y crearla. Y
+restaurar guarda antes el estado de ahora: volver atrás no es una puerta de un
+solo sentido.
+
+**Galería de plugins.** El SDK está desde v0.7, pero compartirlos era mandarse
+el `.js` por ahí. Ahora se añaden **fuentes** (un índice JSON publicado donde
+quieras) y se instala de un clic. Lo que baja no se ejecuta para averiguar qué
+es: se lee con el mismo parseo estático de siempre y, si no declara
+`createEffect` ni `createInstrument`, no llega al disco.
+
+**El OGG deja de estar descartado.** Lo que faltaba no era un códec: era el
+**contenedor**. Un `.ogg` de Orbit es Ogg FLAC — sin pérdida, del mismo
+encoder que ya sonaba bit-exacto — y ffmpeg lo decodifica muestra a muestra
+igual que el original. Y el **streaming del master ya no viaja crudo**: ADPCM
+propio, 192 kbit/s en vez de 768, con cada trozo independiente para que un
+paquete perdido no arrastre al siguiente. (Opus entero sigue fuera: eso es un
+códec completo, no un envoltorio.)
+
 **v1.8.0 — "quién manda y qué se oye".** Las tres del "Siguiente".
 
 **El rol ya no es lo que tú digas.** Hasta ahora cada cliente declaraba el
@@ -114,26 +138,6 @@ mismo encargo da siempre el mismo pack. Se pide desde el browser o dándoselo a
 Claude por su tool nueva (`generate_pack`), que además puede meterte cada
 sonido en su canal.
 
-**v1.6.0 — "cada ventana en su monitor".** Las otras dos del roadmap.
-
-**Multi-ventana de verdad.** Sacar un editor a su propia ventana ya no es un
-apaño: **recuerda dónde estaba** (monitor incluido) y vuelve a salir ahí al
-abrir la app al día siguiente, así que el mixer se queda a vivir en la segunda
-pantalla. Si ese monitor ya no está, arranca donde se vea —una ventana
-restaurada fuera de pantalla existe, roba el foco y no hay forma de agarrarla—.
-Cada una trae su barra con **siempre encima** y **devolver**, y sobre todo: el
-**teclado funciona dentro**. Antes, un piano roll en el segundo monitor era un
-editor mudo (espacio, Ctrl+Z, F5, la fila Z/Q del piano… todo escuchaba en la
-ventana principal); ahora sus teclas se reenvían allí, salvo lo que estés
-escribiendo en un campo de texto.
-
-**Arrastrar canales entre carpetas.** El nombre del canal es el asa: suéltalo
-sobre otra fila y queda encima o debajo de ella **con la carpeta de esa fila**;
-sobre la cabecera de una carpeta, entra al final; y en la zona de sueltos —que
-se dibuja sola en cuanto empiezas a arrastrar— sale de la suya. Guía de
-inserción mientras arrastras y **un solo Ctrl+Z** para deshacerlo entero,
-carpeta y sitio.
-
 **v1.4.1 — el loop ya no se pisa a sí mismo.** Una nota que acababa justo en el
 final del patrón no encontraba nunca su note-off: seguía sonando vuelta tras
 vuelta, el sonido se solapaba consigo mismo y, al llenarse el pool de 64 voces,
@@ -156,17 +160,17 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Historial de versiones con diff musical** | "¿Qué cambió en el drop?" respondido con música, no con bytes |
-| **Encoder Opus propio** | Lo pide dos veces la casa: el export a OGG (hoy descartado) y el streaming del master, que hoy viaja crudo |
-| **Galería de plugins de la comunidad** | El SDK de plugins JS ya está ([docs/PLUGINS.md](docs/PLUGINS.md)); falta el sitio donde compartirlos |
+| **Contraseña de sala** | El rol ya lo decide el servidor, pero entrar sigue siendo saber el código: la puerta es lo siguiente |
+| **Packs con estructura entera** | Un loop de cuatro compases no es un beat: encadenar secciones (intro, drop, vuelta) es otro problema |
+| **Comparar dos versiones cualesquiera** | El diff musical ya está; hoy compara contra el proyecto de ahora, y falta versión contra versión |
 
 ### Después
 
 | Qué | Por qué |
 |---|---|
 | **Nodos con más que enrutado** | El graph editor recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
-| **Contraseña de sala** | El rol ya lo decide el servidor, pero entrar sigue siendo saber el código: la puerta es lo siguiente |
-| **Packs con estructura entera** | Un loop de cuatro compases no es un beat: encadenar secciones (intro, drop, vuelta) es otro problema |
+| **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
+| **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
 
 ### Horizonte
 
@@ -182,7 +186,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 578 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 617 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
