@@ -9,6 +9,7 @@ export * from './model/prisma';
 export * from './model/templates';
 export * from './model/slices';
 export * from './model/channel-drop';
+export * from './model/routing';
 export * from './model/notes';
 export * from './model/defaults';
 export * from './commands';
