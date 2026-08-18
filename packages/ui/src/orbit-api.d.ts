@@ -5,6 +5,22 @@
 
 type OrbitThemeId = 'dark' | 'light' | 'acrylic';
 
+/** Estado del servidor de colaboración que arranca la app en su propio proceso. */
+interface OrbitServerStatus {
+  running: boolean;
+  port?: number;
+  /** Dirección en la que escucha de verdad (127.0.0.1, 0.0.0.0 o una IP concreta). */
+  host?: string;
+  /** Cuánta gente cabe en cada sala (lo decide settings.json). */
+  roomCapacity?: number;
+  /** Acepta conexiones de fuera de esta máquina. */
+  openToNetwork?: boolean;
+  /** La dirección que hay que darle a los demás. */
+  shareAddress?: string;
+  /** false si la IP elegida ya no existe y hubo que quedarse en local. */
+  hostHonored?: boolean;
+}
+
 interface OrbitApi {
   readonly version: string;
   readonly window: {
@@ -89,31 +105,18 @@ interface OrbitApi {
   };
   readonly server: {
     /** Estado del servidor de colaboración arrancado en proceso. */
-    status(): Promise<{
-      running: boolean;
-      port?: number;
-      host?: string;
-      roomCapacity?: number;
-      openToNetwork?: boolean;
-      addresses?: string[];
-    }>;
+    status(): Promise<OrbitServerStatus>;
     /**
-     * Arranca el servidor y devuelve el estado o un error legible. Escucha solo
-     * en esta máquina salvo que `collabServerOpen` esté a true en settings.json
-     * (la casilla "Abrir a la red" del panel de colaboración).
+     * IPv4 de esta máquina para el desplegable de "dónde escuchar", etiquetadas
+     * (Radmin VPN, Ethernet, vEthernet (WSL)…) y ordenadas: VPN primero.
      */
-    start(): Promise<{
-      running: boolean;
-      port?: number;
-      host?: string;
-      /** Cuánta gente cabe en cada sala (lo decide settings.json). */
-      roomCapacity?: number;
-      /** Acepta conexiones de fuera de esta máquina. */
-      openToNetwork?: boolean;
-      /** IPv4 de esta máquina para compartir (solo si está abierto a la red). */
-      addresses?: string[];
-      error?: string;
-    }>;
+    interfaces(): Promise<{ address: string; label: string }[]>;
+    /**
+     * Arranca el servidor y devuelve el estado o un error legible. Escucha
+     * donde diga `collabServerHost` en settings.json (el desplegable del panel):
+     * solo esta máquina, una IP concreta o todas.
+     */
+    start(): Promise<OrbitServerStatus & { error?: string }>;
     /** Detiene el servidor y libera el puerto. */
     stop(): Promise<{ running: boolean }>;
   };

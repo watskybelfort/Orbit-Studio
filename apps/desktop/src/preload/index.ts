@@ -6,6 +6,20 @@ import type { IpcRendererEvent } from 'electron';
 
 export type OrbitThemeId = 'dark' | 'light' | 'acrylic';
 
+/** Estado del servidor de colaboración que la app arranca en su propio proceso. */
+export interface OrbitServerStatus {
+  running: boolean;
+  port?: number;
+  /** Dirección en la que escucha de verdad (127.0.0.1, 0.0.0.0 o una IP concreta). */
+  host?: string;
+  roomCapacity?: number;
+  openToNetwork?: boolean;
+  /** La dirección que hay que darle a los demás. */
+  shareAddress?: string;
+  /** false si la IP elegida ya no existe y hubo que quedarse en local. */
+  hostHonored?: boolean;
+}
+
 export interface OrbitApi {
   readonly version: string;
   readonly window: {
@@ -90,9 +104,14 @@ export interface OrbitApi {
   };
   readonly server: {
     /** Estado del servidor de colaboración arrancado en proceso. */
-    status(): Promise<{ running: boolean; port?: number; host?: string }>;
-    /** Arranca el servidor (localhost); devuelve el estado o un error legible. */
-    start(): Promise<{ running: boolean; port?: number; host?: string; error?: string }>;
+    status(): Promise<OrbitServerStatus>;
+    /** IPv4 de esta máquina, etiquetadas, para elegir dónde escuchar. */
+    interfaces(): Promise<{ address: string; label: string }[]>;
+    /**
+     * Arranca el servidor donde diga `collabServerHost` en settings.json (solo
+     * esta máquina si no hay nada elegido); devuelve el estado o un error.
+     */
+    start(): Promise<OrbitServerStatus & { error?: string }>;
     /** Detiene el servidor y libera el puerto. */
     stop(): Promise<{ running: boolean }>;
   };
@@ -173,6 +192,7 @@ const api: OrbitApi = {
   },
   server: {
     status: () => ipcRenderer.invoke('server:status'),
+    interfaces: () => ipcRenderer.invoke('server:interfaces'),
     start: () => ipcRenderer.invoke('server:start'),
     stop: () => ipcRenderer.invoke('server:stop'),
   },

@@ -39,7 +39,17 @@ const SETTINGS_KEY_NAME = 'collabUserName';
 const SETTINGS_KEY_URL = 'collabServerUrl';
 const SETTINGS_KEY_ROLE = 'collabRole';
 const SETTINGS_KEY_CAPACITY = 'collabRoomCapacity';
+const SETTINGS_KEY_SERVER_HOST = 'collabServerHost';
+/** Casilla "Abrir a la red" de la 1.3.0; hoy solo se lee para migrar. */
 const SETTINGS_KEY_SERVER_OPEN = 'collabServerOpen';
+
+/**
+ * Dónde puede escuchar el servidor que arranca la app. Los mismos valores que
+ * entiende `resolveHost` en apps/server; se repiten aquí porque el renderer NO
+ * puede importar @orbit/server (arrastraría node:http y ws al bundle).
+ */
+export const SERVER_HOST_LOCAL = '127.0.0.1';
+export const SERVER_HOST_ALL = '0.0.0.0';
 
 /**
  * Cuánta gente cabe en una sala del servidor que arranca la app. El que manda
@@ -472,11 +482,12 @@ export interface CollabSettings {
   /** Cuánta gente dejará entrar en cada sala el servidor que arranca la app. */
   roomCapacity: number;
   /**
-   * El servidor que arranca la app escucha para toda la red (LAN o VPN) en vez
-   * de solo para esta máquina. Es la casilla del panel: sin ella, hospedar una
-   * sala desde el botón solo sirve para pruebas en local.
+   * Dónde escucha el servidor que arranca la app: `SERVER_HOST_LOCAL` (solo
+   * esta máquina), `SERVER_HOST_ALL` (todas las redes) o una IPv4 concreta de
+   * la máquina — la del VPN, la de la LAN… Es el desplegable del panel; sin
+   * elegir nada, hospedar desde el botón solo vale para pruebas en local.
    */
-  serverOpen: boolean;
+  serverHost: string;
 }
 
 /** Capacidad de sala válida a partir de lo que haya guardado (o de nada). */
@@ -492,13 +503,20 @@ export async function loadCollabSettings(): Promise<CollabSettings> {
   const url = settings[SETTINGS_KEY_URL];
   const role = settings[SETTINGS_KEY_ROLE];
   const capacity = settings[SETTINGS_KEY_CAPACITY];
-  const serverOpen = settings[SETTINGS_KEY_SERVER_OPEN];
+  const host = settings[SETTINGS_KEY_SERVER_HOST];
   const loaded: CollabSettings = {
     userName: typeof name === 'string' && name.trim() !== '' ? name : DEFAULT_USER_NAME,
     serverUrl: typeof url === 'string' && url.trim() !== '' ? url : DEFAULT_SERVER_URL,
     role: isCollabRole(role) ? role : DEFAULT_ROLE,
     roomCapacity: clampRoomCapacity(capacity),
-    serverOpen: serverOpen === true,
+    // Migración desde la casilla "Abrir a la red" de la 1.3.0: encendida
+    // equivalía a escuchar en todas las redes.
+    serverHost:
+      typeof host === 'string' && host.trim() !== ''
+        ? host.trim()
+        : settings[SETTINGS_KEY_SERVER_OPEN] === true
+          ? SERVER_HOST_ALL
+          : SERVER_HOST_LOCAL,
   };
   // El rol vive en el store (lo lee startSession al crear la sesión).
   useCollabStore.setState({ role: loaded.role });
@@ -516,6 +534,10 @@ export function saveCollabSettings(patch: Partial<CollabSettings>): void {
   if (patch.userName !== undefined) p[SETTINGS_KEY_NAME] = patch.userName;
   if (patch.serverUrl !== undefined) p[SETTINGS_KEY_URL] = patch.serverUrl;
   if (patch.roomCapacity !== undefined) p[SETTINGS_KEY_CAPACITY] = clampRoomCapacity(patch.roomCapacity);
-  if (patch.serverOpen !== undefined) p[SETTINGS_KEY_SERVER_OPEN] = patch.serverOpen;
+  if (patch.serverHost !== undefined) {
+    p[SETTINGS_KEY_SERVER_HOST] = patch.serverHost;
+    // La casilla vieja se deja coherente por si se abre una versión anterior.
+    p[SETTINGS_KEY_SERVER_OPEN] = patch.serverHost !== SERVER_HOST_LOCAL;
+  }
   if (Object.keys(p).length > 0) void window.orbit?.settings.set(p);
 }

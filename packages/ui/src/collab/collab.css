@@ -425,3 +425,15 @@
   max-height: 168px;
   overflow-y: auto;
 }
+
+/* Fila del servidor propio: botón + aforo + dónde escucha + avisos. Con el
+   desplegable dentro hace falta que la fila envuelva, o el select se come el
+   texto de estado. */
+.collab-server-ctl {
+  flex-wrap: wrap;
+}
+
+.collab-host-pick select {
+  flex: none;
+  max-width: 210px;
+}

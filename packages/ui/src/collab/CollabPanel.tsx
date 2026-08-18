@@ -17,6 +17,8 @@ import {
   DEFAULT_USER_NAME,
   MAX_ROOM_CAPACITY,
   MIN_ROOM_CAPACITY,
+  SERVER_HOST_ALL,
+  SERVER_HOST_LOCAL,
   clampRoomCapacity,
   createRoom,
   joinRoom,
@@ -73,8 +75,11 @@ export function CollabPanel() {
   /** Capacidad de sala del servidor propio, tal y como se está escribiendo. */
   const [capacityDraft, setCapacityDraft] = useState(String(DEFAULT_ROOM_CAPACITY));
   const capacity = clampRoomCapacity(Number(capacityDraft));
-  /** Hospedar para gente de otras máquinas (se aplica al arrancar el servidor). */
-  const [serverOpen, setServerOpen] = useState(false);
+  /** Dónde escuchará el servidor propio (se aplica al arrancarlo). */
+  const [serverHost, setServerHost] = useState(SERVER_HOST_LOCAL);
+  /** IPv4 de esta máquina, etiquetadas, para el desplegable. */
+  const [interfaces, setInterfaces] = useState<{ address: string; label: string }[]>([]);
+  const [shareCopied, setShareCopied] = useState(false);
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
@@ -86,9 +91,11 @@ export function CollabPanel() {
   const [server, setServer] = useState<{
     running: boolean;
     port?: number;
+    host?: string;
     roomCapacity?: number;
     openToNetwork?: boolean;
-    addresses?: string[];
+    shareAddress?: string;
+    hostHonored?: boolean;
     error?: string;
   }>({
     running: false,
@@ -97,9 +104,12 @@ export function CollabPanel() {
 
   const beatsPerBar = store.project.timeSig.num;
 
-  // Estado inicial del servidor (por si ya estaba arrancado en esta sesión).
+  // Estado inicial del servidor (por si ya estaba arrancado en esta sesión) y
+  // direcciones de la máquina para elegir dónde escuchar.
   useEffect(() => {
-    if (canHostServer) void window.orbit!.server.status().then(setServer);
+    if (!canHostServer) return;
+    void window.orbit!.server.status().then(setServer);
+    void window.orbit!.server.interfaces().then(setInterfaces);
   }, [canHostServer]);
 
   const toggleServer = async () => {
@@ -118,7 +128,7 @@ export function CollabPanel() {
       setUserName(s.userName);
       setServerUrl(s.serverUrl);
       setCapacityDraft(String(s.roomCapacity));
-      setServerOpen(s.serverOpen);
+      setServerHost(s.serverHost);
     });
   }, []);
 
@@ -129,6 +139,21 @@ export function CollabPanel() {
   }, [chat]);
 
   const persistFields = () => saveCollabSettings({ userName, serverUrl });
+
+  /**
+   * URL de la sala tal y como la ve el resto (y como la tiene que ver ESTA app
+   * si el servidor escucha en una IP concreta: atado a una dirección, localhost
+   * deja de responder hasta para quien hospeda).
+   */
+  const shareUrl = `ws://${server.shareAddress ?? ''}:${server.port ?? ''}`;
+
+  /** Nombre legible de una dirección para los avisos ("Radmin VPN — 26.x"). */
+  const hostLabel = (host: string): string => {
+    if (host === SERVER_HOST_LOCAL) return 'solo esta máquina';
+    if (host === SERVER_HOST_ALL) return 'todas las redes';
+    const found = interfaces.find((net) => net.address === host);
+    return found ? `${found.label} (${host})` : host;
+  };
 
   /** Deja el campo en un valor posible y lo guarda (lo aplica el próximo arranque). */
   const commitCapacity = () => {
@@ -496,29 +521,37 @@ export function CollabPanel() {
             />
           </label>
           <label
-            className="collab-check"
-            title="Deja entrar a gente de otras máquinas (LAN o VPN). Se aplica al arrancar el servidor."
+            className="collab-check collab-host-pick"
+            title="En qué dirección escucha el servidor. Se aplica al arrancarlo."
           >
-            <input
-              type="checkbox"
-              checked={serverOpen}
+            Escucha en
+            <select
+              className="collab-input"
+              value={serverHost}
               onChange={(e) => {
-                setServerOpen(e.target.checked);
-                saveCollabSettings({ serverOpen: e.target.checked });
+                setServerHost(e.target.value);
+                saveCollabSettings({ serverHost: e.target.value });
               }}
-            />
-            Abrir a la red
+            >
+              <option value={SERVER_HOST_LOCAL}>Solo esta máquina (localhost)</option>
+              {interfaces.map((net) => (
+                <option key={net.address} value={net.address}>
+                  {net.label} — {net.address}
+                </option>
+              ))}
+              <option value={SERVER_HOST_ALL}>Todas las redes</option>
+            </select>
           </label>
           <span className="collab-note">
             {server.running ? (
               <>
-                <span className="collab-dot online" /> En marcha en localhost:{server.port} —
+                <span className="collab-dot online" /> En marcha en {server.host}:{server.port} —
                 caben {server.roomCapacity ?? capacity} por sala
                 {server.roomCapacity !== undefined && server.roomCapacity !== capacity
                   ? ` (reinícialo para dejar entrar a ${capacity})`
                   : ''}
-                {(server.openToNetwork ?? false) !== serverOpen
-                  ? ` · reinícialo para ${serverOpen ? 'abrirlo a la red' : 'volver a solo esta máquina'}`
+                {server.host !== undefined && server.host !== serverHost
+                  ? ` · reinícialo para escuchar en ${hostLabel(serverHost)}`
                   : ''}
               </>
             ) : server.error ? (
@@ -527,18 +560,51 @@ export function CollabPanel() {
               `Arráncalo aquí (o con npm run server) y escucha en ${DEFAULT_SERVER_URL}.`
             )}
           </span>
+          {server.running && server.hostHonored === false && (
+            <span className="collab-warn">
+              La dirección elegida ({hostLabel(serverHost)}) no está disponible ahora mismo — ¿el
+              VPN apagado? Se quedó escuchando solo en esta máquina.
+            </span>
+          )}
           {server.running && server.openToNetwork && (
             <span className="collab-note">
-              Abierto a la red: que se conecten a{' '}
-              <b>
-                {(server.addresses ?? []).length > 0
-                  ? `ws://${server.addresses![0]}:${server.port}`
-                  : `ws://<tu-ip>:${server.port}`}
-              </b>
-              {(server.addresses ?? []).length > 1
-                ? ` (o ${server.addresses!.slice(1).map((a) => `ws://${a}:${server.port}`).join(', ')})`
-                : ''}
+              Que se conecten a{' '}
+              <b>{`ws://${server.shareAddress ?? '<tu-ip>'}:${server.port}`}</b>
+              {server.shareAddress && (
+                <button
+                  className="collab-btn small"
+                  onClick={() => {
+                    void navigator.clipboard
+                      .writeText(shareUrl)
+                      .then(() => {
+                        setShareCopied(true);
+                        window.setTimeout(() => setShareCopied(false), 1500);
+                      })
+                      .catch(() => {
+                        // Sin portapapeles: la dirección queda a la vista.
+                      });
+                  }}
+                >
+                  {shareCopied ? '¡Copiado!' : 'Copiar'}
+                </button>
+              )}
               . La sala no lleva contraseña: entra quien llegue al puerto y sepa el código.
+              {server.shareAddress !== undefined && serverUrl !== shareUrl && (
+                <>
+                  {' '}
+                  Ojo: escuchando en una dirección concreta, <code>localhost</code> ya no vale ni
+                  para ti.{' '}
+                  <button
+                    className="collab-btn small"
+                    onClick={() => {
+                      setServerUrl(shareUrl);
+                      saveCollabSettings({ serverUrl: shareUrl });
+                    }}
+                  >
+                    Usarla aquí
+                  </button>
+                </>
+              )}
             </span>
           )}
         </div>

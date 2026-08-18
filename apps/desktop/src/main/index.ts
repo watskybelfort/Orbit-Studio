@@ -7,7 +7,18 @@ import { networkInterfaces, release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
-import { startServer, type ServerHandle } from '@orbit/server';
+import {
+  HOST_ALL,
+  HOST_LOCAL,
+  describeAddress,
+  hostWasHonored,
+  isOpenToNetwork,
+  resolveHost,
+  sortAddresses,
+  startServer,
+  type HostAddress,
+  type ServerHandle,
+} from '@orbit/server';
 
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
@@ -221,20 +232,25 @@ let bridgeHost: BridgeHost | null = null;
 // guardan en userData/collab-rooms (./rooms sería de solo lectura empaquetado).
 
 let collabServer: ServerHandle | null = null;
+/** Dirección que se pidió en el panel al arrancar (para saber si se cumplió). */
+let collabServerWanted: string | undefined;
 
 /**
- * IPv4 de esta máquina con las que otro puede entrar a la sala. Solo se
- * enseñan cuando el servidor está abierto a la red: en ese caso hace falta
- * decirle al usuario QUÉ dirección compartir (la del VPN suele ser la buena).
+ * IPv4 de esta máquina con las que otro puede entrar a la sala, etiquetadas y
+ * ordenadas para el desplegable del panel: la del VPN primero (es la que se
+ * comparte para tocar con alguien de fuera), lo virtual y el 169.254 al final.
  */
-function lanAddresses(): string[] {
-  const out: string[] = [];
-  for (const list of Object.values(networkInterfaces())) {
+function localAddresses(): { address: string; label: string }[] {
+  const found: HostAddress[] = [];
+  for (const [name, list] of Object.entries(networkInterfaces())) {
     for (const net of list ?? []) {
-      if (net.family === 'IPv4' && !net.internal) out.push(net.address);
+      if (net.family === 'IPv4' && !net.internal) found.push({ name, address: net.address });
     }
   }
-  return out;
+  return sortAddresses(found).map((entry) => ({
+    address: entry.address,
+    label: describeAddress(entry),
+  }));
 }
 
 function collabServerStatus(): {
@@ -244,18 +260,23 @@ function collabServerStatus(): {
   roomCapacity?: number;
   /** El servidor acepta conexiones de fuera de esta máquina. */
   openToNetwork?: boolean;
-  /** Direcciones para compartir (solo si está abierto a la red). */
-  addresses?: string[];
+  /** Dirección que hay que dar a los demás (la elegida, o la mejor si escucha en todas). */
+  shareAddress?: string;
+  /** false si se pidió una IP que ya no existe y hubo que quedarse en local. */
+  hostHonored?: boolean;
 } {
   if (!collabServer) return { running: false };
-  const openToNetwork = collabServer.host !== '127.0.0.1';
+  const host = collabServer.host;
+  const openToNetwork = isOpenToNetwork(host);
+  const share = host === HOST_ALL ? localAddresses()[0]?.address : host;
   return {
     running: true,
     port: collabServer.port,
-    host: collabServer.host,
+    host,
     roomCapacity: collabServer.roomCapacity,
     openToNetwork,
-    ...(openToNetwork ? { addresses: lanAddresses() } : null),
+    hostHonored: hostWasHonored(collabServerWanted, host),
+    ...(openToNetwork && share !== undefined ? { shareAddress: share } : null),
   };
 }
 
@@ -392,18 +413,28 @@ function registerIpc(): void {
   // ── Servidor de colaboración (arrancarlo desde el panel) ───────────────────
   ipcMain.handle('server:status', () => collabServerStatus());
 
+  /** Direcciones de esta máquina para el desplegable de "dónde escuchar". */
+  ipcMain.handle('server:interfaces', () => localAddresses());
+
   ipcMain.handle('server:start', async () => {
     if (collabServer) return collabServerStatus();
     const settings = readSettings();
     const capacity = settings['collabRoomCapacity'];
-    // Hospedar para gente de fuera (LAN o VPN) es una decisión EXPLÍCITA del
-    // usuario: la casilla del panel, apagada por defecto. El servidor no tiene
-    // autenticación más allá del código de sala, así que mientras no se
-    // encienda sigue escuchando solo en esta máquina.
-    const openToNetwork = settings['collabServerOpen'] === true;
+    // Dónde escucha lo elige el usuario en el panel (`collabServerHost`): solo
+    // esta máquina, una IP concreta (la del VPN, la de la LAN…) o todas. Es una
+    // decisión EXPLÍCITA porque el servidor no tiene más autenticación que el
+    // código de sala; sin elección se queda en localhost. `collabServerOpen` es
+    // la casilla de la 1.3.0: si estaba encendida, equivale a "todas".
+    const wanted = settings['collabServerHost'];
+    collabServerWanted =
+      typeof wanted === 'string' && wanted.trim() !== ''
+        ? wanted.trim()
+        : settings['collabServerOpen'] === true
+          ? HOST_ALL
+          : HOST_LOCAL;
     try {
       collabServer = await startServer({
-        host: openToNetwork ? '0.0.0.0' : '127.0.0.1',
+        host: resolveHost(collabServerWanted, localAddresses().map((a) => a.address)),
         roomsDir: join(app.getPath('userData'), 'collab-rooms'),
         // Cuánta gente cabe en cada sala: lo elige el usuario en el panel de
         // colaboración y se guarda en settings.json (el server lo recorta a su

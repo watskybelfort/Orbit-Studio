@@ -4,6 +4,7 @@
  * actividad que recibe de los demás. Para verificar los dos sentidos contra
  * la app viva.
  * Uso: npx tsx tools/qa/presence-peer.ts <CODIGO-SALA> [segundos] [nombre]
+ * Servidor: ORBIT_COLLAB_URL (por defecto ws://localhost:7900).
  *
  * El nombre importa: el color sale de él, así que dos peers con el mismo
  * nombre son justo el caso que tiene que resolver pickDistinctColor.
@@ -15,6 +16,9 @@ import { CollabSession, colorForName, pickDistinctColor } from '@orbit/collab';
 const code = process.argv[2];
 const seconds = Number(process.argv[3] ?? '60');
 const name = process.argv[4] ?? 'Remoto QA';
+// Contra qué servidor: por defecto el local, pero se puede apuntar a la IP
+// elegida en el panel (la del VPN o la de la LAN) para probar el camino real.
+const url = process.env.ORBIT_COLLAB_URL ?? 'ws://localhost:7900';
 if (!code) {
   console.error('Falta el código de sala');
   process.exit(1);
@@ -47,8 +51,8 @@ session.onPeersChanged((peers) => {
   }
 });
 
-await session.connect('ws://localhost:7900', code);
-console.log(`conectado a ${code} como "${name}" (${colorForName(name)})`);
+await session.connect(url, code);
+console.log(`conectado a ${code} en ${url} como "${name}" (${colorForName(name)})`);
 
 // Cursor en la playlist (beat 2.5) + Claude trabajando "conmigo".
 session.setActivity({ editor: 'Playlist', beat: 2.5 });
