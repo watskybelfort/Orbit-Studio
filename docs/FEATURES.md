@@ -54,6 +54,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Mini-preview de melodía que abre el Piano Roll (doble clic también) | v0.1 |
 | Mantener pulsado el icono = escuchar el canal | v0.1 |
 | Filtros de canal (Todos, Drums, 808/Bajos, Melódicos, Sampler, Voces) + buscador | v1.0 |
+| **Carpetas de canales**: cabecera con color, plegado, contador y M/S de todo el grupo; botón + Carpeta y, en el menú del canal, mover a una carpeta, sacarlo o crear una con él. Es organización pura —no hay bus de carpeta—: el mute del grupo se le hace a sus canales en UN paso de undo, y deshacer la carpeta los deja sueltos sin borrar nada | v1.5 |
 | Randomizar y humanizar pasos desde el menú del canal, en un solo undo | v1.0 |
 
 ## 3. Piano Roll

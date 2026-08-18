@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.4.1-5aa9e6)
-![tests](https://img.shields.io/badge/tests-445%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.5.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-467%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,21 @@ guardables con nombre).
 
 ## Lo último
 
+**v1.5.0 — "cada cosa en su sitio".** Dos del roadmap, terminadas.
+
+**El Slicer trocea por los golpes.** En la pestaña Sonido de un canal Slicer
+tienes la onda con los cortes numerados encima y el botón que los pone **en los
+transientes** (tres grados de detalle, del golpe gordo al hi-hat). Los cortes
+son del canal, se guardan con el proyecto y se retocan a mano: arrastrar mueve
+uno, doble clic añade, el derecho quita. Sin cortes propios el motor reparte en
+partes iguales exactamente como siempre.
+
+**Carpetas en el Channel Rack.** Cabecera con su color, plegado, contador y
+M/S de todo el grupo; el menú del canal mueve, saca o crea carpeta con él. Es
+organización pura —no hay bus de carpeta—: el mute del grupo se le hace a sus
+canales en un solo paso de undo, y deshacer la carpeta los deja sueltos sin
+borrar nada.
+
 **v1.4.1 — el loop ya no se pisa a sí mismo.** Una nota que acababa justo en el
 final del patrón no encontraba nunca su note-off: seguía sonando vuelta tras
 vuelta, el sonido se solapaba consigo mismo y, al llenarse el pool de 64 voces,
@@ -107,15 +122,14 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 | Qué | Por qué |
 |---|---|
 | **Graph editor del rack por nodos** | La cadena de un canal es hoy una lista de inserts; verla y recablearla como grafo abre el enrutado raro que ahora no se puede expresar |
-| **Carpetas de canales** | Un proyecto de 40 canales pide agrupar (y silenciar/soltar el grupo entero) |
-| **Slice por transientes dentro del Slicer** | El detector de transientes ya existe (`engine/render/transients.ts`); falta que el Slicer lo use para trocear solo |
 | **Packs de sonidos generados por Claude** | La librería se genera por síntesis: que Claude arme packs a medida ("dame 12 hats de drill") es el paso natural |
+| **Multi-ventana real** | Las ventanas ya se desacoplan por portal; falta que el mixer viva de verdad en el segundo monitor |
+| **Arrastrar canales entre carpetas** | Las carpetas ya están (v1.5), pero mover un canal es cosa del menú: falta el arrastre |
 
 ### Después
 
 | Qué | Por qué |
 |---|---|
-| **Multi-ventana real** | Las ventanas ya se desacoplan por portal; falta que el mixer viva de verdad en el segundo monitor |
 | **El servidor valida los roles** | Hoy el rol es autodeclarado (mismo modelo de confianza que el código de sala): que sea inviolable exige validar el log en el servidor |
 | **Streaming del master de la sesión** | Cada cliente renderiza lo suyo; oír el master del otro cierra el "¿lo estás oyendo igual que yo?" |
 | **Historial de versiones con diff musical** | "¿Qué cambió en el drop?" respondido con música, no con bytes |
@@ -135,7 +149,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 445 tests (core, engine, collab, claude-bridge, sound-library, ui, server)
+npm test           # 467 tests (core, engine, collab, claude-bridge, sound-library, ui, server)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
