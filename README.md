@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.6.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-494%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v1.7.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-545%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -63,12 +63,33 @@ guardables con nombre).
    del VPN, la de la LAN o todas), convergencia sin conflictos, roles, chat
    anclado al timeline, modo seguidor y undo POR USUARIO (tu Ctrl+Z no deshace
    lo del otro).
-5. **Claude dentro del estudio** — la app expone un servidor MCP con **20 tools**
+5. **Claude dentro del estudio** — la app expone un servidor MCP con **21 tools**
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v1.7.0 — "el cable y el sonido".** Se vacía el "Siguiente" del roadmap.
+
+**El enrutado, como grafo.** Ventana **Enrutado**: el camino entero de la
+señal a la vista —canales y carriles de audio a la izquierda, pistas de mixer
+repartidas por columnas según lo lejos que estén del master, la salida de cada
+una en línea llena y sus envíos de puntos con su nivel—. Y se recablea
+arrastrando: del puerto de un canal a otra pista para cambiarlo de sitio, del
+▸ de una pista para cambiar a dónde desemboca, del ⇢ para añadir un envío. Si
+el cable cerraría un **bucle**, se pinta en rojo y no se guarda — el compilador
+tolera los ciclos, pero lo que suena entonces no es lo que nadie quería.
+
+**Packs de sonidos a medida.** "Dame 12 hats de drill" y salen: se
+**renderizan con el mismo motor que suena en vivo**, se normalizan y aterrizan
+en la librería, listos para arrastrar al rack o a la playlist. Diez familias
+(kicks, snares, claps, hats, open hats, percusión, 808s, impactos, risers,
+downlifters) por siete estilos, con las variaciones repartidas por todo el
+rango de la familia —de lo más oscuro a lo más brillante— y deterministas: el
+mismo encargo da siempre el mismo pack. Se pide desde el browser o dándoselo a
+Claude por su tool nueva (`generate_pack`), que además puede meterte cada
+sonido en su canal.
 
 **v1.6.0 — "cada ventana en su monitor".** Las otras dos del roadmap.
 
@@ -115,14 +136,6 @@ dibujar una nota, **el arrastre horizontal le da la duración como en FL** y esa
 duración queda de plantilla; el tirador del borde derecho es más fácil de
 agarrar y el cursor lo delata.
 
-**v1.4.0 — "por dónde entra la gente".** El panel de colaboración trae un
-desplegable **"Escucha en"** con las direcciones reales de la máquina,
-etiquetadas y ordenadas (VPN primero, luego la LAN, y al final lo virtual):
-eliges dónde escucha el servidor y queda atado justo ahí. Si esa IP ya no está,
-arranca en local y lo dice; y como atado a una IP concreta `localhost` deja de
-valer hasta para quien hospeda, el panel te da la dirección para repartir, la
-copia y la deja en tu propio campo Servidor.
-
 Historial completo en [Releases](https://github.com/watskybelfort/Orbit-Studio/releases)
 y, auditado línea a línea, en [docs/FEATURES.md](docs/FEATURES.md).
 
@@ -135,17 +148,17 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Graph editor del rack por nodos** | La cadena de un canal es hoy una lista de inserts; verla y recablearla como grafo abre el enrutado raro que ahora no se puede expresar |
-| **Packs de sonidos generados por Claude** | La librería se genera por síntesis: que Claude arme packs a medida ("dame 12 hats de drill") es el paso natural |
+| **El servidor valida los roles** | Hoy el rol es autodeclarado (mismo modelo de confianza que el código de sala): que sea inviolable exige validar el log en el servidor |
+| **Streaming del master de la sesión** | Cada cliente renderiza lo suyo; oír el master del otro cierra el "¿lo estás oyendo igual que yo?" |
+| **Packs generados con más cuerpo** | Las familias de v1.7 son one-shots; los loops (melodías, breaks) piden armonía y estructura, no solo variación de parámetros |
 
 ### Después
 
 | Qué | Por qué |
 |---|---|
-| **El servidor valida los roles** | Hoy el rol es autodeclarado (mismo modelo de confianza que el código de sala): que sea inviolable exige validar el log en el servidor |
-| **Streaming del master de la sesión** | Cada cliente renderiza lo suyo; oír el master del otro cierra el "¿lo estás oyendo igual que yo?" |
 | **Historial de versiones con diff musical** | "¿Qué cambió en el drop?" respondido con música, no con bytes |
 | **Galería de plugins de la comunidad** | El SDK de plugins JS ya está ([docs/PLUGINS.md](docs/PLUGINS.md)); falta el sitio donde compartirlos |
+| **Nodos con más que enrutado** | El graph editor de v1.7 recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
 
 ### Horizonte
 
@@ -161,7 +174,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 494 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 545 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
@@ -173,7 +186,7 @@ npm run typecheck  # tsc --noEmit sobre todo el monorepo
 
 **Claude como colaborador:** abre la carpeta con Claude Code y la app en
 marcha; el `.mcp.json` del repo conecta el bridge (stdio → WS local 7855) y las
-20 tools aparecen solas. Todo lo que haga Claude sale en su panel (menú Ver →
+21 tools aparecen solas. Todo lo que haga Claude sale en su panel (menú Ver →
 Panel de Claude).
 
 ## Documentación

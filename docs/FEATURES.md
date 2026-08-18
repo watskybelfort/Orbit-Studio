@@ -130,6 +130,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Color editable por pista (clic en el chip de color) | v0.6 |
 | **EQ rápido de 3 bandas** por pista (120 Hz shelf · 1 kHz campana · 6 kHz shelf), post-efectos y pre-fader; plano no toca el audio | v0.9 |
 | **Grabar la salida de una pista** (post-fader) mientras suena → WAV + clip en la playlist, en un undo | v0.9 |
+| **Graph editor del enrutado** (ventana "Enrutado"): el camino entero de la señal como nodos y cables —canales y carriles de audio a la izquierda, pistas repartidas por columnas según lo lejos que estén del master—, con la salida (línea llena) y los envíos (de puntos, con su nivel en dB) a la vista | v1.7 |
+| Recablear arrastrando de un puerto a otra pista: cambia la pista del canal, el `routeTo` o añade un envío. Un cable que cerraría un BUCLE se pinta en rojo y no se guarda (el compilador tolera los ciclos, pero lo que suena entonces no es lo que nadie quería) | v1.7 |
+| Doble clic en un cable lo devuelve al master (o quita el envío); el nivel del envío se arrastra desde su chapa; pan, zoom, "Ver todas" y encaje automático | v1.7 |
 
 ## 6. Instrumentos incluidos
 
@@ -230,6 +233,9 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Carpetas del usuario (elige carpetas propias; se escanean y funcionan igual) | v0.5 |
 | **Favoritos y colecciones** con nombre, guardados en los ajustes | v1.0 |
 | **Detección automática de BPM y tonalidad** al indexar (141/141 tempos sintéticos ±2 BPM; 39/40 tonalidades del pack) | v1.0 |
+| **Packs generados en la app**: familia (kicks, snares, claps, hats, open hats, percusión, 808s, impactos, risers, downlifters) por estilo (trap, drill, boom bap, latino, house, techno, lo-fi) y cuántos quieres; se renderizan con el motor de la app, se normalizan a -1 dBFS y aparecen en su sección del browser como los de fábrica | v1.7 |
+| Cada pack vive en `userData/packs/<slug>/` (WAV + manifest.json, mismo formato que el de fábrica) con su botón de abrir carpeta y de borrar; los sonidos se arrastran, se guardan en el proyecto y sobreviven a reabrirlo | v1.7 |
+| Mismo encargo + misma semilla = mismo pack, siempre (variaciones por hash del índice, cero azar) | v1.7 |
 
 ## 10. Grabación y edición de audio
 
@@ -292,14 +298,14 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | Servidor **MCP** expuesto por la app (`.mcp.json` en el repo, stdio→WS) | v0.1 |
-| **20 tools**: proyecto, notas, canales, steps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, undo/redo | v0.1 |
+| **21 tools**: proyecto, notas, canales, steps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, packs de sonidos, undo/redo | v0.1 |
 | Todas sus ediciones pasan por el bus de comandos → undo separado del tuyo | v0.1 |
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
 | Claude en la lista de presencia de la sesión (fila propia bajo su usuario) | v0.3 |
 | Campo de petición en el panel (viaja adjunta al siguiente get_project de Claude) | v0.5 |
 | **Asistente de mezcla** (`advise_mix`): diagnóstico por tilts de banda, LUFS y fase, con cadena propuesta y opción de aplicarla | v1.0 |
-| Claude genera contenido a la librería (packs a demanda) | v0.x |
+| **Claude genera packs a demanda** (`generate_pack`): "12 hats de drill" salen renderizados con el motor real y aterrizan en la librería; con `addChannels` los mete además en canales sampler del proyecto | v1.7 |
 
 ## 14. Apariencia y temas
 
