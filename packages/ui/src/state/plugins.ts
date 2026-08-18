@@ -44,9 +44,21 @@ let started = false;
  */
 export async function initPlugins(): Promise<void> {
   if (started) return;
+  started = true;
+  await scanPlugins();
+}
+
+/**
+ * Vuelve a leer la carpeta y a registrar lo que haya. Lo llama la galería tras
+ * instalar o quitar un plugin: si no, habría que reiniciar la app para verlo.
+ */
+export async function rescanPlugins(): Promise<void> {
+  await scanPlugins();
+}
+
+async function scanPlugins(): Promise<void> {
   const api = window.orbit;
   if (!api?.plugins) return;
-  started = true;
 
   let files: { id: string; name: string; source: string }[];
   try {

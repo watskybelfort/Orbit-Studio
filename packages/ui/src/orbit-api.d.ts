@@ -120,8 +120,16 @@ interface OrbitApi {
   readonly plugins: {
     /** Lista los .js de userData/plugins (crea la carpeta si no existe). */
     scan(): Promise<{ id: string; name: string; source: string }[]>;
+    /** Escribe un plugin en la carpeta de usuario (nombre saneado). */
+    write(file: string, source: string): Promise<string>;
+    /** Borra un plugin de la carpeta de usuario. */
+    remove(file: string): Promise<boolean>;
     /** Abre la carpeta de plugins en el explorador del sistema. */
     openFolder(): Promise<void>;
+  };
+  /** Galería de plugins: el main baja el texto (el renderer no sale a la red). */
+  readonly gallery: {
+    fetch(url: string): Promise<string>;
   };
   readonly autosave: {
     /** Guarda el estado como pendiente y rota el anillo de backups. */

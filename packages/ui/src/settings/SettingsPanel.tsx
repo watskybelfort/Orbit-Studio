@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { GallerySection } from './GallerySection';
 import {
   commitAppearance,
   DEFAULT_APPEARANCE,
@@ -368,6 +369,8 @@ export function SettingsPanel() {
       {fileNotice && (
         <p className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
       )}
+
+      <GallerySection />
 
       <h3 className="set-heading">Audio</h3>
       <p className="set-note">

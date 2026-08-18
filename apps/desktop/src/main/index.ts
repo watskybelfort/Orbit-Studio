@@ -890,6 +890,62 @@ function registerIpc(): void {
     return found;
   });
 
+  // ── Galería de plugins ─────────────────────────────────────────────────────
+  // El renderer no puede salir a la red (la CSP se lo prohíbe a propósito), así
+  // que la descarga la hace el main: trae TEXTO de una URL http(s) y punto —
+  // ni ejecuta nada ni lo escribe en ningún sitio. Quien decide si eso es un
+  // plugin es el renderer, con el mismo parseo estático de siempre; y quien lo
+  // escribe, `plugins:write`, que solo admite un nombre de archivo sano.
+
+  const GALLERY_MAX_BYTES = 2 * 1024 * 1024;
+  const GALLERY_TIMEOUT_MS = 10_000;
+  const PLUGIN_FILE_RE = /^[a-z0-9][a-z0-9-]{0,47}\.js$/;
+
+  ipcMain.handle('gallery:fetch', async (_event, url: unknown) => {
+    if (typeof url !== 'string') throw new Error('gallery:fetch requiere una URL');
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`URL no válida: ${url}`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('Solo se descargan galerías por http o https');
+    }
+    const response = await fetch(parsed, {
+      signal: AbortSignal.timeout(GALLERY_TIMEOUT_MS),
+      redirect: 'follow',
+    });
+    if (!response.ok) throw new Error(`La galería respondió ${response.status}`);
+    const text = await response.text();
+    if (text.length > GALLERY_MAX_BYTES) {
+      throw new Error('La respuesta pasa del tope de 2 MB');
+    }
+    return text;
+  });
+
+  ipcMain.handle('plugins:write', async (_event, file: unknown, source: unknown) => {
+    if (typeof file !== 'string' || !PLUGIN_FILE_RE.test(file)) {
+      throw new Error(`Nombre de plugin no válido: ${String(file)}`);
+    }
+    if (typeof source !== 'string' || source.length === 0) {
+      throw new Error('plugins:write requiere el código del plugin');
+    }
+    if (source.length > 512 * 1024) throw new Error('El plugin pasa del tope de 512 KB');
+    const dir = pluginsDir();
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, file), source, 'utf8');
+    return file;
+  });
+
+  ipcMain.handle('plugins:remove', async (_event, file: unknown) => {
+    if (typeof file !== 'string' || !PLUGIN_FILE_RE.test(file)) {
+      throw new Error(`Nombre de plugin no válido: ${String(file)}`);
+    }
+    await rm(join(pluginsDir(), file), { force: true });
+    return true;
+  });
+
   ipcMain.handle('plugins:open-folder', async () => {
     const dir = pluginsDir();
     await mkdir(dir, { recursive: true });

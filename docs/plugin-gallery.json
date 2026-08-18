@@ -1,0 +1,24 @@
+{
+  "name": "Galería de ejemplo de Orbit",
+  "description": "Formato de un índice de galería. Publica un archivo así donde quieras (un repo, un gist, tu servidor) y pega su URL en Ajustes → Galería de plugins.",
+  "plugins": [
+    {
+      "id": "tremolo",
+      "name": "Tremolo suave",
+      "url": "https://example.com/orbit-plugins/tremolo.js",
+      "author": "Orbit",
+      "description": "Amplitud que respira, con rate y profundidad.",
+      "kind": "effect",
+      "tags": ["modulación", "clásico"]
+    },
+    {
+      "id": "vocal-double",
+      "name": "Doblador vocal",
+      "url": "https://example.com/orbit-plugins/vocal-double.js",
+      "author": "Comunidad",
+      "description": "Copia desafinada y retrasada para ensanchar una voz.",
+      "kind": "effect",
+      "tags": ["voz", "ancho"]
+    }
+  ]
+}
