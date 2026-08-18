@@ -61,6 +61,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Función | Versión |
 |---|---|
 | Dibujar, borrar, mover, redimensionar por bordes, drag multi-nota | v0.1 |
+| **Dibujar y arrastrar da la duración** (como en FL): al poner una nota, el arrastre horizontal la estira y esa duración queda de plantilla para las siguientes; el vertical la mueve. El tirador del borde derecho es proporcional al ancho de la nota (4–12 px) y el cursor lo delata: `ew-resize` en el borde, `move` en el cuerpo | v1.4 |
 | Selección marquee (Ctrl+arrastre), Ctrl+A, duplicar (Ctrl+B), Supr | v0.1 |
 | Herramientas **Dibujar / Pincel / Cortar** (P, B, C), con el pincel borrando en arrastre con el botón derecho | v1.0 |
 | Velocity por nota (carril inferior) | v0.1 |
@@ -351,5 +352,6 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Kernel DSP en un solo AudioWorklet, cero GC en el audio thread | v0.1 |
 | Medidor de CPU en la barra de transporte (aviso por color al cargarse) | v0.2 |
 | Proyecto de 100 pistas sin dropouts (objetivo QA) | v0.1 |
-| Golden tests del DSP (render determinista) — 145 tests en total | v0.1 |
+| Golden tests del DSP (render determinista) — 445 tests en total | v0.1 |
+| **El cierre del loop suelta las voces del pase anterior** (y saltar el playhead, también). Una nota que acababa justo en el final del patrón no encontraba nunca su note-off, se quedaba sonando vuelta tras vuelta —el sonido se solapaba consigo mismo— y al llenarse el pool de 64 voces se robaba la más antigua: parecía que se cortaba la PRIMERA nota mientras las de más adelante sonaban | v1.4 |
 | Autosave + crash recovery (banner Recuperar/Descartar al reabrir) | v0.2 |
