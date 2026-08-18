@@ -7,6 +7,7 @@ import { release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
+import { startServer, type ServerHandle } from '@orbit/server';
 
 type ThemeId = 'dark' | 'light' | 'acrylic';
 type Settings = Record<string, unknown>;
@@ -213,6 +214,20 @@ const CLAUDE_TOOL_TIMEOUT_MS = 60_000;
 
 let bridgeHost: BridgeHost | null = null;
 
+// ─── Servidor de colaboración en proceso ─────────────────────────────────────
+// El panel de colaboración puede arrancar el servidor (apps/server) DENTRO del
+// proceso main, para no tener que abrir una terminal aparte. Escucha en
+// localhost por defecto (sin auth, ver el hardening del server). Las salas se
+// guardan en userData/collab-rooms (./rooms sería de solo lectura empaquetado).
+
+let collabServer: ServerHandle | null = null;
+
+function collabServerStatus(): { running: boolean; port?: number; host?: string } {
+  return collabServer
+    ? { running: true, port: collabServer.port, host: collabServer.host }
+    : { running: false };
+}
+
 function dispatchClaudeTool(req: {
   tool: string;
   args: unknown;
@@ -341,6 +356,30 @@ function registerIpc(): void {
       typeof patch === 'object' && patch !== null ? { ...base, ...(patch as Settings) } : base;
     writeSettings(merged);
     return merged;
+  });
+
+  // ── Servidor de colaboración (arrancarlo desde el panel) ───────────────────
+  ipcMain.handle('server:status', () => collabServerStatus());
+
+  ipcMain.handle('server:start', async () => {
+    if (collabServer) return collabServerStatus();
+    try {
+      collabServer = await startServer({
+        host: '127.0.0.1',
+        roomsDir: join(app.getPath('userData'), 'collab-rooms'),
+      });
+      return collabServerStatus();
+    } catch (err) {
+      return { running: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('server:stop', async () => {
+    if (collabServer) {
+      await collabServer.close();
+      collabServer = null;
+    }
+    return collabServerStatus();
   });
 
   // Pasarela genérica del renderer para responder tool calls de Claude:
@@ -709,6 +748,8 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   bridgeHost?.close();
   bridgeHost = null;
+  void collabServer?.close();
+  collabServer = null;
 });
 
 app.on('window-all-closed', () => {
