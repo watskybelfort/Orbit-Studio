@@ -418,3 +418,10 @@
   border-color: var(--meter-clip);
   color: var(--meter-clip);
 }
+
+/* La lista de conectados puede tener bastante gente (la sala admite hasta 64):
+   se queda con altura acotada y scroll propio en vez de empujar el chat fuera. */
+.collab-peers {
+  max-height: 168px;
+  overflow-y: auto;
+}

@@ -13,10 +13,12 @@ import {
   CollabSession,
   DEFAULT_ROLE,
   ROLE_LABELS,
+  colorForName,
   generateRoomCode,
   isCollabRole,
   isValidRoomCode,
   normalizeRoomCode,
+  pickDistinctColor,
   type ChatMessage,
   type CollabRole,
   type PeerInfo,
@@ -60,19 +62,19 @@ const CONNECT_TIMEOUT_MS = 10000;
 const STATUS_POLL_MS = 1500;
 
 /**
- * Identidad de color del colaborador (viaja por awareness para que los demás
- * te distingan; es dato de red, no un color de la UI — la UI usa tokens).
+ * Colores distintos aunque los nombres se repitan (todo el mundo entra como
+ * "Productor" si no toca el suyo). La regla vive en @orbit/collab; aquí solo se
+ * aplica cuando cambia la presencia: quien choque con alguien de clientId más
+ * bajo se aparta, y como el de id más bajo nunca se mueve, converge sola.
  */
-const USER_COLORS = [
-  '#5aa9e6', '#e6675a', '#7ce65a', '#e6c95a',
-  '#b45ae6', '#5ae6c9', '#e65aa9', '#e6935a',
-];
-
-/** Color estable por nombre (mismo nombre → mismo color en todos lados). */
-function colorFor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return USER_COLORS[h % USER_COLORS.length]!;
+function ensureDistinctColor(s: CollabSession, peers: PeerInfo[]): void {
+  const self = peers.find((p) => p.isSelf);
+  if (!self) return;
+  const next = pickDistinctColor(
+    { clientId: self.clientId, color: self.user.color },
+    peers.filter((p) => !p.isSelf).map((p) => ({ clientId: p.clientId, color: p.user.color })),
+  );
+  if (next !== self.user.color) s.setUserColor(next);
 }
 
 // ── Store zustand ────────────────────────────────────────────────────────────
@@ -240,7 +242,7 @@ async function startSession(code: string, url: string, userName: string): Promis
   const name = userName.trim() || DEFAULT_USER_NAME;
   const role = useCollabStore.getState().role;
   const s = new CollabSession(store, {
-    user: { name, color: colorFor(name) },
+    user: { name, color: colorForName(name) },
     role,
     // Rechazar no rompe la sesión: solo se avisa (propio o de un remoto).
     onDenied: (info) => {
@@ -290,6 +292,7 @@ async function startSession(code: string, url: string, userName: string): Promis
 
   unsubscribePeers = s.onPeersChanged((peers) => {
     if (session !== s) return;
+    ensureDistinctColor(s, peers);
     useCollabStore.setState({ peers });
     // Si el peer al que seguíamos se va, se deja de seguir solo.
     const { following } = useCollabStore.getState();

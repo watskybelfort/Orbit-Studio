@@ -7,7 +7,7 @@
  * createRoom/joinRoom/leaveRoom.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { COLLAB_ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, formatRoomCode } from '@orbit/collab';
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
@@ -173,6 +173,22 @@ export function CollabPanel() {
 
   const notes = chat.filter((m) => typeof m.beat === 'number');
 
+  /**
+   * Etiqueta de cada conectado. Todo el mundo entra como "Productor" si no se
+   * cambia el nombre, así que a partir del segundo repetido se numera: con tres
+   * personas en la sala, tres "Productor" a secas no dicen quién es quién.
+   */
+  const peerLabels = useMemo(() => {
+    const count = new Map<string, number>();
+    const labels = new Map<number, string>();
+    for (const p of peers) {
+      const n = (count.get(p.user.name) ?? 0) + 1;
+      count.set(p.user.name, n);
+      labels.set(p.clientId, n > 1 ? `${p.user.name} ${n}` : p.user.name);
+    }
+    return labels;
+  }, [peers]);
+
   // ── En sala (o entrando): código, presencia, chat y salida ─────────────────
   if (phase === 'online' || phase === 'connecting') {
     return (
@@ -206,7 +222,7 @@ export function CollabPanel() {
                 <div className="collab-peer">
                   <span className="collab-peer-dot" style={{ background: p.user.color }} />
                   <span className="collab-peer-name">
-                    {p.user.name}
+                    {peerLabels.get(p.clientId) ?? p.user.name}
                     {p.isSelf ? ' (tú)' : ''}
                   </span>
                   <span className="collab-role-chip">{ROLE_LABELS[p.role]}</span>

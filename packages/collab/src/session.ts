@@ -287,6 +287,18 @@ export class CollabSession {
     this.awareness.setLocalStateField('role', role);
   }
 
+  /**
+   * Cambia el color con el que te ven los demás. Muta el MISMO objeto de
+   * usuario que comparten el chat y el log de comandos (así un mensaje escrito
+   * después sale ya con el color nuevo) y lo republica por awareness con un
+   * objeto nuevo, que es lo que compara awareness para ver que algo cambió.
+   */
+  setUserColor(color: string): void {
+    if (this.user.color === color) return;
+    this.user.color = color;
+    this.awareness.setLocalStateField('user', { ...this.user });
+  }
+
   // ── Chat de sala ───────────────────────────────────────────────────────────
 
   /** Conversación completa de la sala (vive en el doc Yjs). */
