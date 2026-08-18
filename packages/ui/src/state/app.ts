@@ -8,6 +8,7 @@ import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { pushCaptureChunk } from './track-capture';
+import { pushMasterStreamChunk } from '../collab/master-stream';
 import { useUiStore } from './ui';
 
 export const store = new ProjectStore();
@@ -136,6 +137,8 @@ engine.onMeters = (frame) => {
   setKernelNotes(frame.notes);
   if (frame.captureL && frame.captureR) {
     pushCaptureChunk(frame.captureL, frame.captureR);
+    // Y, si se está emitiendo el master a la sala, ese mismo trozo viaja.
+    pushMasterStreamChunk(frame.captureL, frame.captureR);
   }
 };
 

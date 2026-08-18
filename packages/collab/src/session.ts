@@ -32,6 +32,12 @@ import {
 } from './assets';
 import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
 import { MESSAGE_CONTROL, encodeControl, readControlBody } from './control';
+import {
+  MESSAGE_AUDIO,
+  encodeAudioChunk,
+  readAudioChunkBody,
+  type AudioChunk,
+} from './audio-stream';
 import { normalizeRoomCode } from './room-code';
 
 const MESSAGE_SYNC = 0;
@@ -113,6 +119,8 @@ export interface CollabSessionOptions {
   onRole?: (role: CollabRole) => void;
   /** Tabla de roles de la sala por clientID (para pintar quién es qué). */
   onRoles?: (roles: Record<string, CollabRole>) => void;
+  /** Trozo del master de otro (streaming de escucha; ver audio-stream.ts). */
+  onAudio?: (chunk: AudioChunk) => void;
   /** Llegó a la sala el contenido de un sample que aún no teníamos. */
   onAsset?: (asset: SampleAsset) => void;
   /** Un sample no cupo en la sala (demasiado grande o sala llena). */
@@ -135,6 +143,9 @@ export class CollabSession {
   private readonly onProjectReplaced: (() => void) | undefined;
   private readonly onRole: ((role: CollabRole) => void) | undefined;
   private readonly onRoles: ((roles: Record<string, CollabRole>) => void) | undefined;
+  private readonly onAudio: ((chunk: AudioChunk) => void) | undefined;
+  /** Contador de trozos emitidos (el que escucha detecta huecos con él). */
+  private audioSeq = 0;
   private currentRole: CollabRole;
 
   private readonly chatBinding: ChatBinding;
@@ -161,6 +172,7 @@ export class CollabSession {
     this.onProjectReplaced = opts.onProjectReplaced;
     this.onRole = opts.onRole;
     this.onRoles = opts.onRoles;
+    this.onAudio = opts.onAudio;
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
@@ -319,6 +331,22 @@ export class CollabSession {
       default:
         break;
     }
+  }
+
+  /**
+   * Emite un trozo del master propio a la sala. No toca el proyecto ni el
+   * doc: es audio suelto que el servidor reparte y nadie guarda.
+   */
+  sendAudio(samples: Int16Array, sampleRate: number): void {
+    if (!this.wsOpen || samples.length === 0) return;
+    this.send(
+      encodeAudioChunk({
+        from: this.doc.clientID,
+        sampleRate,
+        seq: this.audioSeq++,
+        samples,
+      }),
+    );
   }
 
   /**
@@ -483,6 +511,12 @@ export class CollabSession {
       }
       case MESSAGE_CONTROL: {
         this.handleControl(decoder);
+        break;
+      }
+      case MESSAGE_AUDIO: {
+        const chunk = readAudioChunkBody(decoder);
+        // Lo propio no se escucha: ya suena por los altavoces de verdad.
+        if (chunk && chunk.from !== this.doc.clientID) this.onAudio?.(chunk);
         break;
       }
       case MESSAGE_AWARENESS: {

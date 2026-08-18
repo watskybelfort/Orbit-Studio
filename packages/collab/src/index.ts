@@ -31,6 +31,18 @@ export {
   type ControlMessage,
 } from './control';
 
+export {
+  AUDIO_MAX_SAMPLES,
+  MESSAGE_AUDIO,
+  StreamClock,
+  encodeAudioChunk,
+  fromInt16,
+  readAudioChunkBody,
+  toMonoInt16,
+  type AudioChunk,
+  type ChunkPlan,
+} from './audio-stream';
+
 export { USER_COLORS, colorForName, pickDistinctColor } from './colors';
 
 export { ChatBinding, MAX_CHAT_MESSAGES } from './chat';

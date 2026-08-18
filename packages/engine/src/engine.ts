@@ -33,6 +33,15 @@ export class AudioEngine {
     return this.ctx?.sampleRate ?? 44100;
   }
 
+  /**
+   * El AudioContext de la app (null hasta el primer gesto del usuario). Lo
+   * necesita quien tenga que sacar audio que NO pasa por el kernel — hoy, el
+   * master que llega de otro por la sala.
+   */
+  get audioContext(): AudioContext | null {
+    return this.ctx;
+  }
+
   /** Idempotente; llamar tras un gesto del usuario (autoplay policy). */
   async init(): Promise<void> {
     if (this.ctx) {

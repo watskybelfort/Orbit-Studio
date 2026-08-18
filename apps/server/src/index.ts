@@ -31,6 +31,8 @@ import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import {
+  AUDIO_MAX_SAMPLES,
+  MESSAGE_AUDIO,
   MESSAGE_CONTROL,
   encodeControl,
   parseControl,
@@ -265,6 +267,15 @@ class Room {
           this.handleControl(conn, decoding.readVarString(decoder));
           break;
         }
+        case MESSAGE_AUDIO: {
+          // Streaming del master: se reparte tal cual y NO se guarda (no es
+          // parte del proyecto). Solo se mira el tamaño, para que un cliente
+          // roto —o listo— no llene la sala con un trozo de diez minutos.
+          if (data.byteLength <= AUDIO_MAX_SAMPLES * 2 + 64) {
+            this.broadcastExcept(conn, data);
+          }
+          break;
+        }
         default:
           break; // tipos desconocidos: se ignoran
       }
@@ -400,6 +411,13 @@ class Room {
     // Se re-siembra con lo que queda: así la lista no crece sin fin y lo que
     // se lleve una compactación deja de ocupar sitio.
     this.validated = new Set(log.toArray().map((entry) => entryKey(entry)));
+  }
+
+  /** A todos menos al que lo mandó (el audio propio ya suena en su máquina). */
+  private broadcastExcept(from: WsSocket, message: Uint8Array): void {
+    for (const conn of this.conns.keys()) {
+      if (conn !== from && conn.readyState === WsSocket.OPEN) conn.send(message);
+    }
   }
 
   private broadcast(message: Uint8Array): void {

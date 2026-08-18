@@ -15,7 +15,14 @@ import {
   formatRoomCode,
   type CollabRole,
 } from '@orbit/collab';
-import { engine, store } from '../state/app';
+import { ensureAudioReady, engine, store } from '../state/app';
+import {
+  listenTo,
+  setStreamVolume,
+  stopListening,
+  toggleBroadcast,
+  useMasterStream,
+} from './master-stream';
 import { useUiStore } from '../state/ui';
 import {
   DEFAULT_ROOM_CAPACITY,
@@ -69,6 +76,12 @@ export function CollabPanel() {
   const error = useCollabStore((s) => s.error);
   const role = useCollabStore((s) => s.role);
   const assignedRole = useCollabStore((s) => s.assignedRole);
+  const broadcasting = useMasterStream((s) => s.broadcasting);
+  const listeningTo = useMasterStream((s) => s.listeningTo);
+  const streamVolume = useMasterStream((s) => s.volume);
+  const streamError = useMasterStream((s) => s.error);
+  const streamReceived = useMasterStream((s) => s.received);
+  const streamDropped = useMasterStream((s) => s.dropped);
   const peerRoles = useCollabStore((s) => s.peerRoles);
   const following = useCollabStore((s) => s.following);
   const audioFrozen = useCollabStore((s) => s.audioFrozen);
@@ -301,6 +314,19 @@ export function CollabPanel() {
                   )}
                   {!p.isSelf && (
                     <button
+                      className={`collab-btn small${listeningTo === p.clientId ? ' primary' : ''}`}
+                      title="Escuchar SU master (lo que le suena a esa persona, no tu render)"
+                      onClick={() => {
+                        ensureAudioReady();
+                        if (listeningTo === p.clientId) stopListening();
+                        else listenTo(p.clientId);
+                      }}
+                    >
+                      {listeningTo === p.clientId ? 'Dejar de oír' : 'Oír'}
+                    </button>
+                  )}
+                  {!p.isSelf && (
+                    <button
                       className={`collab-btn small${following === p.clientId ? ' primary' : ''}`}
                       onClick={() =>
                         following === p.clientId ? unfollow() : followPeer(p.clientId)
@@ -338,6 +364,54 @@ export function CollabPanel() {
             ))}
           </ul>
         )}
+
+        {/* ── Streaming del master: oír lo que le suena a otro de verdad ── */}
+        <h3 className="collab-heading">Master de la sala</h3>
+        <div>
+          <button
+            className={`collab-btn small${broadcasting ? ' primary' : ''}`}
+            title="Emite TU salida final a la sala; los demás pueden oírla con el botón Oír de tu fila"
+            onClick={() => {
+              ensureAudioReady();
+              toggleBroadcast();
+            }}
+          >
+            {broadcasting ? 'Dejando oír mi master' : 'Emitir mi master'}
+          </button>
+          {listeningTo !== null && (
+            <button className="collab-btn small" onClick={() => stopListening()}>
+              Dejar de escuchar
+            </button>
+          )}
+        </div>
+        {listeningTo !== null && (
+          <p className="collab-note" data-qa="stream-status">
+            {streamReceived === 0
+              ? 'Esperando audio… (esa persona tiene que darle a "Emitir mi master")'
+              : `Sonando lo suyo · ${streamReceived} trozos recibidos${
+                  streamDropped ? ' · la red viene por delante y se tira alguno' : ''
+                }`}
+          </p>
+        )}
+        {listeningTo !== null && (
+          <div className="collab-row">
+            <span className="collab-label">Volumen de escucha</span>
+            <input
+              className="collab-input"
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.05}
+              value={streamVolume}
+              onChange={(e) => setStreamVolume(Number(e.target.value))}
+            />
+          </div>
+        )}
+        <p className="collab-note">
+          Lo que se emite es la salida final tal y como suena en esa máquina (mono, sin comprimir).
+          Es para comparar, no para mezclar: la referencia sigue siendo el render.
+        </p>
+        {streamError && <p className="collab-error">{streamError}</p>}
 
         {/* ── Lo que oyes TÚ (el otro no reproduce nada en tu máquina) ── */}
         <h3 className="collab-heading">Lo que oyes tú</h3>

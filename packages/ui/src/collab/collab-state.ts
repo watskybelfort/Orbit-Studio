@@ -25,6 +25,7 @@ import {
 } from '@orbit/collab';
 import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
 import { resetSampleSync, sampleSetChanged, syncSamplesWithRoom } from './sample-sync';
+import { playIncomingChunk, resetMasterStream, setStreamSender } from './master-stream';
 
 // ── Constantes ───────────────────────────────────────────────────────────────
 
@@ -191,6 +192,8 @@ function teardownSession(): void {
   // Fuera de la sala no hay rol asignado: el que valga es otra vez el que uno
   // elija para presentarse.
   useCollabStore.setState({ assignedRole: null, peerRoles: {} });
+  setStreamSender(null);
+  resetMasterStream();
   // destroy() = disconnect (avisa a los demás, cierra socket, suelta el
   // binding del log) + destruye awareness y el Y.Doc. Teardown real.
   s?.destroy();
@@ -292,6 +295,11 @@ async function startSession(code: string, url: string, userName: string): Promis
       if (session !== s) return;
       useCollabStore.setState({ peerRoles: table });
     },
+    // Master de otro: no toca el proyecto, se saca por el AudioContext.
+    onAudio: (chunk) => {
+      if (session !== s) return;
+      playIncomingChunk(chunk);
+    },
     // Unirse o re-derivar deja el proyecto lleno de referencias y el kernel
     // vacío: aquí es donde hay que volver a llenarlo.
     onProjectReplaced: () => {
@@ -372,6 +380,8 @@ async function startSession(code: string, url: string, userName: string): Promis
     ]);
     if (session !== s) return; // leaveRoom() durante la conexión
     useCollabStore.setState({ phase: 'online', peers: s.peers, chat: s.chat, error: null });
+    // Ya hay sala: el master propio puede salir por aquí si se pide emitir.
+    setStreamSender((samples, sampleRate) => s.sendAudio(samples, sampleRate));
     // Al CREAR la sala no hay replaceProject que dispare nada, pero nuestros
     // samples tienen que subir igual para que el que entre después los oiga.
     sampleSetChanged();
