@@ -365,13 +365,17 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
         // Pitch 0 (o basura) no viaja: así un clip sin transponer entra por el
         // camino de lectura directa del kernel, idéntico al de siempre.
         const pitch = clip.audioPitch;
+        // El carril de la playlist decide a qué pista de mixer va (0 = master si
+        // no se ha elegido). Se acota al rango real del mixer.
+        const lane = project.playlistTracks[clip.playlistTrackId];
+        const mixerTrack = Math.max(0, Math.min(project.mixer.length - 1, lane?.mixerTrack ?? 0));
         audioClips.push({
           start: clip.start,
           length: clip.length,
           sampleId: clip.sampleId,
           offset: clip.audioOffset ?? 0,
           gain: clip.audioGain ?? 1,
-          mixerTrack: 0,
+          mixerTrack,
           stretch: clip.audioStretch === true,
           ...(typeof pitch === 'number' && Number.isFinite(pitch) && pitch !== 0
             ? { pitch }
