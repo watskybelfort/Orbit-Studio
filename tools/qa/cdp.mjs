@@ -10,7 +10,13 @@ const WebSocket = require('ws');
 const [, , cmd, arg1, arg2] = process.argv;
 
 const targets = await (await fetch('http://127.0.0.1:9223/json')).json();
-const page = targets.find((t) => t.type === 'page' && t.url.includes('localhost:5173'));
+// El puerto del dev server puede cambiar (rangos reservados de Windows), así
+// que se busca cualquier página servida desde localhost en vez de uno fijo.
+const page = targets.find(
+  (t) =>
+    t.type === 'page' &&
+    (t.url.startsWith('http://localhost:') || t.url.startsWith('http://127.0.0.1:')),
+);
 if (!page) {
   console.error('No hay página del renderer en CDP. Targets:', targets.map((t) => t.url));
   process.exit(1);

@@ -33,6 +33,11 @@ export default defineConfig({
   },
   renderer: {
     root: 'src/renderer',
+    // Windows reserva rangos de puertos para Hyper-V y el 5173 de vite cayó
+    // dentro (netsh interface ipv4 show excludedportrange protocol=tcp): con
+    // el puerto por defecto, `npm run dev` moría con EACCES en ::1:5173. El
+    // 5900 está fuera de todos los rangos reservados de esta máquina.
+    server: { port: 5900 },
     plugins: [react()],
     resolve: { alias },
     build: {
