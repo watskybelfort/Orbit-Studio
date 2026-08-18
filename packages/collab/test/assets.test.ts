@@ -154,6 +154,37 @@ describe('SampleAssetBinding: el contenido viaja por la sala', () => {
     expect(bind.publish(blob(10), { hash: '  ', name: 'X', by: 'Ana' })).toBe('invalid');
   });
 
+  it('el receptor descarta un blob inflado inyectado directo en el Y.Map', () => {
+    const docA = new Y.Doc();
+    const docB = new Y.Doc();
+    linkDocs(docA, docB);
+    const received: SampleAsset[] = [];
+    const rejected: AssetRejection[] = [];
+    const bindB = new SampleAssetBinding(docB, {
+      maxAssetBytes: 1024,
+      onAsset: (a) => received.push(a),
+      onRejected: (info) => rejected.push(info),
+    });
+    bindB.start();
+
+    // El emisor NO valida aquí: escribimos a mano en el Y.Map, como haría un
+    // cliente modificado o un .bin manipulado saltándose publish().
+    const assetsA = docA.getMap<SampleAsset>('assets');
+    assetsA.set('gordo', { hash: 'gordo', name: 'Inflado', size: 5000, by: 'evil', at: 0, bytes: blob(5000) });
+
+    // No se anuncia, no se cuenta y no se sirve; solo se avisa una vez.
+    expect(received).toHaveLength(0);
+    expect(bindB.get('gordo')).toBeNull();
+    expect(bindB.totalBytes).toBe(0);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.reason).toBe('too-large');
+
+    // Y un sample legítimo por debajo del tope sigue llegando con normalidad.
+    assetsA.set('ok', { hash: 'ok', name: 'Kick', size: 64, by: 'Ana', at: 0, bytes: blob(64) });
+    expect(received.map((a) => a.hash)).toEqual(['ok']);
+    expect([...bindB.get('ok')!]).toEqual([...blob(64)]);
+  });
+
   it('quien entra tarde recibe el contenido que la sala ya tenía', () => {
     const docA = new Y.Doc();
     const bindA = new SampleAssetBinding(docA, {});

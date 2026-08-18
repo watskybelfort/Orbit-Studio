@@ -98,6 +98,8 @@ export class SampleAssetBinding {
   private readonly sizes = new Map<string, number>();
   /** Hashes ya anunciados (o publicados por nosotros): no se repiten. */
   private readonly notified = new Set<string>();
+  /** Hashes descartados por pasarse del tope (ya avisados): no se repiten. */
+  private readonly oversized = new Set<string>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -142,7 +144,13 @@ export class SampleAssetBinding {
 
   /** Bytes publicados bajo ese hash, o null si la sala no los tiene. */
   get(hash: string): Uint8Array | null {
-    return this.assets.get(hash)?.bytes ?? null;
+    const asset = this.assets.get(hash);
+    if (!asset) return null;
+    // El receptor tampoco se fía: un blob por encima del tope por sample no se
+    // sirve al kernel aunque esté en el doc (un cliente modificado o un .bin
+    // manipulado podría haberlo colado saltándose la validación del emisor).
+    if ((asset.size ?? asset.bytes.byteLength) > this.maxAssetBytes) return null;
+    return asset.bytes;
   }
 
   /** Ficha del asset (sin tocar el blob si solo quieres el nombre/tamaño). */
@@ -245,8 +253,28 @@ export class SampleAssetBinding {
     let changed = false;
     const fresh: SampleAsset[] = [];
     for (const [hash, asset] of this.assets.entries()) {
+      const size = asset.size ?? asset.bytes.byteLength;
+      // El emisor valida los topes al publicar, pero un cliente modificado (o un
+      // .bin manipulado) puede meter en el Y.Map blobs por encima del presupuesto
+      // que sostiene la arquitectura. El receptor NO los cuenta, NO los anuncia y
+      // NO los carga en el kernel; solo avisa una vez.
+      if (size > this.maxAssetBytes) {
+        if (!this.oversized.has(hash)) {
+          this.oversized.add(hash);
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'too-large',
+            message:
+              `«${asset.name}» llega desde la sala con ${mb(size)} y el tope por sample es ${mb(this.maxAssetBytes)}. ` +
+              'Se ignora: no sonará en esta máquina.',
+          });
+        }
+        continue;
+      }
       if (!this.sizes.has(hash)) {
-        this.sizes.set(hash, asset.size ?? asset.bytes.byteLength);
+        this.sizes.set(hash, size);
         changed = true;
       }
       if (this.notified.has(hash)) continue;
