@@ -71,8 +71,9 @@ const DB_EPSILON = 0.1;
 const PAN_EPSILON = 0.01;
 const TIME_EPSILON = 1e-6;
 
+/** Nombre del canal en ese proyecto, o cadena vacía si allí ya no existe. */
 function nameOf(project: Project, channelId: Id): string {
-  return project.channels[channelId]?.name ?? channelId;
+  return project.channels[channelId]?.name ?? '';
 }
 
 /** Notas de un canal en un patrón, indexadas por id. */
@@ -120,7 +121,9 @@ function diffNotesOf(
     patternId,
     patternName: pattern?.name ?? patternId,
     channelId,
-    channelName: nameOf(after, channelId) || nameOf(before, channelId),
+    // Un canal borrado ya no tiene nombre en `after`: se coge el que tenía
+    // antes. Enseñar su id en el informe no le dice nada a nadie.
+    channelName: nameOf(after, channelId) || nameOf(before, channelId) || channelId,
     added,
     removed,
     moved,

@@ -110,6 +110,17 @@ describe('notas', () => {
     });
     expect(diffProjects(antes, project).notes[0]).toMatchObject({ removed: 2, added: 0 });
   });
+
+  it('las notas de un canal borrado salen con SU nombre, no con su id', () => {
+    const { project, channelId } = base();
+    const antes = clone(project);
+    applyCommand(project, { type: 'removeChannel', channelId });
+
+    const diff = diffProjects(antes, project);
+    expect(diff.channels.removed).toEqual(['Orbit Sub']);
+    const notas = diff.notes.find((n) => n.channelId === channelId);
+    expect(notas?.channelName).toBe('Orbit Sub');
+  });
 });
 
 describe('estructura', () => {

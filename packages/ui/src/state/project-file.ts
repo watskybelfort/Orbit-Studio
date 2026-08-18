@@ -16,6 +16,7 @@ import {
   type Command,
   type Note,
 } from '@orbit/core';
+import { saveVersion } from './versions';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { setActivePattern, store } from './app';
@@ -162,6 +163,9 @@ export async function saveProject(saveAs = false): Promise<void> {
     if (!path) return; // cancelado
     useProjectFile.setState({ path });
     markClean();
+    // Cada guardado deja también una VERSIÓN: es el punto que uno considera
+    // digno de guardar, así que es exactamente el punto al que querrá volver.
+    void saveVersion('guardado');
     notify(`Guardado en ${fileName(path)}.`);
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo guardar el proyecto.');

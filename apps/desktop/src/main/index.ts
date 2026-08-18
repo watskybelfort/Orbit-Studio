@@ -896,6 +896,92 @@ function registerIpc(): void {
     await shell.openPath(dir);
   });
 
+  // ── Versiones del proyecto ─────────────────────────────────────────────────
+  // Instantáneas con nombre en userData/versions/<id del proyecto>/. No son el
+  // autosave (que es una red contra el crash y se pisa a sí mismo): esto es
+  // para mirar atrás — el proyecto entero tal y como estaba, comparable con el
+  // de ahora por el diff musical de core.
+
+  const versionsDir = (projectId: string): string =>
+    join(app.getPath('userData'), 'versions', projectId);
+  /** Cuántas se conservan por proyecto (las más viejas se caen solas). */
+  const VERSIONS_KEEP = 40;
+  const VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+  const VERSION_FILE_RE = /^[0-9]{13}-[a-z0-9-]{0,40}\.orbit$/;
+
+  function versionProjectDir(projectId: unknown): string {
+    if (typeof projectId !== 'string' || !VERSION_ID_RE.test(projectId)) {
+      throw new Error(`Id de proyecto no válido: ${String(projectId)}`);
+    }
+    return versionsDir(projectId);
+  }
+
+  /** Nombre visible → trozo de nombre de archivo (sin acentos ni rarezas). */
+  function versionSlug(label: unknown): string {
+    if (typeof label !== 'string') return '';
+    return label
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+  }
+
+  ipcMain.handle('version:save', async (_event, projectId: unknown, label: unknown, json: unknown) => {
+    if (typeof json !== 'string' || json.length === 0) {
+      throw new Error('version:save requiere el proyecto serializado');
+    }
+    const dir = versionProjectDir(projectId);
+    await mkdir(dir, { recursive: true });
+    const file = `${Date.now()}-${versionSlug(label)}.orbit`;
+    await writeFile(join(dir, file), json, 'utf8');
+
+    // Poda: se quedan las más recientes.
+    const files = (await readdir(dir)).filter((name) => VERSION_FILE_RE.test(name)).sort();
+    for (const old of files.slice(0, Math.max(0, files.length - VERSIONS_KEEP))) {
+      await rm(join(dir, old), { force: true });
+    }
+    return file;
+  });
+
+  ipcMain.handle('version:list', async (_event, projectId: unknown) => {
+    const dir = versionProjectDir(projectId);
+    let files: string[];
+    try {
+      files = await readdir(dir);
+    } catch {
+      return []; // este proyecto aún no tiene ninguna
+    }
+    const out: { file: string; at: number; bytes: number }[] = [];
+    for (const file of files) {
+      if (!VERSION_FILE_RE.test(file)) continue;
+      try {
+        const info = await stat(join(dir, file));
+        out.push({ file, at: Number(file.slice(0, 13)), bytes: info.size });
+      } catch {
+        // se borró entre medias
+      }
+    }
+    // De la más reciente a la más vieja: es el orden en el que se mira atrás.
+    return out.sort((a, b) => b.at - a.at);
+  });
+
+  ipcMain.handle('version:read', async (_event, projectId: unknown, file: unknown) => {
+    if (typeof file !== 'string' || !VERSION_FILE_RE.test(file)) {
+      throw new Error(`Versión no válida: ${String(file)}`);
+    }
+    return readFile(join(versionProjectDir(projectId), file), 'utf8');
+  });
+
+  ipcMain.handle('version:remove', async (_event, projectId: unknown, file: unknown) => {
+    if (typeof file !== 'string' || !VERSION_FILE_RE.test(file)) {
+      throw new Error(`Versión no válida: ${String(file)}`);
+    }
+    await rm(join(versionProjectDir(projectId), file), { force: true });
+    return true;
+  });
+
   // ── Librería de sonidos (pack de fábrica) ──────────────────────────────────
   // En desarrollo el pack vive en packages/sound-library/factory; empaquetado,
   // en resources/sound-library. library:read solo sirve archivos DENTRO del pack.

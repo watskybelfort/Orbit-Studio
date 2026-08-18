@@ -84,6 +84,15 @@ interface OrbitApi {
     /** Abre su carpeta en el explorador. */
     reveal(slug: string): Promise<void>;
   };
+  /** Versiones del proyecto (instantáneas con nombre, para mirar atrás). */
+  readonly versions: {
+    /** Guarda el proyecto serializado como versión; devuelve su archivo. */
+    save(projectId: string, label: string, json: string): Promise<string>;
+    /** Versiones de ese proyecto, de la más reciente a la más vieja. */
+    list(projectId: string): Promise<{ file: string; at: number; bytes: number }[]>;
+    read(projectId: string, file: string): Promise<string>;
+    remove(projectId: string, file: string): Promise<boolean>;
+  };
   readonly project: {
     /** Diálogo de apertura .orbit; null si el usuario cancela. */
     open(): Promise<{ path: string; json: string } | null>;

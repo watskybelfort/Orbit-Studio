@@ -155,3 +155,140 @@
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Versiones del proyecto ──
+   Debajo del historial de la sesión: instantáneas guardadas, con su diff
+   musical desplegable y el botón de volver a ellas. */
+
+.ver {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+}
+
+.ver-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ver-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ver-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ver-btn {
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ver-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.ver-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ver-btn.small {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.ver-notice,
+.ver-empty {
+  margin: 4px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.ver-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 0;
+}
+
+.ver-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ver-main:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.ver-caret {
+  color: var(--text-dim);
+}
+
+.ver-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ver-when {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.ver-diff {
+  flex-basis: 100%;
+  margin: 2px 0 6px 18px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
+.ver-diff-sum {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+
+.ver-diff-line {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}

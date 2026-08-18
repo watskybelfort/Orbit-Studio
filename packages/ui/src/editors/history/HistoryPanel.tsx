@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { HistoryItem } from '@orbit/core';
 import { store } from '../../state/app';
 import { useProjectVersion } from '../../state/useProject';
+import { VersionList } from './VersionList';
 import './history.css';
 
 export function HistoryPanel() {
@@ -65,6 +66,8 @@ export function HistoryPanel() {
           <Row key={item.id} item={item} isNow={i === view.present - 1} />
         ))}
       </div>
+
+      <VersionList />
 
       {view.entries.length === 0 && (
         <p className="hist-empty">
