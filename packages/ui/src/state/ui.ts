@@ -101,6 +101,13 @@ const defaultWindows: Record<WindowId, WindowState> = {
   liveView: { open: false, x: 200, y: 120, w: 560, h: 420, z: 1 },
 };
 
+/** Todos los editores, en runtime (para validar lo que venga de settings.json). */
+export const WINDOW_IDS = Object.keys(defaultWindows) as WindowId[];
+
+export function isWindowId(value: unknown): value is WindowId {
+  return typeof value === 'string' && (WINDOW_IDS as string[]).includes(value);
+}
+
 /**
  * Base del apilado de ventanas internas.
  *
