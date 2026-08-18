@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, createEmptyProject, newId } from '@orbit/core';
 import { compileProject } from '../src/compile';
 import { KernelCore, MAX_BLOCK } from '../src/kernel-core';
+import { renderProject } from '../src/render/offline';
+import type { CompiledAudioClip } from '../src/protocol';
 
 /** Proyecto con marcadores que cambian tempo y/o compás. */
 function withMarkers(marks: { time: number; tempo?: number; timeSigNum?: number }[]) {
@@ -79,6 +81,56 @@ describe('mapas de tempo y compás por marcador', () => {
     runBlocks(core, Math.round(44100 / MAX_BLOCK));
     expect(core.posBeats).toBeGreaterThan(4.9);
     expect(core.posBeats).toBeLessThan(5.15);
+  });
+
+  it('un clip de audio no salta de posición al cruzar un marcador de tempo', () => {
+    // 120 BPM hasta el beat 4, luego 60. Un clip de audio debe sonar a su
+    // velocidad natural sin que la lectura del sample dé un salto en el marcador.
+    const compiled = withMarkers([{ time: 4, tempo: 60 }]);
+    compiled.lengthBeats = 8;
+    // Master neutro: la salida es exactamente el índice leído del sample.
+    const m = compiled.mixer[0]!;
+    m.volume = 1;
+    m.pan = 0;
+    m.stereoWidth = 1;
+    m.eqLow = 0;
+    m.eqMid = 0;
+    m.eqHigh = 0;
+    m.slots = [];
+    const rate = 44100;
+    // Sample RAMPA (left[i] = i): la salida revela la posición de lectura. 8 s
+    // sobran para los ~6 s reales (4 beats@120 + 4 beats@60).
+    const ramp = new Float32Array(rate * 8);
+    for (let i = 0; i < ramp.length; i++) ramp[i] = i;
+    const clip: CompiledAudioClip = {
+      start: 0,
+      length: 8,
+      sampleId: 'ramp',
+      offset: 0,
+      gain: 1,
+      mixerTrack: 0,
+      stretch: false,
+      pitch: 0,
+    };
+    compiled.audioClips = [clip];
+
+    const res = renderProject(compiled, {
+      sampleRate: rate,
+      tailSeconds: 0,
+      samples: new Map([['ramp', { left: ramp, right: ramp, rate }]]),
+    });
+
+    // La posición de lectura avanza ~1 muestra por muestra. Con el bug, al cruzar
+    // el beat 4 saltaba ~2 s (≈88200 muestras) de golpe. Queda como mucho la
+    // cuantización de un bloque (~128) en el borde del marcador.
+    let maxJump = 0;
+    let prev = res.left[0]!;
+    for (let i = 1; i < res.left.length; i++) {
+      const v = res.left[i]!;
+      if (v > 0 && prev > 0) maxJump = Math.max(maxJump, Math.abs(v - prev));
+      prev = v;
+    }
+    expect(maxJump).toBeLessThan(1000);
   });
 
   it('un seek hacia atrás recupera el tempo del tramo anterior', () => {

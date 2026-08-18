@@ -283,4 +283,26 @@ describe('jumpTo respeta el origen', () => {
     expect(store.redo('remote:ana')).toBe(true);
     expect(store.project.channels[ch.id]).toBeDefined();
   });
+
+  it('un comando de otro origen no borra el redo local', () => {
+    const store = new ProjectStore();
+    store.dispatch({ type: 'setTempo', tempo: 100 }, { origin: 'local' });
+    store.undo('local');
+    // Antes de rehacer, llega un cambio de un colaborador (o de Claude).
+    store.dispatch({ type: 'setSwing', swing: 0.3 }, { origin: 'remote:ana' });
+    // El Ctrl+Y del usuario sigue vivo y rehace SU cambio: no se perdió.
+    expect(store.redo('local')).toBe(true);
+    expect(store.project.tempo).toBe(100);
+  });
+
+  it('un comando local invalida el redo local pero no el remoto', () => {
+    const store = new ProjectStore();
+    const ch = createChannel('sampler', 0);
+    store.dispatch({ type: 'addChannel', channel: ch }, { origin: 'remote:ana' });
+    store.undo('remote:ana'); // Ana deshace lo suyo; queda en su redo.
+    // El usuario hace algo nuevo: no debe tocar el redo de Ana.
+    store.dispatch({ type: 'setTempo', tempo: 100 }, { origin: 'local' });
+    expect(store.redo('remote:ana')).toBe(true);
+    expect(store.project.channels[ch.id]).toBeDefined();
+  });
 });

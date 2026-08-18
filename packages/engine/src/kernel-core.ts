@@ -432,6 +432,18 @@ export class KernelCore {
           inst.process(l, r, n);
         } catch {
           broken = true; // bypass permanente: el audio sigue limpio
+          return;
+        }
+        // Un solo NaN/Inf de un plugin envenena PARA SIEMPRE los estados IIR de
+        // los efectos que vengan detrás (biquads, delays, reverb): NaN×feedback =
+        // NaN. Si la salida no es finita, se pone el bloque a cero y a bypass.
+        for (let i = 0; i < n; i++) {
+          if (!Number.isFinite(l[i]!) || !Number.isFinite(r[i]!)) {
+            l.fill(0, 0, n);
+            r.fill(0, 0, n);
+            broken = true;
+            break;
+          }
         }
       },
     };
@@ -660,6 +672,27 @@ export class KernelCore {
       this.meterIdx = i;
       this.timeSigNum = meterMap[i]!.num;
     }
+  }
+
+  /**
+   * Segundos absolutos del timeline hasta `beat`, integrando el mapa de tempo
+   * (suma tramo a tramo). Sin mapa es `beat * 60 / tempo`. Es lo que convierte la
+   * posición en beats de un clip de audio a segundos del sample: si se usa el
+   * secPerBeat del tempo actual sin integrar el mapa, un cambio de tempo a mitad
+   * del clip hace que la lectura del sample salte.
+   */
+  private secondsAtBeat(beat: number): number {
+    const map = this.project?.tempoMap;
+    if (!map || map.length === 0) return (beat * 60) / this.tempo;
+    let sec = 0;
+    for (let i = 0; i < map.length; i++) {
+      const segStart = map[i]!.beat;
+      if (beat <= segStart) break;
+      const segEnd = i + 1 < map.length ? map[i + 1]!.beat : Infinity;
+      sec += ((Math.min(beat, segEnd) - segStart) * 60) / map[i]!.tempo;
+      if (beat <= segEnd) break;
+    }
+    return sec;
   }
 
   // ── Automatización ────────────────────────────────────────────────────────
@@ -1023,7 +1056,11 @@ export class KernelCore {
 
     // Clips de audio (posición determinista desde el timeline)
     if (this.playing) {
-      const secPerBeat = 60 / this.tempo;
+      // Segundos del timeline en el arranque del bloque, integrando el mapa de
+      // tempo. Dentro del bloque el tempo es constante, así que a partir de aquí
+      // el avance del sample es tiempo real (i / sr) y no salta si un marcador
+      // cambia el tempo a mitad del clip.
+      const blockStartSec = this.secondsAtBeat(this.posBeats - blockBeats);
       for (const clip of p.audioClips) {
         const relBeat = this.posBeats - blockBeats - clip.start;
         const endRel = relBeat + blockBeats;
@@ -1039,8 +1076,9 @@ export class KernelCore {
         // que el sample llene exactamente la longitud del clip. Sin stretch ni
         // pitch, lectura directa como siempre. Cero alocaciones en los dos
         // caminos: todo son escalares.
+        const clipStartSec = this.secondsAtBeat(clip.start);
         const srcSec = data.left.length / data.rate - clip.offset;
-        const clipSec = clip.length * secPerBeat;
+        const clipSec = this.secondsAtBeat(clip.start + clip.length) - clipStartSec;
         const doStretch = clip.stretch && srcSec > 0.01 && clipSec > 0.01;
         // Pitch-shift = resample + stretch inverso, con el MISMO motor de
         // grains: `speed` es lo rápido que se lee DENTRO del grain (eso sube o
@@ -1061,10 +1099,14 @@ export class KernelCore {
         for (let i = 0; i < n; i++) {
           const beatAt = relBeat + i * spb;
           if (beatAt < 0 || beatAt >= clip.length) continue;
+          // Segundos reales desde el arranque del clip: lo acumulado hasta el
+          // inicio del bloque (del mapa de tempo) más el avance dentro del bloque
+          // a tiempo real. Sustituye a beatAt × secPerBeat, que saltaba al tempo.
+          const elapsedSec = blockStartSec - clipStartSec + i / this.sr;
           let l = 0;
           let r = 0;
           if (useGrains) {
-            const tOut = beatAt * secPerBeat * this.sr;
+            const tOut = elapsedSec * this.sr;
             const g = Math.floor(tOut / hop);
             const inGrain = tOut - g * hop;
             // Grain g (sube 0→1) + grain g-1 (baja 1→0); en el arranque solo g.
@@ -1086,7 +1128,7 @@ export class KernelCore {
               }
             }
           } else {
-            const srcPos = (clip.offset + beatAt * secPerBeat) * data.rate;
+            const srcPos = (clip.offset + elapsedSec) * data.rate;
             const idx = Math.floor(srcPos);
             if (idx < 0 || idx >= lastIdx) continue;
             const frac = srcPos - idx;

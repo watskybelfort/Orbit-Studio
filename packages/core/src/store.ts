@@ -134,7 +134,11 @@ export class ProjectStore {
       });
       if (this.undoStack.length > MAX_HISTORY) this.undoStack.shift();
     }
-    this.redoStack = [];
+    // Un comando nuevo invalida SOLO el redo de su propio origen: el redo de un
+    // colaborador (o de Claude) sobrevive a que yo edite, y el mío sobrevive a
+    // que edite otro. Vaciarlo entero borraba en silencio el Ctrl+Y del usuario
+    // en cuanto llegaba cualquier cambio ajeno.
+    this.redoStack = this.redoStack.filter((e) => e.origin !== origin);
     this.emit(cmd, origin, label);
   }
 

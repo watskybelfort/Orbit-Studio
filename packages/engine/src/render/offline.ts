@@ -113,8 +113,14 @@ export function renderProject(
 }
 
 /**
- * Stems: un render por pista audible del mixer (solo esa pista + master),
- * pasando por la cadena completa (incluidos efectos de master).
+ * Stems: un render por pista del mixer, aislando su audio pero pasando por la
+ * cadena completa (efectos de master incluidos).
+ *
+ * No basta con dejar audibles la pista y el master: si la pista va ruteada a un
+ * bus intermedio (routeTo) o manda a un retorno de reverb (send), esas pistas
+ * también llevan su audio hasta el master. Silenciarlas dejaba el stem mudo (por
+ * bus) o seco (sin la cola del send). Se mantiene audible el cierre "aguas abajo"
+ * de la pista: su cadena de routeTo y los destinos de sus sends, transitivamente.
  */
 export function renderStems(
   project: CompiledProject,
@@ -123,16 +129,44 @@ export function renderStems(
 ): Map<number, RenderResult> {
   const out = new Map<number, RenderResult>();
   for (const idx of trackIndices) {
+    const keep = audibleTracksForStem(project, idx);
     const solo: CompiledProject = {
       ...project,
       mixer: project.mixer.map((t, i) => ({
         ...t,
         slots: t.slots.map((s) => (s ? { ...s, params: { ...s.params } } : null)),
         sends: t.sends.map((s) => ({ ...s })),
-        audible: i === 0 || i === idx ? t.audible : false,
+        audible: keep.has(i) ? t.audible : false,
       })),
     };
     out.set(idx, renderProject(solo, opts));
   }
   return out;
+}
+
+/**
+ * Pistas que deben seguir audibles para aislar el stem de `idx`: la propia, el
+ * master y todo lo que transporta su audio hacia el master (routeTo + destinos
+ * de sends, transitivamente). Las demás pistas quedan mudas: los buses que se
+ * conservan solo llevan lo de `idx`, porque el resto de fuentes están a cero.
+ */
+function audibleTracksForStem(project: CompiledProject, idx: number): Set<number> {
+  const keep = new Set<number>([0, idx]);
+  const stack = [idx];
+  while (stack.length > 0) {
+    const t = stack.pop()!;
+    const track = project.mixer[t];
+    if (!track) continue;
+    if (track.routeTo !== null && !keep.has(track.routeTo)) {
+      keep.add(track.routeTo);
+      stack.push(track.routeTo);
+    }
+    for (const send of track.sends) {
+      if (!keep.has(send.target)) {
+        keep.add(send.target);
+        stack.push(send.target);
+      }
+    }
+  }
+  return keep;
 }

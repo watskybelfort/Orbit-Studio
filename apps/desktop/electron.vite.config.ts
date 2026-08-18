@@ -8,6 +8,7 @@ const r = (p: string) => resolve(__dirname, p);
 // por prefijo y el orden de inserción decide.
 const alias = {
   '@orbit/claude-bridge/node/ws-host': r('../../packages/claude-bridge/src/node/ws-host.ts'),
+  '@orbit/claude-bridge/node/bridge-auth': r('../../packages/claude-bridge/src/node/bridge-auth.ts'),
   '@orbit/claude-bridge': r('../../packages/claude-bridge/src/index.ts'),
   '@orbit/core': r('../../packages/core/src/index.ts'),
   '@orbit/engine': r('../../packages/engine/src/index.ts'),
