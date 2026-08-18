@@ -16,7 +16,7 @@
  */
 
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WebSocketServer, WebSocket as WsSocket, type RawData } from 'ws';
 import * as Y from 'yjs';
@@ -24,6 +24,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
+import { normalizeRoomCode } from './room-path';
 
 const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
@@ -31,11 +32,18 @@ const MESSAGE_AWARENESS = 1;
 // 7900 evita los rangos que Hyper-V reserva en Windows (p. ej. 7698-7797,
 // donde caía el 7777 clásico): netsh interface ipv4 show excludedportrange
 const PORT = Number(process.env.PORT ?? 7900);
+// Por defecto SOLO localhost: la colaboración es entre pestañas/máquina propia y
+// el server no tiene autenticación. Para colaborar entre máquinas hay que abrirlo
+// a la red a conciencia con HOST=0.0.0.0 (idealmente detrás de un túnel/VPN).
+const HOST = process.env.HOST ?? '127.0.0.1';
 const ROOMS_DIR = resolve('./rooms');
 const PING_INTERVAL_MS = 30000;
 
-/** 6 chars del alfabeto sin ambiguos (sin O/0 ni I/1). */
-const ROOM_CODE_RE = /^[A-HJ-NP-Z2-9]{6}$/;
+// Cotas para que un cliente hostil no agote memoria/disco abriendo salas y
+// conexiones sin fin (el server crea una Room por cada código válido).
+const MAX_ROOMS = 200;
+const MAX_CONNS_PER_ROOM = 16;
+const MAX_CONNS_TOTAL = 512;
 
 function roomFile(code: string): string {
   return join(ROOMS_DIR, `${code}.bin`);
@@ -62,8 +70,20 @@ class Room {
 
     const file = roomFile(code);
     if (existsSync(file)) {
-      Y.applyUpdate(this.doc, new Uint8Array(readFileSync(file)));
-      console.log(`[room ${code}] abierto (cargado de ${file})`);
+      try {
+        Y.applyUpdate(this.doc, new Uint8Array(readFileSync(file)));
+        console.log(`[room ${code}] abierto (cargado de ${file})`);
+      } catch (err) {
+        // Un .bin truncado o corrupto NO puede dejar la sala imposible de abrir
+        // para siempre: se aparta a .corrupt y la sala arranca vacía.
+        const corrupt = `${file}.corrupt`;
+        try {
+          renameSync(file, corrupt);
+        } catch {
+          // si tampoco se puede apartar, al menos no propagamos
+        }
+        console.error(`[room ${code}] .bin ilegible, apartado a ${corrupt}; sala vacía:`, err);
+      }
     } else {
       console.log(`[room ${code}] abierto (nuevo)`);
     }
@@ -169,7 +189,12 @@ class Room {
 
   persist(): void {
     mkdirSync(ROOMS_DIR, { recursive: true });
-    writeFileSync(roomFile(this.code), Y.encodeStateAsUpdate(this.doc));
+    // Escritura atómica: a un temporal y rename. Un crash a mitad de escritura
+    // no deja un .bin truncado que luego brickee la sala.
+    const file = roomFile(this.code);
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, Y.encodeStateAsUpdate(this.doc));
+    renameSync(tmp, file);
   }
 
   destroy(): void {
@@ -238,11 +263,26 @@ setInterval(() => {
 
 wss.on('connection', (conn, req) => {
   const rawPath = (req.url ?? '').split('?')[0] ?? '';
-  // Normaliza: sin barras, sin guiones, en mayúsculas ("k3p-9qf" → "K3P9QF").
-  const code = rawPath.replace(/\//g, '').replace(/-/g, '').toUpperCase();
-  if (!ROOM_CODE_RE.test(code)) {
+  const code = normalizeRoomCode(rawPath);
+  if (!code) {
     console.warn(`[server] room inválido rechazado: "${rawPath}"`);
     conn.close(1008, 'Código de room inválido');
+    return;
+  }
+
+  // Cotas antes de crear/entrar: sala nueva que superaría el máximo de salas,
+  // conexiones totales, o sala ya llena → se rechaza sin reservar recursos.
+  const existing = rooms.get(code);
+  if (!existing && rooms.size >= MAX_ROOMS) {
+    conn.close(1013, 'El servidor está lleno');
+    return;
+  }
+  if (alive.size >= MAX_CONNS_TOTAL) {
+    conn.close(1013, 'Demasiadas conexiones');
+    return;
+  }
+  if (existing && existing.conns.size >= MAX_CONNS_PER_ROOM) {
+    conn.close(1013, 'La sala está llena');
     return;
   }
 
@@ -279,8 +319,12 @@ httpServer.on('error', (err: NodeJS.ErrnoException) => {
   throw err;
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Orbit Studio collab server en ws://localhost:${PORT}/<room> (health: http://localhost:${PORT}/health)`);
+httpServer.listen(PORT, HOST, () => {
+  const shown = HOST === '127.0.0.1' || HOST === '::1' ? 'localhost' : HOST;
+  console.log(`Orbit Studio collab server en ws://${shown}:${PORT}/<room> (health: http://${shown}:${PORT}/health)`);
+  if (HOST !== '127.0.0.1' && HOST !== '::1') {
+    console.warn(`[server] ATENCIÓN: escuchando en ${HOST} (accesible desde la red) y SIN autenticación.`);
+  }
 });
 
 // Cierre limpio: guarda todos los rooms abiertos antes de salir.
