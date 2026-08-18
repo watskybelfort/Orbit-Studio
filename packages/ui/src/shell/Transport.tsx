@@ -21,6 +21,7 @@ import {
   IconPlay,
   IconPlaylist,
   IconStop,
+  IconGraph,
   IconWave,
 } from '../icons';
 import { useProject } from '../state/useProject';
@@ -310,6 +311,9 @@ export function Transport() {
         </WindowButton>
         <WindowButton id="scope" title="Orbit Scope">
           <IconWave size={15} />
+        </WindowButton>
+        <WindowButton id="graph" title="Enrutado por nodos">
+          <IconGraph size={15} />
         </WindowButton>
         <WindowButton id="export" title="Exportar…">
           <IconExport size={15} />

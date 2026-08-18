@@ -21,6 +21,7 @@ import {
   IconSave,
   IconSettings,
   IconTrack,
+  IconGraph,
   IconWave,
 } from '../icons';
 import { PROJECT_TEMPLATES } from '@orbit/core';
@@ -132,6 +133,7 @@ export function MenuBar() {
       { label: 'Orbit Prisma', icon: <IconTrack kind="synth" />, action: () => toggleWindow('prisma') },
       { label: 'Editor de sonido', icon: <IconTrack kind="fx" />, action: () => toggleWindow('channelEditor') },
       { label: 'Orbit Scope', icon: <IconWave />, action: () => toggleWindow('scope') },
+      { label: 'Enrutado (nodos)', icon: <IconGraph />, action: () => toggleWindow('graph') },
       { label: 'Historial', action: () => toggleWindow('history') },
       { label: '', separator: true },
       // Layouts: los tres predefinidos y los que el usuario guarde en el proyecto.

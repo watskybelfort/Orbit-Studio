@@ -38,6 +38,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'history', title: 'Historial' },
   { id: 'projectInfo', title: 'Info del proyecto' },
   { id: 'scope', title: 'Orbit Scope' },
+  { id: 'graph', title: 'Enrutado (graph editor)' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },
   { id: 'export', title: 'Exportar' },

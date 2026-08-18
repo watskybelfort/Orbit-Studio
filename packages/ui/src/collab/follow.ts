@@ -33,6 +33,7 @@ const EDITOR_WINDOWS: WindowId[] = [
   'audioEditor',
   'liveView',
   'scope',
+  'graph',
 ];
 
 /** Nombre visible de cada editor (para el aviso y la lista de conectados). */
@@ -46,6 +47,7 @@ export const EDITOR_LABELS: Record<string, string> = {
   audioEditor: 'el editor de audio',
   liveView: 'la vista Live',
   scope: 'el Scope',
+  graph: 'el enrutado',
 };
 
 /** Cada cuánto se publica la vista como mucho (los medidores van a ~20 fps). */

@@ -15,6 +15,7 @@ import { LiveView } from '../editors/live';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
 import { Playlist } from '../editors/playlist';
+import { GraphEditor } from '../editors/graph';
 import { ExportPanel } from '../export';
 import { ScopePanel } from '../scope';
 import { SettingsPanel } from '../settings/SettingsPanel';
@@ -73,6 +74,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="liveView" title="Vista Live" minW={360} minH={260}>
         <LiveView />
+      </InternalWindow>
+      <InternalWindow id="graph" title="Enrutado" minW={520} minH={320}>
+        <GraphEditor />
       </InternalWindow>
     </div>
   );

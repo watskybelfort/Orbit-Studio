@@ -443,6 +443,19 @@ export function IconWave(props: IconProps) {
   );
 }
 
+/** Enrutado: dos nodos que entran en uno, con sus cables. */
+export function IconGraph(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="6" height="4.5" rx="1.5" />
+      <rect x="3" y="15.5" width="6" height="4.5" rx="1.5" />
+      <rect x="15" y="9.75" width="6" height="4.5" rx="1.5" />
+      <path d="M9 6.25 C12 6.25, 12 12, 15 12" />
+      <path d="M9 17.75 C12 17.75, 12 12, 15 12" />
+    </Icon>
+  );
+}
+
 /** MIDI: conector DIN de 5 pines simplificado (aro, pines y muesca). */
 export function IconMidi(props: IconProps) {
   return (
