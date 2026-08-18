@@ -1270,6 +1270,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
   /** Arrastre de la altura: alto y cursor al empezar. */
   const resize = useRef<{ y: number; height: number } | null>(null);
   const busy = useBounceStore((s) => s.busy !== null);
+  const project = useProject();
 
   const toggleMute = () => {
     store.dispatch(
@@ -1411,6 +1412,33 @@ function TrackHeader({ track }: TrackHeaderProps) {
               </button>
             ))}
           </div>
+          <label
+            className="param-menu-item"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'default' }}
+            title="Pista de mixer a la que van los clips de AUDIO de este carril (tomas de voz, pistas congeladas)"
+          >
+            <span style={{ flex: 1 }}>Pista de mixer</span>
+            <select
+              value={track.mixerTrack ?? 0}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) =>
+                store.dispatch(
+                  {
+                    type: 'patchPlaylistTrack',
+                    trackId: track.id,
+                    patch: { mixerTrack: Number(e.target.value) },
+                  },
+                  { label: `Pista de mixer de "${track.name}"` },
+                )
+              }
+            >
+              {project.mixer.map((m, i) => (
+                <option key={m.id} value={i}>
+                  {i === 0 ? 'Master' : `${i}. ${m.name}`}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             className="param-menu-item"
             disabled={busy || clipCount === 0}
