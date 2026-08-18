@@ -57,3 +57,19 @@ export function withAnalysis(entry: SoundEntry, analysis: SampleAnalysis): Sound
   if (keyRoot !== undefined) next.keyRoot = keyRoot;
   return next;
 }
+
+// Packs a medida (los que pide Claude): recetas puras, sin fs ni render.
+export {
+  MAX_PACK_SOUNDS,
+  PACK_FAMILIES,
+  PACK_STYLES,
+  isPackFamily,
+  isPackStyle,
+  planPack,
+  slugifyName,
+  type PackFamily,
+  type PackPlan,
+  type PackRequest,
+  type PackSoundSpec,
+  type PackStyle,
+} from './pack-recipes';
