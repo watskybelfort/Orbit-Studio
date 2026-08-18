@@ -19,7 +19,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { INSTRUMENT_LABELS, type Channel } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
-import { engine, ensureAudioReady, store } from '../../state/app';
+import { ensureAudioReady, store } from '../../state/app';
+import { previewNote } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { FxTab } from './FxTab';
@@ -85,7 +86,7 @@ export function ChannelEditor() {
 
   const preview = (on: boolean) => {
     if (on) ensureAudioReady();
-    engine.previewNote(channelIndex, previewKey(channel), on);
+    previewNote(channelIndex, previewKey(channel), on);
   };
 
   const openPianoRoll = () => {

@@ -6,6 +6,7 @@
 
 import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
+import { setKernelNotes } from './active-notes';
 import { pushCaptureChunk } from './track-capture';
 import { useUiStore } from './ui';
 
@@ -131,6 +132,8 @@ engine.onMeters = (frame) => {
     trackRms: frame.rms,
     scopeFrame: frame.scope ?? null,
   });
+  // Teclas que suenan de verdad (secuenciador incluido) para los teclados.
+  setKernelNotes(frame.notes);
   if (frame.captureL && frame.captureR) {
     pushCaptureChunk(frame.captureL, frame.captureR);
   }

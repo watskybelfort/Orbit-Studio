@@ -8,7 +8,8 @@
 
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
-import { engine, ensureAudioReady, store } from './app';
+import { ensureAudioReady, store } from './app';
+import { previewNote } from './active-notes';
 import { useUiStore } from './ui';
 
 const SIXTEENTH = 0.25; // 1/16 en beats
@@ -52,7 +53,7 @@ function noteOn(source: string, key: number, velocity: number): void {
   const ch = targetChannel();
   if (!ch) return;
   ensureAudioReady();
-  engine.previewNote(ch.index, key, true);
+  previewNote(ch.index, key, true);
   held.set(source, {
     key,
     velocity,
@@ -69,7 +70,7 @@ function noteOff(source: string): void {
   if (!h) return;
   held.delete(source);
   useLiveInputStore.setState({ heldKeys: held.size });
-  engine.previewNote(h.channelIndex, h.key, false);
+  previewNote(h.channelIndex, h.key, false);
 
   const ui = useUiStore.getState();
   if (useLiveInputStore.getState().armed && ui.playing) {

@@ -25,7 +25,8 @@ import {
   type NovaPreset,
   type Project,
 } from '@orbit/core';
-import { engine, ensureAudioReady, store } from '../../state/app';
+import { ensureAudioReady, store } from '../../state/app';
+import { previewNote } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
@@ -209,6 +210,6 @@ export function NovaPanel() {
 function audition(channelIndex: number): void {
   if (channelIndex < 0) return;
   ensureAudioReady();
-  engine.previewNote(channelIndex, 60, true);
-  setTimeout(() => engine.previewNote(channelIndex, 60, false), 700);
+  previewNote(channelIndex, 60, true);
+  setTimeout(() => previewNote(channelIndex, 60, false), 700);
 }

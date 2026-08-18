@@ -57,7 +57,6 @@ import {
   setPatternColor,
 } from '../../palette/default-commands';
 import {
-  engine,
   ensureAudioReady,
   play,
   setActivePattern,
@@ -65,6 +64,7 @@ import {
   stopPlayback,
   store,
 } from '../../state/app';
+import { previewNote } from '../../state/active-notes';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -170,7 +170,7 @@ export function ChannelRack() {
   const anySolo = project.channelOrder.some((id) => project.channels[id]?.solo === true);
 
   // ── Vista filtrada ────────────────────────────────────────────────────────
-  // Se conserva el índice ORIGINAL del canal: engine.previewNote va por
+  // Se conserva el índice ORIGINAL del canal: previewNote va por
   // posición en channelOrder, no por posición en la lista visible.
   const visibleRows: { id: Id; index: number; channel: Channel }[] = [];
   project.channelOrder.forEach((id, index) => {
@@ -810,7 +810,7 @@ const EMPTY_NOTES: readonly Note[] = [];
 
 interface ChannelRowProps {
   channel: Channel;
-  /** Índice en channelOrder (lo usa engine.previewNote). */
+  /** Índice en channelOrder (lo usa previewNote). */
   channelIndex: number;
   patternId: Id;
   notes: readonly Note[];
@@ -920,7 +920,7 @@ function ChannelRow({
 
   const preview = (on: boolean) => {
     if (on) ensureAudioReady();
-    engine.previewNote(channelIndex, key, on);
+    previewNote(channelIndex, key, on);
   };
 
   const commitMix = (raw: string) => {

@@ -22,7 +22,8 @@ import {
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { canRemovePattern, patternClipsHint, removePattern } from '../../palette/default-commands';
-import { engine, setActivePattern, store } from '../../state/app';
+import { setActivePattern, store } from '../../state/app';
+import { previewNote } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -514,8 +515,8 @@ export function PianoRoll() {
         slide: false,
       });
       if (channelIndex >= 0 && key !== d.lastPreviewKey) {
-        if (d.lastPreviewKey !== undefined) engine.previewNote(channelIndex, d.lastPreviewKey, false);
-        engine.previewNote(channelIndex, key, true);
+        if (d.lastPreviewKey !== undefined) previewNote(channelIndex, d.lastPreviewKey, false);
+        previewNote(channelIndex, key, true);
         d.lastPreviewKey = key;
       }
       draw();
@@ -637,7 +638,7 @@ export function PianoRoll() {
           orig,
           moved: false,
         };
-        engine.previewNote(channelIndex, hit.note.key, true);
+        previewNote(channelIndex, hit.note.key, true);
         drag.current.lastPreviewKey = hit.note.key;
         return;
       }
@@ -677,7 +678,7 @@ export function PianoRoll() {
       const orig = new Map(created.map((n) => [n.id, { ...n }]));
       ghost.current = new Map(created.map((n) => [n.id, { ...n }]));
       drag.current = { mode: 'move', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
-      engine.previewNote(channelIndex, key, true);
+      previewNote(channelIndex, key, true);
     },
     [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt],
   );
@@ -775,8 +776,8 @@ export function PianoRoll() {
           previewKey = key;
         }
         if (previewKey !== undefined && previewKey !== d.lastPreviewKey && channelIndex >= 0) {
-          if (d.lastPreviewKey !== undefined) engine.previewNote(channelIndex, d.lastPreviewKey, false);
-          engine.previewNote(channelIndex, previewKey, true);
+          if (d.lastPreviewKey !== undefined) previewNote(channelIndex, d.lastPreviewKey, false);
+          previewNote(channelIndex, previewKey, true);
           d.lastPreviewKey = previewKey;
         }
       } else if (d.mode === 'resize') {
@@ -795,7 +796,7 @@ export function PianoRoll() {
     const d = drag.current;
     if (!d) return;
     if (d.lastPreviewKey !== undefined && channelIndex >= 0) {
-      engine.previewNote(channelIndex, d.lastPreviewKey, false);
+      previewNote(channelIndex, d.lastPreviewKey, false);
     }
 
     // Pincel: todo lo pintado entra en UN solo addNotes (un paso de undo).
@@ -1229,13 +1230,13 @@ export function PianoRoll() {
           className={`pr-key${isBlack ? ' black' : ''}`}
           style={{ height: KEY_H }}
           onPointerDown={() => {
-            if (channelIndex >= 0) engine.previewNote(channelIndex, k, true);
+            if (channelIndex >= 0) previewNote(channelIndex, k, true);
           }}
           onPointerUp={() => {
-            if (channelIndex >= 0) engine.previewNote(channelIndex, k, false);
+            if (channelIndex >= 0) previewNote(channelIndex, k, false);
           }}
           onPointerLeave={() => {
-            if (channelIndex >= 0) engine.previewNote(channelIndex, k, false);
+            if (channelIndex >= 0) previewNote(channelIndex, k, false);
           }}
         >
           {semitone === 0 && <span className="pr-key-label">{midiToNote(k)}</span>}
