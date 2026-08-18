@@ -49,9 +49,23 @@ a la vez, sin pisarse y sin conflictos.
   todos sus clips por delante; lo que uno crea, uno lo puede deshacer. El
   control está en el log de comandos, que es por donde pasa TODO, con una
   función pura y el rol sellado en la entrada: emisor y receptores dan el mismo
-  veredicto, así que la convergencia no se rompe. El rol es autodeclarado al
-  entrar (mismo modelo de confianza que el código de sala); que sea inviolable
-  exige que el servidor valide las entradas del log — backlog.
+  veredicto, así que la convergencia no se rompe.
+- **El rol lo decide el servidor (v1.8)**: era autodeclarado —cambiar un campo
+  bastaba para ascender—, así que ahora lo reparte la sala por un canal de
+  control propio (mensaje tipo 2): el primero que entra es productor, los demás
+  invitados, el productor los cambia desde su lista y, si se va, hereda el más
+  antiguo. Y el servidor VIGILA el log: juzga cada entrada nueva con el rol que
+  él tiene apuntado para su emisor —no con el que la entrada dice traer— y
+  RETIRA la que no pasa. Borrar del log es una operación normal del CRDT, así
+  que converge; el cliente que se pasó detecta que le han retirado algo ya
+  aplicado y re-deriva desde snapshot + log (distinto de una compactación, que
+  también vacía el log y no debe deshacer nada).
+- **Streaming del master (v1.8)**: mensaje tipo 3, mono Int16 a la sample rate
+  del emisor. El servidor lo reparte y NO lo guarda: no es parte del proyecto.
+  El que escucha lo saca por el AudioContext de la app (fuera del kernel) con
+  un reloj que re-engancha si un trozo llega tarde y tira el que llega cuando
+  la cola ya va muy por delante. Es monitorización: la referencia sigue siendo
+  el render.
 - **Chat de sesión (v1.0)**: un `Y.Array` en el mismo documento, sin servidor
   nuevo; quien llega tarde recibe la conversación entera. Un mensaje puede
   llevar un beat y queda anclado al timeline. No pasa por el log de comandos:
