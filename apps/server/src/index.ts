@@ -12,7 +12,9 @@
  *   Y.encodeStateAsUpdate en <roomsDir>/<código>.bin; al abrirlo, se recarga.
  *   Ahí dentro van también los BYTES de los samples de la sala, así que el que
  *   vuelva mañana sigue oyendo los sonidos que subió el otro.
- * - GET /health → {rooms: n}.
+ * - GET /health → {rooms, conns, roomCapacity}.
+ * - Cuánta gente cabe en una sala: ORBIT_ROOM_CAPACITY (o `roomCapacity` al
+ *   arrancar la librería); 16 por defecto, entre 2 y 64.
  *
  * Este módulo es una LIBRERÍA: `startServer()` arranca una instancia y devuelve
  * un handle para cerrarla. La app de escritorio lo arranca en proceso (botón del
@@ -48,7 +50,22 @@ const PING_INTERVAL_MS = 30000;
 // Cotas para que un cliente hostil no agote memoria/disco abriendo salas y
 // conexiones sin fin (el server crea una Room por cada código válido).
 const MAX_ROOMS = 200;
-const MAX_CONNS_PER_ROOM = 16;
+/**
+ * Cuánta gente cabe en una sala. Era una constante de 16; ahora es solo el
+ * valor POR DEFECTO y se puede mover por opción (`startServer`) o por entorno
+ * (`ORBIT_ROOM_CAPACITY`): el tope existe para acotar memoria, no para decidir
+ * con cuánta gente se puede trabajar.
+ */
+export const DEFAULT_ROOM_CAPACITY = 16;
+/** Rango admitido: con menos de 2 no hay sala, y más de 64 no lo aguanta el sync. */
+export const MIN_ROOM_CAPACITY = 2;
+export const MAX_ROOM_CAPACITY = 64;
+
+/** Capacidad válida a partir de un valor cualquiera (undefined y NaN incluidos). */
+export function clampRoomCapacity(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return DEFAULT_ROOM_CAPACITY;
+  return Math.min(MAX_ROOM_CAPACITY, Math.max(MIN_ROOM_CAPACITY, Math.round(value)));
+}
 const MAX_CONNS_TOTAL = 512;
 
 // El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
@@ -238,6 +255,11 @@ function getRoom(code: string): Room {
 export interface ServerOptions {
   port?: number;
   host?: string;
+  /**
+   * Cuánta gente cabe por sala. Por defecto ORBIT_ROOM_CAPACITY o 16; el valor
+   * se ajusta al rango admitido, así que un número absurdo no rompe el arranque.
+   */
+  roomCapacity?: number;
   /** Carpeta donde persistir las salas (.bin). Por defecto ./rooms. */
   roomsDir?: string;
 }
@@ -245,6 +267,8 @@ export interface ServerOptions {
 export interface ServerHandle {
   readonly port: number;
   readonly host: string;
+  /** Cuánta gente cabe en cada sala de esta instancia. */
+  readonly roomCapacity: number;
   /** Guarda las salas, cierra sockets y libera el puerto. */
   close(): Promise<void>;
 }
@@ -256,12 +280,18 @@ export interface ServerHandle {
 export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
   const port = opts.port ?? DEFAULT_PORT;
   const host = opts.host ?? DEFAULT_HOST;
+  const roomCapacity = clampRoomCapacity(
+    opts.roomCapacity ??
+      (process.env.ORBIT_ROOM_CAPACITY === undefined
+        ? undefined
+        : Number(process.env.ORBIT_ROOM_CAPACITY)),
+  );
   if (opts.roomsDir) roomsDir = resolve(opts.roomsDir);
 
   const httpServer = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ rooms: rooms.size }));
+      res.end(JSON.stringify({ rooms: rooms.size, conns: alive.size, roomCapacity }));
       return;
     }
     res.writeHead(404, { 'content-type': 'application/json' });
@@ -309,8 +339,8 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       conn.close(1013, 'Demasiadas conexiones');
       return;
     }
-    if (existing && existing.conns.size >= MAX_CONNS_PER_ROOM) {
-      conn.close(1013, 'La sala está llena');
+    if (existing && existing.conns.size >= roomCapacity) {
+      conn.close(1013, `La sala está llena (caben ${roomCapacity})`);
       return;
     }
 
@@ -352,15 +382,20 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
     httpServer.once('error', onListenError);
     httpServer.listen(port, host, () => {
       httpServer.removeListener('error', onListenError);
+      // Puerto REAL: con port 0 lo elige el sistema, y quien arranca el server
+      // necesita saber cuál le tocó (la app lo enseña, los tests se conectan).
+      const addr = httpServer.address();
+      const boundPort = typeof addr === 'object' && addr !== null ? addr.port : port;
       const shown = host === '127.0.0.1' || host === '::1' ? 'localhost' : host;
       console.log(
-        `Orbit Studio collab server en ws://${shown}:${port}/<room> (health: http://${shown}:${port}/health)`,
+        `Orbit Studio collab server en ws://${shown}:${boundPort}/<room> — hasta ${roomCapacity} por sala (health: http://${shown}:${boundPort}/health)`,
       );
       if (host !== '127.0.0.1' && host !== '::1') {
         console.warn(`[server] ATENCIÓN: escuchando en ${host} (accesible desde la red) y SIN autenticación.`);
       }
       resolveP({
-        port,
+        port: boundPort,
+        roomCapacity,
         host,
         close: () =>
           new Promise<void>((res) => {
