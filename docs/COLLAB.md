@@ -19,6 +19,12 @@ a la vez, sin pisarse y sin conflictos.
 - Node + WebSocket con el protocolo y-sync + awareness.
 - **Rooms por código** (6 caracteres, estilo "métete a mi sesión: `K3P-9QF`").
   Crear sesión = subir tu proyecto al room; unirse = recibir el doc completo.
+- **Aforo de la sala (v1.3)**: cuánta gente cabe se ajusta — campo "Caben" del
+  panel (lo guarda `settings.json` y lo aplica el servidor que arranca la app)
+  o `ORBIT_ROOM_CAPACITY` para el servidor suelto. 16 por defecto, entre 2 y
+  64; `/health` publica `rooms`, `conns` y `roomCapacity`. Al que no cabe se le
+  cierra con 1013 y el motivo dentro, y el cliente NO reintenta: lo enseña en
+  pantalla ("La sala está llena"). Lo mismo con 1008 (código inválido).
 - Persistencia: snapshot del doc + updates incrementales en disco; si el host
   se cae, la sesión sobrevive.
 - Auth simple v0.1: token de room (el código) + nombre de usuario.
@@ -46,6 +52,13 @@ a la vez, sin pisarse y sin conflictos.
 - La UI dibuja: cursores remotos con etiqueta de nombre, contornos de selección
   con el color del usuario, chips "🎹 Ana está en el Piano Roll de Orbit Sub",
   lista de conectados en la barra superior.
+- **Un color por persona (v1.3)**: el color sale del nombre y casi todo el
+  mundo entra como "Productor", así que tres personas salían del mismo color en
+  la lista, en los cursores y en el chat. Ahora, al cambiar la presencia, quien
+  comparta color con alguien de `clientId` más bajo se aparta al primer color
+  libre (`pickDistinctColor`, en `packages/collab/src/colors.ts`): el de id más
+  bajo no se mueve nunca, así que converge sin protocolo nuevo. En la lista, los
+  nombres repetidos se numeran ("Productor 2").
 - **Claude aparece aquí como un usuario más** (nombre "Claude", su color) cuando
   el bridge MCP está activo.
 

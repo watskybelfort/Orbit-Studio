@@ -64,6 +64,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Selección marquee (Ctrl+arrastre), Ctrl+A, duplicar (Ctrl+B), Supr | v0.1 |
 | Herramientas **Dibujar / Pincel / Cortar** (P, B, C), con el pincel borrando en arrastre con el botón derecho | v1.0 |
 | Velocity por nota (carril inferior) | v0.1 |
+| **Las teclas se iluminan mientras suenan**: lo que pulsas (ratón, fila Z/Q del PC, MIDI) y también lo que dispara el secuenciador durante la reproducción. El dato sale del kernel (`MeterFrame.notes`), así que se enciende lo que suena de verdad, no lo que la UI cree | v1.3 |
 | Pan por nota (carril inferior conmutable Vel/Pan) | v0.3 |
 | **Slide notes** (glide real del 808, como FL) | v0.1 |
 | Snap: línea, 1/1, 1/2, 1/3, 1/4, 1/6, 1/8, ninguno | v0.1 |
@@ -268,6 +269,9 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | "Está editando X" en el panel (Playlist, Piano Roll · canal, Mixer · pista…) | v0.3 |
 | Undo **por usuario** (tu Ctrl+Z no deshace lo del otro) | v0.1 |
 | Servidor propio (`apps/server`) con persistencia de sesiones y /health | v0.1 |
+| **Cuánta gente cabe en la sala, ajustable**: campo "Caben" en el panel (2-64, por defecto 16) o `ORBIT_ROOM_CAPACITY` en el servidor suelto; `/health` publica `rooms`, `conns` y `roomCapacity`, y el panel enseña "N conectados de M" | v1.3 |
+| **Al que no cabe se le dice por qué**: los cierres 1013 (sala llena) y 1008 (código inválido) cortan la reconexión y suben el motivo del servidor a la pantalla, en vez de reintentar en silencio hasta el timeout | v1.3 |
+| **Un color por persona aunque repitan nombre**: el color sale del nombre y todo el mundo entra como "Productor", así que quien choca con alguien de clientId más bajo se aparta al primer color libre (converge sin negociar). Los nombres repetidos se numeran en la lista | v1.3 |
 | **Modo seguidor**: tu vista sigue la de otro (editor, patrón, canal, caret) | v1.0 |
 | **Chat de sesión** por el mismo documento Yjs, con notas ancladas a un compás | v1.0 |
 | **Permisos por rol** (productor / invitado / oyente) aplicados en el log de comandos | v1.0 |
