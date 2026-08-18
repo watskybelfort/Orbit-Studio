@@ -39,6 +39,7 @@ const SETTINGS_KEY_NAME = 'collabUserName';
 const SETTINGS_KEY_URL = 'collabServerUrl';
 const SETTINGS_KEY_ROLE = 'collabRole';
 const SETTINGS_KEY_CAPACITY = 'collabRoomCapacity';
+const SETTINGS_KEY_SERVER_OPEN = 'collabServerOpen';
 
 /**
  * Cuánta gente cabe en una sala del servidor que arranca la app. El que manda
@@ -470,6 +471,12 @@ export interface CollabSettings {
   role: CollabRole;
   /** Cuánta gente dejará entrar en cada sala el servidor que arranca la app. */
   roomCapacity: number;
+  /**
+   * El servidor que arranca la app escucha para toda la red (LAN o VPN) en vez
+   * de solo para esta máquina. Es la casilla del panel: sin ella, hospedar una
+   * sala desde el botón solo sirve para pruebas en local.
+   */
+  serverOpen: boolean;
 }
 
 /** Capacidad de sala válida a partir de lo que haya guardado (o de nada). */
@@ -485,11 +492,13 @@ export async function loadCollabSettings(): Promise<CollabSettings> {
   const url = settings[SETTINGS_KEY_URL];
   const role = settings[SETTINGS_KEY_ROLE];
   const capacity = settings[SETTINGS_KEY_CAPACITY];
+  const serverOpen = settings[SETTINGS_KEY_SERVER_OPEN];
   const loaded: CollabSettings = {
     userName: typeof name === 'string' && name.trim() !== '' ? name : DEFAULT_USER_NAME,
     serverUrl: typeof url === 'string' && url.trim() !== '' ? url : DEFAULT_SERVER_URL,
     role: isCollabRole(role) ? role : DEFAULT_ROLE,
     roomCapacity: clampRoomCapacity(capacity),
+    serverOpen: serverOpen === true,
   };
   // El rol vive en el store (lo lee startSession al crear la sesión).
   useCollabStore.setState({ role: loaded.role });
@@ -507,5 +516,6 @@ export function saveCollabSettings(patch: Partial<CollabSettings>): void {
   if (patch.userName !== undefined) p[SETTINGS_KEY_NAME] = patch.userName;
   if (patch.serverUrl !== undefined) p[SETTINGS_KEY_URL] = patch.serverUrl;
   if (patch.roomCapacity !== undefined) p[SETTINGS_KEY_CAPACITY] = clampRoomCapacity(patch.roomCapacity);
+  if (patch.serverOpen !== undefined) p[SETTINGS_KEY_SERVER_OPEN] = patch.serverOpen;
   if (Object.keys(p).length > 0) void window.orbit?.settings.set(p);
 }

@@ -89,14 +89,29 @@ interface OrbitApi {
   };
   readonly server: {
     /** Estado del servidor de colaboración arrancado en proceso. */
-    status(): Promise<{ running: boolean; port?: number; host?: string; roomCapacity?: number }>;
-    /** Arranca el servidor (localhost); devuelve el estado o un error legible. */
+    status(): Promise<{
+      running: boolean;
+      port?: number;
+      host?: string;
+      roomCapacity?: number;
+      openToNetwork?: boolean;
+      addresses?: string[];
+    }>;
+    /**
+     * Arranca el servidor y devuelve el estado o un error legible. Escucha solo
+     * en esta máquina salvo que `collabServerOpen` esté a true en settings.json
+     * (la casilla "Abrir a la red" del panel de colaboración).
+     */
     start(): Promise<{
       running: boolean;
       port?: number;
       host?: string;
       /** Cuánta gente cabe en cada sala (lo decide settings.json). */
       roomCapacity?: number;
+      /** Acepta conexiones de fuera de esta máquina. */
+      openToNetwork?: boolean;
+      /** IPv4 de esta máquina para compartir (solo si está abierto a la red). */
+      addresses?: string[];
       error?: string;
     }>;
     /** Detiene el servidor y libera el puerto. */

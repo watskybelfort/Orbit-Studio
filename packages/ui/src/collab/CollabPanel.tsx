@@ -73,6 +73,8 @@ export function CollabPanel() {
   /** Capacidad de sala del servidor propio, tal y como se está escribiendo. */
   const [capacityDraft, setCapacityDraft] = useState(String(DEFAULT_ROOM_CAPACITY));
   const capacity = clampRoomCapacity(Number(capacityDraft));
+  /** Hospedar para gente de otras máquinas (se aplica al arrancar el servidor). */
+  const [serverOpen, setServerOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState('');
   const [pinned, setPinned] = useState(false);
@@ -85,6 +87,8 @@ export function CollabPanel() {
     running: boolean;
     port?: number;
     roomCapacity?: number;
+    openToNetwork?: boolean;
+    addresses?: string[];
     error?: string;
   }>({
     running: false,
@@ -114,6 +118,7 @@ export function CollabPanel() {
       setUserName(s.userName);
       setServerUrl(s.serverUrl);
       setCapacityDraft(String(s.roomCapacity));
+      setServerOpen(s.serverOpen);
     });
   }, []);
 
@@ -490,6 +495,20 @@ export function CollabPanel() {
               }}
             />
           </label>
+          <label
+            className="collab-check"
+            title="Deja entrar a gente de otras máquinas (LAN o VPN). Se aplica al arrancar el servidor."
+          >
+            <input
+              type="checkbox"
+              checked={serverOpen}
+              onChange={(e) => {
+                setServerOpen(e.target.checked);
+                saveCollabSettings({ serverOpen: e.target.checked });
+              }}
+            />
+            Abrir a la red
+          </label>
           <span className="collab-note">
             {server.running ? (
               <>
@@ -498,6 +517,9 @@ export function CollabPanel() {
                 {server.roomCapacity !== undefined && server.roomCapacity !== capacity
                   ? ` (reinícialo para dejar entrar a ${capacity})`
                   : ''}
+                {(server.openToNetwork ?? false) !== serverOpen
+                  ? ` · reinícialo para ${serverOpen ? 'abrirlo a la red' : 'volver a solo esta máquina'}`
+                  : ''}
               </>
             ) : server.error ? (
               `No arrancó: ${server.error}`
@@ -505,6 +527,20 @@ export function CollabPanel() {
               `Arráncalo aquí (o con npm run server) y escucha en ${DEFAULT_SERVER_URL}.`
             )}
           </span>
+          {server.running && server.openToNetwork && (
+            <span className="collab-note">
+              Abierto a la red: que se conecten a{' '}
+              <b>
+                {(server.addresses ?? []).length > 0
+                  ? `ws://${server.addresses![0]}:${server.port}`
+                  : `ws://<tu-ip>:${server.port}`}
+              </b>
+              {(server.addresses ?? []).length > 1
+                ? ` (o ${server.addresses!.slice(1).map((a) => `ws://${a}:${server.port}`).join(', ')})`
+                : ''}
+              . La sala no lleva contraseña: entra quien llegue al puerto y sepa el código.
+            </span>
+          )}
         </div>
       ) : (
         <p className="collab-note">

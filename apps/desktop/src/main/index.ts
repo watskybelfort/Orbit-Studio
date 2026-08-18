@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
-import { release } from 'node:os';
+import { networkInterfaces, release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
@@ -222,20 +222,41 @@ let bridgeHost: BridgeHost | null = null;
 
 let collabServer: ServerHandle | null = null;
 
+/**
+ * IPv4 de esta máquina con las que otro puede entrar a la sala. Solo se
+ * enseñan cuando el servidor está abierto a la red: en ese caso hace falta
+ * decirle al usuario QUÉ dirección compartir (la del VPN suele ser la buena).
+ */
+function lanAddresses(): string[] {
+  const out: string[] = [];
+  for (const list of Object.values(networkInterfaces())) {
+    for (const net of list ?? []) {
+      if (net.family === 'IPv4' && !net.internal) out.push(net.address);
+    }
+  }
+  return out;
+}
+
 function collabServerStatus(): {
   running: boolean;
   port?: number;
   host?: string;
   roomCapacity?: number;
+  /** El servidor acepta conexiones de fuera de esta máquina. */
+  openToNetwork?: boolean;
+  /** Direcciones para compartir (solo si está abierto a la red). */
+  addresses?: string[];
 } {
-  return collabServer
-    ? {
-        running: true,
-        port: collabServer.port,
-        host: collabServer.host,
-        roomCapacity: collabServer.roomCapacity,
-      }
-    : { running: false };
+  if (!collabServer) return { running: false };
+  const openToNetwork = collabServer.host !== '127.0.0.1';
+  return {
+    running: true,
+    port: collabServer.port,
+    host: collabServer.host,
+    roomCapacity: collabServer.roomCapacity,
+    openToNetwork,
+    ...(openToNetwork ? { addresses: lanAddresses() } : null),
+  };
 }
 
 function dispatchClaudeTool(req: {
@@ -373,10 +394,16 @@ function registerIpc(): void {
 
   ipcMain.handle('server:start', async () => {
     if (collabServer) return collabServerStatus();
-    const capacity = readSettings()['collabRoomCapacity'];
+    const settings = readSettings();
+    const capacity = settings['collabRoomCapacity'];
+    // Hospedar para gente de fuera (LAN o VPN) es una decisión EXPLÍCITA del
+    // usuario: la casilla del panel, apagada por defecto. El servidor no tiene
+    // autenticación más allá del código de sala, así que mientras no se
+    // encienda sigue escuchando solo en esta máquina.
+    const openToNetwork = settings['collabServerOpen'] === true;
     try {
       collabServer = await startServer({
-        host: '127.0.0.1',
+        host: openToNetwork ? '0.0.0.0' : '127.0.0.1',
         roomsDir: join(app.getPath('userData'), 'collab-rooms'),
         // Cuánta gente cabe en cada sala: lo elige el usuario en el panel de
         // colaboración y se guarda en settings.json (el server lo recorta a su

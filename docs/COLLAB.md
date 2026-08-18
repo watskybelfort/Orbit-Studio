@@ -27,6 +27,13 @@ a la vez, sin pisarse y sin conflictos.
   pantalla ("La sala está llena"). Lo mismo con 1008 (código inválido).
 - Persistencia: snapshot del doc + updates incrementales en disco; si el host
   se cae, la sesión sobrevive.
+- **Hospedar para gente de fuera (v1.3)**: el servidor que arranca la app
+  escucha SOLO en esta máquina salvo que se encienda la casilla "Abrir a la
+  red" del panel; entonces escucha en `0.0.0.0` y el panel enseña las IPv4 de
+  la máquina para compartir (la del VPN suele ir primera). El aviso va delante:
+  la sala no lleva contraseña, entra quien llegue al puerto y sepa el código.
+  Con la casilla apagada, hospedar desde el botón solo vale para pruebas en
+  local — para el resto, `HOST=0.0.0.0 npm run server` como siempre.
 - Auth simple v0.1: token de room (el código) + nombre de usuario.
 - **Roles (v1.0)**: productor (todo), invitado (edita pero no borra pistas ni
   patrones ni toca el master, ni dentro de un batch) y oyente (solo mira y
