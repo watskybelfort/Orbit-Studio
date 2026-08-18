@@ -134,6 +134,9 @@ const PACK_FAMILY_LABELS: Record<PackFamily, string> = {
   impacts: 'Impactos',
   risers: 'Risers',
   downlifters: 'Downlifters',
+  'melodic-loops': 'Loops melódicos',
+  'drum-loops': 'Breaks',
+  'bass-loops': 'Líneas de 808',
 };
 
 const PACK_STYLE_LABELS: Record<PackStyle, string> = {

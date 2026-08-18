@@ -189,3 +189,66 @@ describe('guardas de tipo', () => {
     expect(isPackStyle('cumbia')).toBe(false);
   });
 });
+
+describe('loops', () => {
+  it('traen BPM, tonalidad y compáses exactos', () => {
+    for (const family of ['melodic-loops', 'drum-loops', 'bass-loops'] as const) {
+      for (const sound of planPack({ family, style: 'drill', count: 3 }).sounds) {
+        expect(sound.bpm).toBe(142);
+        expect(sound.project.tempo).toBe(142);
+        expect(sound.exactBeats).toBeGreaterThan(0);
+        // El timeline dura justo lo que se va a guardar.
+        expect(sound.project.lengthBeats).toBe(sound.exactBeats);
+        if (family !== 'drum-loops') expect(sound.keyRoot).toBe('C');
+      }
+    }
+  });
+
+  it('el loop melódico toca la progresión del estilo en la tonalidad pedida', () => {
+    const loop = planPack({ family: 'melodic-loops', style: 'trap', count: 1, key: 'F' }).sounds[0]!;
+    // Cuatro compáses, y el primero arranca en la tónica (F3 = 53).
+    const primerCompas = loop.project.events.filter((e) => e.start < 4).map((e) => e.key);
+    expect(primerCompas).toContain(53);
+    const compases = new Set(loop.project.events.map((e) => Math.floor(e.start / 4)));
+    expect([...compases].sort()).toEqual([0, 1, 2, 3]);
+    // Y no se sale de la escala menor de F.
+    for (const e of loop.project.events) {
+      expect([0, 2, 3, 5, 7, 8, 10]).toContain((((e.key - 53) % 12) + 12) % 12);
+    }
+  });
+
+  it('dos loops melódicos seguidos no llevan el mismo ritmo', () => {
+    const plan = planPack({ family: 'melodic-loops', style: 'boombap', count: 3 });
+    const ritmos = plan.sounds.map((s) => s.project.events.length);
+    expect(new Set(ritmos).size).toBeGreaterThan(1);
+  });
+
+  it('el break lleva bombo, caja y hats, y ninguna nota se sale del compás', () => {
+    for (const sound of planPack({ family: 'drum-loops', style: 'house', count: 4 }).sounds) {
+      const keys = new Set(sound.project.events.map((e) => e.key));
+      expect(keys.has(36)).toBe(true); // kick
+      expect(keys.has(39) || keys.has(38)).toBe(true); // clap o caja
+      expect(keys.has(42)).toBe(true); // hat
+      for (const e of sound.project.events) {
+        expect(e.start).toBeGreaterThanOrEqual(0);
+        expect(e.start).toBeLessThan(sound.exactBeats!);
+      }
+    }
+  });
+
+  it('la línea de 808 sigue la progresión y usa slide cuando lleva glide', () => {
+    const plan = planPack({ family: 'bass-loops', style: 'trap', count: 2, key: 'G' });
+    const sinGlide = plan.sounds[0]!;
+    const conGlide = plan.sounds[1]!;
+    expect(sinGlide.project.events.some((e) => e.slide)).toBe(false);
+    expect(conGlide.project.events.some((e) => e.slide)).toBe(true);
+    // La primera nota es la tónica en la octava del 808 (G1 = 31).
+    expect(sinGlide.project.events[0]!.key).toBe(31);
+  });
+
+  it('un one-shot NO pide corte exacto (se recorta por donde deja de oírse)', () => {
+    const hat = planPack({ family: 'hats', count: 1 }).sounds[0]!;
+    expect(hat.exactBeats).toBeUndefined();
+    expect(hat.bpm).toBeUndefined();
+  });
+});

@@ -37,6 +37,9 @@ export const PACK_FAMILIES = [
   'impacts',
   'risers',
   'downlifters',
+  'melodic-loops',
+  'drum-loops',
+  'bass-loops',
 ] as const;
 export type PackFamily = (typeof PACK_FAMILIES)[number];
 
@@ -77,6 +80,14 @@ export interface PackSoundSpec {
   tail: number;
   /** Tope duro de duración del archivo. */
   maxSec: number;
+  /**
+   * Loops: compases exactos que hay que dejar en el archivo. Un loop no se
+   * recorta por umbral —quedaría corto y no encajaría con nada—: se corta
+   * justo en el beat, aunque la cola de la reverb siga sonando.
+   */
+  exactBeats?: number;
+  /** BPM real del loop (va al manifest para el browser). */
+  bpm?: number;
 }
 
 export interface PackPlan {
@@ -162,8 +173,14 @@ function effect(kind: string, params: Record<string, number>, mix = 1): Compiled
   return { id: `fx-${kind}`, kind: kind as CompiledEffect['kind'], enabled: true, mix, params };
 }
 
-function note(start: number, duration: number, key: number, velocity = 1): CompiledNoteEvent {
-  return { start, duration, key, velocity, pan: 0, slide: false, channelIndex: 0 };
+function note(
+  start: number,
+  duration: number,
+  key: number,
+  velocity = 1,
+  slide = false,
+): CompiledNoteEvent {
+  return { start, duration, key, velocity, pan: 0, slide, channelIndex: 0 };
 }
 
 function project(o: {
@@ -172,6 +189,8 @@ function project(o: {
   events: CompiledNoteEvent[];
   masterSlots?: CompiledEffect[];
   automation?: CompiledAutomationEvent[];
+  /** BPM del proyecto (los one-shots dan igual; los loops no). */
+  tempo?: number;
 }): CompiledProject {
   const master: CompiledMixerTrack = {
     id: 'master',
@@ -187,7 +206,7 @@ function project(o: {
     sends: [],
   };
   return {
-    tempo: 120,
+    tempo: o.tempo ?? 120,
     lengthBeats: o.lengthBeats,
     channels: o.channels,
     events: o.events,
@@ -229,6 +248,79 @@ const STYLES: Record<PackStyle, StyleTraits> = {
   techno: { kit: 0, decay: 0.75, punch: 0.95, dirt: 0.35 },
   lofi: { kit: 1, decay: 1.1, punch: 0.45, dirt: 0.5 },
 };
+
+/** Tempo típico de cada estilo: el BPM con el que sale el loop. */
+const STYLE_BPM: Record<PackStyle, number> = {
+  trap: 140,
+  drill: 142,
+  boombap: 90,
+  latin: 100,
+  house: 124,
+  techno: 132,
+  lofi: 82,
+};
+
+/** Instrumento con el que canta cada estilo en los loops melódicos. */
+const STYLE_LEAD: Record<PackStyle, string> = {
+  trap: 'supersaw',
+  drill: 'fm',
+  boombap: 'fm',
+  latin: 'synth',
+  house: 'supersaw',
+  techno: 'synth',
+  lofi: 'fm',
+};
+
+/** Escala menor natural en semitonos (los loops viven en menor, como el género). */
+const MINOR = [0, 2, 3, 5, 7, 8, 10];
+
+/**
+ * Progresiones por estilo, en GRADOS de la escala menor (0 = tónica), un
+ * acorde por compás. Son las de siempre en cada género: i–VI–III–VII para
+ * el trap, i–VII–VI–V para el drill, ii–V–i para el boom bap...
+ */
+const PROGRESSIONS: Record<PackStyle, number[][]> = {
+  trap: [
+    [0, 5, 2, 6],
+    [0, 3, 4, 3],
+  ],
+  drill: [
+    [0, 6, 5, 4],
+    [0, 4, 5, 6],
+  ],
+  boombap: [
+    [0, 3, 4, 0],
+    [1, 4, 0, 0],
+  ],
+  latin: [
+    [0, 5, 3, 4],
+    [0, 3, 5, 4],
+  ],
+  house: [
+    [0, 4, 5, 3],
+    [5, 4, 0, 0],
+  ],
+  techno: [
+    [0, 0, 5, 5],
+    [0, 6, 0, 6],
+  ],
+  lofi: [
+    [0, 3, 5, 4],
+    [1, 4, 0, 5],
+  ],
+};
+
+/**
+ * Tríada del grado dado sobre la escala menor, en semitonos desde la tónica:
+ * grados 1º, 3º y 5º de la escala contando desde él, subiendo de octava al
+ * pasar de la séptima.
+ */
+function triad(degree: number): number[] {
+  return [0, 2, 4].map((step) => {
+    const d = degree + step;
+    return MINOR[d % 7]! + 12 * Math.floor(d / 7);
+  });
+}
 
 /** Efectos de master que le dan al estilo su suciedad (vacío si va limpio). */
 function dirtSlots(style: PackStyle, index: number, seed: number): CompiledEffect[] {
@@ -274,6 +366,9 @@ const FAMILIES: Record<PackFamily, FamilyTraits> = {
   impacts: { singular: 'impact', category: 'fx', gain: 0.8 },
   risers: { singular: 'riser', category: 'fx', gain: 0.8 },
   downlifters: { singular: 'downlifter', category: 'fx', gain: 0.8 },
+  'melodic-loops': { singular: 'loop', category: 'melodic-loops', gain: 0.7 },
+  'drum-loops': { singular: 'break', category: 'drums', gain: 0.85 },
+  'bass-loops': { singular: 'bass', category: '808s', gain: 0.85 },
 };
 
 /** Golpe de batería: canal 'drums' con su kit y su pieza. */
@@ -388,7 +483,229 @@ function sweep(
   };
 }
 
-// ── Encargo → plan ───────────────────────────────────────────────────────────
+// ── Loops ──────────────────────────────────────────────────────────
+// Cuatro compases (o dos en la batería) que EMPIEZAN y ACABAN en el beat: el
+// archivo se corta exacto para que encaje con cualquier proyecto al tempo del
+// pack. Y lo que cambia entre variaciones no es solo el timbre —es la
+// progresión, el ritmo y la densidad—, que es lo que separa un loop de un
+// one-shot con otro filtro.
+
+type LoopSpec = Pick<PackSoundSpec, 'project' | 'tail' | 'maxSec' | 'exactBeats' | 'bpm'>;
+
+/** Segundos que dura un tramo de beats al tempo dado. */
+function beatsToSec(beats: number, bpm: number): number {
+  return (beats * 60) / bpm;
+}
+
+/** Loop melódico: cuatro compases de progresión, con su ritmo. */
+function melodicLoop(
+  style: PackStyle,
+  index: number,
+  count: number,
+  seed: number,
+  root: number,
+): LoopSpec {
+  const bpm = STYLE_BPM[style];
+  const beats = 16;
+  const progressions = PROGRESSIONS[style];
+  const progression = progressions[index % progressions.length]!;
+  /** 0 acordes sostenidos - 1 stabs a corcheas - 2 arpegio a semicorcheas. */
+  const shape = index % 3;
+  const events: CompiledNoteEvent[] = [];
+
+  progression.forEach((degree, bar) => {
+    const chord = triad(degree).map((semi) => root + semi);
+    const barStart = bar * 4;
+    if (shape === 0) {
+      for (const key of chord) events.push(note(barStart, 3.6, key, 0.85));
+    } else if (shape === 1) {
+      for (let step = 0; step < 8; step++) {
+        // Corcheas con hueco: lo justo para que el acorde respire.
+        if (step === 1 || step === 5) continue;
+        for (const key of chord) {
+          events.push(note(barStart + step * 0.5, 0.4, key, step % 2 === 0 ? 0.9 : 0.7));
+        }
+      }
+    } else {
+      for (let step = 0; step < 16; step++) {
+        const key = chord[step % chord.length]! + (step >= 8 ? 12 : 0);
+        events.push(note(barStart + step * 0.25, 0.22, key, step % 4 === 0 ? 0.95 : 0.75));
+      }
+    }
+  });
+
+  const lead = STYLE_LEAD[style];
+  const cutoff = spread(index, count, seed, 'cutoff', 1400, 6000);
+  const params: Record<string, number> =
+    lead === 'supersaw'
+      ? {
+          detune: spread(index, count, seed, 'detune', 0.3, 0.7),
+          blend: 0.8,
+          cutoff,
+          attack: shape === 0 ? 0.03 : 0.005,
+          release: 0.3,
+          width: 0.85,
+          octave: 0,
+        }
+      : lead === 'fm'
+        ? {
+            ratio: 2,
+            index: spread(index, count, seed, 'fm', 1.6, 4),
+            indexDecay: 0.3,
+            attack: 0.004,
+            decay: 1.1,
+            sustain: shape === 0 ? 0.35 : 0,
+            release: 0.3,
+            octave: 0,
+          }
+        : {
+            wave: 0,
+            cutoff,
+            resonance: 0.25,
+            envAmount: 0.4,
+            attack: 0.004,
+            decay: 0.4,
+            sustain: shape === 0 ? 0.5 : 0.1,
+            release: 0.25,
+            unison: 2,
+            detune: 0.08,
+          };
+
+  return {
+    project: project({
+      tempo: bpm,
+      lengthBeats: beats,
+      channels: [channel(lead, params, 0.7)],
+      events,
+      masterSlots: [
+        ...dirtSlots(style, index, seed),
+        effect('reverb', { size: 0.5, damp: 0.45, width: 1, predelay: 0.01 }, 0.2),
+      ],
+    }),
+    tail: 0.5,
+    maxSec: beatsToSec(beats, bpm) + 0.5,
+    exactBeats: beats,
+    bpm,
+  };
+}
+
+/** Break de batería: dos compases del kit del estilo, con su densidad. */
+function drumLoop(style: PackStyle, index: number, count: number, seed: number): LoopSpec {
+  const bpm = STYLE_BPM[style];
+  const beats = 8;
+  const steps = 32; // semicorcheas
+  const traits = STYLES[style];
+  const events: CompiledNoteEvent[] = [];
+  const at = (step: number) => step * 0.25;
+
+  // Bombo: patrón base del estilo más un golpe fantasma que se mueve con el
+  // índice (es lo que hace que dos breaks del mismo pack no sean el mismo).
+  const kickSteps =
+    style === 'house' || style === 'techno'
+      ? [0, 8, 16, 24]
+      : style === 'boombap' || style === 'lofi'
+        ? [0, 10, 16, 26]
+        : [0, 6, 16, 22];
+  const ghostKick = Math.floor(unit(index, seed, 'ghost') * steps);
+  for (const step of new Set([...kickSteps, ghostKick])) {
+    events.push(note(at(step), 0.25, DRUM.kick, step === ghostKick ? 0.6 : 1));
+  }
+
+  // Caja (o clap en house), a tiempo en el 2 y el 4 de cada compás.
+  const snareKey = style === 'house' ? DRUM.clap : DRUM.snare;
+  for (const step of [4, 12, 20, 28]) events.push(note(at(step), 0.25, snareKey, 0.95));
+  if (unit(index, seed, 'ghostsnare') > 0.5) {
+    events.push(note(at(30), 0.25, DRUM.snare, 0.45));
+  }
+
+  // Hats a corcheas o a semicorcheas según la variación, con acento a tiempo.
+  const every = index % 2 === 0 ? 2 : 1;
+  for (let step = 0; step < steps; step += every) {
+    events.push(note(at(step), 0.2, DRUM.hat, step % 4 === 0 ? 0.9 : 0.6));
+  }
+  if (style === 'trap' || style === 'drill') {
+    // Redoble de tresillos al cerrar: marca de la casa.
+    for (let i = 0; i < 6; i++) {
+      events.push(note(at(28) + i * (1 / 12), 0.08, DRUM.hat, 0.5 + i * 0.06));
+    }
+  }
+  events.push(note(at(steps - 2), 0.5, DRUM.openhat, 0.7));
+
+  return {
+    project: project({
+      tempo: bpm,
+      lengthBeats: beats,
+      channels: [
+        channel('drums', {
+          kit: traits.kit,
+          tone: spread(index, count, seed, 'tone', 0.35, 0.7),
+          decay: 0.9 * traits.decay,
+          punch: traits.punch,
+        }),
+      ],
+      events,
+      masterSlots: dirtSlots(style, index, seed),
+    }),
+    tail: 0.4,
+    maxSec: beatsToSec(beats, bpm) + 0.4,
+    exactBeats: beats,
+    bpm,
+  };
+}
+
+/** Línea de 808: la raíz de cada acorde, con glide donde toca. */
+function bassLoop(
+  style: PackStyle,
+  index: number,
+  count: number,
+  seed: number,
+  root: number,
+): LoopSpec {
+  const bpm = STYLE_BPM[style];
+  const beats = 16;
+  const progressions = PROGRESSIONS[style];
+  const progression = progressions[index % progressions.length]!;
+  const events: CompiledNoteEvent[] = [];
+  /** Con glide, la segunda nota del compás se desliza desde la primera. */
+  const glide = index % 2 === 1;
+
+  progression.forEach((degree, bar) => {
+    const key = root + MINOR[degree % 7]! + 12 * Math.floor(degree / 7);
+    const barStart = bar * 4;
+    events.push(note(barStart, glide ? 2.4 : 3.4, key, 1));
+    if (glide) {
+      // Nota corta una quinta arriba que el 808 enlaza con slide.
+      events.push(note(barStart + 2.5, 1.2, key + 7, 0.9, true));
+    } else if (unit(index, seed, `extra${bar}`) > 0.55) {
+      events.push(note(barStart + 3, 0.8, key + 12, 0.8));
+    }
+  });
+
+  return {
+    project: project({
+      tempo: bpm,
+      lengthBeats: beats,
+      channels: [
+        channel('sub808', {
+          tune: 0,
+          decay: spread(index, count, seed, 'decay', 0.9, 1.8),
+          drive: spread(index, count, seed, 'drive', 0.3, 0.8),
+          glide: glide ? 0.12 : 0.05,
+          punch: 0.4,
+          tone: spread(index, count, seed, 'tone', 700, 1500),
+        }),
+      ],
+      events,
+      masterSlots: dirtSlots(style, index, seed),
+    }),
+    tail: 0.6,
+    maxSec: beatsToSec(beats, bpm) + 0.6,
+    exactBeats: beats,
+    bpm,
+  };
+}
+
+// ── Encargo -> plan ───────────────────────────────────────────────────────────
 
 export function isPackFamily(value: unknown): value is PackFamily {
   return typeof value === 'string' && (PACK_FAMILIES as readonly string[]).includes(value);
@@ -427,6 +744,9 @@ const FAMILY_LABELS: Record<PackFamily, string> = {
   impacts: 'Impactos',
   risers: 'Risers',
   downlifters: 'Downlifters',
+  'melodic-loops': 'Loops melódicos',
+  'drum-loops': 'Breaks de batería',
+  'bass-loops': 'Líneas de 808',
 };
 
 /**
@@ -600,6 +920,40 @@ export function planPack(request: PackRequest): PackPlan {
           ...sweep(i, count, seed, false),
         });
         break;
+      case 'melodic-loops': {
+        const plan = melodicLoop(style, i, count, seed, 48 + (NOTE_OFFSETS[keyName] ?? 0));
+        sounds.push({
+          ...base,
+          name: `Loop ${STYLE_LABELS[style]} ${keyName}m ${num}`,
+          subcategory: style,
+          keyRoot: keyName,
+          tags: [style, 'loop', 'chords', 'menor'],
+          ...plan,
+        });
+        break;
+      }
+      case 'drum-loops': {
+        const plan = drumLoop(style, i, count, seed);
+        sounds.push({
+          ...base,
+          name: `Break ${STYLE_LABELS[style]} ${num}`,
+          subcategory: style,
+          tags: [style, 'loop', 'break', 'drums'],
+          ...plan,
+        });
+        break;
+      }
+      case 'bass-loops': {
+        const plan = bassLoop(style, i, count, seed, rootKey);
+        sounds.push({
+          ...base,
+          name: `Bajo ${STYLE_LABELS[style]} ${keyName}m ${num}`,
+          keyRoot: keyName,
+          tags: [style, 'loop', '808', 'bass'],
+          ...plan,
+        });
+        break;
+      }
     }
   }
 

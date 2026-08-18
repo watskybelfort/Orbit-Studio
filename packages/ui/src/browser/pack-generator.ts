@@ -112,6 +112,25 @@ function trim(
   return [left.slice(0, end), right.slice(0, end)];
 }
 
+/**
+ * Corte EXACTO a la longitud pedida (loops). Se rellena con silencio si el
+ * render salió corto: un loop tiene que durar sus compáses justos o no
+ * encajará con nada, aunque la cola de la reverb se quede fuera.
+ */
+function cutTo(
+  left: Float32Array,
+  right: Float32Array,
+  samples: number,
+): [Float32Array, Float32Array] {
+  const out = (x: Float32Array): Float32Array => {
+    if (x.length === samples) return x;
+    const y = new Float32Array(samples);
+    y.set(x.subarray(0, Math.min(samples, x.length)));
+    return y;
+  };
+  return [out(left), out(right)];
+}
+
 /** Fade lineal de salida sobre el final del buffer. */
 function fadeOut(left: Float32Array, right: Float32Array): void {
   const n = Math.min(left.length, Math.round((FADE_MS / 1000) * SAMPLE_RATE));
@@ -164,7 +183,15 @@ export async function renderPackPlan(
     if (!normalize(result.left, result.right)) {
       throw new Error(`"${spec.name}" salió en silencio`);
     }
-    const [left, right] = trim(result.left, result.right, spec.maxSec);
+    // Un loop se corta en el beat; un one-shot, donde deja de oírse.
+    const [left, right] =
+      spec.exactBeats === undefined
+        ? trim(result.left, result.right, spec.maxSec)
+        : cutTo(
+            result.left,
+            result.right,
+            Math.round(((spec.exactBeats * 60) / spec.project.tempo) * SAMPLE_RATE),
+          );
     fadeOut(left, right);
     const durationSec = left.length / SAMPLE_RATE;
     seconds += durationSec;
@@ -181,6 +208,7 @@ export async function renderPackPlan(
     };
     if (spec.subcategory !== undefined) entry.subcategory = spec.subcategory;
     if (spec.keyRoot !== undefined) entry.keyRoot = spec.keyRoot;
+    if (spec.bpm !== undefined) entry.bpm = spec.bpm;
     entries.push(entry);
   }
 
