@@ -36,7 +36,7 @@ import { engine, ensureAudioReady } from '../state/app';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, loadIntoEngine, setDragEntry } from './sound-actions';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
-import { generatePack, packEntries } from './pack-generator';
+import { generatePack, onPacksChanged, packEntries } from './pack-generator';
 import {
   BPM_MAX,
   BPM_MIN,
@@ -275,6 +275,9 @@ export function Browser() {
 
   useEffect(() => {
     void refreshPacks();
+    // Un pack puede nacer sin pasar por este panel (lo pide Claude por su
+    // tool): sin esto la lista se quedaba vieja hasta reabrir la app.
+    return onPacksChanged(() => void refreshPacks());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -44,6 +44,25 @@ export interface GeneratedPack {
   seconds: number;
 }
 
+/**
+ * Avisos de "hay packs nuevos". El browser los pinta de lo que lee al montarse,
+ * pero un pack puede nacer sin que nadie toque su botón — lo pide Claude por
+ * su tool— y entonces la lista se quedaba vieja: el modelo decía "ya está en
+ * el browser" y en el browser no había nada.
+ */
+const listeners = new Set<() => void>();
+
+export function onPacksChanged(cb: () => void): () => void {
+  listeners.add(cb);
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+export function notifyPacksChanged(): void {
+  for (const cb of [...listeners]) cb();
+}
+
 export interface GeneratePackOptions {
   /** Aviso de progreso ("3 / 12 · Hat drill 03"). */
   onProgress?: (done: number, total: number, name: string) => void;
@@ -177,6 +196,7 @@ export async function renderPackPlan(
   });
 
   const saved = await api.pack.save(slug, files);
+  notifyPacksChanged();
   opts.onProgress?.(plan.sounds.length, plan.sounds.length, plan.name);
   return {
     slug,
