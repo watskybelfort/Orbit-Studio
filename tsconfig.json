@@ -31,6 +31,7 @@
   "include": [
     "apps/desktop/src",
     "apps/server/src",
+    "apps/*/test",
     "packages/*/src",
     "packages/*/test"
   ]
