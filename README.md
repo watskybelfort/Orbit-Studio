@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v1.9.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-617%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.0.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-720%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -58,11 +58,12 @@ guardables con nombre).
    detección automática de BPM y tonalidad, búsqueda instantánea y preview
    renderizado por el propio kernel.
 4. **Colaboración en tiempo real** — el proyecto es un log de comandos sobre
-   CRDT (Yjs): salas por código de 6 letras, **aforo ajustable (2–64)**,
-   servidor propio que puedes atar a la dirección que quieras (localhost, la IP
-   del VPN, la de la LAN o todas), convergencia sin conflictos, roles, chat
-   anclado al timeline, modo seguidor y undo POR USUARIO (tu Ctrl+Z no deshace
-   lo del otro).
+   CRDT (Yjs): salas por código de 6 letras **con contraseña opcional que nunca
+   viaja**, **aforo ajustable (2–64)**, servidor propio que puedes atar a la
+   dirección que quieras (localhost, la IP del VPN, la de la LAN o todas),
+   convergencia sin conflictos, roles que reparte y hace cumplir el servidor,
+   chat anclado al timeline, modo seguidor y undo POR USUARIO (tu Ctrl+Z no
+   deshace lo del otro).
 5. **Claude dentro del estudio** — la app expone un servidor MCP con **21 tools**
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
@@ -70,7 +71,54 @@ guardables con nombre).
 
 ## Lo último
 
-**v1.9.0 — "mirar atrás y repartir".** Otras tres del "Siguiente".
+**v2.0.0 — "la puerta y el guardia".** Se vacía el "Siguiente" del roadmap, y
+una auditoría adversarial de la sala y del motor deja 24 arreglos por el camino.
+
+**La sala tiene puerta.** Hasta ahora el modelo de confianza era el código de
+seis caracteres: quien llegaba al puerto y lo sabía, entraba. Ahora una sala
+puede pedir **contraseña**, y la contraseña **no viaja** — ni siquiera
+derivada. El cliente firma con ella un nonce que pone el servidor (el esquema
+de SCRAM, reducido a lo justo), así que la prueba es distinta en cada conexión
+y grabar el tráfico no abre nada; el servidor guarda un hash de un hash, con el
+que **tampoco se puede entrar**. Y mientras alguien está en la puerta no se le
+mira nada más: ni sync, ni presencia, ni audio — la sala ni siquiera se crea.
+
+**Y el guardia se creía tres campos que escribe el cliente.** El rol lo reparte
+el servidor desde v1.8, pero el camino que va del socket a la decisión tenía
+tres agujeros, los tres explotables con el repo delante: el rol salía de
+`entry.client` (un invitado firmaba con el clientID del productor y borraba
+pistas), la lista de "ya juzgado" se indexaba por `client:seq` (repetir una
+clave saltaba la validación entera) y **el snapshot del proyecto no lo miraba
+nadie** (un invitado lo reescribía entero sin tocar el log). Ahora se juzga el
+delta de la transacción con el rol del socket que lo entrega, y `meta` también
+está vigilado.
+
+**Comparar dos versiones cualesquiera.** El diff musical ya estaba, pero un
+lado era siempre el proyecto de ahora. Ahora se eligen los dos, con la
+dirección delante — porque "+3 notas" leído al revés es la mentira contraria.
+
+**Beats con estructura entera.** Un loop de cuatro compases no es un beat. La
+familia **`beats`** del generador encadena secciones —intro, subida, drop,
+vuelta y cierre— con batería, 808 y melodía en un solo archivo, y cada compás
+suena según dónde está: el 808 desaparece en la vuelta para que el drop
+siguiente vuelva a pegar, y el bombo se calla en el último compás de la subida,
+porque lo que hace entrar un drop es el silencio de antes.
+
+**Y 24 arreglos.** Los que más se notan: el **relay MCP** congelaba puerto y
+token al arrancar, así que abrir Claude Code antes que la app dejaba el puente
+roto para siempre —diciendo que la app estaba cerrada—; el **sampler metía
+NaN** con la perilla `start` a tope y el limiter del master lo convertía en un
+WAV entero de basura; **una nota muy aguda** desbocaba la fase y sacaba +142 dB;
+el **render mutaba el proyecto compilado**, así que los stems no cuadraban con
+la mezcla; los **clips de audio perdían muestras en cada vuelta del loop**;
+**normalizar una selección corta** la multiplicaba por 631; **"Afinar" con
+transposición** se comía media toma; la **cuenta atrás no contaba** si grababas
+desde el compás 1; y los **breaks del generador de packs perdían la caja**,
+porque el kernel pide los eventos ordenados y las recetas no los ordenaban.
+
+<details>
+<summary><b>v1.9.0 — "mirar atrás y repartir"</b></summary>
+
 
 **Versiones con diff musical.** El proyecto se guarda entero como versión (una
 en cada Ctrl+S, y las que pidas con nombre) y cada una se despliega con **lo
@@ -93,6 +141,8 @@ igual que el original. Y el **streaming del master ya no viaja crudo**: ADPCM
 propio, 192 kbit/s en vez de 768, con cada trozo independiente para que un
 paquete perdido no arrastre al siguiente. (Opus entero sigue fuera: eso es un
 códec completo, no un envoltorio.)
+
+</details>
 
 **v1.8.0 — "quién manda y qué se oye".** Las tres del "Siguiente".
 
@@ -160,17 +210,17 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Contraseña de sala** | El rol ya lo decide el servidor, pero entrar sigue siendo saber el código: la puerta es lo siguiente |
-| **Packs con estructura entera** | Un loop de cuatro compases no es un beat: encadenar secciones (intro, drop, vuelta) es otro problema |
-| **Comparar dos versiones cualesquiera** | El diff musical ya está; hoy compara contra el proyecto de ahora, y falta versión contra versión |
+| **Nodos con más que enrutado** | El graph editor recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
+| **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
+| **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
 
 ### Después
 
 | Qué | Por qué |
 |---|---|
-| **Nodos con más que enrutado** | El graph editor recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
-| **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
-| **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
+| **Estructura del beat, editable** | El generador ya encadena secciones; que se puedan dibujar y reordenar en la playlist es lo que las convierte en una herramienta |
+| **Sala con invitación caducable** | La contraseña cierra la puerta, pero compartirla es para siempre: un enlace que caduque es otra cosa |
+| **Automatización dibujada a mano** | Hay LFOs y clips de automatización; falta el lápiz sobre la curva, que es como se hace de verdad |
 
 ### Horizonte
 
@@ -186,7 +236,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 617 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 720 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
