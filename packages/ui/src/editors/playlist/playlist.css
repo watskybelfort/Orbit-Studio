@@ -102,6 +102,22 @@ html[data-theme='acrylic'] .playlist {
   border: 1px solid var(--border);
 }
 
+/* Bloque de la selección: pegado a la derecha de la toolbar para que los
+   botones de siempre no bailen de sitio cada vez que aparece o desaparece. */
+.pl-sel-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.pl-sel-chip {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
 .pl-add {
   margin-left: auto;
   height: 24px;

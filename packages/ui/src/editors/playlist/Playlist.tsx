@@ -47,6 +47,12 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
+import {
+  clampGroupMove,
+  clipsInMarquee,
+  type MoveAnchor,
+  type SelectableClip,
+} from './selection';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -99,10 +105,27 @@ interface RowLayout {
 
 type DragState =
   | { mode: 'paint'; trackId: Id; length: number; patternId: Id }
-  | { mode: 'move'; clipId: Id; grabOffset: number }
+  /**
+   * Mueve la SELECCIÓN entera. `clipId` es el clip agarrado (el que se pega a
+   * la rejilla) y `orig` la foto de dónde estaban todos al empezar: los
+   * desplazamientos se calculan contra esa foto, nunca acumulando, que es lo
+   * que evita que un arrastre rápido descuadre el grupo.
+   */
+  | { mode: 'move'; clipId: Id; grabOffset: number; orig: Map<Id, MoveAnchor> }
   | { mode: 'resize'; clipId: Id }
   | { mode: 'seek' }
-  | { mode: 'loop'; anchor: number; moved: boolean };
+  | { mode: 'loop'; anchor: number; moved: boolean }
+  /** Rectángulo de selección. `add` = suma a lo ya seleccionado (Shift). */
+  | { mode: 'marquee'; x0: number; y0: number; x1: number; y1: number; add: boolean }
+  /**
+   * Ctrl sobre un clip: aún no se sabe qué quiere el usuario. Si suelta sin
+   * moverse es "añadir/quitar de la selección"; si arrastra, el duplicado de
+   * siempre. Se resuelve en el primer movimiento que pase del umbral.
+   */
+  | { mode: 'ctrlpick'; clipId: Id; x: number; y: number };
+
+/** Píxeles que hay que mover para que un Ctrl+clic pase a ser Ctrl+arrastre. */
+const CTRL_DRAG_PX = 4;
 
 export function Playlist() {
   const project = useProject();
@@ -116,9 +139,15 @@ export function Playlist() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
   /** Clips pendientes del gesto de pintado (un solo addClips al soltar). */
   const paintGhost = useRef<Clip[] | null>(null);
+  /** El ratón está encima de la playlist: los atajos sin modificador van aquí. */
+  const hovering = useRef(false);
+
+  /** Clips seleccionados. Vacío = se trabaja sobre el clip bajo el cursor. */
+  const [selection, setSelection] = useState<Set<Id>>(new Set());
 
   // Vista
   const [zoom, setZoom] = useState(24); // px por beat
@@ -225,6 +254,76 @@ export function Playlist() {
     for (const list of m.values()) list.sort((a, b) => a.start - b.start);
     return m;
   }, [project, tracks]);
+
+  /** Índice de fila de cada pista (el arrastre de grupo se mueve por índices). */
+  const trackIndexOf = useMemo(() => {
+    const m = new Map<Id, number>();
+    tracks.forEach((t, i) => m.set(t.id, i));
+    return m;
+  }, [tracks]);
+
+  // ── Selección ─────────────────────────────────────────────────────────────
+
+  /**
+   * Selección viva: la poda contra los clips que existen AHORA. Deshacer un
+   * borrado, cambiar de arrangement o recibir cambios de la sala dejan ids
+   * muertos dentro, y un "borrar selección" con basura silenciaría el gesto.
+   */
+  const selectedIds = useMemo(() => {
+    const out: Id[] = [];
+    for (const t of tracks) {
+      for (const c of clipsByTrack.get(t.id) ?? []) if (selection.has(c.id)) out.push(c.id);
+    }
+    return out;
+  }, [selection, tracks, clipsByTrack]);
+
+  const selectAll = useCallback(() => {
+    const all = new Set<Id>();
+    for (const t of tracks) for (const c of clipsByTrack.get(t.id) ?? []) all.add(c.id);
+    setSelection(all);
+  }, [tracks, clipsByTrack]);
+
+  const clearSelection = useCallback(() => setSelection(new Set()), []);
+
+  const deleteSelection = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    store.dispatch(
+      { type: 'removeClips', clipIds: selectedIds },
+      { label: `Borrar ${selectedIds.length} clip(s)` },
+    );
+    setSelection(new Set());
+  }, [selectedIds]);
+
+  /** Duplica la selección un "ancho de selección" a la derecha (Ctrl+B). */
+  const duplicateSelection = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const clips = selectedIds.map((id) => project.clips[id]!).filter(Boolean);
+    if (clips.length === 0) return;
+    const from = Math.min(...clips.map((c) => c.start));
+    const to = Math.max(...clips.map((c) => c.start + c.length));
+    const span = Math.max(0.25, to - from);
+    const copies = clips.map((c) => ({
+      ...c,
+      id: newId(),
+      start: c.start + span,
+      points: c.points?.map((p) => ({ ...p })),
+    }));
+    store.dispatch(
+      { type: 'addClips', clips: copies },
+      { label: `Duplicar ${copies.length} clip(s)` },
+    );
+    setSelection(new Set(copies.map((c) => c.id)));
+  }, [selectedIds, project]);
+
+  /** Mutea o desmutea la selección entera (según el primero). */
+  const toggleSelectionMuted = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const muted = !project.clips[selectedIds[0]!]?.muted;
+    store.dispatch(
+      { type: 'patchClips', patches: selectedIds.map((id) => ({ id, muted })) },
+      { label: muted ? `Mutear ${selectedIds.length} clip(s)` : `Activar ${selectedIds.length} clip(s)` },
+    );
+  }, [selectedIds, project]);
 
   // ── Coordenadas ───────────────────────────────────────────────────────────
 
@@ -359,7 +458,7 @@ export function Playlist() {
     };
 
     /** Pinta un clip (cuerpo, franja de nombre y contenido según su kind). */
-    const drawClip = (c: Clip, rowY: number, rowH: number, ghost = false) => {
+    const drawClip = (c: Clip, rowY: number, rowH: number, ghost = false, selected = false) => {
       const x = beatToX(c.start);
       const cw = Math.max(2, c.length * zoom - 1);
       if (x + cw < 0 || x > w) return;
@@ -382,6 +481,20 @@ export function Playlist() {
       ctx.lineWidth = 1;
       ctx.stroke();
       ctx.setLineDash([]);
+
+      // Seleccionado: velo + marco del acento. Va con el acento y no con el
+      // color del clip porque un clip ya es de su color: sin un tono ajeno,
+      // "seleccionado" no se distingue de "es una pista azul".
+      if (selected) {
+        ctx.globalAlpha = 0.2;
+        ctx.fillStyle = accent;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
 
       // Todo el contenido queda recortado al rectángulo del clip.
       ctx.save();
@@ -509,7 +622,7 @@ export function Playlist() {
       const laneH = r.track.height / lanes;
       for (const c of clipsByTrack.get(r.track.id) ?? []) {
         const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
-        drawClip(c, y + lane * laneH, laneH);
+        drawClip(c, y + lane * laneH, laneH, false, selection.has(c.id));
       }
       // Línea fina entre carriles para que se vea que hay tomas apiladas.
       if (lanes > 1) {
@@ -522,6 +635,25 @@ export function Playlist() {
         const r = rows.find((row) => row.track.id === c.playlistTrackId);
         if (r) drawClip(c, RULER_H + r.top - scrollY, r.track.height, true);
       }
+    }
+
+    // Rectángulo de selección en curso.
+    const dm = drag.current;
+    if (dm?.mode === 'marquee') {
+      const mx = Math.min(dm.x0, dm.x1);
+      const my = Math.min(dm.y0, dm.y1);
+      const mw = Math.abs(dm.x1 - dm.x0);
+      const mh = Math.abs(dm.y1 - dm.y0);
+      ctx.fillStyle = accent;
+      ctx.globalAlpha = 0.1;
+      ctx.fillRect(mx, my, mw, mh);
+      ctx.globalAlpha = 0.8;
+      ctx.strokeStyle = accent;
+      ctx.setLineDash([4, 3]);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx + 0.5, my + 0.5, mw, mh);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
 
@@ -596,7 +728,7 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection]);
 
   useEffect(() => {
     draw();
@@ -661,6 +793,32 @@ export function Playlist() {
       );
     },
     [project],
+  );
+
+  /**
+   * Arranca un arrastre de movimiento con `clipId` como clip agarrado y `ids`
+   * como grupo que viaja con él (normalmente la selección).
+   */
+  const startMove = useCallback(
+    (clipId: Id, x: number, ids: readonly Id[]) => {
+      const anchor = project.clips[clipId];
+      if (!anchor) return;
+      const orig = new Map<Id, MoveAnchor>();
+      for (const id of ids) {
+        const c = project.clips[id];
+        if (!c) continue;
+        orig.set(id, { start: c.start, trackIndex: trackIndexOf.get(c.playlistTrackId) ?? 0 });
+      }
+      // El clip agarrado siempre viaja, esté o no en la selección.
+      if (!orig.has(clipId)) {
+        orig.set(clipId, {
+          start: anchor.start,
+          trackIndex: trackIndexOf.get(anchor.playlistTrackId) ?? 0,
+        });
+      }
+      drag.current = { mode: 'move', clipId, grabOffset: xToBeat(x) - anchor.start, orig };
+    },
+    [project, trackIndexOf, xToBeat],
   );
 
   // ── Interacción en el canvas ──────────────────────────────────────────────
@@ -739,44 +897,54 @@ export function Playlist() {
         return;
       }
 
-      // Clic derecho: borrar el clip bajo el cursor.
+      // Clic derecho: borrar. Si el clip está seleccionado, se va el grupo
+      // entero — es lo que uno espera después de haber marcado ocho clips.
       if (e.button === 2) {
         if (hit) {
-          store.dispatch(
-            { type: 'removeClips', clipIds: [hit.clip.id] },
-            { label: `Borrar clip "${clipLabel(hit.clip, project)}"` },
-          );
+          if (selection.has(hit.clip.id) && selectedIds.length > 1) deleteSelection();
+          else {
+            store.dispatch(
+              { type: 'removeClips', clipIds: [hit.clip.id] },
+              { label: `Borrar clip "${clipLabel(hit.clip, project)}"` },
+            );
+          }
         }
         return;
       }
       if (e.button !== 0) return;
 
+      const ctrl = e.ctrlKey || e.metaKey;
+
       if (hit) {
         if (hit.edge) {
           drag.current = { mode: 'resize', clipId: hit.clip.id };
-        } else if (e.ctrlKey || e.metaKey) {
-          // Ctrl+arrastre: duplica y el gesto mueve la copia.
-          const copy: Clip = {
-            ...hit.clip,
-            id: newId(),
-            points: hit.clip.points?.map((p) => ({ ...p })),
-          };
-          store.dispatch(
-            { type: 'addClips', clips: [copy] },
-            { label: `Duplicar clip "${clipLabel(hit.clip, project)}"` },
-          );
-          drag.current = { mode: 'move', clipId: copy.id, grabOffset: xToBeat(x) - copy.start };
+        } else if (ctrl) {
+          // Ctrl sobre un clip hace DOS cosas según lo que venga después:
+          // soltar sin moverse lo mete o lo saca de la selección; arrastrar
+          // duplica y mueve la copia, como toda la vida.
+          drag.current = { mode: 'ctrlpick', clipId: hit.clip.id, x, y };
         } else {
-          drag.current = {
-            mode: 'move',
-            clipId: hit.clip.id,
-            grabOffset: xToBeat(x) - hit.clip.start,
-          };
+          // Clic normal: si el clip ya estaba marcado, el grupo entero viaja
+          // con él; si no, pasa a ser la selección.
+          let ids = selectedIds;
+          if (!selection.has(hit.clip.id)) {
+            ids = [hit.clip.id];
+            setSelection(new Set(ids));
+          }
+          startMove(hit.clip.id, x, ids);
         }
         return;
       }
 
+      // Ctrl en zona vacía: rectángulo de selección (Shift para sumar).
+      if (ctrl) {
+        drag.current = { mode: 'marquee', x0: x, y0: y, x1: x, y1: y, add: e.shiftKey };
+        if (!e.shiftKey) setSelection(new Set());
+        return;
+      }
+
       // Zona vacía: pintar el patrón activo (commit único al soltar).
+      if (selection.size > 0) setSelection(new Set());
       const row = rowAtY(y);
       if (!row || !activePattern || patternId === undefined) return;
       const length = Math.max(0.25, activePattern.length);
@@ -794,7 +962,7 @@ export function Playlist() {
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove],
   );
 
   const onPointerMove = useCallback(
@@ -831,16 +999,86 @@ export function Playlist() {
           engine.setLoop(start, end, true);
           break;
         }
+        case 'ctrlpick': {
+          // Se movió lo bastante: era un duplicado. La copia (o las copias,
+          // si había selección) nacen aquí y el resto del gesto las arrastra.
+          if (Math.abs(x - d.x) < CTRL_DRAG_PX && Math.abs(y - d.y) < CTRL_DRAG_PX) break;
+          const source = selection.has(d.clipId) && selectedIds.length > 1
+            ? selectedIds
+            : [d.clipId];
+          const copies = source
+            .map((id) => project.clips[id])
+            .filter((c): c is Clip => c !== undefined)
+            .map((c) => ({ ...c, id: newId(), points: c.points?.map((p) => ({ ...p })) }));
+          if (copies.length === 0) {
+            drag.current = null;
+            break;
+          }
+          const twin = copies[source.indexOf(d.clipId)] ?? copies[0]!;
+          store.dispatch(
+            { type: 'addClips', clips: copies },
+            { label: `Duplicar ${copies.length} clip(s)` },
+          );
+          setSelection(new Set(copies.map((c) => c.id)));
+          // Sin pasar por startMove: `project` de este render aún no conoce
+          // las copias recién despachadas y las buscaría en vano.
+          drag.current = {
+            mode: 'move',
+            clipId: twin.id,
+            grabOffset: d.x / zoom + scrollX - twin.start,
+            orig: new Map(
+              copies.map((c) => [
+                c.id,
+                { start: c.start, trackIndex: trackIndexOf.get(c.playlistTrackId) ?? 0 },
+              ]),
+            ),
+          };
+          break;
+        }
+        case 'marquee': {
+          d.x1 = x;
+          d.y1 = y;
+          draw();
+          break;
+        }
         case 'move': {
-          const clip = project.clips[d.clipId];
-          if (!clip) return;
-          const start = quant(xToBeat(x) - d.grabOffset, snapOf(e), true);
+          const origAnchor = d.orig.get(d.clipId);
+          if (!origAnchor) return;
+          // Todo se calcula como DESPLAZAMIENTO contra la foto del principio:
+          // el clip agarrado se pega a la rejilla y los demás conservan su
+          // distancia a él (si no, un grupo con distintos offsets se apelmaza
+          // sobre la rejilla en cuanto lo mueves un pelo).
+          const dBeat = quant(xToBeat(x) - d.grabOffset, snapOf(e), true) - origAnchor.start;
           const row = rowAtY(y);
-          const trackId = row?.track.id ?? clip.playlistTrackId;
-          if (start !== clip.start || trackId !== clip.playlistTrackId) {
+          const dTrack =
+            (row ? trackIndexOf.get(row.track.id) ?? origAnchor.trackIndex : origAnchor.trackIndex) -
+            origAnchor.trackIndex;
+
+          // Clamp de GRUPO (selection.ts): el que primero toparía manda por
+          // todos.
+          const delta = clampGroupMove(
+            d.orig.values(),
+            { beats: dBeat, tracks: dTrack },
+            tracks.length,
+          );
+
+          const patches: { id: Id; start: number; playlistTrackId: Id }[] = [];
+          for (const [id, a] of d.orig) {
+            const clip = project.clips[id];
+            if (!clip) continue;
+            const start = a.start + delta.beats;
+            const trackId = tracks[a.trackIndex + delta.tracks]?.id ?? clip.playlistTrackId;
+            if (start !== clip.start || trackId !== clip.playlistTrackId) {
+              patches.push({ id, start, playlistTrackId: trackId });
+            }
+          }
+          if (patches.length > 0) {
             store.dispatch(
-              { type: 'patchClips', patches: [{ id: clip.id, start, playlistTrackId: trackId }] },
-              { label: 'Mover clip', mergeKey: `pl:move:${clip.id}` },
+              { type: 'patchClips', patches },
+              {
+                label: d.orig.size > 1 ? `Mover ${d.orig.size} clips` : 'Mover clip',
+                mergeKey: `pl:move:${d.clipId}`,
+              },
             );
           }
           break;
@@ -908,7 +1146,7 @@ export function Playlist() {
         }
       }
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw, selection, selectedIds, trackIndexOf, tracks, zoom, scrollX],
   );
 
   // Doble clic: en la regla crea/renombra marcadores; en un clip de
@@ -972,8 +1210,42 @@ export function Playlist() {
     } else if (d.mode === 'loop' && !d.moved) {
       // Clic suelto en la mitad superior de la regla: quita el loop.
       clearLoop();
+    } else if (d.mode === 'ctrlpick') {
+      // Ctrl+clic sin arrastre: dentro o fuera de la selección.
+      setSelection((prev) => {
+        const next = new Set(prev);
+        if (next.has(d.clipId)) next.delete(d.clipId);
+        else next.add(d.clipId);
+        return next;
+      });
+    } else if (d.mode === 'marquee') {
+      const b0 = xToBeat(Math.min(d.x0, d.x1));
+      const b1 = xToBeat(Math.max(d.x0, d.x1));
+      // La banda vertical se compara en coordenadas de la rejilla (sin regla,
+      // con el scroll ya sumado), que es donde viven los `top` de las filas.
+      const gy0 = Math.min(d.y0, d.y1) - RULER_H + scrollY;
+      const gy1 = Math.max(d.y0, d.y1) - RULER_H + scrollY;
+      const touched: SelectableClip[] = [];
+      rows.forEach((r, i) => {
+        if (r.top + r.track.height < gy0 || r.top > gy1) return;
+        for (const c of clipsByTrack.get(r.track.id) ?? []) {
+          touched.push({ id: c.id, start: c.start, length: c.length, trackIndex: i });
+        }
+      });
+      const hits = clipsInMarquee(touched, {
+        fromBeat: b0,
+        toBeat: b1,
+        fromTrack: 0,
+        toTrack: rows.length,
+      });
+      setSelection((prev) => {
+        const next = d.add ? new Set(prev) : new Set<Id>();
+        for (const id of hits) next.add(id);
+        return next;
+      });
+      draw();
     }
-  }, [project, clearLoop, draw]);
+  }, [project, clearLoop, draw, xToBeat, scrollY, rows, clipsByTrack]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -998,6 +1270,54 @@ export function Playlist() {
     },
     [zoom, totalH, xToBeat],
   );
+
+  /**
+   * Teclado de la selección: Ctrl+A todo, Supr borrar, Ctrl+B duplicar, M
+   * mutear, Esc soltar.
+   *
+   * Ctrl+A y Ctrl+B piden el ratón encima (o el foco dentro): el Piano Roll
+   * tiene los mismos atajos para SUS notas y los dos editores suelen estar
+   * abiertos a la vez. Supr y Esc solo hacen algo si aquí hay selección, así
+   * que no le quitan nada a nadie.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'SELECT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable
+      ) {
+        return;
+      }
+      const root = rootRef.current;
+      const here = hovering.current || (root !== null && root.contains(document.activeElement));
+
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyA' && here) {
+        e.preventDefault();
+        selectAll();
+        return;
+      }
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyB' && here) {
+        e.preventDefault();
+        duplicateSelection();
+        return;
+      }
+      if (selection.size === 0) return;
+      if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        deleteSelection();
+      } else if (e.code === 'Escape') {
+        clearSelection();
+      } else if (e.code === 'KeyM' && !e.ctrlKey && !e.shiftKey && !e.altKey && here) {
+        e.preventDefault();
+        toggleSelectionMuted();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectAll, duplicateSelection, deleteSelection, clearSelection, toggleSelectionMuted, selection]);
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
 
@@ -1054,7 +1374,16 @@ export function Playlist() {
   })();
 
   return (
-    <div className="playlist">
+    <div
+      className="playlist"
+      ref={rootRef}
+      onPointerEnter={() => {
+        hovering.current = true;
+      }}
+      onPointerLeave={() => {
+        hovering.current = false;
+      }}
+    >
       <div className="pl-toolbar">
         <label className="pl-field">
           Arrangement
@@ -1125,6 +1454,49 @@ export function Playlist() {
         <button className="pl-add" onClick={addTrack} title="Añadir pista al arrangement">
           + Pista
         </button>
+
+        {/* Selección: el botón está a la vista para no depender de saberse el
+            atajo, y el chip dice cuántos clips llevas marcados. */}
+        <div className="pl-sel-group">
+          <button
+            className="pl-add"
+            onClick={selectAll}
+            title="Seleccionar todos los clips del arrangement (Ctrl+A) · Ctrl+clic marca uno a uno · Ctrl+arrastre en zona vacía dibuja un rectángulo"
+          >
+            Sel. todo
+          </button>
+          {selectedIds.length > 0 && (
+            <>
+              <span className="pl-chip pl-sel-chip" title="Clips seleccionados">
+                {selectedIds.length} sel.
+              </span>
+              <button
+                className="pl-add"
+                onClick={duplicateSelection}
+                title="Duplicar la selección a continuación (Ctrl+B)"
+              >
+                Duplicar
+              </button>
+              <button
+                className="pl-add"
+                onClick={toggleSelectionMuted}
+                title="Mutear o activar la selección (M)"
+              >
+                Mute
+              </button>
+              <button
+                className="pl-add"
+                onClick={deleteSelection}
+                title="Borrar la selección (Supr)"
+              >
+                Borrar
+              </button>
+              <button className="pl-add" onClick={clearSelection} title="Soltar la selección (Esc)">
+                ✕
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="pl-main">
