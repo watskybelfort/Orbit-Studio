@@ -84,6 +84,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Herramientas: Arpegiar, Strum, Humanize, Chop (sobre la selección o todo) | v0.3 |
 | Atajos FL de herramientas: Alt+A/S/U/R, Ctrl+Q, Ctrl+Shift+↑↓ | v0.6 |
 | Stamp de acordes (mayor, menor, 7ªs, sus4, power, octava) | v0.6 |
+| **Aplicar el acorde a lo ya escrito** (botón Aplicar / Alt+C): convierte en acordes la selección —o todo si no hay— sin tocar las notas originales (conservan id, velocity y slide), sin repetir lo que ya hay y, con el bloqueo a escala, arrimado a la tonalidad | v2.1 |
+| **Arpegiador completo** (Alt+A): panel con recorrido (arriba, abajo, ida y vuelta, alterna, aleatorio con semilla, acorde), paso, Time mul, rango de octavas normal/invertido, Gate, agrupar notas y rampas de Pan/Vel/Tono. Cada cambio se oye al momento sobre las notas de verdad; Cancelar o Esc las devuelve exactamente como estaban | v2.1 |
+| **Toolbar por grupos** con etiqueta (Editando, Herramienta, Rejilla, Armonía, Notas, Generar, Ver) y nombres escritos enteros: Cuantizar, Trocear, Humanizar, Arpegiar, 8va ▲/▼ | v2.1 |
 | **Riff machine** (Alt+G): motivos sobre la escala, deterministas por semilla, con densidad, rango y carácter | v1.0 |
 | Tocar en vivo con controlador MIDI o el teclado del PC (filas Z y Q) | v0.5 |
 | Grabación MIDI armada al patrón (cuantización de inicios a 1/16, un undo) | v0.5 |
@@ -110,6 +113,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Vista Live por escenas** (F8): pads por patrón, lanzamiento cuantizado al cierre del loop | v0.7 |
 | Menú de la escena (clic derecho en un pad): renombrar, color, clonar y borrar — borrar una escena en cola la cancela antes de irse | v1.1 |
 | **Carriles de toma (comping)**: las tomas se apilan en la pista y el clic central elige la buena | v1.0 |
+| **Selección de clips**: clic marca, Ctrl+clic mete y saca, Ctrl+arrastre en zona vacía dibuja un rectángulo (Shift suma), Ctrl+A todo. Arrastrar un clip marcado mueve el GRUPO con clamp conjunto; Supr borra, Ctrl+B duplica, M mutea, Esc suelta. Botones a la vista en la toolbar con la cuenta | v2.1 |
+| **Forma de onda real en los clips de audio**, respetando offset y time-stretch (los picos van en caché compartida con el editor de canal) | v2.1 |
+| **Fundidos de entrada y salida arrastrables** (estilo CapCut): un tirador en cada esquina de arriba del clip, doble clic lo quita, y el clip dibuja la rampa que se aplica de verdad. En beats, así que siguen al tempo; cortar un clip los reparte entre cabeza y cola | v2.1 |
 
 ## 5. Mixer
 
@@ -344,12 +350,16 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Toolbar con play PAT/SONG directos y botones de todas las ventanas | v0.6 |
 | Modo compacto Zen (oculta librería y paneles de un clic) | v0.6 |
 | **Layouts de ventanas**: tres predefinidos (Componer, Mezclar, Arreglar) y los que guardes en el proyecto | v1.0 |
+| **El escritorio vuelve a salir como lo dejaste**: la disposición viva (ventanas + navegador + panel de Claude) se guarda en settings.json y se restaura al arrancar, acotada al escritorio de AHORA (una ventana que se quedó en un monitor que ya no está vuelve a la vista). Interruptor y "Olvidar" en Ajustes | v2.1 |
+| **Ayuda › Acerca de**: versión real de la app (de `app.getVersion()`), sistema, Electron, Chromium, Node y carpeta de datos, con un botón para copiar la ficha | v2.1 |
 | Ventana de LFOs (toolbar, menú Ver y paleta) | v0.8 |
 | Botón de grabación de perillas en el transporte (armar / capturando) | v0.8 |
 | F5 Playlist · F6 Channel Rack · F7 Piano Roll · F9 Mixer · F10 Ajustes | v0.1 |
 | Space play/stop · L pat/song · Ctrl+Z/Y · Ctrl+O · Ctrl+S/Ctrl+Shift+S | v0.1 |
 | P / B / C herramientas del piano roll · Alt+G riff machine | v1.0 |
 | Ctrl+B duplicar y Ctrl+A seleccionar (en el Piano Roll) | v0.1 |
+| Ctrl+A / Ctrl+B / Supr / M / Esc en la **Playlist** (con el ratón encima: el Piano Roll tiene los suyos para sus notas) | v2.1 |
+| Alt+C acorde sobre la selección · Alt+A abre el arpegiador (Esc lo cancela) | v2.1 |
 | **Ctrl+E**: repite el último export sin diálogo, con sufijo incremental | v1.0 |
 | **Ctrl+Shift+Supr**: borra el patrón activo (Supr a secas sigue siendo el de las notas del Piano Roll) | v1.1 |
 | Menú **Patrón** en el MenuBar: nuevo, clonar, renombrar y borrar el activo | v1.1 |
@@ -374,6 +384,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Kernel DSP en un solo AudioWorklet, cero GC en el audio thread | v0.1 |
 | Medidor de CPU en la barra de transporte (aviso por color al cargarse) | v0.2 |
 | Proyecto de 100 pistas sin dropouts (objetivo QA) | v0.1 |
-| Golden tests del DSP (render determinista) — 445 tests en total | v0.1 |
+| Golden tests del DSP (render determinista) — 778 tests en total | v0.1 |
 | **El cierre del loop suelta las voces del pase anterior** (y saltar el playhead, también). Una nota que acababa justo en el final del patrón no encontraba nunca su note-off, se quedaba sonando vuelta tras vuelta —el sonido se solapaba consigo mismo— y al llenarse el pool de 64 voces se robaba la más antigua: parecía que se cortaba la PRIMERA nota mientras las de más adelante sonaban | v1.4 |
+| **El playhead que amanece fuera del loop vuelve dentro**. La condición de envolver exigía `posBeats < loopEnd`, imposible al pasar de la canción (beat 200) al patrón (loop de 4): el cursor subía para siempre, no se disparaba ni un evento y no volvía a sonar nada hasta reiniciar la app. Pasaba igual con un seek más allá del final y al recortar el patrón por debajo del cursor. Además PAT y SONG llevan playheads independientes, que es donde nacía el disparate | v2.1 |
 | Autosave + crash recovery (banner Recuperar/Descartar al reabrir) | v0.2 |

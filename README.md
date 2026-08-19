@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.0.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-720%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.1.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-778%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,46 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.1.0 — "la mesa de trabajo".** Nada de esto salía del roadmap: sale de una
+sesión larga usando el programa de verdad, que es de donde salen las cosas que
+de verdad estorban.
+
+**La app se quedaba muda y había que reiniciarla.** Pasaba cambiando de SONG a
+PAT, y el motivo era del kernel: la condición para dar la vuelta al loop exige
+que el cursor esté DENTRO de él, así que al arrancar el patrón (loop de cuatro
+beats) desde el beat 200 de la canción no envolvía nunca — el cursor subía al
+infinito, no se disparaba ni un evento y no volvía a sonar nada. Pasaba igual
+con un seek más allá del final y al recortar el patrón por debajo del cursor.
+Ahora el playhead que amanece fuera vuelve al principio del loop, y además PAT
+y SONG llevan playheads independientes, que es donde nacía el disparate.
+
+**La playlist tiene selección.** Antes todo era clip a clip. Ahora Ctrl+clic
+mete y saca, Ctrl+arrastre en zona vacía dibuja un rectángulo, Ctrl+A coge
+todo, y arrastrar un clip marcado mueve el grupo entero conservando su forma
+(el clamp es conjunto: acotando clip a clip los del borde se clavan y el resto
+se les echa encima). Con botones a la vista, para no depender de saberse los
+atajos.
+
+**Y los clips de audio enseñan su forma de onda**, con su offset y su
+time-stretch, en vez de una raya en el centro: colocar un golpe deja de ser
+adivinar. Encima llevan **fundidos arrastrables** como los de CapCut — un
+puntito en cada esquina de arriba, la rampa dibujada es la que suena, y van en
+beats, así que siguen al tempo.
+
+**El arpegiador, entero.** El botón "Arp" hacía siempre lo mismo: subir, al
+paso del snap. Ahora es un panel con lo que tiene el de FL — recorrido, paso,
+Time mul, rango de octavas, Gate, agrupar notas y rampas de Pan/Vel/Tono — y
+**cada cambio se oye al momento** sobre las notas de verdad; Esc las devuelve
+como estaban. Al lado, el desplegable de acordes por fin se puede **aplicar a
+lo que ya está escrito** (Alt+C), ajustado a la escala si tienes el bloqueo
+puesto.
+
+**Y la mesa se queda como la dejas**: la disposición de ventanas se guarda entre
+sesiones (acotada al escritorio de ahora, que un monitor puede desaparecer), la
+toolbar del piano roll pasa de trece botones sueltos a siete bloques con
+etiqueta, y por fin se puede ver qué versión estás usando: **Ayuda › Acerca
+de**.
 
 **v2.0.0 — "la puerta y el guardia".** Se vacía el "Siguiente" del roadmap, y
 una auditoría adversarial de la sala y del motor deja 24 arreglos por el camino.
