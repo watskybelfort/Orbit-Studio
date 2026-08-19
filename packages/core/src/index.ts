@@ -28,6 +28,8 @@ export {
   riff,
   strum,
   type ArpeggiateOptions,
+  type ArpLevels,
+  type ArpMode,
   type ChopOptions,
   type ChordifyOptions,
   type HumanizeOptions,

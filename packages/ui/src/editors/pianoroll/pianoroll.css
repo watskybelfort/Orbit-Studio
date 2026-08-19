@@ -309,3 +309,70 @@ html[data-theme='acrylic'] .pr-key.black.active {
   background: var(--accent);
   box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 65%, transparent);
 }
+
+/* ── Arpegiador ──────────────────────────────────────────────────────────────
+   Mismo sitio y misma caja que la Riff machine (comparten .pr-riff-*), pero
+   algo mas ancho: lleva dos filas de perillas. */
+
+.pr-arp {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  width: 288px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--popup-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-popup);
+}
+
+.pr-arp-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.pr-arp-rows .pr-field {
+  justify-content: space-between;
+}
+
+.pr-arp-rows .pr-field select {
+  min-width: 0;
+  flex: 1;
+}
+
+.pr-arp-wide {
+  grid-column: 1 / -1;
+}
+
+.pr-arp-knobs {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-around;
+  gap: 10px;
+}
+
+/* Bloque de Levels: encuadrado para que se lea como un grupo, igual que en
+   el dialogo de FL donde las perillas de colores van juntas. */
+.pr-arp-levels {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pr-arp-legend {
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pr-arp .pr-riff-actions {
+  justify-content: flex-end;
+}

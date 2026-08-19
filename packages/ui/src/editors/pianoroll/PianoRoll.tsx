@@ -17,6 +17,7 @@ import {
   midiToNote,
   newId,
   strum,
+  type ArpeggiateOptions,
   type Command,
   type Note,
 } from '@orbit/core';
@@ -29,6 +30,7 @@ import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
+import { ArpDialog } from './ArpDialog';
 import { RiffDialog } from './RiffDialog';
 import { TOOLS, applySliceCuts, occupied, sliceCuts, type PianoRollTool } from './tools';
 import './pianoroll.css';
@@ -119,6 +121,8 @@ export function PianoRoll() {
   const [tool, setTool] = useState<PianoRollTool>('draw');
   /** Panel de la Riff machine (Alt+G). */
   const [riffOpen, setRiffOpen] = useState(false);
+  /** Panel del arpegiador (Alt+A). */
+  const [arpOpen, setArpOpen] = useState(false);
   const [scaleRoot, setScaleRoot] = useState(5); // F
   const [scaleName, setScaleName] = useState<string>('Menor natural');
   /** Bloqueo a escala: crear/mover notas se ajusta a la escala activa. */
@@ -1057,9 +1061,128 @@ export function PianoRoll() {
     [activePatternId, channelId, notes, affectedIds],
   );
 
-  const doArp = useCallback(() => {
-    applyTools('Arpegiar', (sel) => arpeggiate(sel, { rate: snapStep ?? 0.25, mode: 'up' }));
-  }, [applyTools, snapStep]);
+  // ── Arpegiador (panel con previsualización en vivo) ───────────────────────
+
+  /**
+   * Sesión del arpegiador: las notas tal y como estaban al abrirlo, lo que hay
+   * escrito AHORA de esta pasada, y qué entrada del historial la puso.
+   *
+   * `base` hace falta porque cada toque de perilla vuelve a arpegiar desde el
+   * ORIGINAL — no desde lo ya arpegiado, que se multiplicaría a cada toque. Y
+   * `entryId` porque la pasada anterior se DESHACE antes de la siguiente (ver
+   * `previewArp`).
+   */
+  const arpSession = useRef<{ base: Note[]; currentIds: string[]; entryId: string | null } | null>(
+    null,
+  );
+
+  /** ¿La última entrada aplicada del historial es la que puso esta pasada? */
+  const arpEntryOnTop = useCallback((entryId: string | null): boolean => {
+    if (entryId === null) return false;
+    const { entries, present } = store.historyView();
+    return entries[present - 1]?.id === entryId;
+  }, []);
+
+  const previewArp = useCallback(
+    (opts: ArpeggiateOptions) => {
+      const session = arpSession.current;
+      if (!session || !activePatternId || !channelId) return;
+
+      /**
+       * Antes de pintar la pasada nueva se DESHACE la anterior.
+       *
+       * Lo evidente sería fundirlas con `mergeKey`, como las perillas, pero
+       * ahí eso está mal: al fusionar se conserva el inverso de la PRIMERA y
+       * se sustituye el comando por el último. Con perillas da igual (patch
+       * sobre los mismos ids), pero cada pasada del arpegio borra unas notas y
+       * crea otras nuevas, así que ese inverso acaba apuntando a ids que ya no
+       * existen: un Ctrl+Z después de aceptar dejaba el arpegio Y las notas
+       * originales encima, sonando a la vez. Deshaciendo, el historial queda
+       * con UNA entrada limpia y el estado siempre parte del original.
+       */
+      if (arpEntryOnTop(session.entryId)) {
+        store.undo();
+        // Deshacer ha devuelto las notas ORIGINALES: lo que hay que quitar
+        // ahora son esas, no las que generó la pasada anterior (que ya no
+        // existen). Sin esta línea, la pasada nueva se sumaba a las originales
+        // y acababas con el arpegio y el acorde sonando a la vez.
+        session.currentIds = session.base.map((n) => n.id);
+      }
+      session.entryId = null;
+
+      const generated = arpeggiate(session.base, opts);
+      if (generated.length === 0) return;
+      const label = 'Arpegiar';
+      store.dispatch(
+        {
+          type: 'batch',
+          label,
+          commands: [
+            {
+              type: 'removeNotes',
+              patternId: activePatternId,
+              channelId,
+              noteIds: session.currentIds,
+            },
+            { type: 'addNotes', patternId: activePatternId, channelId, notes: generated },
+          ],
+        },
+        { label },
+      );
+      const { entries, present } = store.historyView();
+      session.entryId = entries[present - 1]?.id ?? null;
+      session.currentIds = generated.map((n) => n.id);
+      setSelection(new Set(session.currentIds));
+    },
+    [activePatternId, channelId, arpEntryOnTop],
+  );
+
+  /** Abre el panel con las notas afectadas (selección o todas) congeladas. */
+  const openArp = useCallback(() => {
+    if (!activePatternId || !channelId) return;
+    const ids = new Set(affectedIds());
+    const base = notes.filter((n) => ids.has(n.id)).map((n) => ({ ...n }));
+    arpSession.current = { base, currentIds: base.map((n) => n.id), entryId: null };
+    // Los dos paneles salen en la misma esquina: abrir uno cierra el otro.
+    setRiffOpen(false);
+    setArpOpen(true);
+  }, [activePatternId, channelId, affectedIds, notes]);
+
+  /** Cancelar: devuelve exactamente las notas de partida (ids incluidos). */
+  const cancelArp = useCallback(() => {
+    const session = arpSession.current;
+    arpSession.current = null;
+    setArpOpen(false);
+    if (!session || !activePatternId || !channelId) return;
+    // Lo normal: deshacer la pasada, que además borra su rastro del historial.
+    if (arpEntryOnTop(session.entryId)) {
+      store.undo();
+      setSelection(new Set(session.base.map((n) => n.id)));
+      return;
+    }
+    if (session.entryId === null) return;
+    // Si mientras tanto se hizo otra cosa, la entrada del arpegio ya no está
+    // arriba y deshacer se llevaría por delante lo del usuario: se restaura a
+    // mano, aunque cueste una entrada más de historial.
+    const label = 'Deshacer arpegio';
+    store.dispatch(
+      {
+        type: 'batch',
+        label,
+        commands: [
+          { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: session.currentIds },
+          { type: 'addNotes', patternId: activePatternId, channelId, notes: session.base },
+        ],
+      },
+      { label },
+    );
+    setSelection(new Set(session.base.map((n) => n.id)));
+  }, [activePatternId, channelId, arpEntryOnTop]);
+
+  const acceptArp = useCallback(() => {
+    arpSession.current = null;
+    setArpOpen(false);
+  }, []);
 
   const doStrum = useCallback(() => {
     applyTools('Strum', (sel) => strum(sel, { spread: (snapStep ?? 0.25) / 2, direction: 'up' }));
@@ -1170,6 +1293,13 @@ export function PianoRoll() {
       if (target.tagName === 'INPUT' || target.tagName === 'SELECT' || target.tagName === 'TEXTAREA') {
         return;
       }
+      // Esc con el arpegiador abierto = cancelar (las notas vuelven a como
+      // estaban). Va lo primero: con el panel abierto, Esc no es otra cosa.
+      if (e.code === 'Escape' && arpOpen) {
+        e.preventDefault();
+        cancelArp();
+        return;
+      }
       if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
         const root = rootRef.current;
         const here = hovering.current || (root !== null && root.contains(document.activeElement));
@@ -1183,7 +1313,7 @@ export function PianoRoll() {
       if (e.altKey && !e.ctrlKey && !e.shiftKey) {
         if (e.code === 'KeyA') {
           e.preventDefault();
-          doArp();
+          openArp();
         } else if (e.code === 'KeyS') {
           e.preventDefault();
           doStrum();
@@ -1195,6 +1325,7 @@ export function PianoRoll() {
           doHumanize();
         } else if (e.code === 'KeyG') {
           e.preventDefault();
+          if (arpOpen) cancelArp();
           setRiffOpen((open) => !open);
         } else if (e.code === 'KeyC') {
           e.preventDefault();
@@ -1213,7 +1344,7 @@ export function PianoRoll() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doArp, doStrum, doChop, doHumanize, quantize, transpose, applyChordToSelection]);
+  }, [openArp, doStrum, doChop, doHumanize, quantize, transpose, applyChordToSelection, arpOpen, cancelArp]);
 
   // ── Minimapa ──────────────────────────────────────────────────────────────
   // Vista completa del patrón con las notas y el rectángulo del viewport;
@@ -1443,7 +1574,13 @@ export function PianoRoll() {
           <button className="tbtn" onClick={toggleSlide} title="Slide (glide 808) en la selección">
             Slide
           </button>
-          <button className="tbtn" onClick={doArp} title="Arpegiar acordes (Alt+A, paso = snap)">Arp</button>
+          <button
+            className={`tbtn${arpOpen ? ' active' : ''}`}
+            onClick={() => (arpOpen ? cancelArp() : openArp())}
+            title="Arpegiador: separa las notas del acorde con recorrido, paso, gate y rampas (Alt+A)"
+          >
+            Arp
+          </button>
           <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios (Alt+S)">
             Strum
           </button>
@@ -1451,7 +1588,10 @@ export function PianoRoll() {
           <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap (Alt+U)">Chop</button>
           <button
             className={`tbtn${riffOpen ? ' active' : ''}`}
-            onClick={() => setRiffOpen(!riffOpen)}
+            onClick={() => {
+              if (arpOpen) cancelArp();
+              setRiffOpen(!riffOpen);
+            }}
             title="Riff machine: generar un motivo sobre la escala activa (Alt+G)"
           >
             Riff
@@ -1496,6 +1636,15 @@ export function PianoRoll() {
             onContextMenu={(e) => e.preventDefault()}
           />
         </div>
+        {arpOpen && (
+          <ArpDialog
+            gridStep={snapStep ?? 0.25}
+            targetCount={arpSession.current?.base.length ?? 0}
+            onPreview={previewArp}
+            onAccept={acceptArp}
+            onCancel={cancelArp}
+          />
+        )}
         {riffOpen && (
           <RiffDialog
             root={scaleRoot}

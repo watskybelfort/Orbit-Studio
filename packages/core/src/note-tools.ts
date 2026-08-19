@@ -15,13 +15,55 @@ const EPS = 1e-6;
 /** Duración mínima de un trozo/nota generada. */
 const MIN_DUR = 1e-3;
 
+/**
+ * Recorrido de las alturas del acorde.
+ *
+ * - `up` / `down`: de grave a aguda y al revés.
+ * - `updown` / `downup`: ida y vuelta sin repetir los extremos.
+ * - `alternate`: alterna extremos hacia el centro (grave, aguda, 2ª grave…),
+ *   que es el patrón que en FL suena a "alternate".
+ * - `random`: al azar, pero determinista por semilla (misma semilla = mismo
+ *   arpegio, que es lo que permite deshacer y rehacer sin sorpresas).
+ * - `chord`: no arpegia — repite el acorde entero en cada paso.
+ */
+export type ArpMode = 'up' | 'down' | 'updown' | 'downup' | 'alternate' | 'random' | 'chord';
+
+/** Rampas que recorren el ciclo del arpegio (los "Levels" de FL). */
+export interface ArpLevels {
+  /** Semitonos que se suman de la primera nota a la última (±). */
+  pitch?: number;
+  /** Velocity que se suma de la primera a la última (±, se acota a 0.05..1). */
+  velocity?: number;
+  /** Pan que se suma de la primera a la última (±, se acota a -1..1). */
+  pan?: number;
+}
+
 export interface ArpeggiateOptions {
-  /** Duración de cada nota generada, en beats. */
+  /** Duración base de cada paso, en beats (antes del `timeMul`). */
   rate: number;
   /** Recorrido de las alturas del acorde. */
-  mode: 'up' | 'down' | 'updown';
+  mode: ArpMode;
   /** Octavas del ciclo (1 = solo las alturas originales; N añade +12·k). */
   octaves?: number;
+  /** 'reverse' recorre las octavas de arriba abajo. */
+  octaveMode?: 'normal' | 'reverse';
+  /** Multiplica el paso (FL: Time mul). 1 = el `rate` tal cual. */
+  timeMul?: number;
+  /**
+   * Largo de cada nota como fracción del paso (FL: Gate). 1 = pegadas,
+   * 0.5 = staccato, >1 = se solapan. Nunca se sale del hueco del acorde.
+   */
+  gate?: number;
+  /**
+   * Todas las notas cuentan como UN acorde aunque no se solapen (FL: Group
+   * notes). Sin esto, dos acordes seguidos se arpegian por separado — que es
+   * casi siempre lo que se quiere, y por eso es lo de fábrica.
+   */
+  group?: boolean;
+  /** Rampas a lo largo del ciclo. */
+  levels?: ArpLevels;
+  /** Semilla del modo `random` (determinista). */
+  seed?: number;
 }
 
 export interface StrumOptions {
@@ -127,51 +169,124 @@ function mulberry32(seed: number): () => number {
 
 // ── Herramientas ─────────────────────────────────────────────────────────────
 
+/** Ordena el pool de alturas según el recorrido pedido. */
+function arpCycle<T extends { key: number }>(
+  pool: readonly T[],
+  mode: ArpMode,
+  rand: () => number,
+): T[] {
+  if (pool.length <= 1) return [...pool];
+  switch (mode) {
+    case 'up':
+    case 'chord':
+      return [...pool];
+    case 'down':
+      return [...pool].reverse();
+    case 'downup': {
+      const rev = [...pool].reverse();
+      return pool.length > 2 ? [...rev, ...pool.slice(1, -1)] : rev;
+    }
+    case 'alternate': {
+      // Extremos hacia el centro: grave, aguda, 2ª grave, 2ª aguda…
+      const out: T[] = [];
+      let lo = 0;
+      let hi = pool.length - 1;
+      while (lo <= hi) {
+        out.push(pool[lo]!);
+        if (lo !== hi) out.push(pool[hi]!);
+        lo++;
+        hi--;
+      }
+      return out;
+    }
+    case 'random': {
+      // Fisher-Yates con el RNG determinista: un ciclo barajado que se repite.
+      const out = [...pool];
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [out[i], out[j]] = [out[j]!, out[i]!];
+      }
+      return out;
+    }
+    case 'updown':
+    default:
+      // [p0..pn-1, pn-2..p1] — sin repetir extremos.
+      return pool.length > 2 ? [...pool, ...[...pool].reverse().slice(1, -1)] : [...pool];
+  }
+}
+
 /**
  * Arpegia acordes: agrupa las notas que se solapan y cada grupo se convierte
- * en una secuencia de notas de duración `rate` que recorre sus alturas según
- * `mode` ('updown' sube y baja sin repetir los extremos; `octaves` N extiende
- * el ciclo con copias a +12·k), rellenando la ventana del grupo de inicio a
- * fin (la última nota se recorta al borde). Cada nota generada hereda
- * velocity y pan de la nota de origen de su altura; todas son nuevas (newId)
- * y sin slide.
+ * en una secuencia que recorre sus alturas según `mode`, rellenando la ventana
+ * del grupo de inicio a fin (la última nota se recorta al borde). Cada nota
+ * generada hereda velocity y pan de la nota de origen de su altura; todas son
+ * nuevas (newId) y sin slide.
+ *
+ * El paso dura `rate × timeMul` y la nota ocupa `gate` de ese paso (por debajo
+ * de 1 queda staccato, por encima se solapan), sin salirse nunca del hueco del
+ * acorde. `levels` mete rampas de tono, velocity y pan a lo largo del ciclo:
+ * ahí está la diferencia entre un arpegio de máquina y uno que respira.
+ *
+ * `group` fuerza a tratar TODAS las notas como un solo acorde aunque no se
+ * solapen; sin él, dos acordes seguidos se arpegian por separado (que es lo
+ * que se quiere casi siempre, y por eso es lo de fábrica).
  */
 export function arpeggiate(notes: readonly Note[], opts: ArpeggiateOptions): Note[] {
   if (opts.rate <= 0) throw new Error(`arpeggiate: rate debe ser > 0 (${opts.rate})`);
   const octaves = Math.max(1, Math.floor(opts.octaves ?? 1));
+  const timeMul = opts.timeMul !== undefined && opts.timeMul > 0 ? opts.timeMul : 1;
+  const step = opts.rate * timeMul;
+  const gate = opts.gate !== undefined && opts.gate > 0 ? opts.gate : 1;
+  const reverse = opts.octaveMode === 'reverse';
+  const levels = opts.levels ?? {};
+  const rand = mulberry32(opts.seed ?? 1);
   const out: Note[] = [];
 
-  for (const group of groupOverlapping(notes)) {
+  const groups = opts.group === true && notes.length > 0 ? [[...notes]] : groupOverlapping(notes);
+
+  for (const group of groups) {
     const start = Math.min(...group.map((n) => n.start));
     const end = Math.max(...group.map((n) => n.start + n.duration));
 
-    // Pool de alturas: cada nota del grupo × octavas, en orden ascendente.
+    // Pool de alturas: cada nota del grupo × octavas.
+    const base = [...group].sort((a, b) => a.key - b.key);
     const pool: { key: number; src: Note }[] = [];
     for (let k = 0; k < octaves; k++) {
-      for (const n of group) pool.push({ key: n.key + 12 * k, src: n });
+      const shift = 12 * (reverse ? octaves - 1 - k : k);
+      for (const n of base) pool.push({ key: n.key + shift, src: n });
     }
-    pool.sort((a, b) => a.key - b.key);
+    pool.sort((a, b) => (reverse ? b.key - a.key : a.key - b.key));
 
-    let cycle: { key: number; src: Note }[];
-    if (opts.mode === 'up') cycle = pool;
-    else if (opts.mode === 'down') cycle = [...pool].reverse();
-    // updown: [p0..pn-1, pn-2..p1] — sin repetir extremos.
-    else cycle = pool.length > 2 ? [...pool, ...[...pool].reverse().slice(1, -1)] : pool;
+    const cycle = arpCycle(pool, opts.mode, rand);
+    // Pasos que caben en la ventana del acorde: hace falta ANTES de generar
+    // para saber cuánto avanza cada rampa en cada paso.
+    const steps = Math.max(1, Math.ceil((end - start - EPS) / step));
 
-    for (let i = 0, t = start; t < end - EPS; i++, t += opts.rate) {
-      const step = cycle[i % cycle.length]!;
-      out.push({
-        id: newId(),
-        start: t,
-        duration: Math.min(opts.rate, end - t),
-        key: step.key,
-        velocity: step.src.velocity,
-        pan: step.src.pan,
-        slide: false,
-      });
+    for (let i = 0, t = start; t < end - EPS; i++, t += step) {
+      const ramp = steps <= 1 ? 0 : i / (steps - 1);
+      const duration = Math.max(MIN_DUR, Math.min(step * gate, end - t));
+      // 'chord' no arpegia: suelta el acorde entero en cada paso.
+      const picks = opts.mode === 'chord' ? cycle : [cycle[i % cycle.length]!];
+      for (const pick of picks) {
+        const key = Math.round(pick.key + (levels.pitch ?? 0) * ramp);
+        if (key < 0 || key > 127) continue;
+        out.push({
+          id: newId(),
+          start: t,
+          duration,
+          key,
+          velocity: clamp(pick.src.velocity + (levels.velocity ?? 0) * ramp, 0.05, 1),
+          pan: clamp(pick.src.pan + (levels.pan ?? 0) * ramp, -1, 1),
+          slide: false,
+        });
+      }
     }
   }
   return out.sort(byStartThenKey);
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 /**
