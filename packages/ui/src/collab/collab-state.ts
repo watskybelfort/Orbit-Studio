@@ -319,6 +319,12 @@ async function startSession(
         info.local ? info.reason : `Cambio de ${info.user} descartado: ${info.reason}`,
       );
     },
+    // Lo mismo cuando el que retira el comando es el SERVIDOR: es un aviso
+    // pasajero, no el fin de la sesión.
+    onServerDenied: (reason) => {
+      if (session !== s) return;
+      showDenied(reason);
+    },
     // El servidor cierra la puerta (sala llena, código inválido…): eso no se
     // arregla reintentando, así que la sesión se cae con el motivo delante en
     // vez de quedarse "Conectando…" hasta el timeout.

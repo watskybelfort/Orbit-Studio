@@ -201,8 +201,14 @@ export function forgetAnalysis(prefix: string): void {
   const { analysis } = usePrefs.getState();
   const next: Record<string, AnalysisEntry> = {};
   let cambio = false;
+  // Con el separador: `C:\Samples` no puede llevarse por delante lo analizado
+  // de `C:\Samples 2024`, que sigue en el browser y tendría que reanalizarse
+  // entera. El main ya compara así en `folder:read`; aquí faltaba.
+  const base = prefix.replace(/[\\/]+$/, '');
+  const dentro = (file: string): boolean =>
+    file === base || file.startsWith(`${base}\\`) || file.startsWith(`${base}/`);
   for (const [file, v] of Object.entries(analysis)) {
-    if (file.startsWith(prefix)) cambio = true;
+    if (dentro(file)) cambio = true;
     else next[file] = v;
   }
   if (!cambio) return;

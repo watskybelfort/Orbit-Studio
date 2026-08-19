@@ -531,6 +531,11 @@ export function Browser() {
             e.stopPropagation();
             toggleFavorite(entry.id);
           }}
+          // El dblclick es un evento APARTE: parar el click no lo para. Marcar
+          // y desmarcar rápido (dos clics seguidos en la estrella, un gesto de
+          // lo más normal) llegaba al onDoubleClick de la fila y te añadía un
+          // canal al rack sin haberlo pedido.
+          onDoubleClick={(e) => e.stopPropagation()}
         >
           {fav ? '★' : '☆'}
         </button>
@@ -542,6 +547,7 @@ export function Browser() {
             e.stopPropagation();
             setCollectionMenu(entry);
           }}
+          onDoubleClick={(e) => e.stopPropagation()}
         >
           ＋
         </button>

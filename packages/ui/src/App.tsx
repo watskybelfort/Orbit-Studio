@@ -15,6 +15,7 @@ import {
   checkRecovery,
   discardRecovery,
   initAutosave,
+  useAutosave,
   type RecoveryOffer,
 } from './state/autosave';
 import { initPresence } from './collab/presence';
@@ -40,6 +41,7 @@ export function App() {
   const bounceBusy = useBounceStore((s) => s.busy);
   const bounceNotice = useBounceStore((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
+  const recoveryError = useAutosave((s) => s.error);
 
   useShortcuts();
 
@@ -110,14 +112,18 @@ export function App() {
       {recovery && (
         <div className="app-recovery popup">
           <span className="recovery-text">
-            Hay trabajo sin guardar de la sesión anterior (
-            {new Date(recovery.mtimeMs).toLocaleString()}).
+            {recoveryError ??
+              `Hay trabajo sin guardar de la sesión anterior (${new Date(
+                recovery.mtimeMs,
+              ).toLocaleString()}).`}
           </span>
           <button
             className="recovery-btn primary"
             onClick={() => {
-              applyRecovery(recovery);
-              setRecovery(null);
+              // Si el autosave está a medias (que es justo el caso para el que
+              // existe), el cartel se queda con el motivo en vez de irse sin
+              // haber hecho nada.
+              if (applyRecovery(recovery)) setRecovery(null);
             }}
           >
             Recuperar

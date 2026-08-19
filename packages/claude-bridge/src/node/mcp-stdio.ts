@@ -23,19 +23,37 @@ import WebSocket from 'ws';
 import { TOOLS } from '../tools';
 import { readBridgeInfo } from './bridge-auth';
 
-// Puerto y token de la sesión viva: el main los deja en ~/.orbit/bridge.json. El
-// override por env manda (útil para pruebas); si no, se usa lo del archivo.
-const bridgeInfo = readBridgeInfo();
-const PORT = Number(process.env['ORBIT_BRIDGE_PORT'] ?? bridgeInfo?.port ?? '7855');
-const AUTH_TOKEN = bridgeInfo?.token ?? null;
-const URL_WS = `ws://127.0.0.1:${PORT}`;
+const DEFAULT_PORT = 7855;
 const CONNECT_ATTEMPTS = 5;
 const CONNECT_RETRY_MS = 400;
 const CALL_TIMEOUT_MS = 90_000; // > los 60 s del timeout main→renderer
 
+/**
+ * Puerto y token de la sesión viva, leídos EN CADA INTENTO de conexión.
+ *
+ * Congelarlos al arrancar el módulo rompía el puente entero en los dos flujos
+ * normales: abrir Claude Code antes que la app (todavía no hay bridge.json, así
+ * que el token se quedaba en null para siempre) y reiniciar la app con Claude
+ * Code abierto (el main genera un token NUEVO en cada arranque y borra el
+ * archivo al salir, así que el relay seguía presentando el viejo). En los dos
+ * casos el host cerraba con 1008 y cada tool call contestaba "se perdió la
+ * conexión con Orbit Studio", que además de inútil era mentira.
+ */
+function bridgeNow(): { url: string; token: string | null } {
+  const info = readBridgeInfo();
+  const port = Number(process.env['ORBIT_BRIDGE_PORT'] ?? info?.port ?? DEFAULT_PORT);
+  return { url: `ws://127.0.0.1:${port}`, token: info?.token ?? null };
+}
+
 const NOT_OPEN_MSG =
-  `Orbit Studio no está abierto (no se pudo conectar a ${URL_WS}). ` +
+  'Orbit Studio no está abierto (no se pudo conectar al puente local). ' +
   'Abre la app Orbit Studio y vuelve a intentarlo.';
+
+/** El host cierra con esto cuando el token no vale (o no llegó). */
+const CLOSE_POLICY = 1008;
+const BAD_TOKEN_MSG =
+  'Orbit Studio rechazó el puente: el token de la sesión ya no vale (la app se ' +
+  'reinició). Reinicia el servidor MCP para que lea el nuevo.';
 
 // ── Cliente WebSocket con reconexión perezosa ────────────────────────────────
 
@@ -59,13 +77,16 @@ function failAllPending(reason: string): void {
 
 function connectOnce(): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(URL_WS);
+    // Se relee aquí, no al cargar el módulo: el token cambia en cada arranque
+    // de la app y el archivo puede no existir todavía.
+    const { url, token } = bridgeNow();
+    const ws = new WebSocket(url);
     let settled = false;
 
     ws.on('open', () => {
       // Handshake: presentarse con el token de la sesión antes que nada. El host
       // cierra la conexión si no llega o no coincide.
-      if (AUTH_TOKEN) ws.send(JSON.stringify({ type: 'auth', token: AUTH_TOKEN }));
+      if (token) ws.send(JSON.stringify({ type: 'auth', token }));
       settled = true;
       resolve(ws);
     });
@@ -91,12 +112,18 @@ function connectOnce(): Promise<WebSocket> {
       else if (result && typeof result.text === 'string') p.resolve(result.text);
       else p.reject(new Error('Respuesta inválida de Orbit Studio'));
     });
-    ws.on('close', () => {
+    ws.on('close', (code: number) => {
       if (socket === ws) socket = null;
-      failAllPending('Se perdió la conexión con Orbit Studio (la app se cerró o reinició)');
+      // 1008 es el host diciendo "tú no": el token no valía. Decirlo como
+      // "se perdió la conexión" mandaba a mirar la app, que está abierta.
+      failAllPending(
+        code === CLOSE_POLICY
+          ? BAD_TOKEN_MSG
+          : 'Se perdió la conexión con Orbit Studio (la app se cerró o reinició)',
+      );
       if (!settled) {
         settled = true;
-        reject(new Error(NOT_OPEN_MSG));
+        reject(new Error(code === CLOSE_POLICY ? BAD_TOKEN_MSG : NOT_OPEN_MSG));
       }
     });
     ws.on('error', () => {
@@ -191,7 +218,7 @@ async function main(): Promise<void> {
   };
   await server.connect(transport);
   // stderr para no ensuciar el canal MCP de stdout.
-  console.error(`[orbit-studio mcp] listo; relay hacia ${URL_WS}`);
+  console.error(`[orbit-studio mcp] listo; relay hacia ${bridgeNow().url}`);
 }
 
 main().catch((err: unknown) => {

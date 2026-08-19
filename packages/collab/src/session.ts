@@ -110,6 +110,11 @@ export interface CollabSessionOptions {
    */
   onRejected?: (reason: string) => void;
   /**
+   * El servidor ha retirado UNA acción (el rol del emisor no la permitía). La
+   * sesión sigue viva: esto es un aviso, no una expulsión.
+   */
+  onServerDenied?: (reason: string) => void;
+  /**
    * La sala pide contraseña y no tenemos ninguna (o la que hay no vale). El
    * panel lo usa para pedirla en vez de dejar un "Conectando…" eterno.
    */
@@ -153,6 +158,7 @@ export class CollabSession {
   private readonly compactThreshold: number | undefined;
   private readonly onDenied: ((info: DeniedInfo) => void) | undefined;
   private readonly onRejected: ((reason: string) => void) | undefined;
+  private readonly onServerDenied: ((reason: string) => void) | undefined;
   private readonly onProjectReplaced: (() => void) | undefined;
   private readonly onRole: ((role: CollabRole) => void) | undefined;
   private readonly onRoles: ((roles: Record<string, CollabRole>) => void) | undefined;
@@ -200,6 +206,7 @@ export class CollabSession {
     this.currentRole = opts.role ?? DEFAULT_ROLE;
     this.onDenied = opts.onDenied;
     this.onRejected = opts.onRejected;
+    this.onServerDenied = opts.onServerDenied;
     this.onProjectReplaced = opts.onProjectReplaced;
     this.onRole = opts.onRole;
     this.onRoles = opts.onRoles;
@@ -360,7 +367,12 @@ export class CollabSession {
         this.onRoles?.(message.roles);
         break;
       case 'denied':
-        this.onRejected?.(
+        // Esto es UNA acción rechazada, no la puerta cerrada. Iba a
+        // `onRejected`, que significa "se acabó la sesión", así que el
+        // servidor retirando un solo comando —cosa que pasa sola: baja a
+        // alguien a oyente y lo que ya venía de camino llega con el rol
+        // viejo— echaba de la sala a quien lo recibiera.
+        this.onServerDenied?.(
           message.command
             ? `${message.reason} (${message.command} no entró en la sala)`
             : message.reason,

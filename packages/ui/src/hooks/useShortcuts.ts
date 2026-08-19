@@ -12,7 +12,13 @@ export function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      const typing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+      // SELECT también cuenta: con un desplegable enfocado (el sidechain del
+      // compresor, el formato del export…), el espacio lo abre y las letras
+      // saltan a una opción. Sin esta guarda, el espacio arrancaba la
+      // reproducción y la lista no llegaba a abrirse nunca.
+      const tag = target.tagName;
+      const typing =
+        tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 
       if (e.code === 'Space' && !typing) {
         e.preventDefault();
