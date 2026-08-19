@@ -15,9 +15,13 @@ export interface MixAnalysis {
   stereoCorrelation: number;
 }
 
-/** Ganancia (dB) que hay que aplicar para llegar al LUFS objetivo. */
+/**
+ * Ganancia (dB) que hay que aplicar para llegar al LUFS objetivo, sin pasarse
+ * del techo: normalizar no puede ser una forma de clipear el archivo. Si llegar
+ * al objetivo exige más de lo que cabe, manda el pico.
+ */
 export function gainToTarget(analysis: MixAnalysis, targetLufs: number): number {
-  return targetLufs - analysis.lufsIntegrated;
+  return Math.min(targetLufs - analysis.lufsIntegrated, -analysis.peakDb);
 }
 
 function kWeight(sr: number): [Biquad, Biquad] {
@@ -28,7 +32,9 @@ function kWeight(sr: number): [Biquad, Biquad] {
 }
 
 export function analyzeMix(left: Float32Array, right: Float32Array, sr: number): MixAnalysis {
-  const n = left.length;
+  // Los dos canales pueden no medir lo mismo: esto es API pública y leer
+  // `right[i]` fuera de rango propaga NaN a la correlación y a las bandas.
+  const n = Math.min(left.length, right.length);
   const [shL, hpL] = kWeight(sr);
   const [shR, hpR] = kWeight(sr);
 
@@ -37,6 +43,8 @@ export function analyzeMix(left: Float32Array, right: Float32Array, sr: number):
   const hop = Math.floor(0.1 * sr);
   const blockLoudness: number[] = [];
   let sumSq = 0;
+  /** Energía K de TODO el material, para cuando no cabe ni un bloque de 400 ms. */
+  let totalSq = 0;
   const ring = new Float32Array(Math.max(1, blockLen));
   let ringIdx = 0;
   let filled = 0;
@@ -77,6 +85,7 @@ export function analyzeMix(left: Float32Array, right: Float32Array, sr: number):
     const kl = hpL.tick(shL.tick(l));
     const kr = hpR.tick(shR.tick(r));
     const ms = kl * kl + kr * kr;
+    totalSq += ms;
     sumSq += ms - ring[ringIdx]!;
     ring[ringIdx] = ms;
     ringIdx = (ringIdx + 1) % blockLen;
@@ -112,6 +121,12 @@ export function analyzeMix(left: Float32Array, right: Float32Array, sr: number):
       const mean2 = passed.reduce((a, b) => a + Math.pow(10, b / 10), 0) / passed.length;
       integrated = 10 * Math.log10(mean2);
     }
+  } else if (n > 0) {
+    // Material más corto que un bloque de 400 ms: no hay gating posible, así
+    // que se mide entero. Devolver el centinela -70 hacía que `gainToTarget`
+    // pidiera +56 dB — y exportar con "Normalizar" una selección de menos de
+    // medio segundo multiplicaba la señal por 631.
+    integrated = -0.691 + 10 * Math.log10(Math.max(1e-12, totalSq / n));
   }
 
   const rel = (e: number) => 10 * Math.log10(Math.max(1e-12, e) / Math.max(1e-12, eTotal));

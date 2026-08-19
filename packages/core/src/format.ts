@@ -26,8 +26,14 @@ export function parseProject(json: string): Project {
       `Versión de formato no soportada: ${String(p.formatVersion)} (esperada ${FORMAT_VERSION})`,
     );
   }
+  // Estas cuatro faltaban en la lista y nadie las rellena por defecto: sin
+  // ellas el archivo pasaba la puerta y reventaba más tarde, dentro del
+  // compilador, con un TypeError que no dice nada ("Cannot convert undefined or
+  // null to object"). Un .orbit incompleto tiene que fallar AQUÍ y por su
+  // nombre.
   for (const key of [
     'id', 'meta', 'tempo', 'channels', 'patterns', 'mixer', 'clips',
+    'channelOrder', 'playlistTracks', 'markers', 'timeSig',
   ] as const) {
     if (p[key] === undefined) {
       throw new Error(`.orbit inválido: falta "${key}"`);

@@ -47,7 +47,12 @@ export function detectPitchTrack(
   const maxHz = opts.maxHz ?? 1000;
   const hop = opts.hop ?? DEFAULT_HOP;
   const minLag = Math.max(2, Math.floor(sampleRate / maxHz));
-  const maxLag = Math.min(Math.floor(sampleRate / minHz), 2048);
+  // El tope tiene que escalar con el sample rate y no bajar NUNCA de minLag: con
+  // 2048 fijo, a 96 kHz y un rango grave salía `maxLag < minLag` y el
+  // `new Float32Array(maxLag - minLag + 1)` de abajo lanzaba un RangeError con
+  // una longitud negativa.
+  const lagCap = Math.max(2048, Math.round(0.05 * sampleRate));
+  const maxLag = Math.max(minLag + 1, Math.min(Math.floor(sampleRate / minHz), lagCap));
   const win = maxLag * 2;
   const frames = Math.max(0, Math.floor((mono.length - win) / hop) + 1);
   const f0 = new Float32Array(frames);
