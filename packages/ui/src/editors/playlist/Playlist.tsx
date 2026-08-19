@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   TRACK_ICONS,
+  clampFades,
   createPlaylistTrack,
   newId,
   pickColor,
@@ -123,10 +124,17 @@ type DragState =
    * moverse es "añadir/quitar de la selección"; si arrastra, el duplicado de
    * siempre. Se resuelve en el primer movimiento que pase del umbral.
    */
-  | { mode: 'ctrlpick'; clipId: Id; x: number; y: number };
+  | { mode: 'ctrlpick'; clipId: Id; x: number; y: number }
+  /** Arrastre de un tirador de fundido (entrada o salida) de un clip de audio. */
+  | { mode: 'fade'; clipId: Id; which: 'in' | 'out' };
 
 /** Píxeles que hay que mover para que un Ctrl+clic pase a ser Ctrl+arrastre. */
 const CTRL_DRAG_PX = 4;
+/** Radio del tirador de fundido en px, y alto de la banda donde se coge. */
+const FADE_HANDLE_R = 3.5;
+const FADE_GRAB_PX = 9;
+/** Banda superior del clip reservada a los tiradores de fundido. */
+const FADE_BAND_H = 11;
 
 export function Playlist() {
   const project = useProject();
@@ -395,6 +403,38 @@ export function Playlist() {
     [rowAtY, xToBeat, beatToX, clipsByTrack, zoom, laneCount, scrollY],
   );
 
+  /**
+   * Tirador de fundido bajo el cursor.
+   *
+   * Los dos viven en la banda superior del clip (FADE_BAND_H) para no pelearse
+   * con el borde de redimensionar, que ocupa todo el lado derecho: arriba
+   * mandan los fundidos, del resto de la altura se encarga el resize.
+   */
+  const fadeHandleAt = useCallback(
+    (x: number, y: number): { clip: Clip; which: 'in' | 'out' } | null => {
+      const row = rowAtY(y);
+      if (!row) return null;
+      const lanes = laneCount(row.track.id);
+      const laneH = row.track.height / lanes;
+      const localY = y - RULER_H + scrollY - row.top;
+      if (localY % laneH > FADE_BAND_H) return null;
+      const lane = Math.min(lanes - 1, Math.max(0, Math.floor(localY / laneH)));
+      for (const c of clipsByTrack.get(row.track.id) ?? []) {
+        if (c.kind !== 'audio' || (c.lane ?? 0) !== lane) continue;
+        const cw = c.length * zoom;
+        if (cw <= 12) continue;
+        const x0 = beatToX(c.start);
+        const f = clampFades(c.fadeIn, c.fadeOut, c.length);
+        if (Math.abs(x - (x0 + f.fadeIn * zoom)) <= FADE_GRAB_PX) return { clip: c, which: 'in' };
+        if (Math.abs(x - (x0 + cw - f.fadeOut * zoom)) <= FADE_GRAB_PX) {
+          return { clip: c, which: 'out' };
+        }
+      }
+      return null;
+    },
+    [rowAtY, laneCount, clipsByTrack, scrollY, zoom, beatToX],
+  );
+
   /** ¿Está libre [start, start+length) en la pista? (para el pintado en serie) */
   const freeAt = useCallback(
     (trackId: Id, start: number, length: number): boolean => {
@@ -590,6 +630,50 @@ export function Playlist() {
           ctx.fillRect(x + 2, top + ah / 2, cw - 4, 1.5);
         }
       }
+      // Fundidos (solo audio): la recta que se aplica de verdad, con la zona
+      // que se está quitando sombreada y un tirador redondo en la punta. El
+      // tirador se pinta AUNQUE el fundido sea 0 — pegado a la esquina — o
+      // nadie sabría que se puede arrastrar.
+      if (c.kind === 'audio' && cw > 12) {
+        const f = clampFades(c.fadeIn, c.fadeOut, c.length);
+        const yTop = rowY + 2;
+        const yBot = rowY + rowH - 3;
+        /** Cuña de lo que se está quitando + la recta de la rampa. */
+        const wedge = (cornerX: number, tipX: number) => {
+          ctx.beginPath();
+          ctx.moveTo(cornerX, yTop);
+          ctx.lineTo(tipX, yTop);
+          ctx.lineTo(cornerX, yBot);
+          ctx.closePath();
+          ctx.globalAlpha = 0.5;
+          ctx.fillStyle = col('--pl-row');
+          ctx.fill();
+          ctx.globalAlpha = 0.9;
+          ctx.strokeStyle = col('--pl-fade');
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(cornerX, yBot);
+          ctx.lineTo(tipX, yTop);
+          ctx.stroke();
+        };
+        if (f.fadeIn > 0) wedge(x, x + f.fadeIn * zoom);
+        if (f.fadeOut > 0) wedge(x + cw, x + cw - f.fadeOut * zoom);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = col('--pl-fade');
+        ctx.lineWidth = 1;
+        for (const hx of [x + f.fadeIn * zoom, x + cw - f.fadeOut * zoom]) {
+          ctx.beginPath();
+          ctx.arc(
+            Math.min(x + cw - 2, Math.max(x + 2, hx)),
+            yTop + 1,
+            FADE_HANDLE_R,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+      }
+
       ctx.restore();
       ctx.globalAlpha = 1;
     };
@@ -806,6 +890,14 @@ export function Playlist() {
       if (cut <= clip.start + 0.05 || cut >= clip.start + clip.length - 0.05) return;
       const firstLen = cut - clip.start;
       const second: Clip = { ...clip, id: newId(), start: cut, length: clip.length - firstLen };
+      // Los fundidos se reparten: la cabeza se queda el de entrada y la cola el
+      // de salida. Copiar los dos a los dos trozos metería un fundido a mitad
+      // del sonido justo donde antes no había ninguno.
+      const cutFades = clampFades(clip.fadeIn, clip.fadeOut, clip.length);
+      const headFadeIn = Math.min(cutFades.fadeIn, firstLen);
+      const tailFadeOut = Math.min(cutFades.fadeOut, second.length);
+      second.fadeIn = 0;
+      second.fadeOut = tailFadeOut;
       if (clip.kind === 'pattern') {
         second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
       } else if (clip.kind === 'audio') {
@@ -817,7 +909,10 @@ export function Playlist() {
           type: 'batch',
           label,
           commands: [
-            { type: 'patchClips', patches: [{ id: clip.id, length: firstLen }] },
+            {
+              type: 'patchClips',
+              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0 }],
+            },
             { type: 'addClips', clips: [second] },
           ],
         },
@@ -947,6 +1042,16 @@ export function Playlist() {
 
       const ctrl = e.ctrlKey || e.metaKey;
 
+      // Tiradores de fundido: van antes que nada porque están DENTRO del clip
+      // y si no, el gesto se lo comería el "mover".
+      if (!ctrl && !e.shiftKey) {
+        const fade = fadeHandleAt(x, y);
+        if (fade) {
+          drag.current = { mode: 'fade', clipId: fade.clip.id, which: fade.which };
+          return;
+        }
+      }
+
       if (hit) {
         if (hit.edge) {
           drag.current = { mode: 'resize', clipId: hit.clip.id };
@@ -1010,10 +1115,19 @@ export function Playlist() {
       reportActivity('Playlist', { beat: xToBeat(x) });
 
       if (!d) {
-        // Cursor contextual: regla, mover, redimensionar o pintar.
+        // Cursor contextual: regla, fundido, mover, redimensionar o pintar.
         const hit = y >= RULER_H ? clipAt(x, y) : null;
+        const fade = y >= RULER_H && fadeHandleAt(x, y) !== null;
         canvas.style.cursor =
-          y < RULER_H ? 'pointer' : hit ? (hit.edge ? 'ew-resize' : 'move') : 'crosshair';
+          y < RULER_H
+            ? 'pointer'
+            : fade
+              ? 'col-resize'
+              : hit
+                ? hit.edge
+                  ? 'ew-resize'
+                  : 'move'
+                : 'crosshair';
         return;
       }
 
@@ -1071,6 +1185,35 @@ export function Playlist() {
           d.x1 = x;
           d.y1 = y;
           draw();
+          break;
+        }
+        case 'fade': {
+          const clip = project.clips[d.clipId];
+          if (!clip) return;
+          // Alt manda igual que en todo lo demás: sin snap el fundido es libre.
+          const snap = snapOf(e);
+          const raw =
+            d.which === 'in'
+              ? xToBeat(x) - clip.start
+              : clip.start + clip.length - xToBeat(x);
+          const step = snap ?? 0;
+          const value = Math.min(
+            clip.length,
+            Math.max(0, step > 0 ? Math.round(raw / step) * step : raw),
+          );
+          const current = (d.which === 'in' ? clip.fadeIn : clip.fadeOut) ?? 0;
+          if (Math.abs(value - current) > 1e-6) {
+            store.dispatch(
+              {
+                type: 'patchClips',
+                patches: [{ id: clip.id, [d.which === 'in' ? 'fadeIn' : 'fadeOut']: value }],
+              },
+              {
+                label: d.which === 'in' ? 'Fundido de entrada' : 'Fundido de salida',
+                mergeKey: `pl:fade:${d.which}:${clip.id}`,
+              },
+            );
+          }
           break;
         }
         case 'move': {
@@ -1207,6 +1350,18 @@ export function Playlist() {
               },
             },
             { label: 'Añadir marcador' },
+          );
+        }
+        return;
+      }
+      // Doble clic en un tirador de fundido: fuera el fundido.
+      const fade = fadeHandleAt(x, y);
+      if (fade) {
+        const key = fade.which === 'in' ? 'fadeIn' : 'fadeOut';
+        if ((fade.clip[key] ?? 0) > 0) {
+          store.dispatch(
+            { type: 'patchClips', patches: [{ id: fade.clip.id, [key]: 0 }] },
+            { label: 'Quitar fundido' },
           );
         }
         return;

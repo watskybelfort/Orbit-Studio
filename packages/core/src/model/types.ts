@@ -267,6 +267,15 @@ export interface Clip {
   /** Transposición del clip en semitonos (pitch-shift, tiempo intacto). */
   audioPitch?: number;
   /**
+   * Fundido de entrada en BEATS desde el principio del clip: la ganancia sube
+   * de 0 a 1 en ese tramo. En beats y no en segundos porque el clip vive en el
+   * timeline: cambiar el tempo mueve el clip y el fundido tiene que ir con él.
+   * Ausente o 0 = entra a saco, como siempre.
+   */
+  fadeIn?: number;
+  /** Fundido de salida en beats desde el final del clip (baja de 1 a 0). */
+  fadeOut?: number;
+  /**
    * Carril de toma dentro de la pista (comping): varias tomas apiladas en la
    * misma pista, solo suena la elegida. 0 = carril principal.
    */

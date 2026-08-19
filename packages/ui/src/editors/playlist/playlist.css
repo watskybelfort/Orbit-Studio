@@ -20,6 +20,7 @@
   --pl-playhead: #e6c95a;
   --pl-clip-text: #101114;
   --pl-ghost: rgba(232, 233, 236, 0.45);
+  --pl-fade: #e6c95a;
 }
 
 html[data-theme='light'] .playlist {
@@ -33,6 +34,7 @@ html[data-theme='light'] .playlist {
   --pl-playhead: #c99a1e;
   --pl-clip-text: #14161a;
   --pl-ghost: rgba(23, 24, 28, 0.4);
+  --pl-fade: #b8891a;
 }
 
 html[data-theme='acrylic'] .playlist {
@@ -46,6 +48,7 @@ html[data-theme='acrylic'] .playlist {
   --pl-playhead: #e6c95a;
   --pl-clip-text: #101114;
   --pl-ghost: rgba(232, 233, 236, 0.45);
+  --pl-fade: #e6c95a;
 }
 
 /* ── Toolbar ── */
@@ -116,6 +119,12 @@ html[data-theme='acrylic'] .playlist {
 .pl-sel-chip {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+}
+
+/* .pl-add lleva `margin-left: auto` de serie (empuja el "+ Pista" a la
+   derecha); dentro del grupo eso separaría los botones a lo ancho. */
+.pl-sel-group .pl-add {
+  margin-left: 0;
 }
 
 .pl-add {

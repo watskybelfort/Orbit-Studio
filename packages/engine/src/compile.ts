@@ -6,6 +6,7 @@
 
 import {
   LFO_SHAPES,
+  clampFades,
   findNovaPreset,
   findPrismaPreset,
   paramRefKey,
@@ -374,6 +375,10 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
         // no se ha elegido). Se acota al rango real del mixer.
         const lane = project.playlistTracks[clip.playlistTrackId];
         const mixerTrack = Math.max(0, Math.min(project.mixer.length - 1, lane?.mixerTrack ?? 0));
+        // Fundidos: se acotan AQUÍ y no en el kernel para que dos fundidos que
+        // se pisan (arrastrados a tope los dos) repartan el clip por la mitad
+        // en vez de cancelarse o dejar la ganancia por encima de 1.
+        const { fadeIn, fadeOut } = clampFades(clip.fadeIn, clip.fadeOut, clip.length);
         audioClips.push({
           start: clip.start,
           length: clip.length,
@@ -385,6 +390,8 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
           ...(typeof pitch === 'number' && Number.isFinite(pitch) && pitch !== 0
             ? { pitch }
             : {}),
+          ...(fadeIn > 0 ? { fadeIn } : {}),
+          ...(fadeOut > 0 ? { fadeOut } : {}),
         });
       } else if (clip.kind === 'automation' && clip.target && clip.points) {
         const ev = sampleAutomation(clip, clip.points, clip.target, project, channelIndexOf);

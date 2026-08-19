@@ -12,6 +12,7 @@ export * from './model/channel-drop';
 export * from './model/routing';
 export * from './model/diff';
 export * from './model/notes';
+export * from './model/fades';
 export * from './model/defaults';
 export * from './commands';
 export * from './store';

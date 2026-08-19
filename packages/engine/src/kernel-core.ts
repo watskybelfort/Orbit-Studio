@@ -1152,6 +1152,9 @@ export class KernelCore {
         // falta para llenar el clip; sin él, tiempo natural (1).
         const ratio = doStretch ? srcSec / clipSec : 1;
         const hop = Math.max(64, Math.round(0.022 * this.sr)); // medio grain ~22 ms
+        const fadeIn = clip.fadeIn ?? 0;
+        const fadeOut = clip.fadeOut ?? 0;
+        const fadeOutFrom = clip.length - fadeOut;
         const natRate = data.rate / this.sr;
         const srcBase = clip.offset * data.rate;
         const lastIdx = data.left.length - 1;
@@ -1201,8 +1204,18 @@ export class KernelCore {
             l = data.left[idx]! * (1 - frac) + data.left[idx + 1]! * frac;
             r = data.right[idx]! * (1 - frac) + data.right[idx + 1]! * frac;
           }
-          bl[i]! += l * clip.gain;
-          br[i]! += r * clip.gain;
+          // Fundidos del clip: rampa lineal en amplitud, exactamente la recta
+          // que dibuja la playlist. El compilador ya los acotó a la longitud,
+          // así que aquí solo se evalúan.
+          let fade = 1;
+          if (fadeIn > 0 && beatAt < fadeIn) fade = beatAt / fadeIn;
+          if (fadeOut > 0 && beatAt > fadeOutFrom) {
+            const f = (clip.length - beatAt) / fadeOut;
+            if (f < fade) fade = f;
+          }
+          const g = clip.gain * (fade < 0 ? 0 : fade);
+          bl[i]! += l * g;
+          br[i]! += r * g;
         }
       }
     }

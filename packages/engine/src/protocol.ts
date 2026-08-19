@@ -154,6 +154,10 @@ export interface CompiledAudioClip {
    * motor de grains del stretch. Ausente o 0 = lectura directa, sin grains.
    */
   pitch?: number;
+  /** Fundido de entrada en beats (rampa lineal de 0 a 1 desde el inicio). */
+  fadeIn?: number;
+  /** Fundido de salida en beats (rampa lineal de 1 a 0 hasta el final). */
+  fadeOut?: number;
 }
 
 /** Cambio de tempo o de compás a partir de un beat (viene de un marcador). */
