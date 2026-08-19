@@ -185,6 +185,22 @@ function adoptDetachedWindow(child: BrowserWindow, frameName: string): void {
   detachedWindows.set(id, child);
   if (detachedOnTop(id, readSettings())) child.setAlwaysOnTop(true);
 
+  // Las mismas dos redes que la ventana principal. Las hijas heredan el preload
+  // con la API `orbit` y `sandbox: false`, así que una navegación a una página
+  // ajena AQUÍ le daría a esa página `file.write`, `settings` y compañía. Hoy
+  // no hay nada en el DOM de estas ventanas que navegue, pero la red no puede
+  // estar puesta solo en una de las ventanas que comparten el mismo preload.
+  child.webContents.setWindowOpenHandler((details) => {
+    if (/^https?:\/\//i.test(details.url)) void shell.openExternal(details.url);
+    return { action: 'deny' };
+  });
+  child.webContents.on('will-navigate', (e, url) => {
+    if (url !== child.webContents.getURL()) {
+      e.preventDefault();
+      if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    }
+  });
+
   let timer: NodeJS.Timeout | null = null;
   const soon = () => {
     if (timer) clearTimeout(timer);
