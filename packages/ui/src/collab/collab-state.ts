@@ -127,6 +127,15 @@ export interface CollabState {
   chat: ChatMessage[];
   /** Último comando rechazado por permisos, para avisar en pantalla. */
   denied: string | null;
+  /** La sala pide contraseña (lo dice el servidor). */
+  roomProtected: boolean;
+  /**
+   * La puerta nos ha parado: 'missing' (no dimos ninguna) o 'wrong' (la que
+   * dimos no era). El panel pide la contraseña en vez de dejar un error seco.
+   */
+  passwordPrompt: 'missing' | 'wrong' | null;
+  /** Aviso corto tras poner o quitar la contraseña de la sala. */
+  passwordNotice: string | null;
 }
 
 export const useCollabStore = create<CollabState>(() => ({
@@ -144,6 +153,9 @@ export const useCollabStore = create<CollabState>(() => ({
   assetWarning: null,
   chat: [],
   denied: null,
+  roomProtected: false,
+  passwordPrompt: null,
+  passwordNotice: null,
 }));
 
 /** El peer al que seguimos ahora mismo, si sigue conectado. */
@@ -161,6 +173,7 @@ let unsubscribeChat: (() => void) | null = null;
 let unsubscribeSamples: (() => void) | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let deniedTimer: ReturnType<typeof setTimeout> | null = null;
+let passwordNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** La sesión activa (para setActivity() desde editores, etc.) o null. */
 export function getCollabSession(): CollabSession | null {
@@ -184,6 +197,10 @@ function teardownSession(): void {
   if (deniedTimer !== null) {
     clearTimeout(deniedTimer);
     deniedTimer = null;
+  }
+  if (passwordNoticeTimer !== null) {
+    clearTimeout(passwordNoticeTimer);
+    passwordNoticeTimer = null;
   }
   if (pollTimer !== null) {
     clearInterval(pollTimer);
@@ -249,8 +266,19 @@ function showDenied(message: string): void {
   }, DENIED_NOTICE_MS);
 }
 
-/** Arranca una sesión nueva contra `code` (cerrando antes la que hubiera). */
-async function startSession(code: string, url: string, userName: string): Promise<void> {
+/**
+ * Arranca una sesión nueva contra `code` (cerrando antes la que hubiera).
+ *
+ * La contraseña llega por parámetro y se queda en memoria: NO se guarda en
+ * settings.json. Un archivo de ajustes en claro con la contraseña de la sala
+ * dentro sería justo lo que esto viene a evitar.
+ */
+async function startSession(
+  code: string,
+  url: string,
+  userName: string,
+  password = '',
+): Promise<void> {
   // Solo UNA sesión a la vez.
   if (session) leaveRoom();
 
@@ -270,6 +298,20 @@ async function startSession(code: string, url: string, userName: string): Promis
   const s = new CollabSession(store, {
     user: { name, color: colorForName(name) },
     role,
+    password,
+    // La puerta nos ha parado: el panel pide la contraseña en su sitio en vez
+    // de dejar un error seco del que no se sale.
+    onPasswordRequired: (wrong) => {
+      if (session !== s) return;
+      useCollabStore.setState({
+        roomProtected: true,
+        passwordPrompt: wrong ? 'wrong' : 'missing',
+      });
+    },
+    onRoomProtected: (isProtected) => {
+      if (session !== s) return;
+      useCollabStore.setState({ roomProtected: isProtected });
+    },
     // Rechazar no rompe la sesión: solo se avisa (propio o de un remoto).
     onDenied: (info) => {
       if (session !== s) return;
@@ -329,6 +371,9 @@ async function startSession(code: string, url: string, userName: string): Promis
     assetWarning: null,
     chat: [],
     denied: null,
+    roomProtected: false,
+    passwordPrompt: null,
+    passwordNotice: null,
   });
 
   unsubscribePeers = s.onPeersChanged((peers) => {
@@ -379,7 +424,13 @@ async function startSession(code: string, url: string, userName: string): Promis
       }),
     ]);
     if (session !== s) return; // leaveRoom() durante la conexión
-    useCollabStore.setState({ phase: 'online', peers: s.peers, chat: s.chat, error: null });
+    useCollabStore.setState({
+      phase: 'online',
+      peers: s.peers,
+      chat: s.chat,
+      error: null,
+      passwordPrompt: null,
+    });
     // Ya hay sala: el master propio puede salir por aquí si se pide emitir.
     setStreamSender((samples, sampleRate) => s.sendAudio(samples, sampleRate));
     // Al CREAR la sala no hay replaceProject que dispare nada, pero nuestros
@@ -406,9 +457,23 @@ async function startSession(code: string, url: string, userName: string): Promis
  * Crea una sala nueva: genera el código, conecta y publica el proyecto local
  * como base del room. Devuelve el código generado.
  */
-export async function createRoom(url: string, userName: string): Promise<string> {
+export async function createRoom(
+  url: string,
+  userName: string,
+  password = '',
+): Promise<string> {
   const code = generateRoomCode();
   await startSession(code, url, userName);
+  // La sala nace abierta y se cierra desde dentro: ponerla al crear evitaría
+  // que nadie entrase por el hueco, pero la sala no existe hasta que alguien
+  // está en ella (el servidor no la crea sin conexión).
+  if (password.trim() !== '' && session) {
+    try {
+      await setRoomPassword(password);
+    } catch {
+      // el aviso lo pone setRoomPassword; la sala ya está creada igualmente
+    }
+  }
   return code;
 }
 
@@ -416,7 +481,12 @@ export async function createRoom(url: string, userName: string): Promise<string>
  * Se une a una sala por código ("K3P-9QF" o "k3p9qf"). Si la sala ya tiene
  * proyecto, la sesión de collab sustituye el local por snapshot + log.
  */
-export async function joinRoom(codeInput: string, url: string, userName: string): Promise<void> {
+export async function joinRoom(
+  codeInput: string,
+  url: string,
+  userName: string,
+  password = '',
+): Promise<void> {
   const code = normalizeRoomCode(codeInput);
   if (!isValidRoomCode(code)) {
     if (session) return; // no tumbar una sesión viva por un typo
@@ -429,7 +499,40 @@ export async function joinRoom(codeInput: string, url: string, userName: string)
     });
     return;
   }
-  await startSession(code, url, userName);
+  await startSession(code, url, userName, password);
+}
+
+/**
+ * Pone (o quita, con cadena vacía) la contraseña de la sala. Solo la atiende el
+ * servidor si quien la manda es el productor; aquí solo se avisa de lo que pasó.
+ */
+export async function setRoomPassword(password: string): Promise<void> {
+  if (!session) return;
+  const clean = password.trim();
+  await session.setRoomPassword(clean === '' ? null : clean);
+  useCollabStore.setState({
+    passwordNotice:
+      clean === ''
+        ? 'La sala se queda sin contraseña: entra quien tenga el código.'
+        : 'Contraseña puesta. Los que ya están dentro siguen dentro.',
+  });
+  if (passwordNoticeTimer !== null) clearTimeout(passwordNoticeTimer);
+  passwordNoticeTimer = setTimeout(() => {
+    passwordNoticeTimer = null;
+    useCollabStore.setState({ passwordNotice: null });
+  }, DENIED_NOTICE_MS);
+}
+
+/** Reintento con la contraseña que acaban de escribir en el aviso. */
+export async function retryWithPassword(
+  url: string,
+  userName: string,
+  password: string,
+): Promise<void> {
+  const code = useCollabStore.getState().roomCode;
+  if (!code) return;
+  useCollabStore.setState({ passwordPrompt: null });
+  await startSession(code, url, userName, password);
 }
 
 /** Sale de la sala: teardown real de la sesión y estado a 'off'. */
@@ -447,6 +550,9 @@ export function leaveRoom(): void {
     assetWarning: null,
     chat: [],
     denied: null,
+    roomProtected: false,
+    passwordPrompt: null,
+    passwordNotice: null,
   });
 }
 

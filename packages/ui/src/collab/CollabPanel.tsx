@@ -38,10 +38,12 @@ import {
   leaveRoom,
   loadCollabSettings,
   removeChat,
+  retryWithPassword,
   saveCollabSettings,
   sendChat,
   requestPeerRole,
   setCollabRole,
+  setRoomPassword,
   toggleAudioFrozen,
   useCollabStore,
 } from './collab-state';
@@ -90,10 +92,22 @@ export function CollabPanel() {
   const assetWarning = useCollabStore((s) => s.assetWarning);
   const chat = useCollabStore((s) => s.chat);
   const denied = useCollabStore((s) => s.denied);
+  const roomProtected = useCollabStore((s) => s.roomProtected);
+  const passwordPrompt = useCollabStore((s) => s.passwordPrompt);
+  const passwordNotice = useCollabStore((s) => s.passwordNotice);
 
   const [userName, setUserName] = useState(DEFAULT_USER_NAME);
   const [serverUrl, setServerUrl] = useState(DEFAULT_SERVER_URL);
   const [joinCode, setJoinCode] = useState('');
+  /**
+   * Contraseña de sala, solo en memoria: no se guarda en settings.json (un
+   * archivo de ajustes en claro con la contraseña dentro sería justo lo que
+   * esto viene a evitar).
+   */
+  const [password, setPassword] = useState('');
+  /** Lo que se escribe para poner o cambiar la contraseña desde dentro. */
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
   /** Capacidad de sala del servidor propio, tal y como se está escribiendo. */
   const [capacityDraft, setCapacityDraft] = useState(String(DEFAULT_ROOM_CAPACITY));
   const capacity = clampRoomCapacity(Number(capacityDraft));
@@ -186,12 +200,27 @@ export function CollabPanel() {
 
   const handleCreate = () => {
     persistFields();
-    void createRoom(serverUrl, userName);
+    void createRoom(serverUrl, userName, password);
   };
 
   const handleJoin = (code: string) => {
     persistFields();
-    void joinRoom(code, serverUrl, userName);
+    void joinRoom(code, serverUrl, userName, password);
+  };
+
+  /** Reintento desde el aviso de la puerta, con lo que acaban de escribir. */
+  const handleRetryWithPassword = () => {
+    if (password.trim() === '') return;
+    persistFields();
+    void retryWithPassword(serverUrl, userName, password);
+  };
+
+  /** Pone o quita la contraseña de la sala (solo el productor). */
+  const commitRoomPassword = (value: string) => {
+    setPasswordBusy(true);
+    void setRoomPassword(value)
+      .then(() => setNewPassword(''))
+      .finally(() => setPasswordBusy(false));
   };
 
   const copyCode = () => {
@@ -549,6 +578,56 @@ export function CollabPanel() {
           />
         </div>
 
+        <h3 className="collab-heading">Puerta de la sala</h3>
+        <p className="collab-note">
+          {roomProtected
+            ? 'Con contraseña: para entrar hace falta el código Y la contraseña.'
+            : 'Sin contraseña: entra quien llegue al servidor y sepa el código.'}
+        </p>
+        {assignedRole === 'productor' ? (
+          <>
+            <div className="collab-row">
+              <input
+                className="collab-input"
+                type="password"
+                value={newPassword}
+                placeholder={roomProtected ? 'Cambiar la contraseña' : 'Poner una contraseña'}
+                spellCheck={false}
+                autoComplete="new-password"
+                onChange={(e) => setNewPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && newPassword.trim() !== '') {
+                    commitRoomPassword(newPassword);
+                  }
+                }}
+              />
+              <button
+                className="collab-btn primary"
+                disabled={passwordBusy || newPassword.trim() === ''}
+                onClick={() => commitRoomPassword(newPassword)}
+              >
+                {passwordBusy ? '…' : roomProtected ? 'Cambiar' : 'Poner'}
+              </button>
+              {roomProtected && (
+                <button
+                  className="collab-btn danger"
+                  disabled={passwordBusy}
+                  onClick={() => commitRoomPassword('')}
+                >
+                  Quitar
+                </button>
+              )}
+            </div>
+            <p className="collab-note">
+              La contraseña no viaja: se queda en tu equipo y solo sale una firma que cambia en
+              cada conexión. El servidor guarda un hash con el que tampoco se puede entrar.
+            </p>
+          </>
+        ) : (
+          <p className="collab-note">La cerradura la cambia el productor de la sala.</p>
+        )}
+        {passwordNotice && <p className="collab-warn">{passwordNotice}</p>}
+
         <p className="collab-warn">Todos en la sala editan el MISMO proyecto en vivo.</p>
 
         <div>
@@ -709,7 +788,8 @@ export function CollabPanel() {
                   {shareCopied ? '¡Copiado!' : 'Copiar'}
                 </button>
               )}
-              . La sala no lleva contraseña: entra quien llegue al puerto y sepa el código.
+              . Si la sala no lleva contraseña, entra quien llegue al puerto y sepa el código:
+              ponle una al crearla.
               {server.shareAddress !== undefined && serverUrl !== shareUrl && (
                 <>
                   {' '}
@@ -736,16 +816,69 @@ export function CollabPanel() {
         </p>
       )}
 
-      {phase === 'error' && error && (
+      {passwordPrompt !== null && roomCode ? (
         <div className="collab-error-box">
-          <p className="collab-error">{error}</p>
-          {roomCode && (
-            <button className="collab-btn" onClick={() => handleJoin(roomCode)}>
-              Reintentar con {formatRoomCode(roomCode)}
+          <p className="collab-error">
+            {passwordPrompt === 'wrong'
+              ? `Esa no era la contraseña de ${formatRoomCode(roomCode)}.`
+              : `La sala ${formatRoomCode(roomCode)} pide contraseña.`}
+          </p>
+          <div className="collab-row">
+            <input
+              className="collab-input"
+              type="password"
+              value={password}
+              placeholder="Contraseña de la sala"
+              spellCheck={false}
+              autoComplete="current-password"
+              autoFocus
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRetryWithPassword();
+              }}
+            />
+            <button
+              className="collab-btn primary"
+              disabled={password.trim() === ''}
+              onClick={handleRetryWithPassword}
+            >
+              Entrar
             </button>
-          )}
+          </div>
         </div>
+      ) : (
+        phase === 'error' &&
+        error && (
+          <div className="collab-error-box">
+            <p className="collab-error">{error}</p>
+            {roomCode && (
+              <button className="collab-btn" onClick={() => handleJoin(roomCode)}>
+                Reintentar con {formatRoomCode(roomCode)}
+              </button>
+            )}
+          </div>
+        )
       )}
+
+      <div className="collab-row">
+        <span className="collab-label">Contraseña</span>
+        <input
+          className="collab-input"
+          type="password"
+          value={password}
+          placeholder="opcional"
+          spellCheck={false}
+          autoComplete="current-password"
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && joinCode.trim() !== '') handleJoin(joinCode);
+          }}
+        />
+      </div>
+      <p className="collab-note">
+        Al crear, cierra la sala con esa contraseña. Al unirte, es la que pide la sala. No se
+        guarda en ningún ajuste: se escribe cada vez.
+      </p>
 
       <div>
         <button className="collab-btn primary" onClick={handleCreate}>
