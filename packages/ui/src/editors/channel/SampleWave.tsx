@@ -8,59 +8,15 @@
  *
  * Del PCM decodificado solo se guardan los picos (min/max por columna): un
  * sample largo ocuparía megas en memoria y para pintar no aporta nada. La
- * caché va por `id:hash` porque decodificar es lo caro, no dibujar.
+ * caché vive en `state/sample-peaks.ts` porque la comparte con los clips de
+ * audio de la playlist — decodificar es lo caro, no dibujar.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SampleRef } from '@orbit/core';
-import { readSampleBytes } from '../../browser/sound-actions';
+import { PEAK_COLS as COLS, peaksOf, type Peaks } from '../../state/sample-peaks';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
-
-/** Columnas de picos que se guardan por sample (de sobra para cualquier ancho). */
-const COLS = 1400;
-
-interface Peaks {
-  min: Float32Array;
-  max: Float32Array;
-  duration: number;
-}
-
-const peakCache = new Map<string, Peaks>();
-
-async function loadPeaks(sample: SampleRef): Promise<Peaks | null> {
-  const key = `${sample.id}:${sample.hash}`;
-  const hit = peakCache.get(key);
-  if (hit) return hit;
-  const bytes = await readSampleBytes(sample.path);
-  if (!bytes) return null;
-  const ctx = new OfflineAudioContext(2, 1, 48000);
-  const decoded = await ctx.decodeAudioData(bytes);
-  const left = decoded.getChannelData(0);
-  const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left;
-  const min = new Float32Array(COLS);
-  const max = new Float32Array(COLS);
-  const n = left.length;
-  for (let c = 0; c < COLS; c++) {
-    const i0 = Math.floor((c / COLS) * n);
-    const i1 = Math.max(i0 + 1, Math.floor(((c + 1) / COLS) * n));
-    // Muestreo salteado: con un pad de 30 s recorrer muestra a muestra congela
-    // la UI y el pico visible no cambia.
-    const stride = Math.max(1, Math.floor((i1 - i0) / 48));
-    let lo = 1;
-    let hi = -1;
-    for (let i = i0; i < i1; i += stride) {
-      const s = (left[i]! + right[i]!) * 0.5;
-      if (s < lo) lo = s;
-      if (s > hi) hi = s;
-    }
-    min[c] = lo;
-    max[c] = hi;
-  }
-  const peaks: Peaks = { min, max, duration: decoded.duration };
-  peakCache.set(key, peaks);
-  return peaks;
-}
 
 export interface SampleWaveProps {
   sample: SampleRef;
@@ -103,7 +59,7 @@ export function SampleWave({
     let alive = true;
     setPeaks(null);
     setFailed(false);
-    void loadPeaks(sample)
+    void peaksOf(sample)
       .then((p) => {
         if (!alive) return;
         setPeaks(p);
