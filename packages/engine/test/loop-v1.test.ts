@@ -24,11 +24,20 @@ function patternOf(beats: number) {
   return compileProject(p, { mode: 'pattern', patternId });
 }
 
-function runSeconds(core: KernelCore, seconds: number): void {
+/** Corre N segundos y devuelve el pico absoluto de la salida (0 = silencio). */
+function runSeconds(core: KernelCore, seconds: number): number {
   const l = new Float32Array(MAX_BLOCK);
   const r = new Float32Array(MAX_BLOCK);
   const blocks = Math.round((seconds * 44100) / MAX_BLOCK);
-  for (let i = 0; i < blocks; i++) core.process(l, r, MAX_BLOCK);
+  let peak = 0;
+  for (let i = 0; i < blocks; i++) {
+    core.process(l, r, MAX_BLOCK);
+    for (let s = 0; s < MAX_BLOCK; s++) {
+      const v = Math.abs(l[s]!);
+      if (v > peak) peak = v;
+    }
+  }
+  return peak;
 }
 
 describe('loop del transporte', () => {
@@ -58,6 +67,44 @@ describe('loop del transporte', () => {
     runSeconds(core, 3);
     expect(core.posBeats).toBeGreaterThanOrEqual(0);
     expect(core.posBeats).toBeLessThan(2.2);
+  });
+
+  // El bug de verdad: en SONG te vas al beat 200 de la canción, pulsas PAT y
+  // el motor arranca el patrón (loop 0..4) desde el 200. La condición de
+  // envolver exige `posBeats < loopEnd`, que ahí es imposible: el cursor subía
+  // para siempre y la app se quedaba muda hasta reiniciarla.
+  it('arrancar MUY por delante del loop vuelve dentro y suena', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: patternOf(4) });
+    core.handleMessage({ type: 'play', fromBeat: 200 });
+
+    const peak = runSeconds(core, 2);
+    expect(core.posBeats).toBeLessThan(4);
+    expect(core.posBeats).toBeGreaterThanOrEqual(0);
+    expect(peak).toBeGreaterThan(0.01);
+  });
+
+  it('un seek más allá del final tampoco deja el transporte colgado', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: patternOf(4) });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    core.handleMessage({ type: 'seek', beat: 96 });
+
+    const peak = runSeconds(core, 2);
+    expect(core.posBeats).toBeLessThan(4);
+    expect(peak).toBeGreaterThan(0.01);
+  });
+
+  it('encoger el proyecto por debajo del cursor no lo deja fuera del loop', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: patternOf(16) });
+    core.handleMessage({ type: 'play', fromBeat: 14 });
+    // El usuario recorta el patrón a 4 beats mientras suena por el 14.
+    core.handleMessage({ type: 'snapshot', project: patternOf(4) });
+
+    const peak = runSeconds(core, 2);
+    expect(core.posBeats).toBeLessThan(4);
+    expect(peak).toBeGreaterThan(0.01);
   });
 
   it('al quitar la región, la reproducción vuelve a cubrir el patrón entero', () => {

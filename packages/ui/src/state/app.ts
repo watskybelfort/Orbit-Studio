@@ -161,8 +161,26 @@ function patternToPlay(): string {
 // setPlayMode: pulsabas play con PAT encendido y sonaba la canción entera.
 engine.playMode = { mode: 'pattern', patternId: patternToPlay() };
 
+/**
+ * Caret guardado de cada modo. PAT y SONG llevan playheads INDEPENDIENTES,
+ * como en FL: el beat 200 de la canción no significa nada dentro de un patrón
+ * de cuatro compases. Compartirlo tenía una consecuencia bastante peor que la
+ * confusión — arrancar el patrón en el beat 200 dejaba el motor tocando fuera
+ * de su región de loop, o sea MUDO hasta reiniciar la app. El kernel ya se
+ * defiende de eso por su cuenta, pero el sitio donde nacía el disparate es
+ * este.
+ */
+const modePos: Record<'pattern' | 'song', number> = { pattern: 0, song: 0 };
+
 /** Ajusta el modo de reproducción (PAT/SONG) y resincroniza el kernel. */
 export function setPlayMode(mode: 'pattern' | 'song'): void {
+  const ui = useUiStore.getState();
+  if (ui.playMode !== mode) {
+    modePos[ui.playMode] = ui.positionBeats;
+    const beat = modePos[mode];
+    engine.seek(beat);
+    useUiStore.setState({ positionBeats: beat });
+  }
   engine.playMode =
     mode === 'pattern' ? { mode: 'pattern', patternId: patternToPlay() } : { mode: 'song' };
   useUiStore.setState({ playMode: mode });
@@ -191,6 +209,9 @@ export async function play(): Promise<void> {
 
 export function stopPlayback(): void {
   engine.stop();
+  // Stop devuelve al principio el caret del modo en el que estás; el del otro
+  // modo se queda donde lo dejaste, que es justo la gracia de tenerlos aparte.
+  modePos[useUiStore.getState().playMode] = 0;
   useUiStore.setState({ playing: false, positionBeats: 0 });
 }
 

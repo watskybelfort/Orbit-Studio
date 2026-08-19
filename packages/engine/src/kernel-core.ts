@@ -948,6 +948,19 @@ export class KernelCore {
       this.chBufR[c]!.fill(0, 0, n);
     }
 
+    // El playhead puede quedar FUERA de la región de loop sin haberse salido
+    // tocando: pasar de SONG (beat 200) a PAT (loop de 16), encoger el
+    // proyecto por debajo del cursor o hacer seek más allá del final. Cuando
+    // pasa, la condición de envolver de más abajo (`posBeats < loopEnd`) es
+    // IMPOSIBLE de cumplir: el cursor sube para siempre, no se dispara ni un
+    // evento y la app se queda MUDA hasta reiniciarla. Volver al principio del
+    // loop es lo que hace FL y lo único que se oye.
+    if (this.playing && this.loopEnabled && this.posBeats >= this.loopEnd) {
+      this.posBeats = this.loopStart;
+      this.resyncCursor();
+      this.releaseSequencedVoices();
+    }
+
     this.applyMaps();
     this.applyAutomation();
     this.applyLfos();
