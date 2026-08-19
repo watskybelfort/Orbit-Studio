@@ -16,6 +16,10 @@ import { encodeWav } from '@orbit/engine';
 import { createPlaylistTrack, newId, type Clip, type Command, type SampleRef } from '@orbit/core';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
+// Ciclo a propósito con master-stream: los dos se pelean por el ÚNICO tap del
+// kernel y cada uno tiene que poder preguntar por el otro. Ninguno de los dos
+// toca el store del otro fuera de una función, así que el ciclo no muerde.
+import { useMasterStream } from '../collab/master-stream';
 import { currentBeat, engine, store, togglePlay } from './app';
 import { useUiStore } from './ui';
 
@@ -56,12 +60,28 @@ export async function toggleTrackCapture(trackIndex: number): Promise<void> {
   const current = useTrackCapture.getState().trackIndex;
   if (current === trackIndex) return stopTrackCapture();
   if (current !== null) await stopTrackCapture();
+  // El AudioContext puede no existir todavía (esta puede ser la primera acción
+  // de audio de la sesión). `engine.sampleRate` devolvería 44100 por defecto y
+  // la toma se escribiría declarando 44.1 kHz cuando el motor va a 48: un 8,8 %
+  // más lenta, casi un tono por debajo, y con la duración mal.
+  await engine.init();
   startTrackCapture(trackIndex);
 }
 
 function startTrackCapture(trackIndex: number): void {
   if (!window.orbit) {
     useTrackCapture.setState({ error: 'Grabar pistas requiere la app de escritorio' });
+    return;
+  }
+  // El kernel solo tiene UN tap. El emisor del master ya se niega si hay una
+  // grabación en marcha; sin el espejo, grabar una pista mientras emites hacía
+  // dos cosas malas seguidas: la sala pasaba a oír ESA pista como si fuera tu
+  // master, y al parar la grabación la emisión se quedaba muda con el botón
+  // diciendo que seguía emitiendo.
+  if (useMasterStream.getState().broadcasting) {
+    useTrackCapture.setState({
+      error: 'Estás emitiendo tu master a la sala: el kernel solo puede tapar una pista.',
+    });
     return;
   }
   chunksL = [];

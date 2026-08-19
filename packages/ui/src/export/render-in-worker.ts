@@ -35,6 +35,28 @@ export function canUseRenderWorker(): boolean {
   return typeof Worker !== 'undefined';
 }
 
+/**
+ * Rechaza lo pendiente y TIRA el worker.
+ *
+ * Lo importante es el `worker = null`: rechazar y quedarse con el cadáver
+ * dejaba a `getWorker()` devolviéndolo para siempre, y `postMessage` a un
+ * worker muerto no hace nada ni falla — la siguiente petición se quedaba
+ * colgada sin resolver NUNCA. Y con ella, el `running` del export y el `busy`
+ * del bounce, que solo se bajan en su `finally`: a partir de ahí cualquier
+ * export decía "ya hay uno en marcha" y Consolidar y Congelar dejaban de
+ * funcionar sin decir nada.
+ */
+function killWorker(reason: string): void {
+  for (const [, p] of pending) p.reject(new Error(reason));
+  pending.clear();
+  try {
+    worker?.terminate();
+  } catch {
+    // ya estaba muerto: nada que terminar
+  }
+  worker = null;
+}
+
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' });
@@ -46,19 +68,36 @@ function getWorker(): Worker {
       else p.reject(new Error(e.data.error ?? 'Fallo en el worker de render'));
     });
     worker.addEventListener('error', (e) => {
-      // Un error del worker deja las peticiones vivas colgadas: se rechazan todas.
-      for (const [, p] of pending) p.reject(new Error(e.message || 'Error del worker de render'));
-      pending.clear();
+      killWorker(e.message || 'Error del worker de render');
+    });
+    worker.addEventListener('messageerror', () => {
+      killWorker('El worker de render mandó un mensaje ilegible');
     });
   }
   return worker;
 }
 
+/**
+ * Tope de seguridad por petición. Un render largo puede tardar de verdad (una
+ * canción de diez minutos con reverbs no es raro), así que es generoso: está
+ * para que un worker que muera en silencio no deje la UI trabada, no para
+ * cortar trabajo legítimo.
+ */
+const REQUEST_TIMEOUT_MS = 15 * 60_000;
+
 function request(msg: Record<string, unknown>): Promise<Resp> {
   const id = ++seq;
   const w = getWorker();
   return new Promise<Resp>((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      if (!pending.has(id)) return;
+      killWorker('El worker de render no respondió');
+    }, REQUEST_TIMEOUT_MS);
+    const done = <T>(fn: (value: T) => void) => (value: T) => {
+      clearTimeout(timer);
+      fn(value);
+    };
+    pending.set(id, { resolve: done(resolve), reject: done(reject) });
     w.postMessage({ ...msg, id });
   });
 }

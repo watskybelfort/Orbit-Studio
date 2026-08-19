@@ -33,6 +33,7 @@ import {
 } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
+import { acquireScope } from '../../state/scope-owner';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { toggleTrackCapture, useTrackCapture } from '../../state/track-capture';
@@ -473,7 +474,10 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
 
   useEffect(() => {
     ensureAudioReady();
-    engine.setScope(true, trackIndex);
+    // Préstamo con recuento: el tap del kernel es uno solo y lo comparte con la
+    // ventana del Orbit Scope. Al plegar este EQ, el tap vuelve a quien lo
+    // tuviera antes en vez de apagarse y dejar al otro en blanco.
+    const releaseScope = acquireScope(trackIndex);
     let raf = 0;
 
     const re = new Float32Array(FFT_N);
@@ -589,7 +593,7 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
 
     return () => {
       cancelAnimationFrame(raf);
-      engine.setScope(false);
+      releaseScope();
     };
   }, [trackIndex, slotIndex]);
 

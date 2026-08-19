@@ -7,6 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import { engine, ensureAudioReady } from '../state/app';
+import { acquireScope } from '../state/scope-owner';
 import { useUiStore } from '../state/ui';
 import './scope.css';
 
@@ -56,7 +57,9 @@ export function ScopePanel() {
 
   useEffect(() => {
     ensureAudioReady();
-    engine.setScope(true);
+    // Préstamo con recuento: el EQ del mixer usa el MISMO tap del kernel y,
+    // sin esto, plegarlo dejaba esta ventana en blanco para siempre.
+    const releaseScope = acquireScope(0);
     let raf = 0;
 
     const re = new Float32Array(FFT_N);
@@ -165,7 +168,7 @@ export function ScopePanel() {
 
     return () => {
       cancelAnimationFrame(raf);
-      engine.setScope(false);
+      releaseScope();
     };
   }, []);
 
