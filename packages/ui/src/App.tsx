@@ -3,6 +3,7 @@ import './theme/base.css';
 import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
 import { MenuBar } from './shell/MenuBar';
+import { AboutDialog } from './shell/AboutDialog';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
 import { Browser } from './browser';
@@ -37,6 +38,7 @@ export function App() {
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
+  const aboutOpen = useUiStore((s) => s.aboutOpen);
   const notice = useProjectFile((s) => s.notice);
   const bounceBusy = useBounceStore((s) => s.busy);
   const bounceNotice = useBounceStore((s) => s.notice);
@@ -105,6 +107,7 @@ export function App() {
         )}
       </div>
       <CommandPalette />
+      {aboutOpen && <AboutDialog />}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
       {(bounceBusy ?? bounceNotice ?? notice) && (
         <div className="app-notice popup">{bounceBusy ?? bounceNotice ?? notice}</div>

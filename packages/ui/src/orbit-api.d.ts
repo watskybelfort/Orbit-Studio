@@ -21,8 +21,25 @@ interface OrbitServerStatus {
   hostHonored?: boolean;
 }
 
+interface OrbitAppInfo {
+  /** Version de la app (app.getVersion() -> package.json de verdad). */
+  version: string;
+  electron: string;
+  chrome: string;
+  node: string;
+  platform: string;
+  arch: string;
+  /** true si corre sin empaquetar (npm run dev). */
+  dev: boolean;
+  /** Carpeta de datos del usuario (ajustes, versiones, grabaciones). */
+  userData: string;
+}
+
 interface OrbitApi {
-  readonly version: string;
+  /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
+  readonly app: {
+    info(): Promise<OrbitAppInfo>;
+  };
   readonly window: {
     minimize(): Promise<void>;
     /** Alterna maximizar/restaurar; devuelve el estado resultante. */

@@ -37,6 +37,7 @@ import {
 } from '../palette/default-commands';
 import { importMidi, newProject, newProjectFromTemplate, openProject, saveProject } from '../state/project-file';
 import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
+import { usePaletteStore } from '../palette';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
@@ -163,6 +164,18 @@ export function MenuBar() {
       { label: 'Colaboración…', icon: <IconCollab />, action: () => toggleWindow('collab') },
       { label: '', separator: true },
       { label: 'Ajustes', icon: <IconSettings />, shortcut: 'F10', action: () => toggleWindow('settings') },
+    ],
+    Ayuda: [
+      {
+        label: 'Acerca de Orbit Studio…',
+        action: () => useUiStore.setState({ aboutOpen: true }),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Paleta de comandos…',
+        shortcut: 'Ctrl+K',
+        action: () => usePaletteStore.getState().togglePalette(),
+      },
     ],
   };
 

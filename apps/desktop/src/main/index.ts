@@ -495,6 +495,25 @@ function registerIpc(): void {
     return windowOf(event.sender)?.isMaximized() ?? false;
   });
 
+  /**
+   * Ficha de la app para el "Acerca de".
+   *
+   * La versión sale de `app.getVersion()`, que lee el package.json de verdad:
+   * así no hay un número escrito a mano que se quede viejo en cuanto se saca
+   * una release — que es justo lo que le pasaba al `version: '0.1.0'` del
+   * preload, dos años de versiones por detrás.
+   */
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    platform: process.platform,
+    arch: process.arch,
+    dev: !app.isPackaged,
+    userData: app.getPath('userData'),
+  }));
+
   // Solo QA (con ORBIT_DEBUG_PORT): la ventana se pone siempre-encima a sí
   // misma para capturas de pantalla — sin SetForegroundWindow, que Windows
   // bloquea desde procesos en segundo plano y dejaría la captura sobre otra app.

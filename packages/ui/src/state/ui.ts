@@ -73,6 +73,8 @@ export interface UiState {
   compact: boolean;
   /** Semáforo macOS en la barra de título (persistido en settings). */
   trafficLights: boolean;
+  /** Diálogo "Acerca de" (versión de la app) abierto. */
+  aboutOpen: boolean;
 
   openWindow: (id: WindowId) => void;
   closeWindow: (id: WindowId) => void;
@@ -175,6 +177,7 @@ export const useUiStore = create<UiState>((set) => ({
   claudePanelOpen: false,
   compact: false,
   trafficLights: false,
+  aboutOpen: false,
 
   openWindow: (id) =>
     set((s) => {

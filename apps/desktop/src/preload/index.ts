@@ -20,8 +20,25 @@ export interface OrbitServerStatus {
   hostHonored?: boolean;
 }
 
+export interface OrbitAppInfo {
+  /** Version de la app (app.getVersion() -> package.json de verdad). */
+  version: string;
+  electron: string;
+  chrome: string;
+  node: string;
+  platform: string;
+  arch: string;
+  /** true si corre sin empaquetar (npm run dev). */
+  dev: boolean;
+  /** Carpeta de datos del usuario (ajustes, versiones, grabaciones). */
+  userData: string;
+}
+
 export interface OrbitApi {
-  readonly version: string;
+  /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
+  readonly app: {
+    info(): Promise<OrbitAppInfo>;
+  };
   readonly window: {
     minimize(): Promise<void>;
     /** Alterna maximizar/restaurar; devuelve el estado resultante. */
@@ -166,7 +183,9 @@ export interface OrbitApi {
 }
 
 const api: OrbitApi = {
-  version: '0.1.0',
+  app: {
+    info: () => ipcRenderer.invoke('app:info'),
+  },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),

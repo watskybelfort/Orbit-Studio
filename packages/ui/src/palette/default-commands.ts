@@ -282,6 +282,13 @@ export function registerDefaultCommands(): void {
         keywords: 'zen clean limpio ocultar paneles libreria',
         run: () => useUiStore.setState((s) => ({ compact: !s.compact })),
       },
+      {
+        id: 'ver.acerca-de',
+        title: 'Acerca de Orbit Studio',
+        group: 'Ver',
+        keywords: 'version build about electron chrome node info',
+        run: () => useUiStore.setState({ aboutOpen: true }),
+      },
       // Transporte
       {
         id: 'transporte.play',
