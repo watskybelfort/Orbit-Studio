@@ -19,6 +19,12 @@
 import * as decoding from 'lib0/decoding';
 import * as encoding from 'lib0/encoding';
 import { isCollabRole, type CollabRole } from './roles';
+import {
+  AUTH_MAX_ITERATIONS,
+  AUTH_MIN_ITERATIONS,
+  parseRoomAuth,
+  type RoomAuthRecord,
+} from './room-auth';
 
 /** Tipo de mensaje del protocolo de sala (0 sync · 1 awareness · 2 control). */
 export const MESSAGE_CONTROL = 2;
@@ -31,7 +37,21 @@ export type ControlMessage =
   /** Productor → servidor: cambia el rol de otro. */
   | { type: 'setRole'; client: number; role: CollabRole }
   /** Servidor → el que se pasó: su comando no entró al log. */
-  | { type: 'denied'; reason: string; command?: string };
+  | { type: 'denied'; reason: string; command?: string }
+  /**
+   * Servidor → el que llama a la puerta: esta sala tiene contraseña. Con la
+   * sal y las iteraciones el cliente deriva su clave, y con el nonce (de un
+   * solo uso) firma la prueba. Ver room-auth.ts.
+   */
+  | { type: 'challenge'; salt: string; iterations: number; nonce: string }
+  /** Cliente → servidor: la prueba de que sabe la contraseña (no la contraseña). */
+  | { type: 'auth'; proof: string }
+  /** Servidor → el que acertó: pasa; el sync empieza AHORA. */
+  | { type: 'authOk' }
+  /** Productor → servidor: pon (o quita, con null) la contraseña de la sala. */
+  | { type: 'setPassword'; auth: RoomAuthRecord | null }
+  /** Servidor → todos: si la sala está protegida (para pintar el candado). */
+  | { type: 'roomAuth'; protected: boolean };
 
 export function encodeControl(message: ControlMessage): Uint8Array {
   const encoder = encoding.createEncoder();
@@ -89,6 +109,38 @@ export function parseControl(json: string): ControlMessage | null {
       return typeof command === 'string'
         ? { type: 'denied', reason, command }
         : { type: 'denied', reason };
+    }
+    case 'challenge': {
+      const salt = o['salt'];
+      const nonce = o['nonce'];
+      const iterations = o['iterations'];
+      if (typeof salt !== 'string' || typeof nonce !== 'string') return null;
+      if (typeof iterations !== 'number' || !Number.isInteger(iterations)) return null;
+      // Las iteraciones las manda el OTRO lado: si se aceptara un 1, cualquiera
+      // que se ponga en medio convertiría el PBKDF2 en un hash de un vistazo.
+      if (iterations < AUTH_MIN_ITERATIONS || iterations > AUTH_MAX_ITERATIONS) return null;
+      return { type: 'challenge', salt, iterations, nonce };
+    }
+    case 'auth': {
+      const proof = o['proof'];
+      // Una prueba es SHA-256 en base64: 44 caracteres. Un megabyte de "prueba"
+      // no se mira siquiera.
+      if (typeof proof !== 'string' || proof.length > 128) return null;
+      return { type: 'auth', proof };
+    }
+    case 'authOk':
+      return { type: 'authOk' };
+    case 'setPassword': {
+      const auth = o['auth'];
+      if (auth === null) return { type: 'setPassword', auth: null };
+      const record = parseRoomAuth(auth);
+      return record ? { type: 'setPassword', auth: record } : null;
+    }
+    case 'roomAuth': {
+      const isProtected = o['protected'];
+      return typeof isProtected === 'boolean'
+        ? { type: 'roomAuth', protected: isProtected }
+        : null;
     }
     default:
       return null;

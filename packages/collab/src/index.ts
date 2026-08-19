@@ -31,6 +31,24 @@ export {
   type ControlMessage,
 } from './control';
 
+export {
+  AUTH_ITERATIONS,
+  AUTH_MAX_ITERATIONS,
+  AUTH_MAX_PASSWORD,
+  AUTH_MIN_ITERATIONS,
+  authMessage,
+  deriveClientKey,
+  fromBase64,
+  makeProof,
+  makeRoomAuth,
+  parseRoomAuth,
+  randomNonce,
+  timingSafeEqual,
+  toBase64,
+  verifyProof,
+  type RoomAuthRecord,
+} from './room-auth';
+
 export { adpcmBytes, decodeAdpcm, encodeAdpcm } from './adpcm';
 
 export {
