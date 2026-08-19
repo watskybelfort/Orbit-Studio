@@ -955,6 +955,17 @@ export class KernelCore {
     const spb = this.tempo / 60 / this.sr; // beats por sample
     const blockBeats = n * spb;
 
+    // Dónde ABRIÓ el bloque y, si el loop da la vuelta dentro de él, en qué
+    // muestra salta y a qué beat se reanuda. Lo que recorre el bloque muestra a
+    // muestra (clips de audio y metrónomo) no puede deducirlo restando
+    // `blockBeats` a `this.posBeats`: al envolver, `posBeats` ya es el beat de
+    // DESPUÉS del salto y esa resta apunta a un tramo que no se ha tocado.
+    const blockStartBeat = this.posBeats;
+    /** Muestra en la que el loop envuelve dentro de este bloque (-1 = no lo hace). */
+    let wrapAt = -1;
+    /** Beat en el que se reanuda tras el salto (solo válido con `wrapAt >= 0`). */
+    let wrapBeat = 0;
+
     if (this.playing) {
       const end = this.posBeats + blockBeats;
       if (this.loopEnabled && end > this.loopEnd && this.posBeats < this.loopEnd) {
@@ -976,6 +987,10 @@ export class KernelCore {
         this.resyncCursor();
         this.triggerRange(this.loopStart, this.loopStart + remainBeats, wrapSamples, spb);
         this.posBeats = this.loopStart + remainBeats;
+        // Se apunta DESPUÉS del snapshot en cola: `applyQueued` puede haber
+        // movido `loopStart`, y lo que vale es de dónde se reanuda de verdad.
+        wrapAt = Math.min(n, Math.max(0, wrapSamples));
+        wrapBeat = this.loopStart;
       } else {
         this.triggerRange(this.posBeats, end, 0, spb);
         this.posBeats = end;
@@ -1080,15 +1095,23 @@ export class KernelCore {
 
     // Clips de audio (posición determinista desde el timeline)
     if (this.playing) {
-      // Segundos del timeline en el arranque del bloque, integrando el mapa de
-      // tempo. Dentro del bloque el tempo es constante, así que a partir de aquí
-      // el avance del sample es tiempo real (i / sr) y no salta si un marcador
-      // cambia el tempo a mitad del clip.
-      const blockStartSec = this.secondsAtBeat(this.posBeats - blockBeats);
+      // Segundos del timeline en el arranque de CADA tramo, integrando el mapa
+      // de tempo. Dentro del bloque el tempo es constante, así que a partir de
+      // aquí el avance del sample es tiempo real (i / sr) y no salta si un
+      // marcador cambia el tempo a mitad del clip.
+      const preStartSec = this.secondsAtBeat(blockStartBeat);
+      const postStartSec = wrapAt >= 0 ? this.secondsAtBeat(wrapBeat) : 0;
+      const preCount = wrapAt >= 0 ? wrapAt : n;
+      const postCount = wrapAt >= 0 ? n - wrapAt : 0;
       for (const clip of p.audioClips) {
-        const relBeat = this.posBeats - blockBeats - clip.start;
-        const endRel = relBeat + blockBeats;
-        if (endRel <= 0 || relBeat >= clip.length) continue;
+        // Con el loop envuelto el bloque cubre DOS ventanas de beats disjuntas:
+        // el clip entra si toca cualquiera de las dos.
+        const clipEnd = clip.start + clip.length;
+        const preHits =
+          preCount > 0 && blockStartBeat + preCount * spb > clip.start && blockStartBeat < clipEnd;
+        const postHits =
+          postCount > 0 && wrapBeat + postCount * spb > clip.start && wrapBeat < clipEnd;
+        if (!preHits && !postHits) continue;
         const data = this.samples.get(clip.sampleId);
         if (!data) continue;
         const track = Math.min(nTracks - 1, Math.max(0, clip.mixerTrack));
@@ -1121,12 +1144,18 @@ export class KernelCore {
         const lastIdx = data.left.length - 1;
 
         for (let i = 0; i < n; i++) {
-          const beatAt = relBeat + i * spb;
+          // Tras el salto, el sample `i` NO continúa al anterior en el timeline:
+          // se reanuda en `wrapBeat`. Sin este tramo aparte, cada vuelta del
+          // loop se comía las muestras que quedaban por delante del salto.
+          const wrapped = wrapAt >= 0 && i >= wrapAt;
+          const segFrom = wrapped ? i - wrapAt : i;
+          const beatAt = (wrapped ? wrapBeat : blockStartBeat) + segFrom * spb - clip.start;
           if (beatAt < 0 || beatAt >= clip.length) continue;
           // Segundos reales desde el arranque del clip: lo acumulado hasta el
-          // inicio del bloque (del mapa de tempo) más el avance dentro del bloque
+          // inicio del TRAMO (del mapa de tempo) más el avance dentro del tramo
           // a tiempo real. Sustituye a beatAt × secPerBeat, que saltaba al tempo.
-          const elapsedSec = blockStartSec - clipStartSec + i / this.sr;
+          const elapsedSec =
+            (wrapped ? postStartSec : preStartSec) - clipStartSec + segFrom / this.sr;
           let l = 0;
           let r = 0;
           if (useGrains) {
@@ -1190,10 +1219,12 @@ export class KernelCore {
     // sample [b, b+spb). (La versión anterior exigía nearest > round(startBeat),
     // que con bloques de 128 samples nunca se cumplía: no sonaba jamás.)
     if (this.metronome && this.playing) {
-      const startBeat = this.posBeats - blockBeats;
       const beatsPerBar = Math.max(1, this.timeSigNum);
       for (let i = 0; i < n; i++) {
-        const b = startBeat + i * spb;
+        // Mismo troceado que los clips: pasada la vuelta del loop, el resto del
+        // bloque cuenta beats desde `wrapBeat` y no desde el arranque.
+        const wrapped = wrapAt >= 0 && i >= wrapAt;
+        const b = (wrapped ? wrapBeat : blockStartBeat) + (wrapped ? i - wrapAt : i) * spb;
         const beatIdx = Math.ceil(b - 1e-9);
         if (beatIdx >= 0 && beatIdx < b + spb - 1e-9) {
           // Flanco de beat: click (agudo y más fuerte en el 1 del compás).
