@@ -109,6 +109,14 @@ export interface OrbitApi {
     scan(dir: string): Promise<{ file: string; name: string }[]>;
     /** Bytes de un archivo dentro de una carpeta registrada. */
     read(file: string): Promise<ArrayBuffer>;
+    /**
+     * Mete en la lista blanca una carpeta recién elegida con `pick()`. No va por
+     * `settings.set` a propósito: esa lista es la guarda de `scan`/`read`, y no
+     * la puede escribir quien tiene que cumplirla. Devuelve la lista resultante.
+     */
+    register(dir: string): Promise<string[]>;
+    /** La saca de la lista blanca. Devuelve la lista resultante. */
+    forget(dir: string): Promise<string[]>;
   };
   readonly recording: {
     /** Guarda una toma en userData/recordings; devuelve el nombre de archivo. */
@@ -230,6 +238,8 @@ const api: OrbitApi = {
     pick: () => ipcRenderer.invoke('folder:pick'),
     scan: (dir) => ipcRenderer.invoke('folder:scan', dir),
     read: (file) => ipcRenderer.invoke('folder:read', file),
+    register: (dir) => ipcRenderer.invoke('folder:register', dir),
+    forget: (dir) => ipcRenderer.invoke('folder:forget', dir),
   },
   recording: {
     save: (name, data) => ipcRenderer.invoke('recording:save', name, data),

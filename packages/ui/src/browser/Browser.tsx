@@ -241,10 +241,10 @@ export function Browser() {
     if (!api) return;
     const dir = await api.folder.pick();
     if (!dir || folders.includes(dir)) return;
-    const next = [...folders, dir];
+    // Registrar ANTES de escanear: el main valida contra su lista blanca, y esa
+    // lista solo la escribe él, con carpetas salidas de su propio diálogo.
+    const next = await api.folder.register(dir);
     setFolders(next);
-    // Persistir ANTES de escanear: el main valida contra settings.
-    await api.settings.set({ userFolders: next });
     try {
       const files = await api.folder.scan(dir);
       setFolderFiles((p) => ({ ...p, [dir]: files }));
@@ -314,9 +314,8 @@ export function Browser() {
   };
 
   const removeFolder = (dir: string) => {
-    const next = folders.filter((f) => f !== dir);
-    setFolders(next);
-    void window.orbit?.settings.set({ userFolders: next });
+    setFolders(folders.filter((f) => f !== dir));
+    void window.orbit?.folder.forget(dir);
     forgetAnalysis(dir);
   };
 

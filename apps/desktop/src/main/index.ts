@@ -523,10 +523,31 @@ function registerIpc(): void {
 
   ipcMain.handle('settings:get', () => readSettings());
 
+  /**
+   * Claves que NO se escriben por este canal.
+   *
+   * `userFolders` es la única lista blanca que protege `folder:scan` y
+   * `folder:read` — la regla de "solo las carpetas que el usuario eligió con el
+   * diálogo". Si se puede reescribir por el canal genérico de ajustes, la regla
+   * la acaba poniendo quien la tenía que cumplir: un
+   * `settings.set({ userFolders: ['C:\\'] })` y la guarda deja de guardar nada.
+   * Las carpetas se registran por su canal propio, que solo acepta lo que salió
+   * del diálogo.
+   */
+  const SETTINGS_LOCKED = new Set(['userFolders']);
+
   ipcMain.handle('settings:set', (_event, patch: unknown) => {
     const base = readSettings();
-    const merged: Settings =
-      typeof patch === 'object' && patch !== null ? { ...base, ...(patch as Settings) } : base;
+    if (typeof patch !== 'object' || patch === null) return base;
+    const clean: Settings = {};
+    for (const [key, value] of Object.entries(patch as Settings)) {
+      if (SETTINGS_LOCKED.has(key)) {
+        console.warn(`[settings] "${key}" no se escribe por settings:set: tiene canal propio`);
+        continue;
+      }
+      clean[key] = value;
+    }
+    const merged: Settings = { ...base, ...clean };
     writeSettings(merged);
     return merged;
   });
@@ -746,6 +767,14 @@ function registerIpc(): void {
     return Array.isArray(raw) ? raw.filter((f): f is string => typeof f === 'string') : [];
   }
 
+  /**
+   * Carpetas que el usuario ha elegido con el diálogo EN ESTA SESIÓN. Es lo
+   * único que `folder:register` acepta: así la lista blanca solo crece con
+   * carpetas que una persona ha señalado de verdad, no con lo que diga el
+   * renderer.
+   */
+  const pickedFolders = new Set<string>();
+
   ipcMain.handle('folder:pick', async (event) => {
     const win = windowOf(event.sender);
     const options = {
@@ -756,7 +785,35 @@ function registerIpc(): void {
       ? await dialog.showOpenDialog(win, options)
       : await dialog.showOpenDialog(options);
     const dir = result.filePaths[0];
-    return result.canceled || !dir ? null : resolvePath(dir);
+    if (result.canceled || !dir) return null;
+    const full = resolvePath(dir);
+    pickedFolders.add(full);
+    return full;
+  });
+
+  /** Añade a la lista blanca una carpeta recién elegida en el diálogo. */
+  ipcMain.handle('folder:register', (_event, dir: unknown) => {
+    if (typeof dir !== 'string') throw new Error('folder:register requiere la ruta');
+    const full = resolvePath(dir);
+    if (!pickedFolders.has(full)) {
+      throw new Error('Esa carpeta no se ha elegido en el diálogo de esta sesión');
+    }
+    const list = userFolders();
+    if (!list.some((f) => resolvePath(f) === full)) {
+      writeSettings({ ...readSettings(), userFolders: [...list, full] });
+    }
+    return userFolders();
+  });
+
+  /** Quita una carpeta de la lista blanca (quitar permisos no necesita permiso). */
+  ipcMain.handle('folder:forget', (_event, dir: unknown) => {
+    if (typeof dir !== 'string') throw new Error('folder:forget requiere la ruta');
+    const full = resolvePath(dir);
+    writeSettings({
+      ...readSettings(),
+      userFolders: userFolders().filter((f) => resolvePath(f) !== full),
+    });
+    return userFolders();
   });
 
   ipcMain.handle('folder:scan', async (_event, dir: unknown) => {
@@ -917,11 +974,23 @@ function registerIpc(): void {
       redirect: 'follow',
     });
     if (!response.ok) throw new Error(`La galería respondió ${response.status}`);
-    const text = await response.text();
-    if (text.length > GALLERY_MAX_BYTES) {
+    // El tope se mira ANTES de tragarse el cuerpo, y en BYTES.
+    //
+    // `await response.text()` mete la respuesta entera en memoria del proceso
+    // main y solo después comprobaba el tamaño: una galería que conteste
+    // cientos de MB los cargaba enteros antes de que nadie los rechazara (el
+    // timeout solo cubre las descargas lentas, no las rápidas). Y `text.length`
+    // cuenta unidades UTF-16, no bytes, así que el tope real ni siquiera era el
+    // anunciado.
+    const declared = Number(response.headers.get('content-length') ?? '0');
+    if (declared > GALLERY_MAX_BYTES) {
+      throw new Error('La galería pasa del tope de 2 MB');
+    }
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.byteLength > GALLERY_MAX_BYTES) {
       throw new Error('La respuesta pasa del tope de 2 MB');
     }
-    return text;
+    return body.toString('utf8');
   });
 
   ipcMain.handle('plugins:write', async (_event, file: unknown, source: unknown) => {
