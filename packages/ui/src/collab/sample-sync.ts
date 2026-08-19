@@ -78,8 +78,20 @@ export function sampleSetChanged(): boolean {
   return true;
 }
 
+/**
+ * Generación de la sala. Sube en cada reset y la pasada en vuelo la mira en
+ * cada vuelta: sin esto, salir de una sala a mitad de sincronización (cada
+ * sample es un `await` por IPC; con veinte sonidos son cientos de ms) dejaba
+ * que la pasada VIEJA siguiera corriendo después del reset y volviera a llenar
+ * `loadedIds` con lo de la sala muerta. En la sala siguiente esos samples se
+ * saltaban enteros —no se publicaban nunca— y, como en local sí estaban
+ * cargados, tampoco salían como ausentes: al otro le sonaban mudos y sin pista.
+ */
+let generation = 0;
+
 /** Olvida lo aprendido (al salir de la sala o cambiar de proyecto). */
 export function resetSampleSync(): void {
+  generation++;
   loadedIds.clear();
   noLocalBytes.clear();
   publishAttempts.clear();
@@ -98,23 +110,27 @@ export async function syncSamplesWithRoom(session: CollabSession): Promise<Sampl
     return lastReport;
   }
   running = true;
+  const gen = generation;
   try {
     do {
       rerun = false;
-      lastReport = await pass(session);
-    } while (rerun);
+      lastReport = await pass(session, gen);
+    } while (rerun && gen === generation);
   } finally {
     running = false;
   }
   return lastReport;
 }
 
-async function pass(session: CollabSession): Promise<SampleSyncReport> {
+async function pass(session: CollabSession, gen: number): Promise<SampleSyncReport> {
   const missing: string[] = [];
   let loaded = 0;
   let published = 0;
 
   for (const ref of Object.values(store.project.samples)) {
+    // La sala ya no es esta: se corta en seco en vez de seguir apuntando cosas
+    // de la anterior sobre el estado recién reseteado.
+    if (gen !== generation) return { loaded, published, missing };
     if (loadedIds.has(ref.id)) continue;
 
     // 1) Bytes de esta máquina: pack de fábrica, carpeta del usuario o

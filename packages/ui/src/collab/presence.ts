@@ -15,6 +15,12 @@ const THROTTLE_MS = 120;
 let lastSentAt = 0;
 let lastJson = '';
 
+/** Igual que en follow.ts: el dedupe es por contenido y no sabe de salas. */
+export function resetActivityThrottle(): void {
+  lastSentAt = 0;
+  lastJson = '';
+}
+
 export function reportActivity(editor: string, pos?: Omit<PeerActivity, 'editor'>): void {
   const s = getCollabSession();
   if (!s) return;

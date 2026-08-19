@@ -73,17 +73,66 @@ export async function toggleRecording(): Promise<void> {
 
 /** Bandera de cancelación mientras corre la cuenta atrás. */
 let cancelCountIn = false;
+/** Hay un arranque de grabación en vuelo (ver la guarda de `startRecording`). */
+let starting = false;
+
+/**
+ * Cuenta atrás SIN sitio por delante (grabar desde el compás 1): el transporte
+ * se queda parado en el beat objetivo y se espera un compás por cada uno de la
+ * cuenta, al tempo del proyecto y con el metrónomo puesto. Cuando termina, el
+ * transporte arranca donde tenía que arrancar.
+ */
+async function waitCountIn(
+  bars: number,
+  beatsPerBar: number,
+  target: number,
+  wasMetronome: boolean,
+): Promise<number | null> {
+  useUiStore.setState({ metronome: true, positionBeats: target });
+  engine.setMetronome(true);
+  engine.seek(target);
+  useRecorderStore.setState({ phase: 'countin', countdown: bars, error: null });
+  const barMs = (beatsPerBar * 60_000) / Math.max(1, store.project.tempo);
+  for (let left = bars; left > 0 && !cancelCountIn; left--) {
+    useRecorderStore.setState({ countdown: left });
+    await new Promise((r) => setTimeout(r, barMs));
+  }
+  if (!wasMetronome) {
+    useUiStore.setState({ metronome: false });
+    engine.setMetronome(false);
+  }
+  useRecorderStore.setState({ countdown: 0 });
+  if (cancelCountIn) {
+    cancelCountIn = false;
+    useRecorderStore.setState({ phase: 'idle' });
+    return null;
+  }
+  // El transporte NO venía rodando: aquí es donde empieza a sonar.
+  await play();
+  return target;
+}
 
 /**
  * Cuenta atrás antes de grabar: el transporte arranca un par de compases
  * antes con el metrónomo puesto y la toma empieza EXACTA en el beat donde
  * estaba el caret, que es donde el usuario quería empezar a cantar.
  */
-async function runCountIn(bars: number, target: number): Promise<boolean> {
+async function runCountIn(bars: number, target: number): Promise<number | null> {
   const beatsPerBar = Math.max(1, store.project.timeSig.num);
   const from = Math.max(0, target - bars * beatsPerBar);
   const wasMetronome = useUiStore.getState().metronome;
   cancelCountIn = false;
+
+  // Grabando desde el compás 1 no hay sitio ANTES para el pre-roll: `from` se
+  // recorta a 0, que ya es `target`, y la condición de salida del bucle se
+  // cumplía en la primera vuelta — la cuenta atrás no contaba nada y la
+  // grabación entraba al instante. Y es el caso más normal de todos: arrancar
+  // la app, o darle a Stop, deja el caret justo ahí. Sin sitio por delante, la
+  // cuenta se hace con el transporte PARADO y el metrónomo puesto.
+  if (target - from <= 1e-6) {
+    return waitCountIn(bars, beatsPerBar, target, wasMetronome);
+  }
+
   useUiStore.setState({ metronome: true, positionBeats: from });
   engine.setMetronome(true);
   engine.seek(from);
@@ -111,9 +160,10 @@ async function runCountIn(bars: number, target: number): Promise<boolean> {
     cancelCountIn = false;
     stopPlayback();
     useRecorderStore.setState({ phase: 'idle' });
-    return false;
+    return null;
   }
-  return true;
+  // El transporte viene rodando desde la cuenta: aquí es donde está de verdad.
+  return currentBeat();
 }
 
 async function startRecording(): Promise<void> {
@@ -121,6 +171,13 @@ async function startRecording(): Promise<void> {
     useRecorderStore.setState({ error: 'Grabar requiere la app de escritorio' });
     return;
   }
+  // `toggleRecording` decide por `phase`, pero `phase` no pasa a 'recording'
+  // hasta DESPUÉS de pedir el micro: dos clics rápidos en Rec entraban los dos.
+  // El segundo pisaba `media`, la referencia al primer stream se perdía y sus
+  // tracks no los paraba nadie —el micro se quedaba abierto hasta cerrar la
+  // app— mientras los dos MediaRecorder empujaban al mismo array de trozos.
+  if (starting) return;
+  starting = true;
   try {
     ensureAudioReady();
     media = await streamFactory();
@@ -133,15 +190,17 @@ async function startRecording(): Promise<void> {
 
     const bars = useRecorderStore.getState().countInBars;
     if (bars > 0 && !useUiStore.getState().playing) {
-      const go = await runCountIn(bars, startBeat);
-      if (!go) {
+      const at = await runCountIn(bars, startBeat);
+      if (at === null) {
         media?.getTracks().forEach((t) => t.stop());
         media = null;
         recorder = null;
         return;
       }
-      // El transporte ya viene rodando desde la cuenta: la toma entra aquí.
-      startBeat = currentBeat();
+      // Dónde entra la toma lo dice la cuenta atrás, no `currentBeat()`: ese
+      // sale del último frame de medidores y puede ir por detrás del seek, que
+      // colocaría el clip en el beat equivocado.
+      startBeat = at;
       recorder.start();
       useRecorderStore.setState({ phase: 'recording', error: null });
       return;
@@ -159,6 +218,8 @@ async function startRecording(): Promise<void> {
       phase: 'idle',
       error: err instanceof Error ? err.message : 'No se pudo abrir el micro',
     });
+  } finally {
+    starting = false;
   }
 }
 

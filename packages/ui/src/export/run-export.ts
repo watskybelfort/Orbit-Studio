@@ -38,6 +38,7 @@ import {
   gainToTarget,
   renderProject,
   renderStems,
+  secondsAtBeat,
   type FlacDepth,
   type RenderResult,
   type WavDepth,
@@ -312,12 +313,22 @@ async function renderAndWrite(
   let mix = canUseRenderWorker()
     ? await renderProjectInWorker(compiled, renderOpts)
     : renderProject(compiled, renderOpts);
-  const spb = 60 / proj.tempo;
+  // El recorte convierte beats a segundos con el MAPA de tempo, que es con el
+  // que se renderizó. Con el tempo plano del proyecto, un marcador que cambie
+  // el tempo sacaba la región por otro sitio (en un 120 con marcador a 75, los
+  // beats 16→32 salían como 8,0-16,0 s en vez de 12,8-25,6 s). Y si la cuenta
+  // se salía del render, se devolvía la canción ENTERA sin decir nada mientras
+  // el panel seguía anunciando "Región marcada".
   const cut = (res: RenderResult): RenderResult => {
     if (!region) return res;
-    const s0 = Math.max(0, Math.floor(region.start * spb * res.sampleRate));
-    const s1 = Math.min(res.left.length, Math.ceil(region.end * spb * res.sampleRate));
-    return s1 > s0 ? sliceRender(res, s0, s1) : res;
+    const startSec = secondsAtBeat(compiled.tempoMap, region.start, proj.tempo);
+    const endSec = secondsAtBeat(compiled.tempoMap, region.end, proj.tempo);
+    const s0 = Math.max(0, Math.floor(startSec * res.sampleRate));
+    const s1 = Math.min(res.left.length, Math.ceil(endSec * res.sampleRate));
+    if (s1 <= s0) {
+      throw new Error('La región marcada cae fuera de lo que suena en la canción.');
+    }
+    return sliceRender(res, s0, s1);
   };
   mix = cut(mix);
 

@@ -85,6 +85,17 @@ function currentView(ui: UiState): PeerView | null {
 let lastPublished = '';
 let lastPublishedAt = 0;
 
+/**
+ * Olvida lo último publicado. Hace falta al salir de una sala: el deduplicado
+ * es por CONTENIDO, así que si tu estado de UI no cambió entre una sala y la
+ * siguiente, `setView` no se llamaba en la nueva y los demás te veían sin
+ * vista — nadie podía seguirte hasta que movieras algo.
+ */
+export function resetViewPublish(): void {
+  lastPublished = '';
+  lastPublishedAt = 0;
+}
+
 /** Publica nuestra vista (throttle + dedupe). Sin sesión no cuesta nada. */
 function publishView(ui: UiState): void {
   const session = getCollabSession();

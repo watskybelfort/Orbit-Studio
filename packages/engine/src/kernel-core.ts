@@ -17,6 +17,7 @@ import type {
 } from './protocol';
 import { createEffect, type EffectUnit } from './dsp/effects';
 import { Biquad } from './dsp/filters';
+import { secondsAtBeat } from './tempo';
 import { Voice, createVoice, type SampleData, type VoiceContext } from './dsp/voices';
 
 export const MAX_BLOCK = 128;
@@ -710,17 +711,9 @@ export class KernelCore {
    * del clip hace que la lectura del sample salte.
    */
   private secondsAtBeat(beat: number): number {
-    const map = this.project?.tempoMap;
-    if (!map || map.length === 0) return (beat * 60) / this.tempo;
-    let sec = 0;
-    for (let i = 0; i < map.length; i++) {
-      const segStart = map[i]!.beat;
-      if (beat <= segStart) break;
-      const segEnd = i + 1 < map.length ? map[i + 1]!.beat : Infinity;
-      sec += ((Math.min(beat, segEnd) - segStart) * 60) / map[i]!.tempo;
-      if (beat <= segEnd) break;
-    }
-    return sec;
+    // La cuenta vive en tempo.ts: la necesita también el recorte del export, y
+    // tenerla duplicada era justo lo que hacía que allí se usara tempo plano.
+    return secondsAtBeat(this.project?.tempoMap, beat, this.tempo);
   }
 
   // ── Automatización ────────────────────────────────────────────────────────

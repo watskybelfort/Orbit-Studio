@@ -25,6 +25,8 @@ import {
 } from '@orbit/collab';
 import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
 import { resetSampleSync, sampleSetChanged, syncSamplesWithRoom } from './sample-sync';
+import { resetViewPublish } from './follow';
+import { resetActivityThrottle } from './presence';
 import { playIncomingChunk, resetMasterStream, setStreamSender } from './master-stream';
 
 // ── Constantes ───────────────────────────────────────────────────────────────
@@ -194,6 +196,11 @@ function teardownSession(): void {
   // ninguna sala a la que culpar.
   setEngineSyncFrozen(false);
   resetSampleSync();
+  // Los dedupes de presencia y de vista son POR CONTENIDO y no saben de salas:
+  // sin olvidarlos, entrar en otra sala sin haber tocado nada dejaba tu vista
+  // sin publicar y nadie podía seguirte.
+  resetViewPublish();
+  resetActivityThrottle();
   if (deniedTimer !== null) {
     clearTimeout(deniedTimer);
     deniedTimer = null;
