@@ -33,6 +33,7 @@ import {
 } from '../theme/theme-file';
 import { UI_SCALE_MAX, UI_SCALE_MIN } from '../theme/ui-scale';
 import { useUiStore } from '../state/ui';
+import { forgetWorkspace, setWorkspaceMemory, workspaceMemoryOn } from '../state/workspace-memory';
 import './settings.css';
 
 const ACCENT_PALETTE = [
@@ -83,6 +84,7 @@ export function SettingsPanel() {
   const [acrylicOk, setAcrylicOk] = useState(true);
   const [fileNotice, setFileNotice] = useState<FileNotice>(null);
   const trafficLights = useUiStore((s) => s.trafficLights);
+  const [rememberLayout, setRememberLayout] = useState(workspaceMemoryOn());
 
   useEffect(() => {
     void (async () => {
@@ -263,6 +265,32 @@ export function SettingsPanel() {
         <span className="set-value">
           {trafficLights ? 'Botones a la izquierda, estilo Mac' : 'Botones Windows a la derecha'}
         </span>
+      </div>
+
+      <div className="set-row">
+        <span className="set-label">Recordar el escritorio</span>
+        <button
+          className={`set-toggle${rememberLayout ? ' on' : ''}`}
+          onClick={() => {
+            const next = !rememberLayout;
+            setRememberLayout(next);
+            setWorkspaceMemory(next, true);
+          }}
+        >
+          <span className="set-toggle-knob" />
+        </button>
+        <span className="set-value">
+          {rememberLayout
+            ? 'Las ventanas vuelven a salir donde las dejaste'
+            : 'Cada arranque sale con la disposición de fábrica'}
+        </span>
+        <button
+          className="set-reset"
+          title="Olvidar la disposición guardada"
+          onClick={forgetWorkspace}
+        >
+          Olvidar
+        </button>
       </div>
 
       <h3 className="set-heading">A mi manera</h3>

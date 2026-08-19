@@ -21,6 +21,7 @@ import {
 } from './state/autosave';
 import { initPresence } from './collab/presence';
 import { restoreDetached } from './state/detached';
+import { initWorkspaceMemory } from './state/workspace-memory';
 import { initClaudeBridge } from './state/claude';
 import { initLiveInput } from './state/live-input';
 import { initPlugins } from './state/plugins';
@@ -53,9 +54,11 @@ export function App() {
     initPresence();
     initLiveInput();
     void initPlugins();
-    // Los editores que se quedaron en su propia ventana vuelven a salir ahí
-    // (y en el monitor donde estaban: el sitio lo recuerda el main).
-    void restoreDetached();
+    // El escritorio vuelve a montarse como lo dejaste y, encima, los editores
+    // que vivían en su propia ventana salen otra vez fuera (y en el monitor
+    // donde estaban: el sitio lo recuerda el main). En ese orden: los
+    // desacoplados mandan sobre la disposición interna.
+    void initWorkspaceMemory().finally(() => restoreDetached());
     registerDefaultCommands();
     // Recuperación: primero mirar si quedó un autosave pendiente, y solo
     // después arrancar el bucle (que no escribe hasta que algo cambie).
