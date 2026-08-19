@@ -32,6 +32,7 @@ import {
 } from './assets';
 import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
 import { MESSAGE_CONTROL, encodeControl, readControlBody } from './control';
+import { AUTH_MAX_PASSWORD, authMessage, makeProof, makeRoomAuth } from './room-auth';
 import {
   MESSAGE_AUDIO,
   encodeAudioChunk,
@@ -99,10 +100,22 @@ export interface CollabSessionOptions {
   /** Rol con el que entramos a la sala (por defecto productor). */
   role?: CollabRole;
   /**
+   * Contraseña de la sala, si la tiene. NO viaja: se queda aquí y sirve para
+   * firmar el desafío que manda el servidor (ver room-auth.ts).
+   */
+  password?: string;
+  /**
    * El servidor cierra la puerta y no vale reintentar: sala llena, servidor
    * lleno o código de sala inválido. Llega con el motivo que mande el server.
    */
   onRejected?: (reason: string) => void;
+  /**
+   * La sala pide contraseña y no tenemos ninguna (o la que hay no vale). El
+   * panel lo usa para pedirla en vez de dejar un "Conectando…" eterno.
+   */
+  onPasswordRequired?: (wrong: boolean) => void;
+  /** La sala tiene (o ha dejado de tener) contraseña: para pintar el candado. */
+  onRoomProtected?: (isProtected: boolean) => void;
   /** Aviso de comando rechazado por permisos (propio o de un remoto). */
   onDenied?: (info: DeniedInfo) => void;
   /**
@@ -144,9 +157,25 @@ export class CollabSession {
   private readonly onRole: ((role: CollabRole) => void) | undefined;
   private readonly onRoles: ((roles: Record<string, CollabRole>) => void) | undefined;
   private readonly onAudio: ((chunk: AudioChunk) => void) | undefined;
+  private readonly onPasswordRequired: ((wrong: boolean) => void) | undefined;
+  private readonly onRoomProtected: ((isProtected: boolean) => void) | undefined;
   /** Contador de trozos emitidos (el que escucha detecta huecos con él). */
   private audioSeq = 0;
   private currentRole: CollabRole;
+  /**
+   * La contraseña de la sala, en claro y solo aquí: hace falta entera en cada
+   * reconexión (el desafío trae un nonce nuevo cada vez, así que no se puede
+   * guardar la prueba ya firmada y reusarla).
+   */
+  private password = '';
+  /** Esta sala tiene contraseña (lo dice el servidor al entrar). */
+  private roomProtected = false;
+  /**
+   * Hemos mandado una prueba y no sabemos aún si valía. Si el servidor cierra
+   * mientras tanto, es que no valía: eso distingue "contraseña incorrecta" de
+   * "sala llena", que llegan por el mismo camino.
+   */
+  private awaitingAuth = false;
 
   private readonly chatBinding: ChatBinding;
   private readonly assetBinding: SampleAssetBinding;
@@ -173,6 +202,9 @@ export class CollabSession {
     this.onRole = opts.onRole;
     this.onRoles = opts.onRoles;
     this.onAudio = opts.onAudio;
+    this.onPasswordRequired = opts.onPasswordRequired;
+    this.onRoomProtected = opts.onRoomProtected;
+    this.password = opts.password ?? '';
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
@@ -203,12 +235,13 @@ export class CollabSession {
    * (a partir de ahí el binding replica comandos). Si la conexión se cae,
    * reintenta sola con backoff hasta `disconnect()`.
    */
-  connect(url: string, room: string): Promise<void> {
+  connect(url: string, room: string, password?: string): Promise<void> {
     if (this.ws || this.reconnectTimer) {
       return Promise.reject(
         new Error('Ya hay una conexión activa; llama a disconnect() primero'),
       );
     }
+    if (password !== undefined) this.password = password;
     this.url = url.replace(/\/+$/, '');
     this.room = normalizeRoomCode(room);
     this.shouldReconnect = true;
@@ -328,9 +361,83 @@ export class CollabSession {
             : message.reason,
         );
         break;
+      case 'challenge':
+        this.answerChallenge(message.salt, message.iterations, message.nonce);
+        break;
+      case 'authOk':
+        // Hasta aquí el servidor no ha mirado NADA de lo que mandamos: lo del
+        // `onopen` se lo tragó la puerta. El sync empieza ahora.
+        this.awaitingAuth = false;
+        this.sendHandshake();
+        break;
+      case 'roomAuth':
+        this.roomProtected = message.protected;
+        this.onRoomProtected?.(message.protected);
+        break;
       default:
         break;
     }
+  }
+
+  /**
+   * Responde al desafío de la puerta. La contraseña no sale de aquí: lo que
+   * viaja es una firma del nonce que acaba de mandar el servidor, distinta en
+   * cada conexión.
+   */
+  private answerChallenge(salt: string, iterations: number, nonce: string): void {
+    this.roomProtected = true;
+    this.onRoomProtected?.(true);
+    const ws = this.ws;
+    if (this.password === '') {
+      // Sin contraseña no hay nada que firmar. Reintentar a ciegas solo daría
+      // vueltas: se corta aquí y se pide.
+      this.shouldReconnect = false;
+      this.onPasswordRequired?.(false);
+      const error = new Error('Esta sala pide contraseña');
+      if (this.firstSync) {
+        this.firstSync.reject(error);
+        this.firstSync = null;
+      } else {
+        this.onRejected?.(error.message);
+      }
+      ws?.close();
+      return;
+    }
+    this.awaitingAuth = true;
+    void makeProof(this.password, salt, iterations, authMessage(this.room, nonce))
+      .then((proof) => {
+        if (this.ws !== ws) return; // el socket ya no es este
+        this.send(encodeControl({ type: 'auth', proof }));
+      })
+      .catch(() => {
+        if (this.ws !== ws) return;
+        this.awaitingAuth = false;
+        this.shouldReconnect = false;
+        this.onRejected?.('No se pudo firmar la contraseña en este equipo');
+        ws?.close();
+      });
+  }
+
+  /**
+   * Pone (o quita, con null o cadena vacía) la contraseña de la sala. Solo la
+   * atiende el servidor si quien la manda es el productor. Lo que viaja es el
+   * registro derivado, nunca la contraseña.
+   */
+  async setRoomPassword(password: string | null): Promise<void> {
+    const clean = password ?? '';
+    if (clean.length > AUTH_MAX_PASSWORD) {
+      throw new Error(`La contraseña no puede pasar de ${AUTH_MAX_PASSWORD} caracteres`);
+    }
+    const record = clean === '' ? null : await makeRoomAuth(clean);
+    this.send(encodeControl({ type: 'setPassword', auth: record }));
+    // La nuestra también cambia: si se cae la conexión, hay que volver a entrar
+    // con la de ahora, no con la de antes.
+    this.password = clean;
+  }
+
+  /** ¿La sala en la que estamos pide contraseña? */
+  get roomHasPassword(): boolean {
+    return this.roomProtected;
   }
 
   /**
@@ -463,21 +570,9 @@ export class CollabSession {
       if (this.ws !== ws) return;
       this.wsOpen = true;
       this.backoffMs = BACKOFF_START_MS;
-      // El cliente inicia el sync: paso 1.
-      const encoder = encoding.createEncoder();
-      encoding.writeVarUint(encoder, MESSAGE_SYNC);
-      syncProtocol.writeSyncStep1(encoder, this.doc);
-      this.send(encoding.toUint8Array(encoder));
-      // Y publica su presencia.
-      if (this.awareness.getLocalState() !== null) {
-        const aEncoder = encoding.createEncoder();
-        encoding.writeVarUint(aEncoder, MESSAGE_AWARENESS);
-        encoding.writeVarUint8Array(
-          aEncoder,
-          awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID]),
-        );
-        this.send(encoding.toUint8Array(aEncoder));
-      }
+      // Si la sala pide contraseña esto se lo traga la puerta y se repite tras
+      // el authOk; para una sala abierta es el arranque de siempre.
+      this.sendHandshake();
     };
 
     ws.onmessage = (event: MessageEvent) => {
@@ -489,6 +584,28 @@ export class CollabSession {
     ws.onerror = () => {
       // El onclose correspondiente programa la reconexión.
     };
+  }
+
+  /**
+   * El arranque de una conexión: paso 1 del sync y la presencia propia. Está
+   * suelto porque con contraseña se manda DOS veces — la primera se la come la
+   * puerta (el servidor no mira nada de quien no ha probado quién es) y la
+   * buena es la de después del authOk.
+   */
+  private sendHandshake(): void {
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_SYNC);
+    syncProtocol.writeSyncStep1(encoder, this.doc);
+    this.send(encoding.toUint8Array(encoder));
+    if (this.awareness.getLocalState() !== null) {
+      const aEncoder = encoding.createEncoder();
+      encoding.writeVarUint(aEncoder, MESSAGE_AWARENESS);
+      encoding.writeVarUint8Array(
+        aEncoder,
+        awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID]),
+      );
+      this.send(encoding.toUint8Array(aEncoder));
+    }
   }
 
   private handleMessage(data: Uint8Array): void {
@@ -572,6 +689,11 @@ export class CollabSession {
     if (code === CLOSE_POLICY || code === CLOSE_TRY_LATER) {
       this.shouldReconnect = false;
       const message = reason.trim() !== '' ? reason.trim() : 'El servidor rechazó la conexión';
+      // Cerrada la puerta con nuestra prueba en la mano: la contraseña no era.
+      if (this.awaitingAuth) {
+        this.awaitingAuth = false;
+        this.onPasswordRequired?.(true);
+      }
       if (this.firstSync) {
         this.firstSync.reject(new Error(message));
         this.firstSync = null;
