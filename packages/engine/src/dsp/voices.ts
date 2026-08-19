@@ -74,7 +74,7 @@ export class Sub808Voice extends Voice {
       this.pitchEnv *= this.pitchCoef;
       const f = this.freq * (1 + this.punch * 3 * this.pitchEnv);
       this.phase += f / this.sr;
-      if (this.phase >= 1) this.phase -= 1;
+      this.phase -= Math.floor(this.phase);
       let s = Math.sin(TWO_PI * this.phase);
       s = Math.tanh(s * this.drive) / driveNorm;
       s = this.tone.tick(s, 0);
@@ -402,7 +402,7 @@ export class DrumVoice extends Voice {
       if (this.toneMix > 0) {
         const f = this.baseFreq * (1 + this.pitchEnv);
         this.phase += f / this.sr;
-        if (this.phase >= 1) this.phase -= 1;
+        this.phase -= Math.floor(this.phase);
         s += Math.sin(TWO_PI * this.phase) * this.toneMix;
       }
       if (this.noiseMix > 0) {
@@ -471,11 +471,20 @@ export class SamplerVoice extends Voice {
 
     // Recorte start/end: el "acortar" del sonido. `end` por debajo de `start`
     // no se acepta (dejaría la región del revés y la voz muda).
-    const last = Math.max(0, (this.data?.left.length ?? 0) - 2);
+    const srcLen = this.data?.left.length ?? 0;
+    // Con menos de dos muestras no hay interpolación posible: la voz no suena.
+    if (srcLen < 2) this.data = null;
+    const last = Math.max(0, srcLen - 2);
     const startFrac = Math.min(1, Math.max(0, p['start'] ?? 0));
     const endFrac = Math.min(1, Math.max(0, p['end'] ?? 1));
-    this.lo = Math.floor(startFrac * last);
-    this.hi = Math.max(this.lo + 1, Math.floor(endFrac * last));
+    // `hi` NUNCA puede pasar de `last`. El `Math.max(this.lo + 1, …)` de antes
+    // lo empujaba a `last + 1` con `start` a tope (que es un valor legal de la
+    // perilla), y ahí la interpolación lee `d.left[len]` = undefined: NaN en la
+    // mezcla. Y un NaN no se queda quieto — el limiter del master, o cualquier
+    // filtro IIR, se queda con la ganancia en NaN PARA SIEMPRE y el WAV entero
+    // sale a basura (medido: 88 319 muestras de 88 320).
+    this.lo = Math.min(last, Math.floor(startFrac * last));
+    this.hi = Math.min(last, Math.max(this.lo, Math.floor(endFrac * last)));
     this.pos = this.reverse ? this.hi : this.lo;
 
     this.fadeInSrc = Math.max(0, p['fadeIn'] ?? 0) * srcRate;
@@ -756,7 +765,7 @@ export class VoxVoice extends Voice {
       if (this.vibratoPhase > TWO_PI) this.vibratoPhase -= TWO_PI;
       const f = this.freq * (1 + Math.sin(this.vibratoPhase) * this.vibratoDepth);
       this.phase += f / this.sr;
-      if (this.phase >= 1) this.phase -= 1;
+      this.phase -= Math.floor(this.phase);
 
       // Pulso glotal: sierra con el filo redondeado (menos alias, más voz).
       const saw = 2 * this.phase - 1;

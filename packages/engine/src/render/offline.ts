@@ -34,6 +34,34 @@ export interface RenderResult {
 
 const HARD_CAP_SECONDS = 60 * 20;
 
+/**
+ * Copia lo ÚNICO que el kernel ESCRIBE del proyecto compilado: los params de
+ * canal y de efecto, los faders y el EQ (ahí es donde aterrizan la
+ * automatización y los LFOs).
+ *
+ * Sin esto, un render deja el compilado tocado y el siguiente arranca de otro
+ * estado: renderizar la mezcla y luego cada stem con el MISMO compilado —que es
+ * exactamente lo que hace el export— daba stems que no cuadraban con la mezcla,
+ * y pedir dos veces el mismo stem daba dos archivos distintos. Medido: 39 039
+ * muestras distintas entre dos renders del mismo stem, y `volume` derivando
+ * 0.78 → 0.7654 tras cuatro renders.
+ */
+function isolate(p: CompiledProject): CompiledProject {
+  return {
+    ...p,
+    channels: p.channels.map((c) => ({
+      ...c,
+      params: { ...c.params },
+      ...(c.fx ? { fx: c.fx.map((s) => (s ? { ...s, params: { ...s.params } } : null)) } : null),
+    })),
+    mixer: p.mixer.map((t) => ({
+      ...t,
+      slots: t.slots.map((s) => (s ? { ...s, params: { ...s.params } } : null)),
+      sends: t.sends.map((s) => ({ ...s })),
+    })),
+  };
+}
+
 export function renderProject(
   fullProject: CompiledProject,
   opts: RenderOptions = {},
@@ -66,12 +94,17 @@ export function renderProject(
       core.handleMessage({ type: 'registerPlugin', pluginId: id, code });
     }
   }
-  core.handleMessage({ type: 'snapshot', project });
+  core.handleMessage({ type: 'snapshot', project: isolate(project) });
   core.handleMessage({ type: 'setLoop', start: 0, end: project.lengthBeats, enabled: false });
   core.handleMessage({ type: 'play', fromBeat: startBeat });
 
+  // El tempo del beat 0 no vale para estimar cuánto dura esto: un marcador
+  // puede bajarlo a mitad de canción y entonces el tope corta el render antes
+  // de que se acabe la música (medido: 42 s amputados en un 120 → 30 BPM).
+  let slowest = project.tempo;
+  for (const t of project.tempoMap ?? []) if (t.tempo > 0 && t.tempo < slowest) slowest = t.tempo;
   const estSeconds =
-    ((Math.max(0, project.lengthBeats - startBeat) * 60) / project.tempo) + tail;
+    (Math.max(0, project.lengthBeats - startBeat) * 60) / Math.max(1, slowest) + tail;
   const capSamples = Math.ceil(Math.min(HARD_CAP_SECONDS, estSeconds * 3 + 10) * sr);
   const chunks: Float32Array[] = [];
   const chunksR: Float32Array[] = [];

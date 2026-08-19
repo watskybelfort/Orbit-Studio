@@ -223,7 +223,7 @@ class WtOsc implements PrismaOsc {
   tick(dt: number, wave: number): number {
     const t = this.phase;
     this.phase += dt;
-    if (this.phase >= 1) this.phase -= 1;
+    this.phase -= Math.floor(this.phase);
     return readMorph(wave, mipFor(dt), t);
   }
 
@@ -244,7 +244,7 @@ class PulseOsc implements PrismaOsc {
   tick(dt: number, wave: number): number {
     const t = this.phase;
     this.phase += dt;
-    if (this.phase >= 1) this.phase -= 1;
+    this.phase -= Math.floor(this.phase);
     const duty = clamp(0.06 + wave * 0.88, 0.02, 0.98);
     const mip = mipFor(dt);
     let t2 = t + duty;
@@ -406,7 +406,7 @@ class OrganOsc implements PrismaOsc {
 
   tick(dt: number, wave: number): number {
     this.phase += dt;
-    if (this.phase >= 1) this.phase -= 1;
+    this.phase -= Math.floor(this.phase);
     const mip = mipFor(dt);
     let s = 0;
     let norm = 0;
@@ -523,7 +523,7 @@ class FormantOsc implements PrismaOsc {
       this.setVowel(step / 64);
     }
     this.phase += dt;
-    if (this.phase >= 1) this.phase -= 1;
+    this.phase -= Math.floor(this.phase);
     // Pulso glotal: sierra con el filo redondeado (menos alias, más voz).
     const saw = readTable(2, mipFor(dt), this.phase);
     const source = saw - saw * saw * saw * 0.3;
@@ -549,7 +549,7 @@ class SubOsc implements PrismaOsc {
   tick(dt: number, wave: number): number {
     this.drop *= this.dropCoef;
     this.phase += dt * (1 + this.drop * 1.2);
-    if (this.phase >= 1) this.phase -= 1;
+    this.phase -= Math.floor(this.phase);
     const s = Math.sin(TWO_PI * this.phase);
     const k = 1 + wave * 9;
     return Math.tanh(s * k) / Math.tanh(k);

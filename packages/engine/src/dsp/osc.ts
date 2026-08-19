@@ -27,7 +27,12 @@ export class Osc {
   tick(wave: number, dt: number): number {
     const t = this.phase;
     this.phase += dt;
-    if (this.phase >= 1) this.phase -= 1;
+    // Envolver con `Math.floor`, no con UNA resta. Con `dt >= 1` (nota por
+    // encima del sample rate: tecla 127 con la perilla de octava en +2) se
+    // sumaba más de lo que se restaba, la fase crecía sin freno y la saw y la
+    // cuadrada crecían con ella: se han medido picos de +142 dB en el master,
+    // que el limiter no tapa.
+    this.phase -= Math.floor(this.phase);
     switch (wave | 0) {
       case 0:
         return 2 * t - 1 - polyblep(t, dt);
