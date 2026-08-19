@@ -170,6 +170,8 @@ export class CollabSession {
   private password = '';
   /** Esta sala tiene contraseña (lo dice el servidor al entrar). */
   private roomProtected = false;
+  /** Rol de cada clientID según el servidor (para saber quién compacta). */
+  private peerRoles: Record<string, CollabRole> = {};
   /**
    * Hemos mandado una prueba y no sabemos aún si valía. Si el servidor cierra
    * mientras tanto, es que no valía: eso distingue "contraseña incorrecta" de
@@ -352,6 +354,9 @@ export class CollabSession {
         this.onRole?.(message.role);
         break;
       case 'roles':
+        // Se guarda además de repartirse: quién compacta el log depende de
+        // quién es productor, y eso solo lo sabe la sala.
+        this.peerRoles = message.roles;
         this.onRoles?.(message.roles);
         break;
       case 'denied':
@@ -656,7 +661,10 @@ export class CollabSession {
       // publicar nuestro proyecto (crear); doc con snapshot → unirse.
       this.binding = new CommandLogBinding(this.store, this.doc, this.user, {
         compactThreshold: this.compactThreshold,
-        isHost: () => this.isHost(),
+        // Compactar reescribe el snapshot, y el snapshot es el proyecto que
+        // carga todo el que entra: el servidor solo lo acepta de un productor.
+        // Por eso el que compacta no es "el clientID más bajo" a secas.
+        isHost: () => this.isCompactor(),
         getRole: () => this.currentRole,
         ...(this.onDenied ? { onDenied: this.onDenied } : null),
         ...(this.onProjectReplaced ? { onProjectReplaced: this.onProjectReplaced } : null),
@@ -717,11 +725,35 @@ export class CollabSession {
     }
   }
 
-  /** Host = clientID más bajo con presencia (compacta el log). */
+  /** Host = clientID más bajo con presencia (poda el chat). */
   private isHost(): boolean {
     let min = this.doc.clientID;
     for (const id of this.awareness.getStates().keys()) {
       if (id < min) min = id;
+    }
+    return min === this.doc.clientID;
+  }
+
+  /**
+   * Quién compacta el log: el PRODUCTOR con el clientID más bajo.
+   *
+   * Compactar reescribe el snapshot, que es la base que carga todo el que entra
+   * a la sala, así que el servidor solo lo acepta de un productor. Si el que
+   * compactara siguiera siendo "el clientID más bajo" a secas, un invitado que
+   * entrase con un id bajo intentaría compactar, el servidor le revertiría el
+   * snapshot y el log no se compactaría nunca. Siempre hay un productor en la
+   * sala (si se va, la sala asciende al más antiguo), así que siempre hay quien
+   * compacte.
+   */
+  private isCompactor(): boolean {
+    if (this.currentRole !== 'productor') return false;
+    const present = this.awareness.getStates();
+    let min = this.doc.clientID;
+    for (const [id, role] of Object.entries(this.peerRoles)) {
+      if (role !== 'productor') continue;
+      const clientId = Number(id);
+      if (!Number.isFinite(clientId) || !present.has(clientId)) continue;
+      if (clientId < min) min = clientId;
     }
     return min === this.doc.clientID;
   }

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { RoomRoles, checkEntry, entryKey, JOIN_ROLE } from '../src/room-roles';
+import { RoomRoles, checkEntry, strictestRole, JOIN_ROLE } from '../src/room-roles';
 
 describe('reparto de roles', () => {
   it('el primero es productor y los demás entran de invitados', () => {
@@ -120,7 +120,11 @@ describe('validación de entradas del log', () => {
     expect(checkEntry({ cmd: {}, client: 1, seq: 1 }, 'productor').allowed).toBe(false);
   });
 
-  it('la clave de una entrada identifica emisor y contador', () => {
-    expect(entryKey({ client: 12, seq: 3 })).toBe('12:3');
+  it('el peor de dos roles es el que manda cuando una entrada dice venir de otro', () => {
+    expect(strictestRole('productor', 'invitado')).toBe('invitado');
+    expect(strictestRole('invitado', 'productor')).toBe('invitado');
+    expect(strictestRole('invitado', 'oyente')).toBe('oyente');
+    expect(strictestRole('oyente', 'oyente')).toBe('oyente');
+    expect(strictestRole('productor', 'productor')).toBe('productor');
   });
 });

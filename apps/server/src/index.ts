@@ -44,7 +44,7 @@ import {
 } from '@orbit/collab';
 import { RoomAuthStore } from './auth-store';
 import { normalizeRoomCode } from './room-path';
-import { RoomRoles, checkEntry, entryKey, type RawLogEntry } from './room-roles';
+import { RoomRoles, checkEntry, strictestRole, type RawLogEntry } from './room-roles';
 
 // Dónde escuchar (localhost, una IP concreta, todas) vive aparte y se
 // reexporta: la app de escritorio lo necesita para su desplegable.
@@ -141,8 +141,6 @@ class Room {
   private nextConnKey = 1;
   /** clientID de Yjs → socket que lo controla (para saber quién firma qué). */
   private readonly clientOwner = new Map<number, WsSocket>();
-  /** Entradas del log ya juzgadas (se re-siembra con lo que queda en el log). */
-  private validated = new Set<string>();
 
   constructor(
     code: string,
@@ -171,18 +169,27 @@ class Room {
       console.log(`[room ${code}] abierto (nuevo)`);
     }
 
-    // Lo que ya estaba guardado se da por bueno: se validó cuando se escribió
-    // y sus emisores hace tiempo que no están (juzgarlo ahora con el rol de un
-    // desconocido borraría trabajo legítimo).
-    this.validated = new Set(
-      this.doc.getArray<RawLogEntry>('commands').toArray().map((entry) => entryKey(entry)),
-    );
+    // Lo que ya estaba guardado se da por bueno: se validó cuando se escribió y
+    // sus emisores hace tiempo que no están. Se carga ANTES de poner el
+    // observador, así que no pasa por el guardia.
 
     // El log es el proyecto: cada entrada nueva se juzga con el rol que ESTE
-    // servidor le da a su emisor, no con el que la entrada dice traer.
-    this.doc.getArray<RawLogEntry>('commands').observe((_event, transaction) => {
+    // servidor le da a su emisor. Y el emisor es el SOCKET por el que entra, no
+    // el `client` que la entrada dice traer: ese campo lo escribe el cliente, y
+    // creerlo era dejar que un invitado firmara con el clientID del productor.
+    this.doc.getArray<RawLogEntry>('commands').observe((event, transaction) => {
       if (transaction.origin === ROLE_ENFORCER) return;
-      this.enforceRoles();
+      const from = transaction.origin instanceof WsSocket ? transaction.origin : undefined;
+      this.enforceRoles(event, from);
+    });
+
+    // El log no es lo único que es el proyecto: en `meta` vive el SNAPSHOT, la
+    // base que carga todo el que entra. Sin vigilarlo, un invitado reescribía
+    // el proyecto entero sin tocar ni una entrada del log.
+    this.doc.getMap<string | number>('meta').observe((event, transaction) => {
+      if (transaction.origin === ROLE_ENFORCER) return;
+      const from = transaction.origin instanceof WsSocket ? transaction.origin : undefined;
+      this.enforceMeta(event, from);
     });
 
     // Cualquier update del doc (venga del socket que venga) → a todos.
@@ -417,50 +424,106 @@ class Room {
    * permite. Borrarlas es una operación normal del CRDT: converge en todos los
    * clientes, y el que las mandó re-deriva su estado y se queda como la sala.
    */
-  private enforceRoles(): void {
+  private enforceRoles(event: Y.YArrayEvent<RawLogEntry>, from: WsSocket | undefined): void {
     const log = this.doc.getArray<RawLogEntry>('commands');
-    const entries = log.toArray();
-    const offenders: { index: number; conn: WsSocket | undefined; reason: string; type: string }[] =
-      [];
+    const senderRole = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
+    const offenders: { index: number; reason: string; type: string }[] = [];
 
-    entries.forEach((entry, index) => {
-      const key = entryKey(entry);
-      if (this.validated.has(key)) return;
-      const client = typeof entry.client === 'number' ? entry.client : undefined;
-      const conn = client === undefined ? undefined : this.clientOwner.get(client);
-      const role = this.roles.roleOf(conn === undefined ? undefined : this.connKeys.get(conn));
-      const verdict = checkEntry(entry, role);
-      if (!verdict.allowed) {
-        const cmd = entry.cmd as { type?: unknown } | undefined;
-        offenders.push({
-          index,
-          conn,
-          reason: verdict.reason ?? 'Tu rol no permite ese cambio.',
-          type: typeof cmd?.type === 'string' ? cmd.type : '?',
-        });
+    // Solo se juzga lo que ENTRA en esta transacción, recorriendo el delta. Lo
+    // que ya estaba no se vuelve a mirar, y esto sustituye a la lista de
+    // "entradas ya vistas" que había antes: aquella se indexaba por
+    // `client:seq`, dos campos que escribe el cliente, así que repetir una
+    // clave ya usada saltaba la validación entera.
+    let index = 0;
+    for (const part of event.changes.delta) {
+      if (part.retain !== undefined) {
+        index += part.retain;
+        continue;
       }
-    });
-
-    if (offenders.length > 0) {
-      // De atrás hacia delante: borrar por índice mueve lo que viene después.
-      this.doc.transact(() => {
-        for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
-      }, ROLE_ENFORCER);
-      for (const offender of offenders) {
-        console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
-        if (offender.conn) {
-          this.sendControl(offender.conn, {
-            type: 'denied',
-            reason: offender.reason,
-            command: offender.type,
+      // Un borrado no ocupa sitio en el estado nuevo: no mueve el índice.
+      if (part.insert === undefined) continue;
+      const inserted = Array.isArray(part.insert) ? (part.insert as RawLogEntry[]) : [];
+      for (const entry of inserted) {
+        const verdict = checkEntry(entry, this.roleForEntry(entry, from, senderRole));
+        if (!verdict.allowed) {
+          const cmd = entry.cmd as { type?: unknown } | undefined;
+          offenders.push({
+            index,
+            reason: verdict.reason ?? 'Tu rol no permite ese cambio.',
+            type: typeof cmd?.type === 'string' ? cmd.type : '?',
           });
         }
+        index++;
       }
     }
 
-    // Se re-siembra con lo que queda: así la lista no crece sin fin y lo que
-    // se lleve una compactación deja de ocupar sitio.
-    this.validated = new Set(log.toArray().map((entry) => entryKey(entry)));
+    if (offenders.length === 0) return;
+    // De atrás hacia delante: borrar por índice mueve lo que viene después.
+    this.doc.transact(() => {
+      for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
+    }, ROLE_ENFORCER);
+    for (const offender of offenders) {
+      console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
+      if (from) {
+        this.sendControl(from, {
+          type: 'denied',
+          reason: offender.reason,
+          command: offender.type,
+        });
+      }
+    }
+  }
+
+  /**
+   * Con qué rol se juzga una entrada concreta.
+   *
+   * Manda el socket por el que ENTRA. Si además dice venir de otro cliente que
+   * está en la sala —Yjs reenvía lo que a uno le llegó, así que pasa de
+   * verdad—, se aplica el más restringido de los dos: el reenvío legítimo
+   * sigue funcionando y "firmo con el clientID del productor" deja de servir.
+   */
+  private roleForEntry(
+    entry: RawLogEntry,
+    from: WsSocket | undefined,
+    senderRole: CollabRole,
+  ): CollabRole {
+    const client = typeof entry.client === 'number' ? entry.client : undefined;
+    const owner = client === undefined ? undefined : this.clientOwner.get(client);
+    if (owner === undefined || owner === from) return senderRole;
+    return strictestRole(senderRole, this.roles.roleOf(this.connKeys.get(owner)));
+  }
+
+  /**
+   * El snapshot de `meta` es el proyecto que carga todo el que entra: solo lo
+   * toca un productor. Lo que escriba otro se REVIERTE al valor anterior (o se
+   * borra, si la clave no existía), que es lo mismo que se hace con el log.
+   *
+   * Quién compacta es cosa del cliente, pero desde aquí queda dicho: el que
+   * escriba el snapshot sin ser productor, no lo escribe.
+   */
+  private enforceMeta(
+    event: Y.YMapEvent<string | number>,
+    from: WsSocket | undefined,
+  ): void {
+    const role = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
+    if (role === 'productor') return;
+    const meta = this.doc.getMap<string | number>('meta');
+    const keys = [...event.changes.keys.entries()];
+    if (keys.length === 0) return;
+    this.doc.transact(() => {
+      for (const [key, change] of keys) {
+        if (change.action === 'add') meta.delete(key);
+        else if (change.oldValue !== undefined) meta.set(key, change.oldValue as string | number);
+      }
+    }, ROLE_ENFORCER);
+    console.warn(`[room ${this.code}] revertido en meta: ${keys.map(([k]) => k).join(', ')}`);
+    if (from) {
+      this.sendControl(from, {
+        type: 'denied',
+        reason: 'Solo el productor puede reescribir la base del proyecto.',
+        command: 'snapshot',
+      });
+    }
   }
 
   /** A todos menos al que lo mandó (el audio propio ya suena en su máquina). */
@@ -556,11 +619,13 @@ export interface ServerHandle {
 export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
   const port = opts.port ?? DEFAULT_PORT;
   const host = opts.host ?? DEFAULT_HOST;
+  // Una variable de entorno DEFINIDA Y VACÍA no es "no la han puesto": es ''.
+  // Y `Number('')` es 0, que el clamp sube a 2 — justo el límite de dos
+  // personas que la capacidad configurable vino a quitar.
+  const rawCapacity = process.env.ORBIT_ROOM_CAPACITY;
   const roomCapacity = clampRoomCapacity(
     opts.roomCapacity ??
-      (process.env.ORBIT_ROOM_CAPACITY === undefined
-        ? undefined
-        : Number(process.env.ORBIT_ROOM_CAPACITY)),
+      (rawCapacity === undefined || rawCapacity.trim() === '' ? undefined : Number(rawCapacity)),
   );
   if (opts.roomsDir) roomsDir = resolve(opts.roomsDir);
   // La caché de puertas es de una instancia: si el servidor se rearranca (otra
@@ -603,6 +668,13 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
   }, PING_INTERVAL_MS);
 
   wss.on('connection', (conn, req) => {
+    // PRIMERO el handler de errores, antes de cualquier validación. `close()`
+    // solo INICIA el cierre: `ws` sigue parseando lo que llegue, y un frame mal
+    // formado emite 'error' sobre un EventEmitter sin listener, lo que en Node
+    // es una excepción no capturada — es decir, el proceso entero se cae por
+    // una conexión que ni siquiera hemos aceptado.
+    conn.on('error', (err) => console.error('[server] error de socket:', err.message));
+
     const rawPath = (req.url ?? '').split('?')[0] ?? '';
     const code = normalizeRoomCode(rawPath);
     if (!code) {
@@ -629,7 +701,6 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
 
     alive.set(conn, true);
     conn.on('pong', () => alive.set(conn, true));
-    conn.on('error', (err) => console.error(`[room ${code}] error de socket:`, err.message));
     conn.on('message', (data: RawData) => onMessage(conn, code, toUint8(data)));
     conn.on('close', () => {
       alive.delete(conn);
@@ -644,10 +715,20 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       room.removeConn(conn);
       console.log(`[room ${code}] peer desconectado (${room.conns.size} en el room)`);
       if (room.empty) {
-        room.persist();
-        room.destroy();
-        rooms.delete(code);
-        console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
+        // Guardar puede fallar (disco lleno, carpeta de solo lectura, el .bin
+        // bloqueado por un antivirus a mitad del rename). Si eso escapa de un
+        // handler de evento, se lleva el proceso por delante Y deja la sala
+        // vacía en el mapa para siempre: memoria que no vuelve y un hueco menos
+        // en MAX_ROOMS. Perder el guardado es malo; perder el servidor, peor.
+        try {
+          room.persist();
+          console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
+        } catch (err) {
+          console.error(`[room ${code}] no se pudo guardar:`, err);
+        } finally {
+          room.destroy();
+          rooms.delete(code);
+        }
       }
     });
 
@@ -691,7 +772,13 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
   function onMessage(conn: WsSocket, code: string, data: Uint8Array): void {
     const waiting = pending.get(conn);
     if (!waiting) {
-      rooms.get(code)?.handleMessage(conn, data);
+      // La pertenencia se comprueba EXPLÍCITAMENTE. No basta con "no está en la
+      // puerta": al que se le acaba el tiempo, al que falla la contraseña y al
+      // que se rechaza por sala llena se les saca de `pending` y se les cierra,
+      // pero `close()` no corta la entrega — sus mensajes seguirían llegando y
+      // caerían aquí como si fueran de alguien de dentro.
+      const room = rooms.get(code);
+      if (room?.conns.has(conn)) room.handleMessage(conn, data);
       return;
     }
     if (waiting.checking) return;
@@ -748,44 +835,62 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       }
     };
     httpServer.once('error', onListenError);
-    httpServer.listen(port, host, () => {
-      httpServer.removeListener('error', onListenError);
-      // Puerto REAL: con port 0 lo elige el sistema, y quien arranca el server
-      // necesita saber cuál le tocó (la app lo enseña, los tests se conectan).
-      const addr = httpServer.address();
-      const boundPort = typeof addr === 'object' && addr !== null ? addr.port : port;
-      const shown = host === '127.0.0.1' || host === '::1' ? 'localhost' : host;
-      console.log(
-        `Orbit Studio collab server en ws://${shown}:${boundPort}/<room> — hasta ${roomCapacity} por sala (health: http://${shown}:${boundPort}/health)`,
-      );
-      if (host !== '127.0.0.1' && host !== '::1') {
-        console.warn(`[server] ATENCIÓN: escuchando en ${host} (accesible desde la red) y SIN autenticación.`);
-      }
-      resolveP({
-        port: boundPort,
-        roomCapacity,
-        host,
-        close: () =>
-          new Promise<void>((res) => {
-            clearInterval(keepalive);
-            for (const waiting of pending.values()) clearTimeout(waiting.timer);
-            pending.clear();
-            for (const room of rooms.values()) {
-              room.persist();
-              room.destroy();
-            }
-            rooms.clear();
-            for (const conn of alive.keys()) {
-              try {
-                conn.terminate();
-              } catch {
-                // best-effort
+    // `listen` con un puerto imposible (NaN, negativo, > 65535) lanza SÍNCRONO
+    // y no pasa por 'error': sin esto, el keepalive y el servidor a medio
+    // montar quedan vivos por cada intento fallido, y ese puerto sale de
+    // `Number(process.env.PORT)` y del campo del panel.
+    try {
+      httpServer.listen(port, host, () => {
+        httpServer.removeListener('error', onListenError);
+        // Puerto REAL: con port 0 lo elige el sistema, y quien arranca el server
+        // necesita saber cuál le tocó (la app lo enseña, los tests se conectan).
+        const addr = httpServer.address();
+        const boundPort = typeof addr === 'object' && addr !== null ? addr.port : port;
+        const shown = host === '127.0.0.1' || host === '::1' ? 'localhost' : host;
+        console.log(
+          `Orbit Studio collab server en ws://${shown}:${boundPort}/<room> — hasta ${roomCapacity} por sala (health: http://${shown}:${boundPort}/health)`,
+        );
+        if (host !== '127.0.0.1' && host !== '::1') {
+          console.warn(
+            `[server] ATENCIÓN: escuchando en ${host} (accesible desde la red) y SIN autenticación.`,
+          );
+        }
+        resolveP({
+          port: boundPort,
+          roomCapacity,
+          host,
+          close: () =>
+            new Promise<void>((res) => {
+              clearInterval(keepalive);
+              for (const waiting of pending.values()) clearTimeout(waiting.timer);
+              pending.clear();
+              for (const room of rooms.values()) {
+                try {
+                  room.persist();
+                } catch (err) {
+                  console.error(`[room ${room.code}] no se pudo guardar al cerrar:`, err);
+                }
+                room.destroy();
               }
-            }
-            alive.clear();
-            wss.close(() => httpServer.close(() => res()));
-          }),
+              rooms.clear();
+              for (const conn of alive.keys()) {
+                try {
+                  conn.terminate();
+                } catch {
+                  // best-effort
+                }
+              }
+              alive.clear();
+              wss.close(() => httpServer.close(() => res()));
+            }),
+        });
       });
-    });
+    } catch (err) {
+      clearInterval(keepalive);
+      httpServer.removeListener('error', onListenError);
+      wss.close();
+      httpServer.close();
+      rejectP(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }

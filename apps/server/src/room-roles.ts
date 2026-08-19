@@ -147,7 +147,18 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole): EntryVerdict {
   return checkRole(role, cmd as Command, { ownCreation: entry.own === true });
 }
 
-/** Clave estable de una entrada (para no revalidar lo ya visto). */
-export function entryKey(entry: RawLogEntry): string {
-  return `${String(entry.client)}:${String(entry.seq)}`;
+/** De menos a más restringido. Sirve para quedarse con el peor de dos roles. */
+const ROLE_RANK: Record<CollabRole, number> = { productor: 0, invitado: 1, oyente: 2 };
+
+/**
+ * El más restringido de dos roles.
+ *
+ * Hace falta cuando una entrada llega por un socket pero dice venir de otro
+ * cliente. Eso pasa de verdad —Yjs reenvía lo que a uno le llegó— y también es
+ * la forma obvia de intentar colarse: un invitado firma su comando con el
+ * clientID del productor. Quedarse con el peor de los dos roles cierra el
+ * engaño sin tener que prohibir el reenvío.
+ */
+export function strictestRole(a: CollabRole, b: CollabRole): CollabRole {
+  return ROLE_RANK[a] >= ROLE_RANK[b] ? a : b;
 }
