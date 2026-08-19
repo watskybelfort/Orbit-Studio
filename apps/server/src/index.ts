@@ -34,10 +34,15 @@ import {
   AUDIO_MAX_SAMPLES,
   MESSAGE_AUDIO,
   MESSAGE_CONTROL,
+  authMessage,
   encodeControl,
   parseControl,
+  randomNonce,
+  verifyProof,
   type CollabRole,
+  type RoomAuthRecord,
 } from '@orbit/collab';
+import { RoomAuthStore } from './auth-store';
 import { normalizeRoomCode } from './room-path';
 import { RoomRoles, checkEntry, entryKey, type RawLogEntry } from './room-roles';
 
@@ -114,6 +119,15 @@ function toUint8(data: RawData): Uint8Array {
 
 // ── Room ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Lo que la sala necesita del servidor para la puerta. La sala sabe QUIÉN puede
+ * cambiar la contraseña (el rol es suyo); dónde se guarda, no es asunto suyo.
+ */
+interface RoomHooks {
+  isProtected(): boolean;
+  setPassword(record: RoomAuthRecord | null): void;
+}
+
 class Room {
   readonly code: string;
   readonly doc = new Y.Doc();
@@ -130,7 +144,10 @@ class Room {
   /** Entradas del log ya juzgadas (se re-siembra con lo que queda en el log). */
   private validated = new Set<string>();
 
-  constructor(code: string) {
+  constructor(
+    code: string,
+    private readonly hooks: RoomHooks,
+  ) {
     this.code = code;
     this.awareness.setLocalState(null); // el server no tiene presencia propia
 
@@ -221,6 +238,10 @@ class Room {
     this.connKeys.set(conn, key);
     const { role } = this.roles.join(key);
     this.sendControl(conn, { type: 'role', role });
+    // Si la sala tiene contraseña, el que entra ya la ha pasado; se le dice de
+    // todas formas para que el panel pinte el candado y el productor sepa si
+    // hay que ponerla.
+    this.sendControl(conn, { type: 'roomAuth', protected: this.hooks.isProtected() });
     this.broadcastRoles();
     // El server también inicia el sync (modelo cliente-servidor de y-sync).
     const encoder = encoding.createEncoder();
@@ -340,10 +361,15 @@ class Room {
     this.broadcast(encodeControl({ type: 'roles', roles: table }));
   }
 
-  /** Petición de control de un cliente (hoy solo el reparto de roles). */
+  /** Petición de control de un cliente: reparto de roles y puerta de la sala. */
   private handleControl(conn: WsSocket, json: string): void {
     const message = parseControl(json);
-    if (!message || message.type !== 'setRole') return;
+    if (!message) return;
+    if (message.type === 'setPassword') {
+      this.handleSetPassword(conn, message.auth);
+      return;
+    }
+    if (message.type !== 'setRole') return;
     const by = this.connKeys.get(conn);
     if (by === undefined) return;
     // El destino viaja como clientID de Yjs (es lo que la UI conoce).
@@ -360,6 +386,30 @@ class Room {
     if (target) this.sendControl(target, { type: 'role', role: message.role });
     this.broadcastRoles();
     console.log(`[room ${this.code}] rol de ${message.client} → ${message.role}`);
+  }
+
+  /**
+   * Poner o quitar la contraseña de la sala. Es cosa del PRODUCTOR y lo juzga
+   * el servidor con el rol que él reparte, igual que el resto: un invitado que
+   * mande este mensaje a mano no cambia la puerta de nadie.
+   */
+  private handleSetPassword(conn: WsSocket, record: RoomAuthRecord | null): void {
+    const by = this.connKeys.get(conn);
+    if (by === undefined || !this.roles.isProducer(by)) {
+      this.sendControl(conn, {
+        type: 'denied',
+        reason: 'Solo el productor cambia la contraseña de la sala.',
+      });
+      return;
+    }
+    this.hooks.setPassword(record);
+    // Los que ya están dentro NO se echan: cambiar la cerradura vale para el
+    // que llame a partir de ahora (echar a la sala entera por cambiar la
+    // contraseña sería una forma rara de perder el trabajo de todos).
+    this.broadcast(encodeControl({ type: 'roomAuth', protected: record !== null }));
+    console.log(
+      `[room ${this.code}] contraseña ${record === null ? 'quitada' : 'puesta'} por el productor`,
+    );
   }
 
   /**
@@ -431,13 +481,51 @@ class Room {
 
 const rooms = new Map<string, Room>();
 
+/** Las contraseñas viven en disco, junto a las salas, y NUNCA en el Y.Doc. */
+const authStore = new RoomAuthStore(() => roomsDir);
+
 function getRoom(code: string): Room {
   let room = rooms.get(code);
   if (!room) {
-    room = new Room(code);
+    room = new Room(code, {
+      isProtected: () => authStore.isProtected(code),
+      setPassword: (record) => authStore.set(code, record),
+    });
     rooms.set(code, room);
   }
   return room;
+}
+
+/**
+ * Cuánto se espera a que el que llama a la puerta enseñe su prueba. Lo suyo
+ * tarda lo que tarde el PBKDF2 en su máquina (~150 ms); 20 s es de sobra y
+ * evita que dejar sockets a medias sea gratis.
+ */
+const AUTH_TIMEOUT_MS = 20_000;
+
+/** Cierres del protocolo: 1008 "no entras", 1013 "ahora no". */
+const CLOSE_POLICY = 1008;
+const CLOSE_TRY_LATER = 1013;
+
+/** Un mensaje de control suelto (o null si no lo es). */
+function readControl(data: Uint8Array): ReturnType<typeof parseControl> {
+  try {
+    const decoder = decoding.createDecoder(data);
+    if (decoding.readVarUint(decoder) !== MESSAGE_CONTROL) return null;
+    return parseControl(decoding.readVarString(decoder));
+  } catch {
+    return null;
+  }
+}
+
+/** Una conexión que ya recibió su desafío y todavía no ha entrado a la sala. */
+interface PendingAuth {
+  code: string;
+  /** El mensaje que hay que firmar: sala + nonce de esta conexión. */
+  message: string;
+  timer: ReturnType<typeof setTimeout>;
+  /** Ya se está comprobando una prueba: las demás se ignoran. */
+  checking: boolean;
 }
 
 export interface ServerOptions {
@@ -475,6 +563,10 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
         : Number(process.env.ORBIT_ROOM_CAPACITY)),
   );
   if (opts.roomsDir) roomsDir = resolve(opts.roomsDir);
+  // La caché de puertas es de una instancia: si el servidor se rearranca (otra
+  // carpeta de salas, o el mismo proceso levantándolo de nuevo), lo que valga
+  // es lo que haya AHORA en disco, no lo que se leyó la vez anterior.
+  authStore.forget();
 
   const httpServer = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -493,6 +585,9 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
   wss.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code !== 'EACCES' && err.code !== 'EADDRINUSE') throw err;
   });
+
+  /** Los que están en la puerta: conectados, con desafío, todavía fuera. */
+  const pending = new Map<WsSocket, PendingAuth>();
 
   /** Keepalive: sockets que no responden al ping se terminan. */
   const alive = new Map<WsSocket, boolean>();
@@ -532,16 +627,20 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       return;
     }
 
-    const room = getRoom(code);
-    room.addConn(conn);
     alive.set(conn, true);
-    console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
-
     conn.on('pong', () => alive.set(conn, true));
-    conn.on('message', (data: RawData) => room.handleMessage(conn, toUint8(data)));
     conn.on('error', (err) => console.error(`[room ${code}] error de socket:`, err.message));
+    conn.on('message', (data: RawData) => onMessage(conn, code, toUint8(data)));
     conn.on('close', () => {
       alive.delete(conn);
+      const waiting = pending.get(conn);
+      if (waiting) {
+        clearTimeout(waiting.timer);
+        pending.delete(conn);
+        return; // nunca llegó a entrar: no hay sala de la que sacarlo
+      }
+      const room = rooms.get(code);
+      if (!room) return;
       room.removeConn(conn);
       console.log(`[room ${code}] peer desconectado (${room.conns.size} en el room)`);
       if (room.empty) {
@@ -551,7 +650,88 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
         console.log(`[room ${code}] cerrado y guardado en ${roomFile(code)}`);
       }
     });
+
+    // La puerta va ANTES de crear la sala: un desconocido no debería poder
+    // hacer que el servidor abra un .bin de 60 MB solo por conectarse.
+    const record = authStore.get(code);
+    if (record) {
+      const nonce = randomNonce();
+      const timer = setTimeout(() => {
+        if (!pending.delete(conn)) return;
+        conn.close(CLOSE_POLICY, 'Se acabó el tiempo para la contraseña');
+      }, AUTH_TIMEOUT_MS);
+      pending.set(conn, { code, message: authMessage(code, nonce), timer, checking: false });
+      conn.send(
+        encodeControl({
+          type: 'challenge',
+          salt: record.salt,
+          iterations: record.iterations,
+          nonce,
+        }),
+      );
+      console.log(`[room ${code}] alguien llama a la puerta (sala con contraseña)`);
+      return;
+    }
+
+    admit(conn, code);
   });
+
+  /** Entra de verdad: crea o abre la sala y empieza el sync. */
+  function admit(conn: WsSocket, code: string): void {
+    const room = getRoom(code);
+    room.addConn(conn);
+    console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
+  }
+
+  /**
+   * Todo lo que llega por el socket. Mientras la conexión está en la puerta
+   * SOLO se mira su prueba: ni sync, ni presencia, ni audio. Sin esto, "pedir
+   * contraseña" sería un cartel en la puerta con la casa abierta.
+   */
+  function onMessage(conn: WsSocket, code: string, data: Uint8Array): void {
+    const waiting = pending.get(conn);
+    if (!waiting) {
+      rooms.get(code)?.handleMessage(conn, data);
+      return;
+    }
+    if (waiting.checking) return;
+    const message = readControl(data);
+    if (!message || message.type !== 'auth') return;
+    const record = authStore.get(code);
+    if (!record) {
+      // La contraseña se quitó mientras este llamaba a la puerta: pasa.
+      clearTimeout(waiting.timer);
+      pending.delete(conn);
+      admit(conn, code);
+      return;
+    }
+    waiting.checking = true;
+    void verifyProof(record, waiting.message, message.proof)
+      .then((ok) => {
+        if (!pending.has(conn)) return; // se cerró mientras se comprobaba
+        clearTimeout(waiting.timer);
+        pending.delete(conn);
+        if (!ok) {
+          console.warn(`[room ${code}] contraseña incorrecta`);
+          conn.close(CLOSE_POLICY, 'Contraseña incorrecta');
+          return;
+        }
+        // La sala pudo llenarse mientras este derivaba su clave.
+        const room = rooms.get(code);
+        if (room && room.conns.size >= roomCapacity) {
+          conn.close(CLOSE_TRY_LATER, `La sala está llena (caben ${roomCapacity})`);
+          return;
+        }
+        conn.send(encodeControl({ type: 'authOk' }));
+        admit(conn, code);
+      })
+      .catch((err) => {
+        console.error(`[room ${code}] fallo comprobando la contraseña:`, err);
+        clearTimeout(waiting.timer);
+        pending.delete(conn);
+        conn.close(CLOSE_POLICY, 'No se pudo comprobar la contraseña');
+      });
+  }
 
   return new Promise((resolveP, rejectP) => {
     const onListenError = (err: NodeJS.ErrnoException) => {
@@ -588,6 +768,8 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
         close: () =>
           new Promise<void>((res) => {
             clearInterval(keepalive);
+            for (const waiting of pending.values()) clearTimeout(waiting.timer);
+            pending.clear();
             for (const room of rooms.values()) {
               room.persist();
               room.destroy();
