@@ -42,6 +42,7 @@ import {
   unfreezeTrack,
   useBounceStore,
 } from '../../state/bounce';
+import { PEAK_COLS, onPeaksReady, requestPeaks } from '../../state/sample-peaks';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -557,10 +558,37 @@ export function Playlist() {
           ctx.fill();
         }
       } else if (c.kind === 'audio' && ah > 4) {
-        // Línea central a modo de forma de onda estilizada.
+        // Forma de onda REAL del sample, no una raya decorativa: con los FX de
+        // la librería, ver dónde pega el golpe es la diferencia entre colocar
+        // el clip y adivinarlo. Los picos vienen de la caché compartida;
+        // mientras se decodifican se pinta la línea central de siempre, así que
+        // el clip nunca sale vacío.
+        const sample = c.sampleId ? project.samples[c.sampleId] : undefined;
+        const pk = sample ? requestPeaks(sample) : undefined;
         ctx.globalAlpha = base * 0.7;
         ctx.fillStyle = color;
-        ctx.fillRect(x + 2, top + ah / 2, cw - 4, 1.5);
+        if (pk && pk.duration > 0) {
+          const offset = c.audioOffset ?? 0;
+          // Con stretch el sample (desde su offset) se estira hasta llenar el
+          // clip; sin él avanza a tiempo real y puede acabarse antes.
+          const spanSec = c.audioStretch
+            ? Math.max(0.001, pk.duration - offset)
+            : c.length * (60 / project.tempo);
+          const mid = top + ah / 2;
+          const amp = ah / 2 - 0.5;
+          const from = Math.max(0, Math.floor(-x));
+          const to = Math.min(cw, Math.ceil(w - x));
+          for (let px = from; px < to; px++) {
+            const sec = offset + (px / cw) * spanSec;
+            if (sec < 0 || sec >= pk.duration) continue;
+            const ci = Math.min(PEAK_COLS - 1, Math.floor((sec / pk.duration) * PEAK_COLS));
+            const yTop = mid - pk.max[ci]! * amp;
+            const yBot = mid - pk.min[ci]! * amp;
+            ctx.fillRect(x + px, yTop, 1, Math.max(1, yBot - yTop));
+          }
+        } else {
+          ctx.fillRect(x + 2, top + ah / 2, cw - 4, 1.5);
+        }
       }
       ctx.restore();
       ctx.globalAlpha = 1;
@@ -733,6 +761,10 @@ export function Playlist() {
   useEffect(() => {
     draw();
   }, [draw]);
+
+  // Los picos de un sample llegan tarde (hay que decodificar el archivo): el
+  // clip se pinta ya y se repinta solo cuando su onda está lista.
+  useEffect(() => onPeaksReady(draw), [draw]);
 
   // Redibuja el playhead mientras suena la canción.
   useEffect(() => {
