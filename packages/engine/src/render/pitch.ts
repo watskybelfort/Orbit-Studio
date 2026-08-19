@@ -203,9 +203,13 @@ export function correctPitch(
   // Estado del "glide": la relación de corrección se acerca al objetivo con
   // una constante de tiempo, para que no salte de golpe entre ventanas.
   const alpha = glide > 0 ? 1 - Math.exp(-hop / (glide * sampleRate)) : 1;
+  /** Suma de ventanas por muestra: con ratio != 1 el solape deja de ser plano. */
+  const wsum = new Float32Array(n);
   let ratio = 1;
   let readPos = 0;
   let writePos = 0;
+  /** Lo que el origen tiene pendiente de avanzar (se emite en saltos enteros). */
+  let readAccum = 0;
 
   while (writePos < n) {
     const frame = Math.min(track.f0.length - 1, Math.floor(writePos / hop));
@@ -213,8 +217,12 @@ export function correctPitch(
     let target = 1;
     if (f0 > 0) {
       const midi = 69 + 12 * Math.log2(f0 / 440);
-      const snapped = snapToScale(midi, scale) + transpose;
-      const corrected = midi + (snapped - midi) * strength;
+      // La transposición va FUERA del interpolado de fuerza: es un traslado
+      // pedido a mano, no parte de "cuánto afinamos". Dentro, con la fuerza a
+      // la mitad transponía seis semitonos en vez de doce, y a cero no
+      // transponía nada.
+      const snapped = snapToScale(midi, scale);
+      const corrected = midi + (snapped - midi) * strength + transpose;
       target = Math.pow(2, (corrected - midi) / 12);
     }
     ratio += (target - ratio) * alpha;
@@ -235,12 +243,32 @@ export function correctPitch(
       const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (grain - 1));
       outL[dst]! += left[src]! * w;
       outR[dst]! += right[src]! * w;
+      wsum[dst]! += w;
     }
-    // Avanzar: en destino un periodo del tono corregido, en origen el del
-    // original (así cambia la altura y NO la duración).
-    writePos += Math.max(16, Math.round(step / ratio));
-    readPos += step;
+    // El origen tiene que avanzar LO MISMO que el destino: avanzando un periodo
+    // entero mientras el destino avanzaba `periodo/ratio`, la salida duraba
+    // `duración/ratio` — transponer una octava arriba se comía la mitad final
+    // de la toma (medido: una nota de 1,000 s acababa en 0,508 s) y una octava
+    // abajo la estiraba a 1,521 s. El comentario de aquí prometía justo lo
+    // contrario de lo que hacía. Los saltos siguen siendo de un periodo entero
+    // (PSOLA: el grano tiene que caer en fase), así que se acumulan.
+    const outHop = Math.max(16, Math.round(step / ratio));
+    writePos += outHop;
+    readAccum += outHop;
+    while (readAccum >= step) {
+      readPos += step;
+      readAccum -= step;
+    }
     if (readPos >= n) break;
+  }
+
+  // Con ratio != 1 los granos ya no se solapan de dos en dos, así que la suma
+  // de ventanas no es plana y hay que dividir por ella o la salida sale con
+  // altibajos de nivel.
+  for (let i = 0; i < n; i++) {
+    const g = wsum[i]! > 1e-3 ? 1 / wsum[i]! : 0;
+    outL[i]! *= g;
+    outR[i]! *= g;
   }
 
   return { left: outL, right: outR, track };

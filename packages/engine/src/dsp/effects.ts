@@ -316,13 +316,19 @@ class ChorusUnit implements EffectUnit {
         const d = base + mod * Math.sin(TWO_PI * ph);
         const s = line.read(d);
         line.write(mono);
-        if (v % 2 === 0) outL += s;
-        else outR += s;
+        // Cada voz se reparte por el campo estéreo con potencia constante, en
+        // vez de ir alternando izquierda/derecha: alternando, con un número
+        // IMPAR de voces la izquierda recibe un tap más que la derecha y la
+        // imagen se descentra. Con 3 voces —el valor por defecto— eran 2,35 dB
+        // a la izquierda.
+        const pan = this.voices === 1 ? 0 : (v / (this.voices - 1)) * 2 - 1;
+        outL += s * Math.sqrt((1 - pan) / 2);
+        outR += s * Math.sqrt((1 + pan) / 2);
         this.phases[v] = (ph + inc * (1 + v * 0.07)) % 1;
       }
       const norm = 2 / this.voices;
-      l[i] = outL * norm + (this.voices <= 2 ? outR * norm : 0);
-      r[i] = outR * norm + (this.voices <= 2 ? outL * norm : 0);
+      l[i] = outL * norm;
+      r[i] = outR * norm;
     }
   }
 }
