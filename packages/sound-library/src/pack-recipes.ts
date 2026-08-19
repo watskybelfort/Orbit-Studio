@@ -23,6 +23,13 @@ import type {
   CompiledProject,
 } from '@orbit/engine/protocol';
 import type { SoundCategory } from './types';
+import {
+  densityOf,
+  isLastBarOfSection,
+  planSections,
+  sectionAt,
+  totalBars,
+} from './pack-structure';
 
 // ── Encargo ──────────────────────────────────────────────────────────────────
 
@@ -40,6 +47,7 @@ export const PACK_FAMILIES = [
   'melodic-loops',
   'drum-loops',
   'bass-loops',
+  'beats',
 ] as const;
 export type PackFamily = (typeof PACK_FAMILIES)[number];
 
@@ -48,6 +56,14 @@ export type PackStyle = (typeof PACK_STYLES)[number];
 
 export const MAX_PACK_SOUNDS = 32;
 const DEFAULT_COUNT = 8;
+/**
+ * Los beats con estructura no son one-shots: cada uno es un tema de 20 a 36
+ * compases, o sea entre medio minuto y minuto y medio de WAV. Ocho de esos se
+ * comerían el tope de 64 MB del pack antes de acabar, así que esta familia
+ * tiene su propio tope y su propio valor por defecto.
+ */
+export const MAX_STRUCTURED_BEATS = 4;
+const DEFAULT_BEAT_COUNT = 2;
 
 export interface PackRequest {
   family: PackFamily;
@@ -209,7 +225,13 @@ function project(o: {
     tempo: o.tempo ?? 120,
     lengthBeats: o.lengthBeats,
     channels: o.channels,
-    events: o.events,
+    // ORDENADOS por posición, sí o sí. El kernel recorre los eventos con un
+    // cursor que solo avanza (`triggerRange`): lo que llega después de algo que
+    // empieza más tarde NO se dispara, se descarta en silencio. `compileProject`
+    // ordena por eso mismo, pero estos proyectos se montan a mano y aquí faltaba
+    // — el break del generador perdía la caja (medido: el RMS sube de 0.1803 a
+    // 0.2023 al ordenarlo) y a un beat entero le faltaban batería y 808 enteros.
+    events: [...o.events].sort((a, b) => a.start - b.start),
     audioClips: [],
     automation: o.automation ?? [],
     lfos: [],
@@ -369,6 +391,7 @@ const FAMILIES: Record<PackFamily, FamilyTraits> = {
   'melodic-loops': { singular: 'loop', category: 'melodic-loops', gain: 0.7 },
   'drum-loops': { singular: 'break', category: 'drums', gain: 0.85 },
   'bass-loops': { singular: 'bass', category: '808s', gain: 0.85 },
+  beats: { singular: 'beat', category: 'melodic-loops', gain: 0.8 },
 };
 
 /** Golpe de batería: canal 'drums' con su kit y su pieza. */
@@ -705,6 +728,233 @@ function bassLoop(
   };
 }
 
+/** Canal con su índice (los loops de una sola pista usan el helper corto). */
+function channelAt(
+  index: number,
+  kind: string,
+  params: Record<string, number>,
+  volume = 0.85,
+): CompiledChannel {
+  return { ...channel(kind, params, volume), id: `ch-${index}` };
+}
+
+/** Nota en un canal concreto. */
+function noteOn(
+  channelIndex: number,
+  start: number,
+  duration: number,
+  key: number,
+  velocity = 1,
+  slide = false,
+): CompiledNoteEvent {
+  return { ...note(start, duration, key, velocity, slide), channelIndex };
+}
+
+/**
+ * Un beat ENTERO: intro, subida, drop, vuelta y cierre encadenados.
+ *
+ * Aquí está la diferencia con un loop, y no es la duración: es que cada compás
+ * sabe en qué sección está y suena distinto por eso. La batería entra donde
+ * toca, el 808 desaparece en la vuelta para que el drop siguiente vuelva a
+ * pegar, los hats se doblan en la subida y el redoble de caja anuncia lo que
+ * viene. La forma la decide pack-structure.ts; aquí solo se toca.
+ *
+ * Tres pistas de verdad (batería, 808, melodía), no tres archivos: sale un WAV
+ * con el tema montado.
+ */
+function structuredBeat(
+  style: PackStyle,
+  index: number,
+  count: number,
+  seed: number,
+  root: number,
+): LoopSpec {
+  const bpm = STYLE_BPM[style];
+  const sections = planSections(index);
+  const bars = totalBars(sections);
+  const beats = bars * 4;
+  const traits = STYLES[style];
+  const progressions = PROGRESSIONS[style];
+  const progression = progressions[index % progressions.length]!;
+  const lead = STYLE_LEAD[style];
+  const events: CompiledNoteEvent[] = [];
+
+  const DRUMS = 0;
+  const BASS = 1;
+  const LEAD = 2;
+  /**
+   * La melodía canta TRES octavas por encima de la raíz del 808. Dos no bastan:
+   * a esa altura los acordes caen encima del sub (130 Hz contra 33 Hz) y se
+   * comen el grave — medido, la intro con acordes sostenidos tenía MÁS energía
+   * baja que el drop entero, que es exactamente lo contrario de lo que un drop
+   * debe hacer.
+   */
+  const melodyRoot = root + 36;
+
+  /**
+   * Bombo de UN compás, en semicorcheas (0..15). Ojo: el break de `drumLoop`
+   * usa un patrón de DOS compases, y reutilizarlo aquí tal cual metía golpes
+   * en el compás siguiente.
+   */
+  const kickSteps =
+    style === 'house' || style === 'techno'
+      ? [0, 4, 8, 12]
+      : style === 'boombap' || style === 'lofi'
+        ? [0, 10]
+        : [0, 6];
+  const snareKey = style === 'house' ? DRUM.clap : DRUM.snare;
+
+  for (let bar = 0; bar < bars; bar++) {
+    const section = sectionAt(sections, bar)!;
+    const d = densityOf(section.kind);
+    const barStart = bar * 4;
+    const last = isLastBarOfSection(sections, bar);
+    const degree = progression[bar % progression.length]!;
+    const chord = triad(degree).map((semi) => melodyRoot + semi);
+    const bassKey = root + MINOR[degree % 7]! + 12 * Math.floor(degree / 7);
+
+    // ── Melodía: sostenida cuando el tema respira, a stabs cuando pega ──
+    if (d.melody > 0) {
+      const vel = 0.55 + 0.4 * d.melody;
+      if (section.kind === 'drop' || section.kind === 'build') {
+        for (let step = 0; step < 8; step++) {
+          if (step === 1 || step === 5) continue; // el hueco de siempre
+          for (const key of chord) {
+            events.push(noteOn(LEAD, barStart + step * 0.5, 0.4, key, vel * (step % 2 ? 0.8 : 1)));
+          }
+        }
+      } else {
+        for (const key of chord) events.push(noteOn(LEAD, barStart, 3.6, key, vel));
+      }
+    }
+
+    // ── 808: la raíz del acorde, con slide en el drop ──
+    if (d.bass > 0) {
+      const vel = 0.6 + 0.4 * d.bass;
+      events.push(noteOn(BASS, barStart, section.kind === 'drop' ? 2.4 : 3.4, bassKey, vel));
+      if (section.kind === 'drop' && unit(index + bar, seed, 'slide') > 0.4) {
+        events.push(noteOn(BASS, barStart + 2.5, 1.2, bassKey + 7, vel * 0.9, true));
+      }
+    }
+
+    // ── Bombo y caja ──
+    if (d.drums > 0) {
+      // En la subida el bombo se calla en el último compás: lo que hace que el
+      // drop entre es el silencio de antes, no el golpe.
+      const sinBombo = d.roll && last;
+      // Con la batería a media asta se quedan los golpes de los tiempos
+      // fuertes: bajar el volumen no baja la energía, quitar golpes sí.
+      const kicks = d.drums >= 1 ? kickSteps : kickSteps.filter((_, i) => i % 2 === 0);
+      if (!sinBombo) {
+        for (const step of kicks) {
+          events.push(noteOn(DRUMS, barStart + step * 0.25, 0.25, DRUM.kick, 0.6 + 0.4 * d.drums));
+        }
+      }
+      for (const step of [4, 12]) {
+        events.push(noteOn(DRUMS, barStart + step * 0.25, 0.25, snareKey, 0.55 + 0.4 * d.drums));
+      }
+    }
+
+    // ── Hats ──
+    if (d.hats > 0) {
+      const every = d.doubleHats ? 1 : 2;
+      for (let step = 0; step < 16; step += every) {
+        const vel = (step % 4 === 0 ? 0.85 : 0.55) * (0.5 + 0.5 * d.hats);
+        events.push(noteOn(DRUMS, barStart + step * 0.25, 0.2, DRUM.hat, vel));
+      }
+    }
+
+    // ── Redoble de caja al cerrar la subida ──
+    if (d.roll && last) {
+      for (let i = 0; i < 16; i++) {
+        events.push(
+          noteOn(DRUMS, barStart + 2 + i * 0.125, 0.1, snareKey, 0.35 + (i / 16) * 0.6),
+        );
+      }
+    }
+
+    // ── Plato al entrar el drop ──
+    if (section.kind === 'drop' && bar === section.startBar) {
+      events.push(noteOn(DRUMS, barStart, 1, DRUM.openhat, 0.9));
+    }
+  }
+
+  const cutoff = spread(index, count, seed, 'cutoff', 1800, 6000);
+  const leadParams: Record<string, number> =
+    lead === 'supersaw'
+      ? { detune: 0.45, blend: 0.8, cutoff, attack: 0.01, release: 0.3, width: 0.85, octave: 0 }
+      : lead === 'fm'
+        ? {
+            ratio: 2,
+            index: spread(index, count, seed, 'fm', 1.6, 3.6),
+            indexDecay: 0.3,
+            attack: 0.004,
+            decay: 1.1,
+            sustain: 0.3,
+            release: 0.3,
+            octave: 0,
+          }
+        : {
+            wave: 0,
+            cutoff,
+            resonance: 0.25,
+            envAmount: 0.4,
+            attack: 0.004,
+            decay: 0.4,
+            sustain: 0.4,
+            release: 0.25,
+            unison: 2,
+            detune: 0.08,
+          };
+
+  return {
+    project: project({
+      tempo: bpm,
+      lengthBeats: beats,
+      // Mezcla de beat, no de loop: mandan la batería y el 808, y la melodía
+      // acompaña. Con el lead arriba, el limiter del master lo usa a él de
+      // referencia y el drop entra igual de fuerte que la intro.
+      channels: [
+        channelAt(
+          DRUMS,
+          'drums',
+          {
+            kit: traits.kit,
+            tone: spread(index, count, seed, 'tone', 0.35, 0.7),
+            decay: 0.9 * traits.decay,
+            punch: traits.punch,
+          },
+          1,
+        ),
+        channelAt(
+          BASS,
+          'sub808',
+          {
+            tune: 0,
+            decay: spread(index, count, seed, 'decay', 1, 1.8),
+            drive: spread(index, count, seed, 'drive', 0.35, 0.8),
+            glide: 0.1,
+            punch: 0.4,
+            tone: spread(index, count, seed, 'bass-tone', 700, 1500),
+          },
+          1,
+        ),
+        channelAt(LEAD, lead, leadParams, 0.45),
+      ],
+      events,
+      masterSlots: [
+        ...dirtSlots(style, index, seed),
+        effect('reverb', { size: 0.45, damp: 0.5, width: 1, predelay: 0.01 }, 0.14),
+        effect('limiter', { ceiling: -0.5, release: 0.12 }, 1),
+      ],
+    }),
+    tail: 1.2,
+    maxSec: beatsToSec(beats, bpm) + 1.2,
+    exactBeats: beats,
+    bpm,
+  };
+}
+
 // ── Encargo -> plan ───────────────────────────────────────────────────────────
 
 export function isPackFamily(value: unknown): value is PackFamily {
@@ -747,6 +997,7 @@ const FAMILY_LABELS: Record<PackFamily, string> = {
   'melodic-loops': 'Loops melódicos',
   'drum-loops': 'Breaks de batería',
   'bass-loops': 'Líneas de 808',
+  beats: 'Beats con estructura',
 };
 
 /**
@@ -757,7 +1008,10 @@ export function planPack(request: PackRequest): PackPlan {
   const family = request.family;
   if (!isPackFamily(family)) throw new Error(`Familia desconocida: ${String(family)}`);
   const style: PackStyle = isPackStyle(request.style) ? request.style : 'trap';
-  const count = Math.max(1, Math.min(MAX_PACK_SOUNDS, Math.round(request.count ?? DEFAULT_COUNT)));
+  // Cuántos caben depende de la familia: un beat entero pesa como veinte hats.
+  const topeFamilia = family === 'beats' ? MAX_STRUCTURED_BEATS : MAX_PACK_SOUNDS;
+  const porDefecto = family === 'beats' ? DEFAULT_BEAT_COUNT : DEFAULT_COUNT;
+  const count = Math.max(1, Math.min(topeFamilia, Math.round(request.count ?? porDefecto)));
   const seed = Number.isFinite(request.seed) ? Math.round(request.seed as number) : 0;
   const traits = FAMILIES[family];
 
@@ -950,6 +1204,19 @@ export function planPack(request: PackRequest): PackPlan {
           name: `Bajo ${STYLE_LABELS[style]} ${keyName}m ${num}`,
           keyRoot: keyName,
           tags: [style, 'loop', '808', 'bass'],
+          ...plan,
+        });
+        break;
+      }
+      case 'beats': {
+        const plan = structuredBeat(style, i, count, seed, rootKey);
+        const bars = Math.round((plan.exactBeats ?? 0) / 4);
+        sounds.push({
+          ...base,
+          name: `Beat ${STYLE_LABELS[style]} ${keyName}m ${num}`,
+          subcategory: style,
+          keyRoot: keyName,
+          tags: [style, 'beat', 'estructura', `${bars} compases`],
           ...plan,
         });
         break;

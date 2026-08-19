@@ -83,14 +83,20 @@ describe('los sonidos', () => {
     }
   });
 
-  it('cada uno trae un proyecto que suena: un canal y su nota', () => {
+  it('cada uno trae un proyecto que suena, y sus notas apuntan a un canal que existe', () => {
     for (const family of PACK_FAMILIES) {
       for (const sound of planPack({ family, count: 3 }).sounds) {
-        expect(sound.project.channels).toHaveLength(1);
+        // Un one-shot o un loop es UN canal; un beat con estructura son varios
+        // (batería, 808 y melodía sonando a la vez).
+        const canales = sound.project.channels.length;
+        expect(canales).toBeGreaterThanOrEqual(1);
         expect(sound.project.events.length).toBeGreaterThan(0);
         expect(sound.project.lengthBeats).toBeGreaterThan(0);
         expect(sound.maxSec).toBeGreaterThan(0);
-        expect(sound.project.events.every((e) => e.channelIndex === 0)).toBe(true);
+        // Una nota con un channelIndex que no existe no suena y no avisa.
+        expect(
+          sound.project.events.every((e) => e.channelIndex >= 0 && e.channelIndex < canales),
+        ).toBe(true);
       }
     }
   });

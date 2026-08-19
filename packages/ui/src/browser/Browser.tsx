@@ -137,6 +137,7 @@ const PACK_FAMILY_LABELS: Record<PackFamily, string> = {
   'melodic-loops': 'Loops melódicos',
   'drum-loops': 'Breaks',
   'bass-loops': 'Líneas de 808',
+  beats: 'Beats con estructura',
 };
 
 const PACK_STYLE_LABELS: Record<PackStyle, string> = {
