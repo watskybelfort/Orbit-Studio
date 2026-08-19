@@ -1471,145 +1471,198 @@ export function PianoRoll() {
         hovering.current = false;
       }}
     >
+      {/*
+        Toolbar por GRUPOS con su etiqueta.
+        Antes era una fila de trece botones sueltos donde "Q", "+8va" y "Hum"
+        pesaban lo mismo que "Dibujar", y para saber qué hacía cada uno había
+        que pasar el ratón por todos. Ahora cada bloque dice de qué va, así que
+        se busca por sitio y no por memoria: lo que edita lo que ya hay, lo que
+        inventa notas nuevas y lo que solo cambia la vista no se mezclan.
+      */}
       <div className="pr-toolbar">
-        <span className="pr-channel" style={{ borderLeftColor: channel.color }}>
-          {channel.name}
-        </span>
-        <div className="pr-toolmodes">
-          {TOOLS.map((t) => (
-            <button
-              key={t.id}
-              className={`tbtn${tool === t.id ? ' active' : ''}`}
-              onClick={() => setTool(t.id)}
-              title={t.hint}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="pr-group pr-group-context">
+          <span className="pr-group-label">Editando</span>
+          <div className="pr-group-row">
+            <span className="pr-channel" style={{ borderLeftColor: channel.color }}>
+              {channel.name}
+            </span>
+            <label className="pr-field" title="Patrón que estás editando (cambia también el patrón activo)">
+              <span className="pr-pattern-dot" style={{ background: pattern.color }} />
+              <select value={pattern.id} onChange={(e) => setActivePattern(e.target.value)}>
+                {project.patternOrder.map((pid) => (
+                  <option key={pid} value={pid}>
+                    {project.patterns[pid]?.name ?? pid}
+                  </option>
+                ))}
+              </select>
+              {/* Borrar el patrón que se está editando. Deshabilitado con uno
+                  solo: core lanza en vez de dejar el proyecto sin patrones. */}
+              <button
+                className="tbtn pr-pattern-del"
+                disabled={!canRemovePattern()}
+                title={
+                  canRemovePattern()
+                    ? `Borrar "${pattern.name}"${patternClipsHint(pattern.id)} · Ctrl+Shift+Supr, Ctrl+Z lo devuelve`
+                    : 'El proyecto siempre tiene un patrón'
+                }
+                onClick={() => removePattern(pattern.id)}
+              >
+                ✕
+              </button>
+            </label>
+          </div>
         </div>
-        <label className="pr-field" title="Patrón que estás editando (cambia también el patrón activo)">
-          <span className="pr-pattern-dot" style={{ background: pattern.color }} />
-          <select
-            value={pattern.id}
-            onChange={(e) => setActivePattern(e.target.value)}
-          >
-            {project.patternOrder.map((pid) => (
-              <option key={pid} value={pid}>
-                {project.patterns[pid]?.name ?? pid}
-              </option>
+
+        <div className="pr-group">
+          <span className="pr-group-label">Herramienta</span>
+          <div className="pr-group-row">
+            {TOOLS.map((t) => (
+              <button
+                key={t.id}
+                className={`tbtn${tool === t.id ? ' active' : ''}`}
+                onClick={() => setTool(t.id)}
+                title={t.hint}
+              >
+                {t.label}
+              </button>
             ))}
-          </select>
-          {/* Borrar el patrón que se está editando. Deshabilitado con uno solo:
-              core lanza en vez de dejar el proyecto sin patrones. */}
-          <button
-            className="tbtn pr-pattern-del"
-            disabled={!canRemovePattern()}
-            title={
-              canRemovePattern()
-                ? `Borrar "${pattern.name}"${patternClipsHint(pattern.id)} · Ctrl+Shift+Supr, Ctrl+Z lo devuelve`
-                : 'El proyecto siempre tiene un patrón'
-            }
-            onClick={() => removePattern(pattern.id)}
-          >
-            ✕
-          </button>
-        </label>
-        <label className="pr-field">
-          Snap
-          <select value={snapIdx} onChange={(e) => setSnapIdx(Number(e.target.value))}>
-            {SNAPS.map((s, i) => (
-              <option key={s.label} value={i}>{s.label}</option>
-            ))}
-          </select>
-        </label>
-        <label className="pr-field">
-          Escala
-          <select value={scaleRoot} onChange={(e) => setScaleRoot(Number(e.target.value))}>
-            {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((n, i) => (
-              <option key={n} value={i}>{n}</option>
-            ))}
-          </select>
-          <select value={scaleName} onChange={(e) => setScaleName(e.target.value)}>
-            {Object.keys(SCALES).map((s) => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </label>
-        <button
-          className={`tbtn${scaleLock ? ' active' : ''}`}
-          onClick={() => setScaleLock(!scaleLock)}
-          title="Bloqueo a escala: crear y mover notas se ajusta a la escala activa"
-        >
-          Bloq
-        </button>
-        <label className="pr-field">
-          Acorde
-          <select value={chordIdx} onChange={(e) => setChordIdx(Number(e.target.value))}>
-            {CHORDS.map((c, i) => (
-              <option key={c.label} value={i}>{c.label}</option>
-            ))}
-          </select>
-          {/* El desplegable solo decidía qué se estampa al CREAR una nota.
-              Esto lo aplica a lo que ya está escrito, que es lo que uno quiere
-              cuando ya tiene la melodía puesta. */}
-          <button
-            className="tbtn"
-            disabled={chordIdx === 0}
-            onClick={applyChordToSelection}
-            title={
-              chordIdx === 0
-                ? 'Elige un acorde para poder aplicarlo'
-                : `Convertir en ${CHORDS[chordIdx]?.label} las notas seleccionadas (o todas si no hay selección) · Alt+C${
-                    scaleLock ? ' · ajustado a la escala activa' : ''
-                  }`
-            }
-          >
-            Aplicar
-          </button>
-        </label>
-        <div className="pr-tools">
-          <button className="tbtn" onClick={quantize} title="Cuantizar (Ctrl+Q, selección o todo)">Q</button>
-          <button className="tbtn" onClick={() => transpose(12)} title="Subir octava (Ctrl+Shift+↑)">+8va</button>
-          <button className="tbtn" onClick={() => transpose(-12)} title="Bajar octava (Ctrl+Shift+↓)">-8va</button>
-          <button className="tbtn" onClick={toggleSlide} title="Slide (glide 808) en la selección">
-            Slide
-          </button>
-          <button
-            className={`tbtn${arpOpen ? ' active' : ''}`}
-            onClick={() => (arpOpen ? cancelArp() : openArp())}
-            title="Arpegiador: separa las notas del acorde con recorrido, paso, gate y rampas (Alt+A)"
-          >
-            Arp
-          </button>
-          <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios (Alt+S)">
-            Strum
-          </button>
-          <button className="tbtn" onClick={doHumanize} title="Humanizar timing y velocity (Alt+R)">Hum</button>
-          <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap (Alt+U)">Chop</button>
-          <button
-            className={`tbtn${riffOpen ? ' active' : ''}`}
-            onClick={() => {
-              if (arpOpen) cancelArp();
-              setRiffOpen(!riffOpen);
-            }}
-            title="Riff machine: generar un motivo sobre la escala activa (Alt+G)"
-          >
-            Riff
-          </button>
-          <button
-            className={`tbtn${laneMode === 'pan' ? ' active' : ''}`}
-            onClick={() => setLaneMode(laneMode === 'velocity' ? 'pan' : 'velocity')}
-            title="Carril inferior: velocity o pan por nota"
-          >
-            {laneMode === 'velocity' ? 'Vel' : 'Pan'}
-          </button>
-          <button
-            className={`tbtn${showGhosts ? ' active' : ''}`}
-            onClick={() => setShowGhosts(!showGhosts)}
-            title="Ghost notes: notas tenues de los OTROS canales de este patrón (no son del patrón anterior; apágalas si molestan)"
-          >
-            Ghost
-          </button>
+          </div>
+        </div>
+
+        <div className="pr-group">
+          <span className="pr-group-label">Rejilla</span>
+          <div className="pr-group-row">
+            <label className="pr-field" title="A qué se pegan las notas al crearlas y moverlas">
+              <select value={snapIdx} onChange={(e) => setSnapIdx(Number(e.target.value))}>
+                {SNAPS.map((s, i) => (
+                  <option key={s.label} value={i}>{s.label}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="tbtn"
+              onClick={quantize}
+              title="Cuantizar: pega a la rejilla lo seleccionado, o todo si no hay selección (Ctrl+Q)"
+            >
+              Cuantizar
+            </button>
+          </div>
+        </div>
+
+        <div className="pr-group">
+          <span className="pr-group-label">Armonía</span>
+          <div className="pr-group-row">
+            <label className="pr-field" title="Escala que se resalta en el teclado y a la que se ajusta el bloqueo">
+              <select value={scaleRoot} onChange={(e) => setScaleRoot(Number(e.target.value))}>
+                {['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'].map((n, i) => (
+                  <option key={n} value={i}>{n}</option>
+                ))}
+              </select>
+              <select value={scaleName} onChange={(e) => setScaleName(e.target.value)}>
+                {Object.keys(SCALES).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              className={`tbtn${scaleLock ? ' active' : ''}`}
+              onClick={() => setScaleLock(!scaleLock)}
+              title="Bloqueo a escala: crear y mover notas se ajusta a la escala activa"
+            >
+              Bloq
+            </button>
+            <label className="pr-field" title="Acorde que se estampa al crear una nota (y el que aplica el botón)">
+              <select value={chordIdx} onChange={(e) => setChordIdx(Number(e.target.value))}>
+                {CHORDS.map((c, i) => (
+                  <option key={c.label} value={i}>{c.label}</option>
+                ))}
+              </select>
+              {/* El desplegable solo decidía qué se estampa al CREAR una nota.
+                  Esto lo aplica a lo que ya está escrito, que es lo que uno
+                  quiere cuando ya tiene la melodía puesta. */}
+              <button
+                className="tbtn"
+                disabled={chordIdx === 0}
+                onClick={applyChordToSelection}
+                title={
+                  chordIdx === 0
+                    ? 'Elige un acorde para poder aplicarlo'
+                    : `Convertir en ${CHORDS[chordIdx]?.label} las notas seleccionadas (o todas si no hay selección) · Alt+C${
+                        scaleLock ? ' · ajustado a la escala activa' : ''
+                      }`
+                }
+              >
+                Aplicar
+              </button>
+            </label>
+          </div>
+        </div>
+
+        <div className="pr-group">
+          <span className="pr-group-label">Notas</span>
+          <div className="pr-group-row">
+            <button className="tbtn" onClick={() => transpose(12)} title="Subir una octava lo seleccionado (Ctrl+Shift+↑)">
+              8va ▲
+            </button>
+            <button className="tbtn" onClick={() => transpose(-12)} title="Bajar una octava lo seleccionado (Ctrl+Shift+↓)">
+              8va ▼
+            </button>
+            <button className="tbtn" onClick={toggleSlide} title="Slide (el glide del 808) en la selección">
+              Slide
+            </button>
+            <button className="tbtn" onClick={doChop} title="Trocear a la rejilla del snap (Alt+U)">
+              Trocear
+            </button>
+            <button className="tbtn" onClick={doStrum} title="Strum: abanicar los inicios del acorde (Alt+S)">
+              Strum
+            </button>
+            <button className="tbtn" onClick={doHumanize} title="Humanizar: mover un pelo el timing y la velocity (Alt+R)">
+              Humanizar
+            </button>
+          </div>
+        </div>
+
+        <div className="pr-group">
+          <span className="pr-group-label">Generar</span>
+          <div className="pr-group-row">
+            <button
+              className={`tbtn${arpOpen ? ' active' : ''}`}
+              onClick={() => (arpOpen ? cancelArp() : openArp())}
+              title="Arpegiador: separa las notas del acorde con recorrido, paso, gate y rampas (Alt+A)"
+            >
+              Arpegiar
+            </button>
+            <button
+              className={`tbtn${riffOpen ? ' active' : ''}`}
+              onClick={() => {
+                if (arpOpen) cancelArp();
+                setRiffOpen(!riffOpen);
+              }}
+              title="Riff machine: generar un motivo sobre la escala activa (Alt+G)"
+            >
+              Riff
+            </button>
+          </div>
+        </div>
+
+        <div className="pr-group pr-group-view">
+          <span className="pr-group-label">Ver</span>
+          <div className="pr-group-row">
+            <button
+              className={`tbtn${laneMode === 'pan' ? ' active' : ''}`}
+              onClick={() => setLaneMode(laneMode === 'velocity' ? 'pan' : 'velocity')}
+              title="Qué edita el carril de abajo: velocity o pan por nota"
+            >
+              {laneMode === 'velocity' ? 'Vel' : 'Pan'}
+            </button>
+            <button
+              className={`tbtn${showGhosts ? ' active' : ''}`}
+              onClick={() => setShowGhosts(!showGhosts)}
+              title="Ghost notes: notas tenues de los OTROS canales de este patrón (no son del patrón anterior; apágalas si molestan)"
+            >
+              Ghost
+            </button>
+          </div>
         </div>
       </div>
       <div className="pr-minimap-wrap">

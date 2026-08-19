@@ -49,12 +49,52 @@ html[data-theme='acrylic'] .pianoroll {
 
 .pr-toolbar {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
+  align-items: stretch;
+  gap: 0;
+  padding: 4px 8px 5px;
   border-bottom: 1px solid var(--border);
   flex: none;
   flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+/* Un bloque de la toolbar: su etiqueta arriba y sus controles debajo. El
+   separador es el borde izquierdo del bloque siguiente, no un elemento
+   aparte: asi al hacer wrap no quedan rayas sueltas colgando. */
+.pr-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 9px;
+  border-left: 1px solid var(--border);
+}
+
+.pr-group:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+
+.pr-group-label {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+.pr-group-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+}
+
+/* El bloque de vista se va a la derecha: son interruptores de mirar, no de
+   editar, y ahi no estorban al flujo de trabajo. */
+.pr-group-view {
+  margin-left: auto;
 }
 
 .pr-channel {
@@ -84,19 +124,6 @@ html[data-theme='acrylic'] .pianoroll {
   outline: none;
 }
 
-.pr-tools {
-  display: flex;
-  gap: 5px;
-  margin-left: auto;
-}
-
-/* Selector de herramienta (Dibujar / Pincel / Cortar): botonera pegada */
-.pr-toolmodes {
-  display: flex;
-  gap: 3px;
-  padding-right: 8px;
-  border-right: 1px solid var(--border);
-}
 
 /* ── Área principal ── */
 
