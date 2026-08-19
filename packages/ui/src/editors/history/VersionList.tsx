@@ -12,14 +12,19 @@
 import { useEffect, useState } from 'react';
 import { describeDiff } from '@orbit/core';
 import {
+  closeCompare,
   openVersionDiff,
   refreshVersions,
   removeVersion,
   restoreVersion,
+  runCompare,
   saveVersion,
+  setComparePick,
   summarize,
+  swapCompare,
   useVersions,
 } from '../../state/versions';
+import { CURRENT_KEY, compareHint, compareTitle } from '../../state/version-compare';
 
 export function VersionList() {
   const entries = useVersions((s) => s.entries);
@@ -27,6 +32,9 @@ export function VersionList() {
   const diff = useVersions((s) => s.diff);
   const busy = useVersions((s) => s.busy);
   const notice = useVersions((s) => s.notice);
+  const compareFrom = useVersions((s) => s.compareFrom);
+  const compareTo = useVersions((s) => s.compareTo);
+  const compare = useVersions((s) => s.compare);
   const [label, setLabel] = useState('');
 
   useEffect(() => {
@@ -57,6 +65,60 @@ export function VersionList() {
       </div>
 
       {notice && <p className="ver-notice">{notice}</p>}
+
+      {entries.length > 0 && (
+        <div className="ver-compare">
+          <div className="ver-compare-pick">
+            <span className="ver-compare-label">Comparar</span>
+            <select
+              className="ver-select"
+              value={compareFrom}
+              onChange={(e) => setComparePick('from', e.target.value)}
+            >
+              {sides(entries)}
+            </select>
+            <button
+              className="ver-btn small"
+              title="Dar la vuelta a la comparación"
+              onClick={swapCompare}
+            >
+              ⇄
+            </button>
+            <select
+              className="ver-select"
+              value={compareTo}
+              onChange={(e) => setComparePick('to', e.target.value)}
+            >
+              {sides(entries)}
+            </select>
+            <button className="ver-btn" disabled={busy} onClick={() => void runCompare()}>
+              Ver cambios
+            </button>
+          </div>
+
+          {compare && (
+            <div className="ver-diff">
+              <div className="ver-diff-sum">
+                {compareTitle(compare.from, compare.to)} · {summarize(compare.diff)}
+                <button className="ver-btn small" onClick={closeCompare} title="Cerrar">
+                  ✕
+                </button>
+              </div>
+              {compareHint(compare.direction) && (
+                <div className="ver-diff-hint">{compareHint(compare.direction)}</div>
+              )}
+              {describeDiff(compare.diff).map((line, i) => (
+                <div key={i} className="ver-diff-line">
+                  {line}
+                </div>
+              ))}
+              {describeDiff(compare.diff).length === 0 && (
+                <div className="ver-diff-line">No hay ni una diferencia entre esas dos.</div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {entries.length === 0 && (
         <p className="ver-empty">
@@ -113,6 +175,26 @@ export function VersionList() {
       })}
     </section>
   );
+}
+
+/**
+ * Las opciones de un lado del comparador: el proyecto de ahora primero (es lo
+ * que uno compara casi siempre) y luego las versiones, de la más nueva a la más
+ * vieja.
+ */
+function sides(entries: { file: string; label: string; at: number }[]) {
+  return [
+    <option key="__now" value={CURRENT_KEY}>
+      El proyecto de ahora
+    </option>,
+    ...[...entries]
+      .sort((a, b) => b.at - a.at)
+      .map((entry) => (
+        <option key={entry.file} value={entry.file}>
+          {entry.label} · {when(entry.at)}
+        </option>
+      )),
+  ];
 }
 
 /** Hoy → la hora; otro día → día y hora. */

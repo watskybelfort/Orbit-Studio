@@ -292,3 +292,54 @@
   color: var(--text-dim);
   line-height: 1.5;
 }
+
+/* Comparador: dos lados cualesquiera (una versión, o el proyecto de ahora). */
+.ver-compare {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-radius: 4px;
+}
+
+.ver-compare-pick {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ver-compare-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.ver-select {
+  flex: 1 1 120px;
+  min-width: 90px;
+  max-width: 200px;
+  font-size: 11px;
+  padding: 2px 4px;
+  color: var(--text);
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.ver-compare .ver-diff {
+  margin-left: 0;
+}
+
+.ver-compare .ver-diff-sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ver-diff-hint {
+  font-size: 11px;
+  color: var(--warn, #e6a15a);
+  line-height: 1.5;
+  margin-bottom: 3px;
+}
