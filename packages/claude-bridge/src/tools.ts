@@ -16,7 +16,12 @@
  */
 
 import { EFFECT_PARAMS, INSTRUMENT_PARAMS } from '@orbit/core';
-import { MAX_PACK_SOUNDS, PACK_FAMILIES, PACK_STYLES } from '@orbit/sound-library';
+import {
+  MAX_PACK_SOUNDS,
+  MAX_STRUCTURED_BEATS,
+  PACK_FAMILIES,
+  PACK_STYLES,
+} from '@orbit/sound-library';
 
 /** JSON Schema (draft-07 compatible) del input de una tool. */
 export interface ToolInputSchema {
@@ -471,12 +476,17 @@ export const TOOLS: ToolDef[] = [
       'Genera un pack de sonidos NUEVO por síntesis ("12 hats de drill") con el MISMO motor que ' +
       'suena en vivo y lo deja en la librería de la app (sección "Packs generados"), listo para ' +
       'arrastrar al rack o a la playlist. `family` manda (kicks, snares, claps, hats, openhats, ' +
-      'percs, 808s, impacts, risers, downlifters) y `style` le da el carácter (trap, drill, ' +
-      'boombap, latin, house, techno, lofi; por defecto trap). `count` 1..' + String(MAX_PACK_SOUNDS) +
+      'percs, 808s, impacts, risers, downlifters), hay loops (melodic-loops, drum-loops, ' +
+      'bass-loops) y está `beats`, que son TEMAS ENTEROS con estructura (intro, subida, drop, ' +
+      'vuelta y cierre encadenados, con batería, 808 y melodía sonando a la vez). `style` le da el ' +
+      'carácter (trap, drill, boombap, latin, house, techno, lofi; por defecto trap). `count` 1..' +
+      String(MAX_PACK_SOUNDS) +
       ' (por defecto 8): las variaciones recorren TODO el rango de la familia, de lo más oscuro a ' +
-      'lo más brillante. `key` es la nota raíz de los 808s ("C", "F", "A#"). `seed` cambia las ' +
-      'variaciones sin cambiar nada más (mismo encargo + misma semilla = mismo pack, siempre). ' +
-      'Con `addChannels` true, además mete cada sonido en un canal sampler del proyecto.',
+      'lo más brillante. OJO: `beats` tiene su propio tope de ' + String(MAX_STRUCTURED_BEATS) +
+      ' (por defecto 2), porque cada uno dura entre medio minuto y minuto y medio. `key` es la ' +
+      'nota raíz de los 808s ("C", "F", "A#"). `seed` cambia las variaciones sin cambiar nada más ' +
+      '(mismo encargo + misma semilla = mismo pack, siempre). Con `addChannels` true, además mete ' +
+      'cada sonido en un canal sampler del proyecto.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -61,6 +61,7 @@ export function withAnalysis(entry: SoundEntry, analysis: SampleAnalysis): Sound
 // Packs a medida (los que pide Claude): recetas puras, sin fs ni render.
 export {
   MAX_PACK_SOUNDS,
+  MAX_STRUCTURED_BEATS,
   PACK_FAMILIES,
   PACK_STYLES,
   isPackFamily,
