@@ -38,7 +38,9 @@ const session = new CollabSession(store, {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-await session.connect(url, code);
+// La sala puede pedir contraseña: ORBIT_COLLAB_PASSWORD. No viaja — se
+// firma con ella el desafío que manda el servidor.
+await session.connect(url, code, process.env.ORBIT_COLLAB_PASSWORD ?? '');
 console.log(`conectado a ${code} como "${name}"`);
 await sleep(500);
 

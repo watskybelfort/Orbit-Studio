@@ -74,6 +74,55 @@ a la vez, sin pisarse y sin conflictos.
   delante, patrón, canal, pista de mixer, playhead) y puedes seguir a alguien;
   el caret solo te lo mueve con el transporte parado.
 
+## La puerta: contraseña de sala (v2.0)
+
+Hasta v1.9 el modelo de confianza era el código de seis caracteres. Ahora una
+sala puede pedir contraseña, y el esquema es el de **SCRAM** reducido a lo justo
+(`packages/collab/src/room-auth.ts`):
+
+```
+saltedPassword = PBKDF2-SHA256(contraseña, salt, iteraciones)
+clientKey      = HMAC(saltedPassword, "Orbit Client Key")
+storedKey      = SHA-256(clientKey)          ← lo ÚNICO que guarda el servidor
+authMessage    = "<sala>:<nonce>"            ← el nonce lo pone el servidor
+proof          = clientKey XOR HMAC(storedKey, authMessage)   ← lo ÚNICO que viaja
+```
+
+El servidor recupera `clientKey = proof XOR HMAC(storedKey, authMessage)` y
+comprueba que su SHA-256 es el `storedKey` que tiene apuntado. De ahí salen tres
+propiedades:
+
+- **La contraseña nunca viaja**, ni siquiera derivada: la prueba es distinta en
+  cada conexión (nonce de un solo uso), así que grabar el tráfico no abre nada.
+- **El servidor no puede reconstruirla**: guarda un hash de un hash.
+- **Robar el archivo de la sala tampoco basta**: para firmar hace falta
+  `clientKey`, y de `storedKey` solo se llega por preimagen.
+
+Cómo se comporta el socket:
+
+1. El que conecta a una sala protegida recibe `challenge` y **se queda en la
+   puerta**. Mientras está ahí el servidor no mira nada más: ni sync, ni
+   presencia, ni audio. La sala ni siquiera se crea — un desconocido no debería
+   poder hacer que se abra un `.bin` de 60 MB solo por conectarse.
+2. Una prueba por conexión y 20 s de margen. Fallar cierra con **1008** y su
+   motivo, que el cliente entiende como "no insistas".
+3. Con `authOk` empieza el sync. **El saludo del `onopen` se lo comió la
+   puerta**, así que el cliente lo repite (`sendHandshake()` en session.ts): sin
+   eso, entrar con la contraseña correcta dejaría la sesión colgada en
+   "Conectando…" para siempre.
+4. `setPassword` lo juzga el servidor con el rol que **él** reparte: solo el
+   productor cambia la cerradura, y cambiarla **no echa** a los que están dentro.
+
+Dónde vive: `<roomsDir>/<código>.auth.json`, escrito de forma atómica y con
+permisos de solo-el-dueño donde el sistema los respeta. **Nunca en el Y.Doc**:
+lo que se mete en el doc acaba replicado en la máquina de cada invitado. Un
+`.auth.json` corrupto deja la sala **cerrada**, no abierta de par en par.
+
+En la app: campo "Contraseña" al crear y al unirse (solo en memoria — no se
+guarda en `settings.json`), y bloque "Puerta de la sala" dentro, donde el
+productor la pone, la cambia o la quita. Para QA headless:
+`ORBIT_COLLAB_PASSWORD=... npx tsx tools/qa/presence-peer.ts <SALA>`.
+
 ## Presencia (awareness)
 
 - Cada cliente publica: nombre, color asignado, editor activo (Playlist,
