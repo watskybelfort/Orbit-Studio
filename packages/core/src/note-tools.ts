@@ -391,3 +391,88 @@ export function riff(opts: RiffOptions): Note[] {
   }
   return out.sort(byStartThenKey);
 }
+
+// ── Acordes sobre notas ya escritas ──────────────────────────────────────────
+
+export interface ChordifyOptions {
+  /** Intervalos del acorde en semitonos desde la nota (0 = la propia nota). */
+  intervals: readonly number[];
+  /**
+   * Escala a la que ajustar las notas añadidas. Sin ella el acorde es FIJO
+   * (los mismos semitonos siempre); con ella cada nota se arrima al grado mas
+   * cercano de la escala, que es lo que hace que una progresión suene a
+   * tonalidad y no a la misma forma copiada arriba y abajo.
+   */
+  scale?: readonly number[];
+  /** Tónica de la escala en semitonos 0..11 (0 = C). Solo con `scale`. */
+  root?: number;
+  /** Tecla más aguda permitida (por defecto 127). */
+  maxKey?: number;
+  /**
+   * Notas que YA existen en el canal. Lo que caiga encima de una de ellas no
+   * se añade: si no, aplicar el acorde dos veces (o sobre una nota que ya
+   * forma parte de otro acorde) apila notas idénticas que suenan +6 dB y solo
+   * se ven al moverlas.
+   */
+  existing?: readonly Note[];
+}
+
+/** Arrima una tecla al grado más cercano de la escala (empate: hacia abajo). */
+function nearestInScale(key: number, root: number, scale: readonly number[], maxKey: number): number {
+  if (inScaleList(key, root, scale)) return key;
+  for (let d = 1; d <= 6; d++) {
+    if (key - d >= 0 && inScaleList(key - d, root, scale)) return key - d;
+    if (key + d <= maxKey && inScaleList(key + d, root, scale)) return key + d;
+  }
+  return key;
+}
+
+function inScaleList(midi: number, root: number, scale: readonly number[]): boolean {
+  const rel = (((midi - root) % 12) + 12) % 12;
+  return scale.includes(rel);
+}
+
+/**
+ * Convierte cada nota en un acorde y devuelve SOLO las notas nuevas.
+ *
+ * Devuelve lo que hay que añadir, no el conjunto entero, porque así el que
+ * llama lo manda con un único `addNotes` y deshacer quita exactamente el
+ * acorde sin tocar las notas originales (que conservan su id, su velocity y
+ * su slide).
+ *
+ * Las notas generadas heredan start, duración, velocity y pan de su nota
+ * madre, y nunca llevan slide: el glide es de la fundamental.
+ */
+export function chordify(notes: readonly Note[], opts: ChordifyOptions): Note[] {
+  const maxKey = opts.maxKey ?? 127;
+  const intervals = [...new Set(opts.intervals)].sort((a, b) => a - b);
+  if (intervals.length === 0) return [];
+
+  const taken = new Set<string>();
+  const at = (key: number, start: number) => `${key}@${start.toFixed(6)}`;
+  for (const n of opts.existing ?? notes) taken.add(at(n.key, n.start));
+
+  const out: Note[] = [];
+  for (const n of notes) {
+    for (const iv of intervals) {
+      let key = n.key + iv;
+      if (opts.scale && opts.scale.length > 0) {
+        key = nearestInScale(key, ((opts.root ?? 0) % 12 + 12) % 12, opts.scale, maxKey);
+      }
+      if (key < 0 || key > maxKey) continue;
+      const slot = at(key, n.start);
+      if (taken.has(slot)) continue;
+      taken.add(slot);
+      out.push({
+        id: newId(),
+        start: n.start,
+        duration: n.duration,
+        key,
+        velocity: n.velocity,
+        pan: n.pan,
+        slide: false,
+      });
+    }
+  }
+  return out.sort(byStartThenKey);
+}

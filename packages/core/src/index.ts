@@ -23,11 +23,13 @@ export { decodeMidi, type DecodedMidi, type DecodedMidiTrack } from './midi/deco
 export {
   arpeggiate,
   chop,
+  chordify,
   humanize,
   riff,
   strum,
   type ArpeggiateOptions,
   type ChopOptions,
+  type ChordifyOptions,
   type HumanizeOptions,
   type RiffCharacter,
   type RiffOptions,

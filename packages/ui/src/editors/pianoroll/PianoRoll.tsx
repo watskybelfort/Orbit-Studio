@@ -11,6 +11,7 @@ import {
   SCALES,
   arpeggiate,
   chop,
+  chordify,
   humanize,
   inScale,
   midiToNote,
@@ -1074,6 +1075,43 @@ export function PianoRoll() {
     applyTools('Chop', (sel) => chop(sel, { grid: snapStep ?? 0.25 }));
   }, [applyTools, snapStep]);
 
+  /**
+   * Convierte en acordes las notas seleccionadas (o todas si no hay
+   * selección), con el acorde elegido en la toolbar.
+   *
+   * No pasa por `applyTools`: ese borra y reescribe lo afectado, y aquí las
+   * notas originales tienen que quedarse EXACTAMENTE como están —con su id,
+   * su velocity y su slide—. Solo se añade lo que falta, así que deshacer
+   * quita el acorde y deja la melodía intacta.
+   *
+   * Con el bloqueo a escala encendido el acorde se arrima a la tonalidad
+   * activa: la misma forma sobre grados distintos deja de sonar a copia
+   * transportada y empieza a sonar a progresión.
+   */
+  const applyChordToSelection = useCallback(() => {
+    if (!activePatternId || !channelId) return;
+    const chordDef = CHORDS[chordIdx];
+    if (!chordDef?.intervals) return;
+    const ids = new Set(affectedIds());
+    const targets = notes.filter((n) => ids.has(n.id));
+    if (targets.length === 0) return;
+    const added = chordify(targets, {
+      intervals: chordDef.intervals,
+      maxKey: KEYS - 1,
+      existing: notes,
+      ...(scaleLock ? { scale, root: scaleRoot } : {}),
+    });
+    if (added.length === 0) return;
+    const label = `Acorde ${chordDef.label} en ${targets.length} nota(s)`;
+    store.dispatch(
+      { type: 'addNotes', patternId: activePatternId, channelId, notes: added },
+      { label },
+    );
+    // La selección pasa a ser el acorde entero (originales + añadidas): lo
+    // siguiente que hagas —mover, arpegiar, strum— cae sobre todo el acorde.
+    setSelection(new Set([...targets.map((n) => n.id), ...added.map((n) => n.id)]));
+  }, [activePatternId, channelId, chordIdx, affectedIds, notes, scaleLock, scale, scaleRoot]);
+
   // ── Riff machine ──────────────────────────────────────────────────────────
 
   /**
@@ -1119,7 +1157,8 @@ export function PianoRoll() {
   );
 
   // Atajos de herramientas estilo FL: Alt+A arpegiar, Alt+S strum, Alt+U chop,
-  // Alt+R humanizar, Alt+G Riff machine, Ctrl+Q cuantizar, Ctrl+Shift+flechas
+  // Alt+R humanizar, Alt+C acorde sobre la selección, Alt+G Riff machine,
+  // Ctrl+Q cuantizar, Ctrl+Shift+flechas
   // transponer octava. Solo activos con la ventana del Piano Roll montada
   // (como Supr/Ctrl+B).
   // Los modos de herramienta van con UNA tecla (P dibujar, B pincel, C cortar,
@@ -1157,6 +1196,9 @@ export function PianoRoll() {
         } else if (e.code === 'KeyG') {
           e.preventDefault();
           setRiffOpen((open) => !open);
+        } else if (e.code === 'KeyC') {
+          e.preventDefault();
+          applyChordToSelection();
         }
       } else if (e.ctrlKey && !e.altKey && !e.shiftKey && e.code === 'KeyQ') {
         e.preventDefault();
@@ -1171,7 +1213,7 @@ export function PianoRoll() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doArp, doStrum, doChop, doHumanize, quantize, transpose]);
+  }, [doArp, doStrum, doChop, doHumanize, quantize, transpose, applyChordToSelection]);
 
   // ── Minimapa ──────────────────────────────────────────────────────────────
   // Vista completa del patrón con las notas y el rectángulo del viewport;
@@ -1376,6 +1418,23 @@ export function PianoRoll() {
               <option key={c.label} value={i}>{c.label}</option>
             ))}
           </select>
+          {/* El desplegable solo decidía qué se estampa al CREAR una nota.
+              Esto lo aplica a lo que ya está escrito, que es lo que uno quiere
+              cuando ya tiene la melodía puesta. */}
+          <button
+            className="tbtn"
+            disabled={chordIdx === 0}
+            onClick={applyChordToSelection}
+            title={
+              chordIdx === 0
+                ? 'Elige un acorde para poder aplicarlo'
+                : `Convertir en ${CHORDS[chordIdx]?.label} las notas seleccionadas (o todas si no hay selección) · Alt+C${
+                    scaleLock ? ' · ajustado a la escala activa' : ''
+                  }`
+            }
+          >
+            Aplicar
+          </button>
         </label>
         <div className="pr-tools">
           <button className="tbtn" onClick={quantize} title="Cuantizar (Ctrl+Q, selección o todo)">Q</button>
