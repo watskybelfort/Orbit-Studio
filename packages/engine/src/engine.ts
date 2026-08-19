@@ -20,6 +20,8 @@ export class AudioEngine {
   private node: AudioWorkletNode | null = null;
   private pending: ToKernel[] = [];
   private loadedSamples = new Set<string>();
+  /** Duración real de cada sample ya decodificado (segundos). */
+  private sampleDurations = new Map<string, number>();
 
   playMode: PlayMode = { mode: 'song' };
   onMeters: ((frame: MeterFrame) => void) | null = null;
@@ -143,11 +145,16 @@ export class AudioEngine {
     this.send({ type: 'previewNote', channelIndex, key, on });
   }
 
-  /** Decodifica un archivo de audio y lo sube al kernel (una sola vez por id). */
+  /**
+   * Decodifica un archivo de audio y lo sube al kernel (una sola vez por id).
+   * Devuelve su duración REAL, también si ya estaba subido: quien coloca un
+   * clip la necesita, y devolver 0 la segunda vez obligaba a inventársela.
+   */
   async loadSample(sampleId: string, data: ArrayBuffer): Promise<{ duration: number }> {
     if (!this.ctx) await this.init();
     const ctx = this.ctx!;
-    if (this.loadedSamples.has(sampleId)) return { duration: 0 };
+    const known = this.sampleDurations.get(sampleId);
+    if (known !== undefined) return { duration: known };
     const decoded = await ctx.decodeAudioData(data.slice(0));
     const left = decoded.getChannelData(0).slice();
     const right = (decoded.numberOfChannels > 1
@@ -159,6 +166,7 @@ export class AudioEngine {
       [left.buffer, right.buffer],
     );
     this.loadedSamples.add(sampleId);
+    this.sampleDurations.set(sampleId, decoded.duration);
     return { duration: decoded.duration };
   }
 

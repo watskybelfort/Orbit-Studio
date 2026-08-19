@@ -63,6 +63,25 @@ export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
   return bytes;
 }
 
+/**
+ * Duración real del sonido, en segundos.
+ *
+ * `entry.durationSec` es 0 en todo lo de "Tus carpetas" hasta que la cola de
+ * análisis —perezosa y de uno en uno— le llega. Arrastrar a la playlist uno que
+ * aún no había tocado dejaba un clip de 0,25 beats: de un loop de cuatro
+ * segundos sonaban 125 ms. El motor acaba de decodificarlo aquí al lado, así
+ * que la duración de verdad la tiene él.
+ */
+async function realDuration(entry: SoundEntry, bytes: ArrayBuffer): Promise<number> {
+  if (entry.durationSec > 0) return entry.durationSec;
+  try {
+    const { duration } = await engine.loadSample(entry.id, bytes);
+    return duration;
+  } catch {
+    return entry.durationSec;
+  }
+}
+
 /** registerSample si el proyecto aún no conoce este sonido. */
 async function registerIfNew(entry: SoundEntry, bytes: ArrayBuffer): Promise<Command[]> {
   if (store.project.samples[entry.id] !== undefined) return [];
@@ -75,7 +94,9 @@ async function registerIfNew(entry: SoundEntry, bytes: ArrayBuffer): Promise<Com
         ? `pack:${entry.file}`
         : `factory:${entry.file}`,
     hash: (await sha1Hex(bytes)) ?? entry.id,
-    duration: entry.durationSec,
+    // La de verdad, no la que traiga la entrada: lo de "Tus carpetas" llega con
+    // 0 hasta que la cola de análisis pasa por ahí.
+    duration: await realDuration(entry, bytes),
   };
   return [{ type: 'registerSample', sample }];
 }
@@ -108,7 +129,8 @@ export async function addSamplerChannel(entry: SoundEntry): Promise<void> {
 export async function addAudioClip(entry: SoundEntry, trackId: Id, startBeat: number): Promise<void> {
   const bytes = await loadIntoEngine(entry);
 
-  const lengthBeats = Math.max(0.25, (entry.durationSec * store.project.tempo) / 60);
+  const durationSec = await realDuration(entry, bytes);
+  const lengthBeats = Math.max(0.25, (durationSec * store.project.tempo) / 60);
   const clip: Clip = {
     id: newId(),
     kind: 'audio',
