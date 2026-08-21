@@ -27,6 +27,8 @@ import {
 import { PROJECT_TEMPLATES } from '@orbit/core';
 import { repeatLastExport } from '../export';
 import { store } from '../state/app';
+import { clipboardKind } from '../state/clipboard';
+import { activeEditActions } from '../state/edit-focus';
 import {
   activePattern,
   addPattern,
@@ -66,6 +68,31 @@ interface MenuItem {
   checked?: boolean;
   /** Submenú: sus entradas salen a la derecha en vez de alargar el desplegable. */
   submenu?: MenuItem[];
+  /** Cabecera de grupo: no se pulsa, solo dice de qué va el bloque de abajo. */
+  heading?: boolean;
+}
+
+// ── Etiquetas de deshacer/rehacer ────────────────────────────────────────────
+//
+// El bus lleva undo POR ORIGEN: un Ctrl+Z deshace lo TUYO, no lo que acabe de
+// hacer un colaborador ni Claude. Las etiquetas del menú tienen que buscar con
+// esa misma regla o dirían un nombre y desharían otro.
+
+function nextUndoLabel(): string | null {
+  const entries = store.history;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i]!.origin === 'local') return entries[i]!.label;
+  }
+  return null;
+}
+
+function nextRedoLabel(): string | null {
+  const { entries, present } = store.historyView();
+  // A partir del presente va el futuro, ya en el orden en que se rehará.
+  for (let i = present; i < entries.length; i++) {
+    if (entries[i]!.origin === 'local') return entries[i]!.label;
+  }
+  return null;
 }
 
 /** Una entrada de submenú abierta se identifica por su índice en la lista. */
@@ -77,9 +104,13 @@ function MenuList({ items, onRun }: { items: MenuItem[]; onRun: () => void }) {
       {items.map((item, i) =>
         item.separator ? (
           <div key={`sep-${i}`} className="menu-sep" />
+        ) : item.heading ? (
+          <div key={`head-${i}`} className="menu-heading">
+            {item.label}
+          </div>
         ) : (
           <div
-            key={item.label}
+            key={`${item.label}-${i}`}
             className="menu-row"
             // El submenú se pinta DENTRO de la fila: al moverse hacia él, el
             // puntero no sale de la fila y no hay parpadeo al cruzar el hueco.
@@ -142,6 +173,9 @@ export function MenuBar() {
   const canRemove = canRemovePattern();
   const ui = useUiStore.getState();
   const recents = useRecentProjects.getState().list;
+  const edit = activeEditActions();
+  const undoLabel = nextUndoLabel();
+  const redoLabel = nextRedoLabel();
 
   /** Entrada de "Ver" que abre/cierra una ventana, con su ✓ si está abierta. */
   const windowItem = (
@@ -205,8 +239,65 @@ export function MenuBar() {
       { label: 'Salir', icon: <IconClose />, action: () => void window.orbit?.window.close() },
     ],
     Editar: [
-      { label: 'Deshacer', shortcut: 'Ctrl+Z', action: () => store.undo() },
-      { label: 'Rehacer', shortcut: 'Ctrl+Y', action: () => store.redo() },
+      // El menú dice QUÉ deshace. "Deshacer" a secas obliga a probar y mirar.
+      {
+        label: undoLabel ? `Deshacer «${undoLabel}»` : 'Deshacer',
+        shortcut: 'Ctrl+Z',
+        disabled: undoLabel === null,
+        action: () => store.undo(),
+      },
+      {
+        label: redoLabel ? `Rehacer «${redoLabel}»` : 'Rehacer',
+        shortcut: 'Ctrl+Y',
+        disabled: redoLabel === null,
+        action: () => store.redo(),
+      },
+      { label: '', separator: true },
+      /*
+       * Estas seis van contra el editor que tenga el TURNO (el último que se
+       * tocó: Piano Roll o Playlist). El nombre de lo que van a tocar sale en
+       * la propia entrada — "Copiar 3 notas" — porque con dos editores abiertos
+       * "Copiar" a secas no dice de qué habla.
+       */
+      {
+        label: edit ? `Cortar ${edit.selectionCount} ${edit.noun}` : 'Cortar',
+        shortcut: 'Ctrl+X',
+        disabled: !edit || edit.selectionCount === 0,
+        action: () => edit?.cut(),
+      },
+      {
+        label: edit ? `Copiar ${edit.selectionCount} ${edit.noun}` : 'Copiar',
+        shortcut: 'Ctrl+C',
+        disabled: !edit || edit.selectionCount === 0,
+        action: () => edit?.copy(),
+      },
+      {
+        label: 'Pegar',
+        shortcut: 'Ctrl+V',
+        // Pegar notas en la Playlist no significa nada: si lo guardado no es de
+        // su tipo, la entrada se queda gris en vez de no hacer nada al pulsar.
+        disabled: !edit || clipboardKind() !== edit.accepts,
+        action: () => edit?.paste(),
+      },
+      {
+        label: 'Duplicar',
+        shortcut: 'Ctrl+B',
+        disabled: !edit || edit.selectionCount === 0,
+        action: () => edit?.duplicate(),
+      },
+      {
+        label: 'Seleccionar todo',
+        shortcut: 'Ctrl+A',
+        disabled: !edit,
+        action: () => edit?.selectAll(),
+      },
+      {
+        label: 'Borrar la selección',
+        icon: <IconClose />,
+        shortcut: 'Supr',
+        disabled: !edit || edit.selectionCount === 0,
+        action: () => edit?.remove(),
+      },
       { label: '', separator: true },
       { label: 'Historial…', action: () => toggleWindow('history') },
     ],
@@ -236,21 +327,49 @@ export function MenuBar() {
         action: () => removeActivePattern(),
       },
     ],
+    /*
+     * Ver era un volcado de veinte líneas seguidas: los editores grandes, los
+     * instrumentos, los paneles laterales y los ajustes pesaban lo mismo y
+     * había que leerlo entero para encontrar nada. Ahora va por bloques con su
+     * cabecera, en el orden en que se usan.
+     */
     Ver: [
+      { label: 'Editores', heading: true },
       windowItem('playlist', 'Playlist', <IconPlaylist />, 'F5'),
       windowItem('channelRack', 'Channel Rack', <IconChannelRack />, 'F6'),
       windowItem('pianoRoll', 'Piano Roll', <IconPianoRoll />, 'F7'),
       windowItem('liveView', 'Vista Live', <IconLive />, 'F8'),
       windowItem('mixer', 'Mixer', <IconMixer />, 'F9'),
-      windowItem('automation', 'Automatización', <IconAutomation />),
-      windowItem('lfo', 'LFOs', <IconLfo />),
+      { label: 'Sonido', heading: true },
       windowItem('nova', 'Orbit Nova', <IconTrack kind="keys" />),
       windowItem('prisma', 'Orbit Prisma', <IconTrack kind="synth" />),
       windowItem('channelEditor', 'Editor de sonido', <IconTrack kind="fx" />),
       windowItem('scope', 'Orbit Scope', <IconWave />),
+      { label: 'Movimiento y rutas', heading: true },
+      windowItem('automation', 'Automatización', <IconAutomation />),
+      windowItem('lfo', 'LFOs', <IconLfo />),
       windowItem('graph', 'Enrutado (nodos)', <IconGraph />),
       windowItem('history', 'Historial', undefined),
-      { label: '', separator: true },
+      { label: 'Paneles', heading: true },
+      {
+        label: 'Browser',
+        icon: <IconBrowser />,
+        checked: ui.browserOpen,
+        action: () => useUiStore.setState((s) => ({ browserOpen: !s.browserOpen })),
+      },
+      {
+        label: 'Panel de Claude',
+        icon: <IconClaude />,
+        checked: ui.claudePanelOpen,
+        action: () => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen })),
+      },
+      {
+        label: 'Modo Zen (oculta los paneles)',
+        checked: ui.compact,
+        action: () => useUiStore.setState((s) => ({ compact: !s.compact })),
+      },
+      windowItem('collab', 'Colaboración…', <IconCollab />),
+      { label: 'El escritorio', heading: true },
       {
         label: 'Layouts',
         submenu: [
@@ -268,22 +387,6 @@ export function MenuBar() {
           },
         ],
       },
-      { label: '', separator: true },
-      {
-        label: 'Browser',
-        icon: <IconBrowser />,
-        checked: ui.browserOpen,
-        action: () => useUiStore.setState((s) => ({ browserOpen: !s.browserOpen })),
-      },
-      {
-        label: 'Panel de Claude',
-        icon: <IconClaude />,
-        checked: ui.claudePanelOpen,
-        action: () => useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen })),
-      },
-      { label: '', separator: true },
-      windowItem('collab', 'Colaboración…', <IconCollab />),
-      { label: '', separator: true },
       windowItem('settings', 'Ajustes', <IconSettings />, 'F10'),
     ],
     Ayuda: [

@@ -568,3 +568,24 @@ html[data-theme='acrylic'] .iw-title {
   color: var(--meter-clip);
   font-variant-numeric: tabular-nums;
 }
+
+/* Lo que está activo se lee un punto más claro, además del ✓. */
+.menu-item.checked {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* Cabecera de grupo dentro de un desplegable: separa bloques sin gastar una
+   línea de separador por cada uno y dice de qué va lo de debajo. */
+.menu-heading {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 8px 10px 3px;
+}
+
+/* El primero no necesita aire por arriba: ya lo da el padding del popup. */
+.menu-dropdown > .menu-heading:first-child {
+  padding-top: 2px;
+}
