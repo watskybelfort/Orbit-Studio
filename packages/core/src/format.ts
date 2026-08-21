@@ -42,6 +42,9 @@ export function parseProject(json: string): Project {
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
   // anteriores simplemente no los traen y arrancan vacíos/planos.
   p.lfos ??= {};
+  // Secciones del arreglo (v2.4): aditivas. Un .orbit anterior abre sin forma
+  // dibujada, que es exactamente como estaba antes de que existieran.
+  p.sections ??= {};
   // Carpetas del rack (v1.5): aditivas, los archivos anteriores no las traen.
   p.channelGroups ??= {};
   p.channelGroupOrder ??= [];

@@ -292,6 +292,31 @@ export interface Clip {
   points?: AutomationPoint[];
 }
 
+/**
+ * Un tramo con nombre del arreglo: la intro, el drop, la vuelta.
+ *
+ * No suena: es la FORMA del tema, y lo que la hace una herramienta y no una
+ * etiqueta es que las operaciones se la llevan entera — duplicar un drop copia
+ * sus clips y empuja lo que venía detrás, borrar una vuelta cierra el hueco.
+ * Vive por arrangement, como las pistas de playlist.
+ */
+export interface ArrangementSection {
+  id: Id;
+  arrangementId: Id;
+  name: string;
+  /** Inicio en beats absolutos de la canción. */
+  start: number;
+  /** Longitud en beats. */
+  length: number;
+  color?: string;
+  /**
+   * Papel dentro del tema, cuando viene de una forma conocida. Es solo para
+   * pintarlo y para que el generador y la playlist hablen el mismo idioma;
+   * nada del motor lo mira.
+   */
+  kind?: 'intro' | 'build' | 'drop' | 'break' | 'outro';
+}
+
 export interface Marker {
   id: Id;
   /** Beats absolutos. */
@@ -434,6 +459,8 @@ export interface Project {
   playlistTracks: Record<Id, PlaylistTrack>;
   clips: Record<Id, Clip>;
   markers: Record<Id, Marker>;
+  /** Secciones del arreglo (v2.4; los .orbit anteriores no las traen). */
+  sections: Record<Id, ArrangementSection>;
   /** Moduladores continuos por parámetro (v0.8; los .orbit viejos no lo traen). */
   lfos: Record<Id, Lfo>;
   /**

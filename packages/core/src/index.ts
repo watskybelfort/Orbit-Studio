@@ -14,6 +14,7 @@ export * from './model/diff';
 export * from './model/notes';
 export * from './model/fades';
 export * from './model/defaults';
+export * from './arrangement';
 export * from './commands';
 export * from './store';
 export * from './format';

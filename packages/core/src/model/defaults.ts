@@ -172,6 +172,7 @@ export function createEmptyProject(title = 'Nuevo proyecto'): Project {
     playlistTracks: tracks,
     clips: {},
     markers: {},
+    sections: {},
     lfos: {},
     mixer: Array.from({ length: DEFAULT_MIXER_TRACKS }, (_, i) => createMixerTrack(i)),
     samples: {},

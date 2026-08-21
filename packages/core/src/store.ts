@@ -298,6 +298,10 @@ export function describeCommand(cmd: Command): string {
     case 'removeClips': return `Borrar ${cmd.clipIds.length} clip(s)`;
     case 'restoreClips': return 'Restaurar clips';
     case 'patchClips': return `Editar ${cmd.patches.length} clip(s)`;
+    case 'addSections': return cmd.sections.length === 1 ? `Sección "${cmd.sections[0]!.name}"` : `${cmd.sections.length} secciones`;
+    case 'removeSections': return `Borrar ${cmd.sectionIds.length} sección(es)`;
+    case 'restoreSections': return 'Restaurar secciones';
+    case 'patchSections': return `Editar ${cmd.patches.length} sección(es)`;
     case 'addArrangement': return `Arrangement "${cmd.arrangement.name}"`;
     case 'removeArrangement': return 'Borrar arrangement';
     case 'restoreArrangement': return 'Restaurar arrangement';

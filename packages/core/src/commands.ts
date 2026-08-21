@@ -7,6 +7,7 @@
 
 import type {
   Arrangement,
+  ArrangementSection,
   Channel,
   ChannelGroup,
   Clip,
@@ -30,6 +31,7 @@ import { CHANNEL_SLOTS } from './model/types';
 
 export type NotePatch = Partial<Omit<Note, 'id'>> & { id: Id };
 export type ClipPatch = Partial<Omit<Clip, 'id'>> & { id: Id };
+export type SectionPatch = Partial<Omit<ArrangementSection, 'id'>> & { id: Id };
 
 export type Command =
   // Transport / proyecto
@@ -101,6 +103,13 @@ export type Command =
   | { type: 'restoreLfos'; lfos: Lfo[] }
   | { type: 'patchLfo'; lfoId: Id; patch: Partial<Omit<Lfo, 'id'>> }
   // Marcadores
+  // Secciones del arreglo. Van en lote como los clips (no de una en una como
+  // los marcadores): duplicar un drop toca la sección, sus clips y todo lo que
+  // venía detrás, y eso tiene que ser UN paso de undo.
+  | { type: 'addSections'; sections: ArrangementSection[] }
+  | { type: 'removeSections'; sectionIds: Id[] }
+  | { type: 'restoreSections'; sections: ArrangementSection[] }
+  | { type: 'patchSections'; patches: SectionPatch[] }
   | { type: 'addMarker'; marker: Marker }
   | { type: 'removeMarker'; markerId: Id }
   | { type: 'patchMarker'; markerId: Id; patch: Partial<Omit<Marker, 'id'>> }
@@ -566,6 +575,35 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
 
     // Marcadores
+    case 'addSections': {
+      for (const section of cmd.sections) project.sections[section.id] = section;
+      return { type: 'removeSections', sectionIds: cmd.sections.map((x) => x.id) };
+    }
+    case 'removeSections': {
+      const removed: ArrangementSection[] = [];
+      for (const id of cmd.sectionIds) {
+        const section = project.sections[id];
+        if (section) {
+          removed.push(section);
+          delete project.sections[id];
+        }
+      }
+      return { type: 'restoreSections', sections: removed };
+    }
+    case 'restoreSections': {
+      for (const section of cmd.sections) project.sections[section.id] = section;
+      return { type: 'removeSections', sectionIds: cmd.sections.map((x) => x.id) };
+    }
+    case 'patchSections': {
+      const inversePatches: SectionPatch[] = [];
+      for (const patch of cmd.patches) {
+        const section = project.sections[patch.id];
+        if (!section) continue;
+        inversePatches.push({ id: patch.id, ...pickOld(section, patch) });
+        Object.assign(section, patch);
+      }
+      return { type: 'patchSections', patches: inversePatches };
+    }
     case 'addMarker': {
       project.markers[cmd.marker.id] = cmd.marker;
       return { type: 'removeMarker', markerId: cmd.marker.id };
