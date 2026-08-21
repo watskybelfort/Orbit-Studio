@@ -21,6 +21,7 @@ import {
   pickDistinctColor,
   type ChatMessage,
   type CollabRole,
+  type RoomInvitePublic,
   type PeerInfo,
 } from '@orbit/collab';
 import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
@@ -138,6 +139,13 @@ export interface CollabState {
   passwordPrompt: 'missing' | 'wrong' | null;
   /** Aviso corto tras poner o quitar la contraseña de la sala. */
   passwordNotice: string | null;
+  /** Invitaciones vivas de la sala (solo las ve el productor). */
+  invites: RoomInvitePublic[];
+  /**
+   * La recién creada, con su token. Se enseña UNA vez —el servidor guarda el
+   * hash y no la puede repetir— y se limpia cuando el usuario la cierra.
+   */
+  freshInvite: { token: string; expiresAt: number; uses: number } | null;
 }
 
 export const useCollabStore = create<CollabState>(() => ({
@@ -158,6 +166,8 @@ export const useCollabStore = create<CollabState>(() => ({
   roomProtected: false,
   passwordPrompt: null,
   passwordNotice: null,
+  invites: [],
+  freshInvite: null,
 }));
 
 /** El peer al que seguimos ahora mismo, si sigue conectado. */
@@ -285,6 +295,7 @@ async function startSession(
   url: string,
   userName: string,
   password = '',
+  inviteToken = '',
 ): Promise<void> {
   // Solo UNA sesión a la vez.
   if (session) leaveRoom();
@@ -306,6 +317,7 @@ async function startSession(
     user: { name, color: colorForName(name) },
     role,
     password,
+    inviteToken,
     // La puerta nos ha parado: el panel pide la contraseña en su sitio en vez
     // de dejar un error seco del que no se sale.
     onPasswordRequired: (wrong) => {
@@ -314,6 +326,16 @@ async function startSession(
         roomProtected: true,
         passwordPrompt: wrong ? 'wrong' : 'missing',
       });
+    },
+    onInviteCreated: (token, expiresAt, uses) => {
+      if (session !== s) return;
+      // El token se enseña UNA vez: el servidor guarda su hash y no lo puede
+      // repetir. Se queda en el panel hasta que el usuario lo cierre.
+      useCollabStore.setState({ freshInvite: { token, expiresAt, uses } });
+    },
+    onInvites: (list) => {
+      if (session !== s) return;
+      useCollabStore.setState({ invites: list });
     },
     onRoomProtected: (isProtected) => {
       if (session !== s) return;
@@ -513,6 +535,39 @@ export async function joinRoom(
     return;
   }
   await startSession(code, url, userName, password);
+}
+
+/**
+ * Pide una invitación caducable. El token llega por el hook y se enseña una
+ * vez: nadie —ni el servidor— lo puede volver a mostrar.
+ */
+export function createRoomInvite(ttlMs: number, uses: number): void {
+  session?.createInvite(ttlMs, uses);
+}
+
+export function revokeRoomInvite(id: string): void {
+  session?.revokeInvite(id);
+}
+
+export function clearFreshInvite(): void {
+  useCollabStore.setState({ freshInvite: null });
+}
+
+/**
+ * Entra en una sala con una invitación en vez de con la contraseña.
+ *
+ * Es lo que hace que invitar sea de verdad de un clic: el que recibe no tiene
+ * que saber la contraseña ni que le dicten el código.
+ */
+export async function joinRoomWithInvite(
+  codeInput: string,
+  url: string,
+  userName: string,
+  token: string,
+): Promise<void> {
+  const code = normalizeRoomCode(codeInput);
+  if (!isValidRoomCode(code)) return;
+  await startSession(code, url, userName, '', token);
 }
 
 /**

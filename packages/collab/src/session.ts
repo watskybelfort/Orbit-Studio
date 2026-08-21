@@ -33,6 +33,7 @@ import {
 import { DEFAULT_ROLE, isCollabRole, type CollabRole } from './roles';
 import { MESSAGE_CONTROL, encodeControl, readControlBody } from './control';
 import { AUTH_MAX_PASSWORD, authMessage, makeProof, makeRoomAuth } from './room-auth';
+import type { RoomInvitePublic } from './room-invite';
 import {
   MESSAGE_AUDIO,
   encodeAudioChunk,
@@ -105,6 +106,11 @@ export interface CollabSessionOptions {
    */
   password?: string;
   /**
+   * Token de invitación. Es la alternativa a la contraseña, no un añadido: si
+   * está puesto, se responde con él al desafío de la puerta.
+   */
+  inviteToken?: string;
+  /**
    * El servidor cierra la puerta y no vale reintentar: sala llena, servidor
    * lleno o código de sala inválido. Llega con el motivo que mande el server.
    */
@@ -121,6 +127,13 @@ export interface CollabSessionOptions {
   onPasswordRequired?: (wrong: boolean) => void;
   /** La sala tiene (o ha dejado de tener) contraseña: para pintar el candado. */
   onRoomProtected?: (isProtected: boolean) => void;
+  /**
+   * El token de una invitación recién creada. Llega UNA vez y no se puede
+   * volver a pedir: el servidor guarda su hash.
+   */
+  onInviteCreated?: (token: string, expiresAt: number, uses: number) => void;
+  /** Las invitaciones vivas de la sala (sin nada con que entrar). */
+  onInvites?: (list: RoomInvitePublic[]) => void;
   /** Aviso de comando rechazado por permisos (propio o de un remoto). */
   onDenied?: (info: DeniedInfo) => void;
   /**
@@ -165,6 +178,10 @@ export class CollabSession {
   private readonly onAudio: ((chunk: AudioChunk) => void) | undefined;
   private readonly onPasswordRequired: ((wrong: boolean) => void) | undefined;
   private readonly onRoomProtected: ((isProtected: boolean) => void) | undefined;
+  private readonly onInviteCreated:
+    | ((token: string, expiresAt: number, uses: number) => void)
+    | undefined;
+  private readonly onInvites: ((list: RoomInvitePublic[]) => void) | undefined;
   /** Contador de trozos emitidos (el que escucha detecta huecos con él). */
   private audioSeq = 0;
   private currentRole: CollabRole;
@@ -174,6 +191,7 @@ export class CollabSession {
    * guardar la prueba ya firmada y reusarla).
    */
   private password = '';
+  private inviteToken = '';
   /** Esta sala tiene contraseña (lo dice el servidor al entrar). */
   private roomProtected = false;
   /** Rol de cada clientID según el servidor (para saber quién compacta). */
@@ -213,7 +231,10 @@ export class CollabSession {
     this.onAudio = opts.onAudio;
     this.onPasswordRequired = opts.onPasswordRequired;
     this.onRoomProtected = opts.onRoomProtected;
+    this.onInviteCreated = opts.onInviteCreated;
+    this.onInvites = opts.onInvites;
     this.password = opts.password ?? '';
+    this.inviteToken = opts.inviteToken ?? '';
     this.doc = new Y.Doc();
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.awareness.setLocalStateField('user', opts.user);
@@ -244,13 +265,14 @@ export class CollabSession {
    * (a partir de ahí el binding replica comandos). Si la conexión se cae,
    * reintenta sola con backoff hasta `disconnect()`.
    */
-  connect(url: string, room: string, password?: string): Promise<void> {
+  connect(url: string, room: string, password?: string, inviteToken?: string): Promise<void> {
     if (this.ws || this.reconnectTimer) {
       return Promise.reject(
         new Error('Ya hay una conexión activa; llama a disconnect() primero'),
       );
     }
     if (password !== undefined) this.password = password;
+    if (inviteToken !== undefined) this.inviteToken = inviteToken;
     this.url = url.replace(/\/+$/, '');
     this.room = normalizeRoomCode(room);
     this.shouldReconnect = true;
@@ -391,6 +413,12 @@ export class CollabSession {
         this.roomProtected = message.protected;
         this.onRoomProtected?.(message.protected);
         break;
+      case 'inviteCreated':
+        this.onInviteCreated?.(message.token, message.expiresAt, message.uses);
+        break;
+      case 'invites':
+        this.onInvites?.(message.list);
+        break;
       default:
         break;
     }
@@ -405,6 +433,24 @@ export class CollabSession {
     this.roomProtected = true;
     this.onRoomProtected?.(true);
     const ws = this.ws;
+
+    /*
+     * Con invitación no hay nada que derivar: el token ES la respuesta. Va
+     * ANTES de mirar la contraseña porque entrar invitado es justo el caso en
+     * el que uno no la tiene, y pedírsela sería quitarle el sentido.
+     *
+     * El token se gasta al entrar: si esta conexión se cae y se reintenta,
+     * la de un solo uso ya no valdrá. Por eso no se reconecta a ciegas con él
+     * — se limpia y, si hace falta, se vuelve a invitar.
+     */
+    if (this.inviteToken !== '') {
+      const token = this.inviteToken;
+      this.inviteToken = '';
+      this.awaitingAuth = true;
+      this.send(encodeControl({ type: 'joinInvite', token }));
+      return;
+    }
+
     if (this.password === '') {
       // Sin contraseña no hay nada que firmar. Reintentar a ciegas solo daría
       // vueltas: se corta aquí y se pide.
@@ -450,6 +496,18 @@ export class CollabSession {
     // La nuestra también cambia: si se cae la conexión, hay que volver a entrar
     // con la de ahora, no con la de antes.
     this.password = clean;
+  }
+
+  /**
+   * Pide una invitación al servidor. El token llega por `onInviteCreated` y
+   * SOLO una vez: el servidor guarda su hash, no el secreto.
+   */
+  createInvite(ttlMs: number, uses: number): void {
+    this.send(encodeControl({ type: 'createInvite', ttlMs, uses }));
+  }
+
+  revokeInvite(id: string): void {
+    this.send(encodeControl({ type: 'revokeInvite', id }));
   }
 
   /** ¿La sala en la que estamos pide contraseña? */
