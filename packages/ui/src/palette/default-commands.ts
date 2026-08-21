@@ -225,6 +225,14 @@ export function registerDefaultCommands(): void {
       { id: 'archivo.importar-midi', title: 'Importar MIDI…', group: 'Archivo', keywords: 'mid smf', run: () => void importMidi() },
       { id: 'archivo.exportar', title: 'Exportar…', group: 'Archivo', keywords: 'wav mp3 stems render', run: () => ui.openWindow('export') },
       {
+        id: 'ayuda.atajos',
+        title: 'Atajos de teclado…',
+        group: 'Ayuda',
+        shortcut: 'F1',
+        keywords: 'teclas chuleta shortcuts ayuda',
+        run: () => useUiStore.setState({ shortcutsOpen: true }),
+      },
+      {
         id: 'archivo.repetir-export',
         title: 'Repetir el último export',
         group: 'Archivo',

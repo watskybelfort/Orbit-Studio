@@ -4,6 +4,7 @@ import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
 import { MenuBar } from './shell/MenuBar';
 import { AboutDialog } from './shell/AboutDialog';
+import { ShortcutsDialog } from './shell/ShortcutsDialog';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
 import { Browser } from './browser';
@@ -42,6 +43,7 @@ export function App() {
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
   const aboutOpen = useUiStore((s) => s.aboutOpen);
+  const shortcutsOpen = useUiStore((s) => s.shortcutsOpen);
   const notice = useProjectFile((s) => s.notice);
   const projectPath = useProjectFile((s) => s.path);
   const dirty = useAutosave((s) => s.dirty);
@@ -140,6 +142,7 @@ export function App() {
       </div>
       <CommandPalette />
       {aboutOpen && <AboutDialog />}
+      {shortcutsOpen && <ShortcutsDialog />}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
       {(bounceBusy ?? bounceNotice ?? notice) && (
         <div className="app-notice popup">{bounceBusy ?? bounceNotice ?? notice}</div>

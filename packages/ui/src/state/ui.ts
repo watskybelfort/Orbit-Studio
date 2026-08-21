@@ -75,6 +75,8 @@ export interface UiState {
   trafficLights: boolean;
   /** Diálogo "Acerca de" (versión de la app) abierto. */
   aboutOpen: boolean;
+  /** Chuleta de atajos de teclado abierta (Ayuda o F1). */
+  shortcutsOpen: boolean;
 
   openWindow: (id: WindowId) => void;
   closeWindow: (id: WindowId) => void;
@@ -178,6 +180,7 @@ export const useUiStore = create<UiState>((set) => ({
   compact: false,
   trafficLights: false,
   aboutOpen: false,
+  shortcutsOpen: false,
 
   openWindow: (id) =>
     set((s) => {

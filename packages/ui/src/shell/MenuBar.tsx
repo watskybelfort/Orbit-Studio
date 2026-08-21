@@ -603,14 +603,19 @@ export function MenuBar() {
     ],
     Ayuda: [
       {
-        label: 'Acerca de Orbit Studio…',
-        action: () => useUiStore.setState({ aboutOpen: true }),
+        label: 'Atajos de teclado…',
+        shortcut: 'F1',
+        action: () => useUiStore.setState({ shortcutsOpen: true }),
       },
-      { label: '', separator: true },
       {
         label: 'Paleta de comandos…',
         shortcut: 'Ctrl+K',
         action: () => usePaletteStore.getState().togglePalette(),
+      },
+      { label: '', separator: true },
+      {
+        label: 'Acerca de Orbit Studio…',
+        action: () => useUiStore.setState({ aboutOpen: true }),
       },
     ],
   };

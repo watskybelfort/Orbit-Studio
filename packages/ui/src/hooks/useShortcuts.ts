@@ -108,6 +108,10 @@ export function useShortcuts(): void {
         return;
       }
       switch (e.code) {
+        case 'F1':
+          e.preventDefault();
+          useUiStore.setState((s) => ({ shortcutsOpen: !s.shortcutsOpen }));
+          break;
         case 'F5':
           e.preventDefault();
           ui.toggleWindow('playlist');
