@@ -12,38 +12,18 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { getPaletteCommands, usePaletteStore, type PaletteCommand } from './registry';
+import {
+  getPaletteCommands,
+  recentCommands,
+  rememberCommand,
+  usePaletteStore,
+  type PaletteCommand,
+} from './registry';
+import { searchCommands } from './search';
 import './palette.css';
 
 /** Máximo de resultados pintados (se recorta antes de agrupar). */
 const MAX_RESULTS = 40;
-
-/** Minúsculas y sin acentos, para buscar sin distinción (igual que el Browser). */
-function normalize(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
-}
-
-/** Filtra y ordena: empieza-por (en el título) gana a contiene (en todo el texto). */
-function search(commands: PaletteCommand[], query: string): PaletteCommand[] {
-  const q = normalize(query.trim());
-  if (q === '') return commands.slice(0, MAX_RESULTS);
-
-  const starts: PaletteCommand[] = [];
-  const contains: PaletteCommand[] = [];
-  for (const cmd of commands) {
-    const title = normalize(cmd.title);
-    if (title.startsWith(q)) {
-      starts.push(cmd);
-    } else {
-      const haystack = `${title} ${normalize(cmd.keywords ?? '')} ${normalize(cmd.group)}`;
-      if (haystack.includes(q)) contains.push(cmd);
-    }
-  }
-  return [...starts, ...contains].slice(0, MAX_RESULTS);
-}
 
 /** Grupo visible; cada item conserva su índice plano para la selección con teclado. */
 interface ResultGroup {
@@ -83,11 +63,18 @@ function PaletteBox() {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
 
-  const results = useMemo(() => search(commands, query), [commands, query]);
+  // Los recientes se congelan al abrir: releerlos en cada tecla reordenaría la
+  // lista bajo el dedo justo después de ejecutar algo.
+  const [recent] = useState(() => [...recentCommands()]);
+  const results = useMemo(
+    () => searchCommands(commands, query, { recent, limit: MAX_RESULTS }),
+    [commands, query, recent],
+  );
   const groups = useMemo(() => groupResults(results), [results]);
 
   const runCommand = (cmd: PaletteCommand) => {
     closePalette();
+    rememberCommand(cmd.id);
     cmd.run();
   };
 

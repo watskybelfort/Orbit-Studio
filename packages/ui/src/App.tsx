@@ -27,7 +27,7 @@ import { initWorkspaceMemory } from './state/workspace-memory';
 import { initClaudeBridge } from './state/claude';
 import { initLiveInput } from './state/live-input';
 import { initPlugins } from './state/plugins';
-import { CommandPalette } from './palette';
+import { CommandPalette, loadRecentCommands } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
 import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
 import { useBounceStore } from './state/bounce';
@@ -67,6 +67,7 @@ export function App() {
     // desacoplados mandan sobre la disposición interna.
     void initWorkspaceMemory().finally(() => restoreDetached());
     registerDefaultCommands();
+    void loadRecentCommands();
     // Los recientes se piden una vez al arrancar; a partir de ahí los refresca
     // cada abrir/guardar (la lista la mantiene el main).
     void refreshRecents();

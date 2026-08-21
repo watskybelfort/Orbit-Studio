@@ -2,7 +2,10 @@
 
 export {
   getPaletteCommands,
+  loadRecentCommands,
+  recentCommands,
   registerPaletteProvider,
+  rememberCommand,
   usePaletteStore,
   type PaletteCommand,
   type PaletteProvider,
