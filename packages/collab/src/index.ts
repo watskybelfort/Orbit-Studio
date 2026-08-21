@@ -49,6 +49,25 @@ export {
   type RoomAuthRecord,
 } from './room-auth';
 
+export {
+  INVITE_MAX_PER_ROOM,
+  INVITE_MAX_TTL_MS,
+  INVITE_MAX_USES,
+  INVITE_MIN_TTL_MS,
+  consumeInvite,
+  hashInviteSecret,
+  inviteIsUsable,
+  makeInviteRecord,
+  newInviteToken,
+  parseInviteToken,
+  parseInvites,
+  pruneInvites,
+  publicInvite,
+  type NewInvite,
+  type RoomInvitePublic,
+  type RoomInviteRecord,
+} from './room-invite';
+
 export { adpcmBytes, decodeAdpcm, encodeAdpcm } from './adpcm';
 
 export {
