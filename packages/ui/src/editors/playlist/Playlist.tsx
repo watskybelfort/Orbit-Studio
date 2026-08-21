@@ -43,6 +43,8 @@ import {
   unfreezeTrack,
   useBounceStore,
 } from '../../state/bounce';
+import { packClips, readClipboard, setClipboard, unpackClips } from '../../state/clipboard';
+import { claimEditFocus, registerEditActions } from '../../state/edit-focus';
 import { PEAK_COLS, onPeaksReady, requestPeaks } from '../../state/sample-peaks';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -324,6 +326,53 @@ export function Playlist() {
     setSelection(new Set(copies.map((c) => c.id)));
   }, [selectedIds, project]);
 
+  // ── Portapapeles ──────────────────────────────────────────────────────────
+
+  /**
+   * Fila donde caerá el próximo pegado: la que tiene el ratón encima.
+   *
+   * Sin ratón dentro (se copió, se movió el caret con el teclado y se pegó) se
+   * cae a la fila de la que salió lo copiado, que es lo que uno espera de un
+   * "copiar y pegar más adelante" en la misma pista.
+   */
+  const pasteRow = useRef<number | null>(null);
+
+  const copySelection = useCallback(
+    (cut: boolean) => {
+      const items = selectedIds
+        .map((id) => project.clips[id])
+        .filter((c): c is Clip => c !== undefined)
+        .map((clip) => ({ clip, row: trackIndexOf.get(clip.playlistTrackId) ?? 0 }));
+      const payload = packClips(items);
+      if (payload === null) return;
+      setClipboard(payload);
+      if (!cut) return;
+      store.dispatch(
+        { type: 'removeClips', clipIds: items.map(({ clip }) => clip.id) },
+        { label: `Cortar ${items.length} clip(s)` },
+      );
+      setSelection(new Set());
+    },
+    [selectedIds, project, trackIndexOf],
+  );
+
+  /** Pega en el caret (beat del transporte) y en la fila de destino. */
+  const pasteClipboard = useCallback(() => {
+    const payload = readClipboard();
+    if (payload === null || payload.kind !== 'clips') return;
+    const at = quant(useUiStore.getState().positionBeats, snapBeats, false);
+    const row = pasteRow.current ?? payload.homeRow;
+    const fresh = unpackClips(
+      payload,
+      at,
+      row,
+      tracks.map((t) => t.id),
+    );
+    if (fresh.length === 0) return;
+    store.dispatch({ type: 'addClips', clips: fresh }, { label: `Pegar ${fresh.length} clip(s)` });
+    setSelection(new Set(fresh.map((c) => c.id)));
+  }, [snapBeats, tracks]);
+
   /** Mutea o desmutea la selección entera (según el primero). */
   const toggleSelectionMuted = useCallback(() => {
     if (selectedIds.length === 0) return;
@@ -333,6 +382,32 @@ export function Playlist() {
       { label: muted ? `Mutear ${selectedIds.length} clip(s)` : `Activar ${selectedIds.length} clip(s)` },
     );
   }, [selectedIds, project]);
+
+  // El menú Editar y los atajos globales preguntan por aquí; se registra un
+  // PROVEEDOR para que siempre lean la selección de ahora, no la del montaje.
+  const editActionsRef = useRef({
+    selectionCount: 0,
+    accepts: 'clips' as const,
+    noun: 'clips',
+    copy: () => {},
+    cut: () => {},
+    paste: () => {},
+    duplicate: () => {},
+    selectAll: () => {},
+    remove: () => {},
+  });
+  editActionsRef.current = {
+    selectionCount: selectedIds.length,
+    accepts: 'clips',
+    noun: 'clips',
+    copy: () => copySelection(false),
+    cut: () => copySelection(true),
+    paste: pasteClipboard,
+    duplicate: duplicateSelection,
+    selectAll,
+    remove: deleteSelection,
+  };
+  useEffect(() => registerEditActions('playlist', () => editActionsRef.current), []);
 
   // ── Coordenadas ───────────────────────────────────────────────────────────
 
@@ -1114,6 +1189,11 @@ export function Playlist() {
       // Presencia: dónde está nuestro cursor (throttled; no-op sin sesión).
       reportActivity('Playlist', { beat: xToBeat(x) });
 
+      // Fila bajo el ratón: es donde pega Ctrl+V (si el ratón nunca ha entrado,
+      // se pega en la fila de la que se copió).
+      const hoverRow = y >= RULER_H ? rowAtY(y) : null;
+      if (hoverRow) pasteRow.current = trackIndexOf.get(hoverRow.track.id) ?? null;
+
       if (!d) {
         // Cursor contextual: regla, fundido, mover, redimensionar o pintar.
         const hit = y >= RULER_H ? clipAt(x, y) : null;
@@ -1564,6 +1644,9 @@ export function Playlist() {
     <div
       className="playlist"
       ref={rootRef}
+      // Tocar la Playlist le da el turno de edición: a partir de aquí,
+      // Ctrl+C/X/V y el menú Editar hablan de SUS clips, no de las notas.
+      onPointerDown={() => claimEditFocus('playlist')}
       onPointerEnter={() => {
         hovering.current = true;
       }}

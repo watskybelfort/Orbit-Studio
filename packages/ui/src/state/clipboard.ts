@@ -60,72 +60,99 @@ export function unpackNotes(payload: NotesPayload, atBeat: number): Note[] {
 
 // ── Clips ────────────────────────────────────────────────────────────────────
 
-/** Clip sin id ni pista, con `start` relativo y `lane` = filas por debajo de la primera. */
-export type PackedClip = Omit<Clip, 'id' | 'playlistTrackId'> & { lane: number };
+/**
+ * Clip sin id ni pista, con `start` relativo y `row` = filas por debajo de la
+ * primera de lo copiado.
+ *
+ * `row` y no `lane`: `Clip.lane` ya existe y es OTRA cosa —el carril de toma
+ * dentro de una misma pista (comping)—. Llamarlos igual hacía que empaquetar
+ * pisara el carril de toma y que al pegar se perdiera.
+ */
+export type PackedClip = Omit<Clip, 'id' | 'playlistTrackId'> & { row: number };
 
 export interface ClipsPayload {
   kind: 'clips';
   span: number;
   /** Cuántas filas ocupa lo copiado (1 = todo en la misma pista). */
-  lanes: number;
+  rows: number;
+  /** Fila donde estaba la primera: destino por defecto si nadie dice otra. */
+  homeRow: number;
   clips: PackedClip[];
 }
 
-/** Lo justo para empaquetar: el clip y en qué fila estaba. */
-export interface ClipWithLane {
+/** Lo justo para empaquetar: el clip y en qué fila de la playlist estaba. */
+export interface ClipWithRow {
   clip: Clip;
-  lane: number;
+  row: number;
 }
 
-export function packClips(items: readonly ClipWithLane[]): ClipsPayload | null {
+export function packClips(items: readonly ClipWithRow[]): ClipsPayload | null {
   if (items.length === 0) return null;
   let minBeat = Infinity;
   let maxBeat = -Infinity;
-  let minLane = Infinity;
-  let maxLane = -Infinity;
-  for (const { clip, lane } of items) {
+  let minRow = Infinity;
+  let maxRow = -Infinity;
+  for (const { clip, row } of items) {
     if (clip.start < minBeat) minBeat = clip.start;
     if (clip.start + clip.length > maxBeat) maxBeat = clip.start + clip.length;
-    if (lane < minLane) minLane = lane;
-    if (lane > maxLane) maxLane = lane;
+    if (row < minRow) minRow = row;
+    if (row > maxRow) maxRow = row;
   }
   return {
     kind: 'clips',
     span: maxBeat - minBeat,
-    lanes: maxLane - minLane + 1,
-    clips: items.map(({ clip, lane }) => {
-      const { id: _id, playlistTrackId: _t, ...rest } = clip;
-      return { ...rest, start: rest.start - minBeat, lane: lane - minLane };
+    rows: maxRow - minRow + 1,
+    homeRow: minRow,
+    clips: items.map(({ clip, row }) => {
+      const { id: _id, playlistTrackId: _t, frozenFrom: _f, ...rest } = clip;
+      return {
+        ...rest,
+        // Los puntos de automatización se clonan de verdad: compartir el array
+        // haría que editar la copia moviera la curva del original.
+        ...(rest.points ? { points: rest.points.map((p) => ({ ...p })) } : null),
+        start: rest.start - minBeat,
+        row: row - minRow,
+      };
     }),
   };
 }
 
 /**
- * Materializa los clips en `atBeat` y a partir de la fila `atLane`.
+ * Materializa los clips en `atBeat` y a partir de la fila `atRow`.
  *
  * Si lo copiado no cabe hacia abajo, el grupo ENTERO sube lo justo para caber
  * (misma regla que `clampGroupMove` al arrastrar). Si ni así cabe —se copiaron
  * más pistas de las que hay ahora— se quedan fuera las de abajo, que es lo
  * único que se puede hacer sin inventar pistas.
+ *
+ * `frozenFrom` no viaja (se descarta al empaquetar): apunta a los clips que
+ * una pista congelada dejó escondidos, y una copia que dijera ser dueña de
+ * ellos descongelaría encima del original.
  */
 export function unpackClips(
   payload: ClipsPayload,
   atBeat: number,
-  atLane: number,
+  atRow: number,
   trackIds: readonly string[],
 ): Clip[] {
   if (trackIds.length === 0) return [];
   const base = Math.max(0, atBeat);
-  const wanted = Math.max(0, atLane);
-  const overflow = wanted + payload.lanes - trackIds.length;
-  const lane0 = overflow > 0 ? Math.max(0, wanted - overflow) : wanted;
+  const wanted = Math.max(0, atRow);
+  const overflow = wanted + payload.rows - trackIds.length;
+  const row0 = overflow > 0 ? Math.max(0, wanted - overflow) : wanted;
 
   const out: Clip[] = [];
   for (const c of payload.clips) {
-    const trackId = trackIds[lane0 + c.lane];
+    const trackId = trackIds[row0 + c.row];
     if (trackId === undefined) continue; // no cabe: se queda fuera
-    const { lane: _lane, ...rest } = c;
-    out.push({ ...rest, id: newId(), playlistTrackId: trackId, start: base + rest.start });
+    const { row: _row, ...rest } = c;
+    out.push({
+      ...rest,
+      ...(rest.points ? { points: rest.points.map((p) => ({ ...p })) } : null),
+      id: newId(),
+      playlistTrackId: trackId,
+      start: base + rest.start,
+    });
   }
   return out;
 }

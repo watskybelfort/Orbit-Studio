@@ -4,7 +4,7 @@ import {
   packNotes,
   unpackClips,
   unpackNotes,
-  type ClipWithLane,
+  type ClipWithRow,
 } from '../src/state/clipboard';
 import type { Clip, Note } from '@orbit/core';
 
@@ -58,16 +58,17 @@ describe('portapapeles de notas', () => {
 });
 
 describe('portapapeles de clips', () => {
-  const items: ClipWithLane[] = [
-    { clip: clip('a', 16, 4, 't1'), lane: 1 },
-    { clip: clip('b', 20, 8, 't3'), lane: 3 },
+  const items: ClipWithRow[] = [
+    { clip: clip('a', 16, 4, 't1'), row: 1 },
+    { clip: clip('b', 20, 8, 't3'), row: 3 },
   ];
 
   it('normaliza beat y fila', () => {
     const packed = packClips(items)!;
     expect(packed.clips.map((c) => c.start)).toEqual([0, 4]);
-    expect(packed.clips.map((c) => c.lane)).toEqual([0, 2]);
-    expect(packed.lanes).toBe(3);
+    expect(packed.clips.map((c) => c.row)).toEqual([0, 2]);
+    expect(packed.rows).toBe(3);
+    expect(packed.homeRow).toBe(1);
     expect(packed.span).toBe(12); // del 16 al 28
   });
 
@@ -109,7 +110,7 @@ describe('portapapeles de clips', () => {
       audioGain: 0.5,
       audioPitch: -3,
     };
-    const [pasted] = unpackClips(packClips([{ clip: source, lane: 0 }])!, 8, 0, ['t9']);
+    const [pasted] = unpackClips(packClips([{ clip: source, row: 0 }])!, 8, 0, ['t9']);
     expect(pasted).toMatchObject({
       muted: true,
       color: '#ff0000',
@@ -122,5 +123,30 @@ describe('portapapeles de clips', () => {
       start: 8,
       playlistTrackId: 't9',
     });
+  });
+
+  it('el carril de toma sobrevive (Clip.lane no es la fila)', () => {
+    const source: Clip = { ...clip('a', 0), lane: 2 };
+    const [pasted] = unpackClips(packClips([{ clip: source, row: 5 }])!, 0, 0, ['t0']);
+    expect(pasted!.lane).toBe(2);
+  });
+
+  it('los puntos de automatización se clonan, no se comparten', () => {
+    const source: Clip = {
+      ...clip('a', 0),
+      kind: 'automation',
+      points: [{ id: 'pt1', time: 0, value: 0.5, tension: 0 }],
+    };
+    const packed = packClips([{ clip: source, row: 0 }])!;
+    const [pasted] = unpackClips(packed, 0, 0, ['t0']);
+    pasted!.points![0]!.value = 1;
+    expect(source.points![0]!.value).toBe(0.5);
+    expect(packed.clips[0]!.points![0]!.value).toBe(0.5);
+  });
+
+  it('frozenFrom no viaja: la copia no es dueña de los clips escondidos', () => {
+    const source: Clip = { ...clip('a', 0), frozenFrom: ['x', 'y'] };
+    const [pasted] = unpackClips(packClips([{ clip: source, row: 0 }])!, 0, 0, ['t0']);
+    expect(pasted!.frozenFrom).toBeUndefined();
   });
 });
