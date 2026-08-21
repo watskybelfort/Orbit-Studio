@@ -48,6 +48,14 @@
   flex-direction: column;
 }
 
+/* Cada entrada vive en su fila para que el submenú se ancle a ELLA, y para que
+   moverse hacia el submenú no saque el puntero de la fila (nada de parpadeo). */
+.menu-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .menu-item {
   display: flex;
   justify-content: space-between;
@@ -62,6 +70,44 @@
   border-radius: 5px;
   cursor: default;
   text-align: left;
+}
+
+/* Columna fija del ✓: sin ella, las entradas marcadas bailan respecto al resto. */
+.menu-check {
+  display: inline-block;
+  width: 11px;
+  flex: none;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.menu-item:hover:not(:disabled) .menu-check {
+  color: #fff;
+}
+
+.menu-arrow {
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1;
+}
+
+.menu-item:hover:not(:disabled) .menu-arrow {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Submenú: pegado al borde derecho de su fila y alineado con ella. */
+.menu-sub {
+  position: absolute;
+  left: 100%;
+  top: -5px;
+  z-index: 1;
+}
+
+.menu-sub > .menu-dropdown {
+  position: static;
+  /* Una lista larga (recientes, plantillas) no puede salirse de la pantalla. */
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .menu-item:hover:not(:disabled) {

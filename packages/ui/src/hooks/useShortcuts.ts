@@ -6,7 +6,7 @@ import { usePaletteStore } from '../palette';
 import { removeActivePattern } from '../palette/default-commands';
 import { setPlayMode, store, togglePlay } from '../state/app';
 import { activeEditActions } from '../state/edit-focus';
-import { openProject, saveProject } from '../state/project-file';
+import { newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 
 export function useShortcuts(): void {
@@ -89,6 +89,12 @@ export function useShortcuts(): void {
       if (e.ctrlKey && e.code === 'KeyE') {
         e.preventDefault();
         void repeatLastExport();
+        return;
+      }
+      // Ctrl+N: proyecto nuevo. Pregunta antes si hay cambios sin guardar.
+      if (e.ctrlKey && !e.shiftKey && e.code === 'KeyN') {
+        e.preventDefault();
+        newProject();
         return;
       }
       if (e.ctrlKey && e.code === 'KeyO') {
