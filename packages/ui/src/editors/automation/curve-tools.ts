@@ -116,10 +116,23 @@ export function strokeToPoints(
     else dedup.push(s);
   }
 
-  const simple = simplifyCurve(dedup, eps);
-  const snapped = simple.map((s) => point(s.time, quantizeValue(s.norm, valueSteps)));
+  /*
+   * El snap va ANTES de simplificar, y ese orden es la diferencia entre que
+   * funcione y que no.
+   *
+   * Simplificando primero, una rampa recta se queda en sus dos extremos y
+   * redondear esos dos deja "de 0 a 1": el snap no se nota por ningún lado. Con
+   * el orden bueno, las muestras caen a sus alturas, la rampa se convierte en
+   * la escalera que el usuario está pidiendo, y la simplificación se queda con
+   * las esquinas de esa escalera.
+   */
+  const snapped =
+    valueSteps > 0
+      ? dedup.map((s) => ({ time: s.time, norm: quantizeValue(s.norm, valueSteps) }))
+      : dedup;
+
   // Un trazo de una sola muestra (un clic) es un punto: vale igual.
-  return snapped;
+  return simplifyCurve(snapped, eps).map((s) => point(s.time, s.norm));
 }
 
 // ── Recta ────────────────────────────────────────────────────────────────────

@@ -99,6 +99,16 @@ describe('strokeToPoints', () => {
     expect(out.map((p) => p.value)).toEqual([0.25, 1]);
   });
 
+  it('con snap, una rampa recta sale como escalera (el snap va ANTES de simplificar)', () => {
+    // 41 muestras subiendo en línea recta de 0 a 1. Simplificando primero, la
+    // recta se queda en dos puntos y el snap no se notaría en ningún sitio.
+    const samples = Array.from({ length: 41 }, (_, i) => ({ time: i / 10, norm: i / 40 }));
+    const out = strokeToPoints(samples, { eps: 0.008, valueSteps: 4 });
+    expect([...new Set(out.map((p) => p.value))].sort((a, b) => a - b)).toEqual([
+      0, 0.25, 0.5, 0.75, 1,
+    ]);
+  });
+
   it('sin muestras no inventa nada', () => {
     expect(strokeToPoints([])).toEqual([]);
   });

@@ -45,8 +45,9 @@ import {
   type Project,
 } from '@orbit/core';
 import { store } from '../../state/app';
-import type { CurveSample } from '../../state/simplify';
-import { lineBetween, replaceRange, strokeToPoints } from './curve-tools';
+import { useBounceStore } from '../../state/bounce';
+import { simplifyCurve, type CurveSample } from '../../state/simplify';
+import { lineBetween, quantizeValue, replaceRange, strokeToPoints } from './curve-tools';
 import { ShapeDialog } from './ShapeDialog';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -70,6 +71,17 @@ const TENSION_PX = 120;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const clamp01 = (v: number) => clamp(v, 0, 1);
+
+/**
+ * Aviso efímero por el canal que ya pinta App (`.app-notice`). Lo usa
+ * "Simplificar" para no ser un botón que a veces no hace nada sin decir por qué.
+ */
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+function notify(text: string): void {
+  if (noticeTimer) clearTimeout(noticeTimer);
+  useBounceStore.setState({ notice: text });
+  noticeTimer = setTimeout(() => useBounceStore.setState({ notice: null }), 3500);
+}
 
 // ── Curva idéntica a la del motor ────────────────────────────────────────────
 
@@ -442,6 +454,23 @@ const TOOLS: { id: AuTool; label: string; key: string; hint: string }[] = [
  */
 const PENCIL_EPS = 0.008;
 
+/**
+ * Tolerancia de "Simplificar", más generosa que la del lápiz: se pide a
+ * propósito para quitar puntos, así que 1.5 % del recorrido quita de verdad sin
+ * que la curva cambie de forma.
+ */
+const SIMPLIFY_EPS = 0.015;
+
+/** Divisiones del snap vertical. 0 = valor libre. */
+const VALUE_STEPS: { label: string; steps: number }[] = [
+  { label: 'Libre', steps: 0 },
+  { label: '1/2', steps: 2 },
+  { label: '1/4', steps: 4 },
+  { label: '1/8', steps: 8 },
+  { label: '12', steps: 12 },
+  { label: '1/16', steps: 16 },
+];
+
 interface ClipEditorProps {
   clip: Clip;
   project: Project;
@@ -463,6 +492,12 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
   const stroke = useRef<CurveSample[]>([]);
   const [tool, setTool] = useState<AuTool>('points');
   const [shapeOpen, setShapeOpen] = useState(false);
+  /**
+   * Snap del eje vertical, en divisiones del recorrido. Con 12, un destino de
+   * tono cae en semitonos; con 2, un interruptor solo puede estar arriba o
+   * abajo. Afecta al lápiz, a la recta, al arrastre de un punto y al añadir.
+   */
+  const [valueSteps, setValueSteps] = useState(0);
   /**
    * Curva candidata del generador de formas, dibujada encima de la de verdad.
    *
@@ -546,6 +581,20 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     ctx.fillStyle = col('--au-edge');
     ctx.fillRect(g.x0, g.y0, g.x1 - g.x0, 1);
     ctx.fillRect(g.x0, g.y1, g.x1 - g.x0, 1);
+
+    // Rejilla del snap vertical: enseña a qué alturas se va a pegar lo que
+    // dibujes. Sin ella, el valor salta y no se sabe por qué.
+    if (valueSteps > 0 && valueSteps <= 24) {
+      // Teñida con el acento y no con el gris de la rejilla: así se distingue
+      // de las referencias fijas del 25/50/75 % y se lee como "esto está puesto".
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = col('--accent');
+      for (let i = 1; i < valueSteps; i++) {
+        ctx.fillRect(g.x0, g.valueToY(i / valueSteps), g.x1 - g.x0, 1);
+      }
+      ctx.restore();
+    }
 
     // Rejilla por beats (compases más marcados; beats solo con sitio).
     const pxPerBeat = (g.x1 - g.x0) / Math.max(1e-6, clip.length);
@@ -673,7 +722,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       ctx.fillStyle = col('--au-tip-text');
       ctx.fillText(t.text, bx + 5, by + 12);
     }
-  }, [geom, points, clip, project, target, barLen, themeVersion]);
+  }, [geom, points, clip, project, target, barLen, themeVersion, valueSteps]);
 
   useEffect(() => {
     draw();
@@ -748,6 +797,38 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     preview.current = pts;
     drawRef.current();
   }, []);
+
+  /**
+   * Reduce los puntos sin cambiar lo que suena.
+   *
+   * No se poda la lista: se MUESTREA la curva tal y como la evalúa el motor
+   * —tensiones incluidas— y se simplifica ese trazo. Podando la lista, quitar
+   * un punto se llevaría por delante la curvatura que describía y la forma
+   * cambiaría; muestreando, lo que se conserva es la curva, que es lo que el
+   * usuario oye. El precio es que las tensiones se convierten en puntos, y por
+   * eso es un botón y no algo automático.
+   */
+  const simplify = useCallback(() => {
+    if (points.length <= 2) return;
+    const n = clamp(Math.ceil(clip.length * 32), 64, 2048);
+    const samples: CurveSample[] = [];
+    for (let i = 0; i <= n; i++) {
+      const t = (i / n) * clip.length;
+      samples.push({ time: t, norm: evalCurve(points, t) });
+    }
+    const simple = simplifyCurve(samples, SIMPLIFY_EPS).map((sample) => ({
+      id: newId(),
+      time: sample.time,
+      value: sample.norm,
+      tension: 0,
+    }));
+    if (simple.length >= points.length) {
+      notify(`La curva ya está en su mínimo: ${points.length} puntos.`);
+      return;
+    }
+    patchPoints(simple, `Simplificar automatización (${points.length} → ${simple.length})`, false);
+    notify(`Simplificada: ${points.length} → ${simple.length} puntos.`);
+  }, [points, clip.length, patchPoints]);
 
   const removeClip = useCallback(() => {
     store.dispatch(
@@ -878,7 +959,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
         const next = points[idx + 1];
         // Clamp entre vecinos y dentro del clip; valor 0..1.
         const time = clamp(g.xToTime(x), prev?.time ?? 0, next?.time ?? clip.length);
-        const value = clamp01(g.yToValue(y));
+        const value = quantizeValue(g.yToValue(y), valueSteps);
         tip.current = { x, y, text: formatValue(target, project, value) };
         if (time !== p.time || value !== p.value) {
           patchPoints(
@@ -910,7 +991,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
         }
       }
     },
-    [pointAt, segmentAt, geom, points, clip.length, patchPoints, target, project, draw],
+    [pointAt, segmentAt, geom, points, clip.length, patchPoints, target, project, draw, tool, valueSteps],
   );
 
   /**
@@ -921,14 +1002,14 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
   const onPointerUp = useCallback(() => {
     const d = drag.current;
     if (d?.mode === 'pencil') {
-      const fresh = strokeToPoints(stroke.current, { eps: PENCIL_EPS });
+      const fresh = strokeToPoints(stroke.current, { eps: PENCIL_EPS, valueSteps });
       if (fresh.length > 0) {
         const from = fresh[0]!.time;
         const to = fresh[fresh.length - 1]!.time;
         patchPoints(replaceRange(points, from, to, fresh), 'Dibujar automatización', false);
       }
     } else if (d?.mode === 'line') {
-      const fresh = lineBetween(d.fromTime, d.fromValue, d.toTime, d.toValue);
+      const fresh = lineBetween(d.fromTime, d.fromValue, d.toTime, d.toValue, valueSteps);
       if (fresh.length > 0) {
         const from = fresh[0]!.time;
         const to = fresh[fresh.length - 1]!.time;
@@ -939,7 +1020,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     drag.current = null;
     tip.current = null;
     draw();
-  }, [draw, points, patchPoints]);
+  }, [draw, points, patchPoints, valueSteps]);
 
   /** Doble clic: añadir punto (snap 1/16; Alt = libre). */
   const onDoubleClick = useCallback(
@@ -954,14 +1035,14 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       const g = geom();
       const raw = clamp(g.xToTime(x), 0, clip.length);
       const time = e.altKey ? raw : clamp(Math.round(raw / SNAP_ADD) * SNAP_ADD, 0, clip.length);
-      const value = clamp01(g.yToValue(y));
+      const value = quantizeValue(g.yToValue(y), valueSteps);
       patchPoints(
         [...points, { id: newId(), time, value, tension: 0 }],
         'Añadir punto de automatización',
         false,
       );
     },
-    [pointAt, geom, clip.length, points, patchPoints, tool],
+    [pointAt, geom, clip.length, points, patchPoints, tool, valueSteps],
   );
 
   // ── Cabecera ──────────────────────────────────────────────────────────────
@@ -1054,6 +1135,19 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
             onChange={(v) => patchClip({ length: v }, 'Cambiar longitud de la automatización', 'len')}
           />
         </label>
+        <label className="au-field" title="Alturas a las que se pega el valor al dibujar">
+          Valor
+          <select
+            value={valueSteps}
+            onChange={(e) => setValueSteps(Number(e.target.value))}
+          >
+            {VALUE_STEPS.map((v) => (
+              <option key={v.steps} value={v.steps}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className={`tbtn${shapeOpen ? ' active' : ''}`}
           onClick={() => setShapeOpen((v) => !v)}
@@ -1061,6 +1155,15 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
         >
           Forma…
         </button>
+        <button
+          className="tbtn"
+          onClick={simplify}
+          disabled={points.length <= 2}
+          title="Quitar puntos dejando la misma curva (las tensiones se convierten en puntos)"
+        >
+          Simplificar
+        </button>
+        <span className="au-count">{points.length} pts</span>
         <button className="au-delete" onClick={removeClip} title="Borrar este clip de la playlist">
           Borrar clip
         </button>

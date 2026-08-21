@@ -278,3 +278,11 @@ html[data-theme='acrylic'] .automation {
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* Cuántos breakpoints tiene el clip: con el lápiz sube rápido y saber si vas
+   por veinte o por doscientos es lo que dice si toca simplificar. */
+.au-count {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
