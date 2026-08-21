@@ -25,6 +25,8 @@ import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { canRemovePattern, patternClipsHint, removePattern } from '../../palette/default-commands';
 import { setActivePattern, store } from '../../state/app';
+import { packNotes, readClipboard, setClipboard, unpackNotes } from '../../state/clipboard';
+import { claimEditFocus, registerEditActions } from '../../state/edit-focus';
 import { previewNote, useActiveKeys } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -935,6 +937,109 @@ export function PianoRoll() {
     [zoomX, scrollX, scrollY],
   );
 
+  // ── Selección: borrar, duplicar, seleccionar todo y portapapeles ──────────
+  //
+  // Salen como callbacks y no sueltos dentro del keydown porque los usan tres
+  // sitios: el teclado de aquí, los atajos globales y el menú Editar (que pide
+  // estas mismas acciones al editor que tenga el turno).
+
+  const selectedNotes = useCallback(
+    () => notes.filter((n) => selection.has(n.id)),
+    [notes, selection],
+  );
+
+  const deleteSelection = useCallback(() => {
+    if (!activePatternId || !channelId || selection.size === 0) return;
+    store.dispatch(
+      { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: [...selection] },
+      { label: `Borrar ${selection.size} nota(s)` },
+    );
+    setSelection(new Set());
+  }, [activePatternId, channelId, selection]);
+
+  const duplicateSelection = useCallback(() => {
+    if (!activePatternId || !channelId || selection.size === 0) return;
+    const sel = selectedNotes();
+    if (sel.length === 0) return;
+    const span =
+      Math.max(...sel.map((n) => n.start + n.duration)) - Math.min(...sel.map((n) => n.start));
+    const clones = sel.map((n) => ({ ...n, id: newId(), start: n.start + span }));
+    store.dispatch(
+      { type: 'addNotes', patternId: activePatternId, channelId, notes: clones },
+      { label: 'Duplicar selección' },
+    );
+    setSelection(new Set(clones.map((c) => c.id)));
+  }, [activePatternId, channelId, selection, selectedNotes]);
+
+  const selectAllNotes = useCallback(() => {
+    setSelection(new Set(notes.map((n) => n.id)));
+  }, [notes]);
+
+  /** Copiar (y cortar): lo copiado se normaliza al beat 0 en el portapapeles. */
+  const copySelection = useCallback(
+    (cut: boolean) => {
+      if (!activePatternId || !channelId) return;
+      const sel = selectedNotes();
+      const payload = packNotes(sel, channel?.name ?? '');
+      if (payload === null) return;
+      setClipboard(payload);
+      if (!cut) return;
+      store.dispatch(
+        { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: sel.map((n) => n.id) },
+        { label: `Cortar ${sel.length} nota(s)` },
+      );
+      setSelection(new Set());
+    },
+    [activePatternId, channelId, channel, selectedNotes],
+  );
+
+  /**
+   * Pega en el caret (el playhead dentro del patrón), con el snap vigente.
+   *
+   * El caret es global y avanza con la canción, así que se le aplica el módulo
+   * de la longitud del patrón: es exactamente la línea que el Piano Roll pinta,
+   * y pegar donde se ve la línea es lo único que no sorprende.
+   */
+  const pasteClipboard = useCallback(() => {
+    if (!activePatternId || !channelId) return;
+    const payload = readClipboard();
+    if (payload === null || payload.kind !== 'notes') return;
+    const patLen = Math.max(1, pattern?.length ?? 4);
+    const fresh = unpackNotes(payload, doSnap(useUiStore.getState().positionBeats % patLen));
+    if (fresh.length === 0) return;
+    store.dispatch(
+      { type: 'addNotes', patternId: activePatternId, channelId, notes: fresh },
+      { label: `Pegar ${fresh.length} nota(s)` },
+    );
+    setSelection(new Set(fresh.map((n) => n.id)));
+  }, [activePatternId, channelId, pattern, doSnap]);
+
+  // El menú Editar y los atajos globales preguntan por aquí. Se registra un
+  // PROVEEDOR (no el objeto) para que siempre lean la selección de ahora.
+  const editActionsRef = useRef({
+    selectionCount: 0,
+    accepts: 'notes' as const,
+    noun: 'notas',
+    copy: () => {},
+    cut: () => {},
+    paste: () => {},
+    duplicate: () => {},
+    selectAll: () => {},
+    remove: () => {},
+  });
+  editActionsRef.current = {
+    selectionCount: pattern && channel ? selection.size : 0,
+    accepts: 'notes',
+    noun: 'notas',
+    copy: () => copySelection(false),
+    cut: () => copySelection(true),
+    paste: pasteClipboard,
+    duplicate: duplicateSelection,
+    selectAll: selectAllNotes,
+    remove: deleteSelection,
+  };
+  useEffect(() => registerEditActions('pianoRoll', () => editActionsRef.current), []);
+
   // Teclado: Supr borra selección; Ctrl+B duplica
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -953,31 +1058,20 @@ export function PianoRoll() {
       // Supr A SECAS borra las notas; con Ctrl+Shift es el atajo global de
       // borrar el patrón (useShortcuts) y aquí no se toca la selección.
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey && selection.size > 0) {
-        store.dispatch(
-          { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: [...selection] },
-          { label: `Borrar ${selection.size} nota(s)` },
-        );
-        setSelection(new Set());
+        deleteSelection();
       }
       if (e.ctrlKey && e.code === 'KeyB' && selection.size > 0) {
         e.preventDefault();
-        const sel = notes.filter((n) => selection.has(n.id));
-        const span = Math.max(...sel.map((n) => n.start + n.duration)) - Math.min(...sel.map((n) => n.start));
-        const clones = sel.map((n) => ({ ...n, id: newId(), start: n.start + span }));
-        store.dispatch(
-          { type: 'addNotes', patternId: activePatternId, channelId, notes: clones },
-          { label: 'Duplicar selección' },
-        );
-        setSelection(new Set(clones.map((c) => c.id)));
+        duplicateSelection();
       }
       if (e.ctrlKey && e.code === 'KeyA') {
         e.preventDefault();
-        setSelection(new Set(notes.map((n) => n.id)));
+        selectAllNotes();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selection, notes, activePatternId, channelId]);
+  }, [selection, activePatternId, channelId, deleteSelection, duplicateSelection, selectAllNotes]);
 
   // ── Herramientas de la toolbar ────────────────────────────────────────────
 
@@ -1464,6 +1558,9 @@ export function PianoRoll() {
     <div
       className="pianoroll"
       ref={rootRef}
+      // Tocar el Piano Roll le da el turno de edición: a partir de aquí,
+      // Ctrl+C/X/V y el menú Editar hablan de SUS notas, no de los clips.
+      onPointerDown={() => claimEditFocus('pianoRoll')}
       onPointerEnter={() => {
         hovering.current = true;
       }}

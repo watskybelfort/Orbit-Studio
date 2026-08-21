@@ -5,6 +5,7 @@ import { repeatLastExport } from '../export';
 import { usePaletteStore } from '../palette';
 import { removeActivePattern } from '../palette/default-commands';
 import { setPlayMode, store, togglePlay } from '../state/app';
+import { activeEditActions } from '../state/edit-focus';
 import { openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
 
@@ -52,6 +53,37 @@ export function useShortcuts(): void {
         e.preventDefault();
         removeActivePattern();
         return;
+      }
+      /*
+       * Portapapeles: van AQUÍ y no en cada editor a propósito.
+       *
+       * El Piano Roll y la Playlist están abiertos a la vez casi siempre; con
+       * un listener por editor, un Ctrl+V pegaba en los dos. El árbitro de
+       * `edit-focus` decide de quién es el turno (el último que se tocó) y
+       * aquí solo se le pide la acción. Si no hay ninguno en juego, la tecla
+       * se deja pasar: puede ser el copiar del navegador.
+       */
+      if (e.ctrlKey && !e.shiftKey && !e.altKey) {
+        const edit = e.code === 'KeyC' || e.code === 'KeyX' || e.code === 'KeyV'
+          ? activeEditActions()
+          : null;
+        if (edit !== null) {
+          if (e.code === 'KeyC') {
+            e.preventDefault();
+            edit.copy();
+            return;
+          }
+          if (e.code === 'KeyX') {
+            e.preventDefault();
+            edit.cut();
+            return;
+          }
+          if (e.code === 'KeyV') {
+            e.preventDefault();
+            edit.paste();
+            return;
+          }
+        }
       }
       // Ctrl+E: repite el último export sin diálogo (sufijo incremental).
       if (e.ctrlKey && e.code === 'KeyE') {
