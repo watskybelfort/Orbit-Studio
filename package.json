@@ -1,7 +1,7 @@
 {
   "name": "orbit-studio",
   "private": true,
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Orbit Studio — DAW propio: motor DSP, flujo FL completo, colaboración en tiempo real y Claude integrado",
   "type": "module",
   "workspaces": [

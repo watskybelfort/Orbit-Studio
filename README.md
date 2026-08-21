@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.2.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-805%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.3.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-833%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,34 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.3.0 — "la mano encima de la curva".** Sale del roadmap: la automatización
+tenía puntos y tensión, pero no se podía **dibujar**. Un barrido de filtro eran
+treinta dobles clics, uno por punto, y por eso no se hacían.
+
+**El lápiz.** Se arrastra y se dibuja. El trazo se pinta encima mientras dura
+—sin tocar el proyecto: un barrido son cientos de eventos de puntero, y
+despachar cada uno llenaría el historial y recompilaría sesenta veces por
+segundo— y al soltar se simplifica y sustituye **solo el tramo dibujado**, en un
+único paso de undo. Al lado, **Recta** tira una rampa entre dos puntos.
+
+**El generador de formas.** "Forma…" rellena un tramo con una onda: seno,
+triángulo, sierra ↗ o ↘, cuadrada y aleatoria con semilla, con sus ciclos, su
+recorrido, su fase y los beats que ocupa. Un tremolo, un pan que se mueve o un
+filtro que respira pasan de cincuenta puntos a mano a cuatro campos. La
+previsualización **se dibuja**, discontinua encima de la curva, y el proyecto no
+se toca hasta *Aplicar*.
+
+**Snap del eje de valor** (1/2, 1/4, 1/8, 12, 1/16), con sus alturas pintadas:
+con 12 divisiones una automatización de tono cae en semitonos. Ahí salió el
+fallo que hacía que no sirviera de nada: el redondeo iba *después* de
+simplificar, así que una rampa recta se quedaba en sus dos extremos y redondear
+esos dos daba "de 0 a 1". Ahora va antes, y la rampa sale como la escalera que
+uno está pidiendo.
+
+Y **Simplificar**, que quita puntos sin cambiar lo que suena: no poda la lista
+—eso se llevaría por delante las curvaturas y cambiaría la forma—, sino que
+muestrea la curva tal y como la evalúa el motor y simplifica ese trazo.
 
 **v2.2.0 — "lo que se toca todo el rato".** Una revisión de la app entera
 mirando lo que se usa en cada sesión, no lo que falta en el roadmap.
@@ -299,7 +327,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 |---|---|
 | **Estructura del beat, editable** | El generador ya encadena secciones; que se puedan dibujar y reordenar en la playlist es lo que las convierte en una herramienta |
 | **Sala con invitación caducable** | La contraseña cierra la puerta, pero compartirla es para siempre: un enlace que caduque es otra cosa |
-| **Automatización dibujada a mano** | Hay LFOs y clips de automatización; falta el lápiz sobre la curva, que es como se hace de verdad |
 
 ### Horizonte
 
@@ -315,7 +342,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 805 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 833 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

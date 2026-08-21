@@ -97,6 +97,17 @@ export const SHORTCUTS: ShortcutGroup[] = [
     ],
   },
   {
+    title: 'Automatización',
+    rows: [
+      { keys: 'P', what: 'Herramienta Puntos', where: 'Editor de automatización' },
+      { keys: 'D', what: 'Herramienta Lápiz: dibujar la curva a mano', where: 'Editor de automatización' },
+      { keys: 'R', what: 'Herramienta Recta: una rampa entre dos puntos', where: 'Editor de automatización' },
+      { keys: 'Doble clic', what: 'Añadir un punto (Alt = sin snap)', where: 'Editor de automatización' },
+      { keys: 'Clic derecho', what: 'Borrar un punto', where: 'Editor de automatización' },
+      { keys: 'Esc', what: 'Cerrar el panel de formas sin aplicar', where: 'Editor de automatización' },
+    ],
+  },
+  {
     title: 'Patrones',
     rows: [
       { keys: 'Ctrl+Shift+Supr', what: 'Borrar el patrón activo, con sus clips' },

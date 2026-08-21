@@ -220,6 +220,11 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | Clips de automatización con puntos y **tensión de curva** arrastrable | v0.1 |
+| **Lápiz**: se dibuja la curva a mano alzada. El trazo se pinta encima mientras dura (no se toca el modelo: un barrido son cientos de eventos) y al soltar se simplifica y sustituye SOLO el tramo dibujado, en un paso de undo | v2.3 |
+| **Recta**: una rampa entre dos puntos, con la misma sustitución de tramo | v2.3 |
+| **Generador de formas** ("Forma…"): seno, triángulo, sierra ↗/↘, cuadrada y aleatoria con semilla, con ciclos, recorrido, fase, resolución y el tramo de beats que ocupa. La previsualización se DIBUJA (discontinua, encima de la curva) y el proyecto no se toca hasta Aplicar | v2.3 |
+| **Snap del eje de valor** (1/2, 1/4, 1/8, 12, 1/16) para lápiz, recta, arrastre y doble clic, con sus alturas pintadas: con 12 divisiones una automatización de tono cae en semitonos. El redondeo va ANTES de simplificar, o una rampa recta se quedaría en sus dos extremos y el snap no se notaría | v2.3 |
+| **Simplificar**: quita puntos sin cambiar lo que suena — muestrea la curva como la evalúa el motor (tensiones incluidas) en vez de podar la lista, que cambiaría la forma | v2.3 |
 | Destinos: canal (síntesis y mezcla), mixer, parámetro de efecto, tempo, swing | v0.1 |
 | Valores reales mostrados en vivo (dB, Hz, %…) al editar la curva | v0.1 |
 | "Último parámetro tocado" → crear su clip desde la propia perilla (clic derecho) o desde la paleta | v0.8 |
