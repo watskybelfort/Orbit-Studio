@@ -25,6 +25,13 @@ import {
   parseRoomAuth,
   type RoomAuthRecord,
 } from './room-auth';
+import {
+  INVITE_MAX_TTL_MS,
+  INVITE_MAX_USES,
+  INVITE_MIN_TTL_MS,
+  parseInviteToken,
+  type RoomInvitePublic,
+} from './room-invite';
 
 /** Tipo de mensaje del protocolo de sala (0 sync · 1 awareness · 2 control). */
 export const MESSAGE_CONTROL = 2;
@@ -51,7 +58,26 @@ export type ControlMessage =
   /** Productor → servidor: pon (o quita, con null) la contraseña de la sala. */
   | { type: 'setPassword'; auth: RoomAuthRecord | null }
   /** Servidor → todos: si la sala está protegida (para pintar el candado). */
-  | { type: 'roomAuth'; protected: boolean };
+  | { type: 'roomAuth'; protected: boolean }
+  /** Productor → servidor: crea una invitación que caduca y se gasta. */
+  | { type: 'createInvite'; ttlMs: number; uses: number }
+  /**
+   * Servidor → el productor que la pidió: el token, UNA vez.
+   *
+   * El servidor guarda el hash, así que este mensaje es la única oportunidad de
+   * ver el secreto. Si se pierde, se revoca y se hace otra.
+   */
+  | { type: 'inviteCreated'; token: string; expiresAt: number; uses: number }
+  /** Productor → servidor: revoca una invitación por su id. */
+  | { type: 'revokeInvite'; id: string }
+  /** Servidor → el productor: las invitaciones vivas (sin nada con que entrar). */
+  | { type: 'invites'; list: RoomInvitePublic[] }
+  /**
+   * Cliente → servidor, EN LA PUERTA: entro con esta invitación en vez de con
+   * la contraseña. Es la alternativa a `auth`, no un añadido: se responde al
+   * mismo `challenge`.
+   */
+  | { type: 'joinInvite'; token: string };
 
 export function encodeControl(message: ControlMessage): Uint8Array {
   const encoder = encoding.createEncoder();
@@ -135,6 +161,59 @@ export function parseControl(json: string): ControlMessage | null {
       if (auth === null) return { type: 'setPassword', auth: null };
       const record = parseRoomAuth(auth);
       return record ? { type: 'setPassword', auth: record } : null;
+    }
+    case 'createInvite': {
+      const ttlMs = o['ttlMs'];
+      const uses = o['uses'];
+      if (typeof ttlMs !== 'number' || !Number.isFinite(ttlMs)) return null;
+      if (typeof uses !== 'number' || !Number.isFinite(uses)) return null;
+      // Se acota AQUÍ además de al crear el registro: lo que llega por el
+      // socket no decide cuánto dura una llave de esta sala.
+      return {
+        type: 'createInvite',
+        ttlMs: Math.min(INVITE_MAX_TTL_MS, Math.max(INVITE_MIN_TTL_MS, Math.floor(ttlMs))),
+        uses: Math.min(INVITE_MAX_USES, Math.max(1, Math.floor(uses))),
+      };
+    }
+    case 'inviteCreated': {
+      const token = o['token'];
+      const expiresAt = o['expiresAt'];
+      const uses = o['uses'];
+      if (parseInviteToken(token) === null) return null;
+      if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null;
+      if (typeof uses !== 'number' || !Number.isFinite(uses)) return null;
+      return { type: 'inviteCreated', token: token as string, expiresAt, uses };
+    }
+    case 'revokeInvite': {
+      const id = o['id'];
+      if (typeof id !== 'string' || id.length === 0 || id.length > 64) return null;
+      return { type: 'revokeInvite', id };
+    }
+    case 'invites': {
+      const list = o['list'];
+      if (!Array.isArray(list)) return null;
+      const clean: RoomInvitePublic[] = [];
+      for (const item of list) {
+        if (typeof item !== 'object' || item === null) continue;
+        const x = item as Record<string, unknown>;
+        if (typeof x['id'] !== 'string') continue;
+        if (typeof x['expiresAt'] !== 'number' || typeof x['uses'] !== 'number') continue;
+        if (typeof x['createdAt'] !== 'number' || typeof x['by'] !== 'string') continue;
+        clean.push({
+          id: x['id'],
+          expiresAt: x['expiresAt'],
+          uses: x['uses'],
+          createdAt: x['createdAt'],
+          by: x['by'].slice(0, 40),
+        });
+      }
+      return { type: 'invites', list: clean };
+    }
+    case 'joinInvite': {
+      const token = o['token'];
+      return parseInviteToken(token) === null
+        ? null
+        : { type: 'joinInvite', token: token as string };
     }
     case 'roomAuth': {
       const isProtected = o['protected'];

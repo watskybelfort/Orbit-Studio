@@ -32,15 +32,21 @@ import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import {
   AUDIO_MAX_SAMPLES,
+  INVITE_MAX_PER_ROOM,
   MESSAGE_AUDIO,
   MESSAGE_CONTROL,
   authMessage,
+  consumeInvite,
   encodeControl,
+  makeInviteRecord,
+  newInviteToken,
   parseControl,
+  publicInvite,
   randomNonce,
   verifyProof,
   type CollabRole,
   type RoomAuthRecord,
+  type RoomInviteRecord,
 } from '@orbit/collab';
 import { RoomAuthStore } from './auth-store';
 import { normalizeRoomCode } from './room-path';
@@ -126,6 +132,10 @@ function toUint8(data: RawData): Uint8Array {
 interface RoomHooks {
   isProtected(): boolean;
   setPassword(record: RoomAuthRecord | null): void;
+  /** Invitaciones vivas de esta sala. */
+  invites(): RoomInviteRecord[];
+  /** Guarda la lista; false si no hay dónde (sala sin contraseña). */
+  setInvites(list: RoomInviteRecord[]): boolean;
 }
 
 class Room {
@@ -376,6 +386,14 @@ class Room {
       this.handleSetPassword(conn, message.auth);
       return;
     }
+    if (message.type === 'createInvite') {
+      void this.handleCreateInvite(conn, message.ttlMs, message.uses);
+      return;
+    }
+    if (message.type === 'revokeInvite') {
+      this.handleRevokeInvite(conn, message.id);
+      return;
+    }
     if (message.type !== 'setRole') return;
     const by = this.connKeys.get(conn);
     if (by === undefined) return;
@@ -417,6 +435,82 @@ class Room {
     console.log(
       `[room ${this.code}] contraseña ${record === null ? 'quitada' : 'puesta'} por el productor`,
     );
+  }
+
+  /** Solo el productor toca las llaves de la sala. Devuelve si puede seguir. */
+  private guardProducer(conn: WsSocket, what: string): boolean {
+    const by = this.connKeys.get(conn);
+    if (by !== undefined && this.roles.isProducer(by)) return true;
+    this.sendControl(conn, { type: 'denied', reason: `Solo el productor ${what}.` });
+    return false;
+  }
+
+  /** Manda al que pregunta la lista de invitaciones vivas (sin nada con que entrar). */
+  private sendInvites(conn: WsSocket): void {
+    this.sendControl(conn, { type: 'invites', list: this.hooks.invites().map(publicInvite) });
+  }
+
+  /**
+   * Crea una invitación y devuelve el token UNA vez.
+   *
+   * El servidor guarda el hash, así que este es el único momento en el que el
+   * secreto existe fuera de quien lo va a usar: si se pierde, se revoca y se
+   * hace otra. Va solo al que la pidió, no a la sala.
+   */
+  private async handleCreateInvite(conn: WsSocket, ttlMs: number, uses: number): Promise<void> {
+    if (!this.guardProducer(conn, 'crea invitaciones')) return;
+    if (!this.hooks.isProtected()) {
+      this.sendControl(conn, {
+        type: 'denied',
+        reason: 'Ponle contraseña a la sala primero: sin puerta, entra quien sepa el código.',
+      });
+      return;
+    }
+    const live = this.hooks.invites();
+    if (live.length >= INVITE_MAX_PER_ROOM) {
+      this.sendControl(conn, {
+        type: 'denied',
+        reason: `Ya hay ${live.length} invitaciones vivas: revoca alguna antes.`,
+      });
+      return;
+    }
+    try {
+      const fresh = newInviteToken();
+      const by = this.connKeys.get(conn);
+      const record = await makeInviteRecord(
+        fresh,
+        ttlMs,
+        uses,
+        by === undefined ? 'productor' : String(by),
+        Date.now(),
+      );
+      if (!this.hooks.setInvites([...live, record])) {
+        this.sendControl(conn, { type: 'denied', reason: 'No se pudo guardar la invitación.' });
+        return;
+      }
+      this.sendControl(conn, {
+        type: 'inviteCreated',
+        token: fresh.token,
+        expiresAt: record.expiresAt,
+        uses: record.uses,
+      });
+      this.sendInvites(conn);
+      console.log(
+        `[room ${this.code}] invitación creada (${record.uses} uso(s), caduca en ` +
+          `${Math.round((record.expiresAt - Date.now()) / 60000)} min)`,
+      );
+    } catch (err) {
+      console.error(`[room ${this.code}] no se pudo crear la invitación:`, err);
+      this.sendControl(conn, { type: 'denied', reason: 'No se pudo crear la invitación.' });
+    }
+  }
+
+  private handleRevokeInvite(conn: WsSocket, id: string): void {
+    if (!this.guardProducer(conn, 'revoca invitaciones')) return;
+    const live = this.hooks.invites();
+    this.hooks.setInvites(live.filter((r) => r.id !== id));
+    this.sendInvites(conn);
+    console.log(`[room ${this.code}] invitación ${id} revocada`);
   }
 
   /**
@@ -553,6 +647,8 @@ function getRoom(code: string): Room {
     room = new Room(code, {
       isProtected: () => authStore.isProtected(code),
       setPassword: (record) => authStore.set(code, record),
+      invites: () => authStore.getInvites(code),
+      setInvites: (list) => authStore.setInvites(code, list),
     });
     rooms.set(code, room);
   }
@@ -783,7 +879,50 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
     }
     if (waiting.checking) return;
     const message = readControl(data);
-    if (!message || message.type !== 'auth') return;
+    if (!message) return;
+
+    /*
+     * En la puerta valen DOS respuestas al mismo desafío: la prueba de la
+     * contraseña o una invitación. La invitación es la forma de dejar entrar a
+     * alguien sin darle la contraseña, así que se comprueba aquí mismo y con
+     * las mismas reglas: una por conexión, y fallar cierra.
+     */
+    if (message.type === 'joinInvite') {
+      waiting.checking = true;
+      const live = authStore.getInvites(code);
+      void consumeInvite(live, message.token, Date.now())
+        .then((result) => {
+          if (!pending.has(conn)) return;
+          clearTimeout(waiting.timer);
+          pending.delete(conn);
+          authStore.setInvites(code, result.next);
+          if (!result.ok) {
+            // El motivo se distingue en el LOG pero no en lo que se le dice a
+            // quien llama: un mensaje por caso sería un oráculo de qué
+            // invitaciones existen.
+            console.warn(`[room ${code}] invitación rechazada (${result.reason})`);
+            conn.close(CLOSE_POLICY, 'Esa invitación ya no vale');
+            return;
+          }
+          const room = rooms.get(code);
+          if (room && room.conns.size >= roomCapacity) {
+            conn.close(CLOSE_TRY_LATER, `La sala está llena (caben ${roomCapacity})`);
+            return;
+          }
+          console.log(`[room ${code}] alguien entra con invitación`);
+          conn.send(encodeControl({ type: 'authOk' }));
+          admit(conn, code);
+        })
+        .catch((err) => {
+          console.error(`[room ${code}] fallo comprobando la invitación:`, err);
+          clearTimeout(waiting.timer);
+          pending.delete(conn);
+          conn.close(CLOSE_POLICY, 'No se pudo comprobar la invitación');
+        });
+      return;
+    }
+
+    if (message.type !== 'auth') return;
     const record = authStore.get(code);
     if (!record) {
       // La contraseña se quitó mientras este llamaba a la puerta: pasa.
