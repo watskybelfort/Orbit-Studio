@@ -33,6 +33,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Formato `.orbit` (JSON versionado), abrir/guardar/guardar como (Ctrl+O/S) | v0.1 |
 | Import MIDI (Archivo → Importar: canales + patrón + tempo, en un undo) | v0.4 |
 | Info del proyecto: título, autor, notas y recuento de todo lo que hay dentro | v1.0 |
+| **Proyectos recientes**: los diez últimos abiertos o guardados, en `Archivo → Abrir reciente` y en la paleta por su nombre de archivo. La lista la escribe SOLO el main y es la lista blanca de `project:open-recent` (misma regla que `userFolders`); un archivo que ya no está sale marcado y se olvida al intentar abrirlo | v2.2 |
+| **Aviso antes de perder cambios**: nuevo, plantilla, abrir y abrir reciente preguntan si hay trabajo sin guardar, y cerrar la ventana lo para el MAIN —el renderer no se entera de un Alt+F4— con "Guardar y salir". El título de la ventana lleva el nombre del proyecto y un punto cuando hay cambios | v2.2 |
 
 ## 2. Channel Rack
 
@@ -66,6 +68,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Dibujar, borrar, mover, redimensionar por bordes, drag multi-nota | v0.1 |
 | **Dibujar y arrastrar da la duración** (como en FL): al poner una nota, el arrastre horizontal la estira y esa duración queda de plantilla para las siguientes; el vertical la mueve. El tirador del borde derecho es proporcional al ancho de la nota (4–12 px) y el cursor lo delata: `ew-resize` en el borde, `move` en el cuerpo | v1.4 |
 | Selección marquee (Ctrl+arrastre), Ctrl+A, duplicar (Ctrl+B), Supr | v0.1 |
+| **Copiar, cortar y pegar notas** (Ctrl+C/X/V): lo copiado se guarda normalizado al beat 0 y se pega en el caret con el snap vigente, así que la separación entre notas se conserva sola; pegar antes del 0 mueve el grupo entero en vez de apelmazarlo | v2.2 |
 | Herramientas **Dibujar / Pincel / Cortar** (P, B, C), con el pincel borrando en arrastre con el botón derecho | v1.0 |
 | Velocity por nota (carril inferior) | v0.1 |
 | **Las teclas se iluminan mientras suenan**: lo que pulsas (ratón, fila Z/Q del PC, MIDI) y también lo que dispara el secuenciador durante la reproducción. El dato sale del kernel (`MeterFrame.notes`), así que se enciende lo que suena de verdad, no lo que la UI cree | v1.3 |
@@ -97,6 +100,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 |---|---|
 | Pistas ilimitadas con nombre y mute, + Pista | v0.1 |
 | Clips de patrón: pintar en serie, mover, redimensionar, duplicar (Ctrl+arrastre) | v0.1 |
+| **Copiar, cortar y pegar clips** (Ctrl+C/X/V): pega en el caret y en la pista bajo el ratón (sin ratón dentro, en la que se copió); si el grupo no cabe hacia abajo sube entero. Los puntos de automatización se clonan y `frozenFrom` no viaja —una copia que dijera ser dueña de los clips escondidos descongelaría encima del original— | v2.2 |
 | Clips de automatización (con su curva dibujada; doble clic abre el editor) | v0.1 |
 | Clips de audio (soltar un sonido del browser en la playlist) | v0.2 |
 | Snap Beat/Compás/1/2/1/4/Nada (Alt = libre) | v0.1 |
@@ -363,7 +367,11 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | **Ctrl+E**: repite el último export sin diálogo, con sufijo incremental | v1.0 |
 | **Ctrl+Shift+Supr**: borra el patrón activo (Supr a secas sigue siendo el de las notas del Piano Roll) | v1.1 |
 | Menú **Patrón** en el MenuBar: nuevo, clonar, renombrar y borrar el activo | v1.1 |
+| **Menús con submenús y marcas de estado**: las plantillas, los recientes y los layouts dejan de ser entradas sueltas del primer nivel, y lo que está abierto (ventanas, Browser, panel de Claude, Zen) lleva su ✓. `Ver` va por bloques con cabecera; `Editar` gana cortar/copiar/pegar/duplicar/seleccionar todo/borrar contra el editor con el turno, y deshacer/rehacer dicen QUÉ deshacen | v2.2 |
+| **Los menús se manejan con el teclado**: Alt abre la barra, flechas recorren entradas y menús, → entra en un submenú y ← sale, Inicio/Fin, Esc, y escribir una letra salta a la entrada que empieza por ella. El recorrido mueve el foco de verdad (Enter y Espacio los sirve el `<button>` nativo). Alt "a secas" se detecta en el keyUP, para no pisar Alt+A, Alt+C ni Alt+arrastre | v2.2 |
+| **Ayuda → Atajos de teclado (F1)**: la chuleta completa dentro de la app, agrupada y buscable, con dónde vale cada atajo | v2.2 |
 | Paleta de comandos (Ctrl+K): búsqueda sin acentos, grupos, teclado completo | v0.5 |
+| **Paleta por subsecuencia y con memoria**: "pr" encuentra "Abrir Piano Roll" (antes hacía falta el principio exacto), la puntuación premia iniciales de palabra sin penalizar el salto entre ellas, y sin escribir nada salen los últimos doce comandos usados (guardados en settings.json). Con texto manda la puntuación: la recencia solo desempata | v2.2 |
 | Grupo "Patrón" en la paleta: nuevo, clonar, renombrar y borrar (con el nombre del patrón y los clips que se lleva en el propio título) | v1.1 |
 | Multi-ventana (mixer en segundo monitor) | v1.6 |
 

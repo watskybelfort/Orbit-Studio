@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.1.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-778%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.2.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-805%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,45 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.2.0 — "lo que se toca todo el rato".** Una revisión de la app entera
+mirando lo que se usa en cada sesión, no lo que falta en el roadmap.
+
+**No había portapapeles.** Ninguno: no se podía copiar ni una nota. Ahora
+Ctrl+C, Ctrl+X y Ctrl+V trabajan sobre la selección del Piano Roll y de la
+Playlist. Lo copiado se guarda normalizado al beat 0, así que pegar es una suma
+y la separación entre notas —o entre pistas— se conserva sola; las notas caen en
+el caret con el snap vigente y los clips en la pista que tienes bajo el ratón.
+Como los dos editores están abiertos a la vez casi siempre, hay un árbitro: el
+último editor que tocaste tiene el turno, y es de quien habla el menú Editar.
+
+**Y "Nuevo proyecto" se llevaba por delante una hora de trabajo sin preguntar.**
+Ahora hay un estado de cambios sin guardar de verdad: nuevo, plantilla, abrir y
+abrir reciente avisan, el título de la ventana lleva el nombre del proyecto y un
+punto cuando hay cambios, y **cerrar la ventana lo frena el proceso principal** —
+que es el único que se entera de un Alt+F4— con la opción de guardar y salir. Al
+separar ese estado apareció el bug de debajo: la marca de "guardado" y la de
+"autoguardado" eran la misma variable, así que el primer autosave dejaba el
+proyecto marcado como limpio sin haberse guardado nada.
+
+**Volver a un proyecto ya no es buscarlo en el disco**: `Archivo → Abrir
+reciente` guarda los diez últimos. La lista la escribe solo el proceso principal
+y es, a la vez, la lista blanca que autoriza abrirlos: si el renderer pudiera
+escribirla, "abrir un reciente" sería "leer cualquier archivo del disco".
+
+**Los menús.** `Archivo` escupía una entrada por plantilla en el primer nivel y
+`Ver` era un volcado de veinte líneas donde nada decía si estaba abierto o
+cerrado. Ahora hay submenús (plantillas, recientes, layouts), bloques con
+cabecera, y un ✓ en todo lo que se alterna. `Editar` pasa de cuatro entradas sin
+editar nada a las seis de siempre —diciendo de qué hablan: "Copiar 3 notas"— y
+deshacer dice qué deshace. **Y se manejan con el teclado**: Alt los abre,
+flechas, Inicio/Fin, Esc y letra inicial.
+
+**Los atajos salen del markdown** y entran en la app: `Ayuda → Atajos de teclado`
+(F1), agrupados, buscables y diciendo dónde vale cada uno. Y la **paleta de
+comandos busca por subsecuencia**: "pr" ya encuentra "Abrir Piano Roll" —antes
+había que saberse el principio exacto— y, sin escribir nada, arriba están los
+últimos comandos que usaste.
 
 **v2.1.0 — "la mesa de trabajo".** Nada de esto salía del roadmap: sale de una
 sesión larga usando el programa de verdad, que es de donde salen las cosas que
@@ -276,7 +315,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 720 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 805 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

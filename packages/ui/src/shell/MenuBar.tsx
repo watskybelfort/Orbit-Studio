@@ -143,6 +143,14 @@ function focusByLetter(list: HTMLElement, letter: string): boolean {
 }
 
 /**
+ * "3 clips" pero "1 clip". Los nombres del editor vienen en plural y aquí se
+ * les quita la ese: vale para clips y para notas, que es todo lo que hay.
+ */
+function count(n: number, plural: string): string {
+  return `${n} ${n === 1 ? plural.slice(0, -1) : plural}`;
+}
+
+/**
  * Primera letra del label, sin acentos y en minúscula: se busca "a" y sale
  * "Ajustes" igual que "Automatización" (igual que el buscador del Browser).
  */
@@ -472,13 +480,13 @@ export function MenuBar() {
        * "Copiar" a secas no dice de qué habla.
        */
       {
-        label: edit ? `Cortar ${edit.selectionCount} ${edit.noun}` : 'Cortar',
+        label: edit ? `Cortar ${count(edit.selectionCount, edit.noun)}` : 'Cortar',
         shortcut: 'Ctrl+X',
         disabled: !edit || edit.selectionCount === 0,
         action: () => edit?.cut(),
       },
       {
-        label: edit ? `Copiar ${edit.selectionCount} ${edit.noun}` : 'Copiar',
+        label: edit ? `Copiar ${count(edit.selectionCount, edit.noun)}` : 'Copiar',
         shortcut: 'Ctrl+C',
         disabled: !edit || edit.selectionCount === 0,
         action: () => edit?.copy(),
