@@ -35,6 +35,37 @@ interface OrbitAppInfo {
   userData: string;
 }
 
+interface OrbitPeer {
+  id: string;
+  name: string;
+  address: string;
+  seenAt: number;
+}
+
+interface OrbitFriend {
+  id: string;
+  name: string;
+  address: string;
+}
+
+interface OrbitInvite {
+  id: string;
+  name: string;
+  /** Código de sala ya normalizado y validado. */
+  room: string;
+  /** URL ws:// o wss:// del servidor de esa sala. */
+  url: string;
+  address: string;
+}
+
+interface OrbitNetState {
+  listening: boolean;
+  announcing: boolean;
+  name: string;
+  error: string | null;
+  peers: OrbitPeer[];
+}
+
 interface OrbitApi {
   /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
   readonly app: {
@@ -131,6 +162,29 @@ interface OrbitApi {
     openRecent(path: string): Promise<{ path: string; json: string } | null>;
     /** Olvida un reciente; sin ruta, vacía la lista. Devuelve la lista nueva. */
     forgetRecent(path?: string): Promise<string[]>;
+  };
+  /**
+   * Gente con Orbit abierto en la misma red local, y los amigos guardados.
+   *
+   * Escuchar es siempre (es lo que hace que lleguen las invitaciones);
+   * anunciarse es opcional y manda tu nombre a la red. Una invitación que llega
+   * NO entra en ninguna sala: es un aviso, y decide el usuario.
+   */
+  readonly net: {
+    state(): Promise<OrbitNetState>;
+    /** Enciende o apaga la baliza. */
+    announce(on: boolean, name?: string): Promise<OrbitNetState>;
+    /** Invita a una dirección de la red local a una sala. */
+    invite(address: string, room: string, url: string): Promise<{ ok: boolean; error?: string }>;
+    /** Cambios en la lista de vecinos. Devuelve la desuscripción. */
+    onPeers(cb: (peers: OrbitPeer[]) => void): () => void;
+    /** Invitación entrante, ya validada por el main. */
+    onInvite(cb: (invite: OrbitInvite) => void): () => void;
+  };
+  readonly friends: {
+    list(): Promise<OrbitFriend[]>;
+    add(friend: OrbitFriend): Promise<OrbitFriend[]>;
+    forget(id: string): Promise<OrbitFriend[]>;
   };
   readonly midi: {
     /** Diálogo de apertura .mid; null si el usuario cancela. */

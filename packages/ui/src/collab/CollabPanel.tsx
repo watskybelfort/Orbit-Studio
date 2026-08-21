@@ -24,6 +24,9 @@ import {
   useMasterStream,
 } from './master-stream';
 import { useUiStore } from '../state/ui';
+import { NetworkSection } from './NetworkSection';
+import { InviteBanner } from './InviteBanner';
+import { initNetwork } from './network-state';
 import {
   DEFAULT_ROOM_CAPACITY,
   DEFAULT_SERVER_URL,
@@ -183,6 +186,22 @@ export function CollabPanel() {
    */
   const shareUrl = `ws://${server.shareAddress ?? ''}:${server.port ?? ''}`;
 
+  /*
+   * La URL que se manda en una invitación.
+   *
+   * Si esta app hospeda el servidor y sabe con qué dirección se le llega desde
+   * fuera, esa; si no, la misma con la que estamos conectados nosotros. Mandar
+   * `localhost` porque es lo que tenemos en el campo sería invitar a una sala a
+   * la que el otro no puede entrar.
+   */
+  const inviteUrl =
+    server.running && server.shareAddress !== undefined ? shareUrl : serverUrl || DEFAULT_SERVER_URL;
+
+  // El descubrimiento vive en el main; aquí solo se engancha (idempotente).
+  useEffect(() => {
+    initNetwork();
+  }, []);
+
   /** Nombre legible de una dirección para los avisos ("Radmin VPN — 26.x"). */
   const hostLabel = (host: string): string => {
     if (host === SERVER_HOST_LOCAL) return 'solo esta máquina';
@@ -274,6 +293,7 @@ export function CollabPanel() {
   if (phase === 'online' || phase === 'connecting') {
     return (
       <div className="collab">
+        <InviteBanner userName={userName} />
         <h3 className="collab-heading">Sala de colaboración</h3>
 
         <div className="collab-code-wrap">
@@ -484,6 +504,8 @@ export function CollabPanel() {
         {assetWarning && <p className="collab-error">{assetWarning}</p>}
 
         {/* ── Chat de sala ── */}
+        <NetworkSection userName={userName} roomCode={roomCode} inviteUrl={inviteUrl} />
+
         <h3 className="collab-heading">Chat de la sesión</h3>
 
         {notes.length > 0 && (
@@ -642,6 +664,7 @@ export function CollabPanel() {
   // ── Fuera de sala ('off' | 'error'): formulario para crear o unirse ────────
   return (
     <div className="collab">
+      <InviteBanner userName={userName} />
       <h3 className="collab-heading">Colaboración en tiempo real</h3>
       <p className="collab-warn">Todos en la sala editan el MISMO proyecto en vivo.</p>
 
@@ -913,6 +936,8 @@ export function CollabPanel() {
         snapshot y su historial de cambios). Si la sala está vacía, se publica tu proyecto como
         base.
       </p>
+
+      <NetworkSection userName={userName} roomCode={roomCode} inviteUrl={inviteUrl} />
     </div>
   );
 }

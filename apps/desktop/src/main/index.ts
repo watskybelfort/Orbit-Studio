@@ -8,6 +8,15 @@ import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
+import { isLanAddress, type Peer } from './discovery-protocol';
+import {
+  discoveryState,
+  knownPeers,
+  sendInvite,
+  setAnnouncing,
+  startDiscovery,
+  stopDiscovery,
+} from './discovery';
 import {
   HOST_ALL,
   HOST_LOCAL,
@@ -558,6 +567,104 @@ function registerIpc(): void {
     return unsavedChanges;
   });
 
+  // ── Gente en la red local y amigos ─────────────────────────────────────────
+
+  /** Amigo guardado: lo justo para poder invitarle otra vez. */
+  interface Friend {
+    id: string;
+    name: string;
+    address: string;
+  }
+
+  function readFriends(): Friend[] {
+    const raw = readSettings()['friends'];
+    if (!Array.isArray(raw)) return [];
+    return raw.filter(
+      (f): f is Friend =>
+        typeof f === 'object' &&
+        f !== null &&
+        typeof (f as Friend).id === 'string' &&
+        typeof (f as Friend).name === 'string' &&
+        typeof (f as Friend).address === 'string',
+    );
+  }
+
+  function writeFriends(list: Friend[]): Friend[] {
+    writeSettings({ ...readSettings(), friends: list.slice(0, 50) });
+    return list;
+  }
+
+  /**
+   * Identidad de ESTA instalación. No dice quién eres —el nombre lo pones tú—,
+   * solo sirve para no contarse a uno mismo entre los vecinos y para que un
+   * amigo siga siendo el mismo cuando le cambie la IP.
+   */
+  function installId(): string {
+    const settings = readSettings();
+    const saved = settings['installId'];
+    if (typeof saved === 'string' && saved.length >= 4) return saved;
+    const fresh = randomUUID().replace(/-/g, '').slice(0, 16);
+    writeSettings({ ...settings, installId: fresh });
+    return fresh;
+  }
+
+  function broadcastToRenderer(channel: string, payload: unknown): void {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send(channel, payload);
+    }
+  }
+
+  function currentName(): string {
+    const raw = readSettings()['collabUserName'];
+    return typeof raw === 'string' && raw.trim() !== '' ? raw : 'Orbit';
+  }
+
+  startDiscovery(installId(), currentName(), {
+    onPeers: (list: Peer[]) => broadcastToRenderer('net:peers', list),
+    onInvite: (invite) => broadcastToRenderer('net:invite', invite),
+  });
+
+  ipcMain.handle('net:state', () => ({ ...discoveryState(), peers: knownPeers() }));
+
+  ipcMain.handle('net:announce', (_event, on: unknown, name: unknown) =>
+    setAnnouncing(on === true, typeof name === 'string' ? name : currentName()),
+  );
+
+  /**
+   * Manda una invitación. La dirección se comprueba contra los vecinos vistos y
+   * los amigos guardados, y además tiene que ser de la red local: el renderer
+   * no puede convertir el proceso principal en un lanzador de paquetes UDP a
+   * donde le apetezca.
+   */
+  ipcMain.handle('net:invite', (_event, address: unknown, room: unknown, url: unknown) => {
+    if (typeof address !== 'string' || typeof room !== 'string' || typeof url !== 'string') {
+      return { ok: false, error: 'Invitación incompleta.' };
+    }
+    const known =
+      knownPeers().some((p) => p.address === address) ||
+      readFriends().some((f) => f.address === address);
+    if (!known) return { ok: false, error: 'Esa dirección no es de nadie que hayas visto.' };
+    return sendInvite(address, room, url);
+  });
+
+  ipcMain.handle('friend:list', () => readFriends());
+
+  ipcMain.handle('friend:add', (_event, friend: unknown) => {
+    const f = friend as Partial<Friend> | null;
+    if (!f || typeof f.id !== 'string' || typeof f.address !== 'string') return readFriends();
+    // Una IP de internet no es un amigo de la red local: el que se escriba a
+    // mano tiene que ser alcanzable por aquí, o la invitación nunca saldría.
+    if (!isLanAddress(f.address)) return readFriends();
+    const name = typeof f.name === 'string' && f.name.trim() !== '' ? f.name.trim() : 'Sin nombre';
+    const rest = readFriends().filter((x) => x.id !== f.id);
+    return writeFriends([...rest, { id: f.id, name, address: f.address }]);
+  });
+
+  ipcMain.handle('friend:forget', (_event, id: unknown) => {
+    if (typeof id !== 'string') return readFriends();
+    return writeFriends(readFriends().filter((f) => f.id !== id));
+  });
+
   // Solo QA (con ORBIT_DEBUG_PORT): la ventana se pone siempre-encima a sí
   // misma para capturas de pantalla — sin SetForegroundWindow, que Windows
   // bloquea desde procesos en segundo plano y dejaría la captura sobre otra app.
@@ -618,7 +725,7 @@ function registerIpc(): void {
    * ese archivo. Si el renderer pudiera meter rutas, "abrir un reciente" sería
    * "leer cualquier archivo del disco".
    */
-  const SETTINGS_LOCKED = new Set(['userFolders', 'recentProjects']);
+  const SETTINGS_LOCKED = new Set(['userFolders', 'recentProjects', 'friends']);
 
   ipcMain.handle('settings:set', (_event, patch: unknown) => {
     const base = readSettings();
@@ -1432,3 +1539,8 @@ app.on('will-quit', () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
+
+// El socket de descubrimiento se cierra al salir: dejarlo abierto mantendría el
+// puerto cogido y, en macOS (donde la app sigue viva sin ventanas), seguiría
+// anunciando a alguien que ya no está trabajando.
+app.on('before-quit', () => stopDiscovery());
