@@ -450,9 +450,19 @@ html[data-theme='acrylic'] .playlist {
   display: flex;
   align-items: center;
   padding: 0 8px;
+  background: none;
+  border: none;
+  border-right: 1px solid var(--border);
+  font: inherit;
   font-size: 10px;
   color: var(--text-dim);
-  border-right: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pl-sections-corner:hover {
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .pl-sections-wrap {

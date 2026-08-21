@@ -24,12 +24,14 @@ import {
   duplicateSectionCommands,
   newId,
   removeSectionCommands,
+  sectionsFromShape,
   sectionsOf,
   type ArrangementSection,
   type Command,
   type Id,
   type Project,
 } from '@orbit/core';
+import { SHAPE_COUNT, planSections } from '@orbit/sound-library';
 import { store } from '../../state/app';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
@@ -48,6 +50,43 @@ const KIND_COLORS: Record<string, string> = {
   outro: '#b45ae6',
 };
 const DEFAULT_COLOR = '#5aa9e6';
+
+/** Nombre visible de cada papel (el modelo guarda el papel, no la etiqueta). */
+const KIND_LABELS: Record<string, string> = {
+  intro: 'Intro',
+  build: 'Subida',
+  drop: 'Drop',
+  break: 'Vuelta',
+  outro: 'Outro',
+};
+
+/**
+ * Las formas que reparte el generador de beats, tal cual.
+ *
+ * Se leen de `@orbit/sound-library` y no se copian aquí: el generador ya sabe
+ * qué es un tema bien montado —toda intro presenta, todo drop tiene algo que lo
+ * anuncia, todo final deja ir— y tener dos catálogos acabaría con dos ideas
+ * distintas de qué es un drop.
+ */
+const SHAPE_LABELS = ['De manual', 'Con vuelta larga', 'Al grano'];
+
+/** Convierte una forma del generador en secciones con nombre y sin repetidos. */
+function shapeToSpec(index: number): { kind: ArrangementSection['kind']; name: string; bars: number }[] {
+  const seen = new Map<string, number>();
+  return planSections(index).map((s) => {
+    const n = (seen.get(s.kind) ?? 0) + 1;
+    seen.set(s.kind, n);
+    const label = KIND_LABELS[s.kind] ?? s.kind;
+    // El segundo drop se llama "Drop 2": sin numerar, la lista de secciones de
+    // un tema con dos drops no dice nada.
+    const total = planSections(index).filter((o) => o.kind === s.kind).length;
+    return {
+      kind: s.kind as ArrangementSection['kind'],
+      name: total > 1 ? `${label} ${n}` : label,
+      bars: s.bars,
+    };
+  });
+}
 
 /** Lo que hay que recordar al empezar un arrastre para poder mandar absolutos. */
 interface MoveAnchor {
@@ -102,6 +141,7 @@ export function SectionLane({
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; sectionId: Id } | null>(null);
+  const [shapeMenu, setShapeMenu] = useState<{ x: number; y: number } | null>(null);
   const themeVersion = useThemeVersion();
 
   const arrangementId = project.activeArrangementId;
@@ -407,13 +447,51 @@ export function SectionLane({
     [sectionAt, rename],
   );
 
+  /**
+   * Escribe una forma entera del generador. Si ya hay secciones dibujadas, se
+   * pregunta: rellenar la estructura de un tema empezado se lleva por delante
+   * la que ya estaba, y eso no se adivina desde un botón.
+   */
+  const applyShape = useCallback(
+    (index: number) => {
+      if (
+        sections.length > 0 &&
+        !window.confirm(
+          `Ya hay ${sections.length} sección(es) dibujadas. ¿Sustituirlas por la forma "${SHAPE_LABELS[index] ?? index + 1}"?`,
+        )
+      ) {
+        return;
+      }
+      const fresh = sectionsFromShape(arrangementId, shapeToSpec(index), barLen);
+      run(
+        [
+          ...(sections.length > 0
+            ? [{ type: 'removeSections' as const, sectionIds: sections.map((s) => s.id) }]
+            : []),
+          { type: 'addSections', sections: fresh },
+        ],
+        `Estructura "${SHAPE_LABELS[index] ?? index + 1}"`,
+      );
+      setShapeMenu(null);
+    },
+    [sections, arrangementId, barLen, run],
+  );
+
   const menuSection = menu ? project.sections[menu.sectionId] : undefined;
 
   return (
     <div className="pl-sections">
-      <div className="pl-sections-corner" style={{ height: SECTION_LANE_H }} title="La forma del tema: arrastra para crear una sección">
-        Secciones
-      </div>
+      <button
+        className="pl-sections-corner"
+        style={{ height: SECTION_LANE_H }}
+        title="La forma del tema: arrastra en la franja para crear una sección, o elige una estructura hecha"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setShapeMenu({ x: r.left, y: r.bottom });
+        }}
+      >
+        Secciones ▾
+      </button>
       <div className="pl-sections-wrap" ref={wrapRef} style={{ height: SECTION_LANE_H }}>
         <canvas
           ref={canvasRef}
@@ -425,6 +503,42 @@ export function SectionLane({
           onContextMenu={(e) => e.preventDefault()}
         />
       </div>
+      {shapeMenu && (
+        <MenuPortal
+          anchor={wrapRef.current}
+          x={shapeMenu.x}
+          y={shapeMenu.y}
+          onClose={() => setShapeMenu(null)}
+          className="param-menu"
+        >
+          {Array.from({ length: SHAPE_COUNT }, (_, i) => (
+            <SectionMenuItem
+              key={i}
+              label={`Estructura: ${SHAPE_LABELS[i] ?? `Forma ${i + 1}`}`}
+              hint={shapeToSpec(i)
+                .map((x) => `${x.name} (${x.bars})`)
+                .join(' · ')}
+              onRun={() => applyShape(i)}
+            />
+          ))}
+          {sections.length > 0 && (
+            <>
+              <div className="menu-sep" />
+              <SectionMenuItem
+                label="Quitar todas las secciones"
+                hint="Solo las etiquetas: los clips se quedan donde están"
+                onRun={() => {
+                  run(
+                    [{ type: 'removeSections', sectionIds: sections.map((x) => x.id) }],
+                    'Quitar las secciones',
+                  );
+                  setShapeMenu(null);
+                }}
+              />
+            </>
+          )}
+        </MenuPortal>
+      )}
       {menu && menuSection && (
         <MenuPortal
           anchor={canvasRef.current}

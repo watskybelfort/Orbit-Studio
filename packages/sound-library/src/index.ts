@@ -74,3 +74,20 @@ export {
   type PackSoundSpec,
   type PackStyle,
 } from './pack-recipes';
+
+// La FORMA de un beat (intro, build, drop, vuelta, outro). Se exporta porque
+// la playlist dibuja esas mismas secciones: el generador y el editor tienen que
+// hablar del mismo catálogo o acabarían con dos ideas distintas de qué es un
+// drop.
+export {
+  SECTION_KINDS,
+  SHAPE_COUNT,
+  densityOf,
+  isLastBarOfSection,
+  planSections,
+  sectionAt,
+  totalBars,
+  type Section,
+  type SectionDensity,
+  type SectionKind,
+} from './pack-structure';
