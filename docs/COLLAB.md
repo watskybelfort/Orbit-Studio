@@ -123,6 +123,51 @@ guarda en `settings.json`), y bloque "Puerta de la sala" dentro, donde el
 productor la pone, la cambia o la quita. Para QA headless:
 `ORBIT_COLLAB_PASSWORD=... npx tsx tools/qa/presence-peer.ts <SALA>`.
 
+## Gente en la red local (v2.4)
+
+Para entrar en una sala hacía falta que alguien te dictara el código y la
+dirección. Desde v2.4 la app se anuncia (si tú quieres) en la red local y
+enseña a los demás en el panel, con botones para guardarlos como amigos e
+invitarlos.
+
+**Cómo va.** Un socket UDP en el grupo multicast `239.255.77.90:47900`, con
+**TTL 1**: no sale de la subred, a propósito. Cada instancia manda una baliza
+`{v, kind:'hello', id, name}` cada cuatro segundos, y el que lleva trece
+segundos callado se cae de la lista. Una invitación es un mensaje unicast
+`{v, kind:'invite', id, name, room, url}` a la dirección del otro.
+
+No hay servidor central ni cuentas: el `id` identifica la INSTALACIÓN (para no
+contarse a uno mismo y para que un amigo siga siendo el mismo cuando le cambie
+la IP), y el nombre es el mismo con el que entras a las salas.
+
+**Las dos asimetrías, y por qué.**
+
+- *Escuchar es siempre, anunciarse es opcional.* Escuchar no cuenta nada de ti y
+  es lo que hace que te lleguen las invitaciones. Anunciarse manda tu nombre a
+  toda la red local, y eso se pide.
+- *Una invitación no entra en ninguna sala.* Llega, se enseña quién invita y a
+  qué, y decide el usuario. Unirse reemplaza el proyecto abierto: un paquete UDP
+  que lo hiciera solo sería un botón que puede pulsar cualquiera del mismo wifi.
+
+**Lo que se valida** (`apps/desktop/src/main/discovery-protocol.ts`, con tests).
+Es la única frontera del programa a la que le puede escribir cualquiera de la
+red, así que todo lo que llega se comprueba: versión del protocolo, tamaño del
+paquete, forma del `id`, `kind` conocido, código de sala válido y —la que más
+importa— que la `url` sea `ws://` o `wss://`. Esa URL la va a abrir la app: sin
+la guarda, quien invita elegiría a qué servidor se conecta el invitado. Los
+nombres se sanean (controles a espacio, tope de 40) porque acaban pintados en
+una lista.
+
+**Lo que guarda el main.** `friends` está en `SETTINGS_LOCKED` igual que
+`userFolders` y `recentProjects`: es la lista blanca de a quién se puede
+invitar, y no la escribe quien tiene que cumplirla. Y `net:invite` solo acepta
+direcciones de alguien visto o de un amigo, y además de la red local
+(`isLanAddress`), para que el renderer no pueda convertir el proceso principal
+en un lanzador de paquetes UDP a donde le apetezca.
+
+**Probarlo sin dos máquinas:** `node tools/qa/lan-peer.mjs "Ana" 20 K3P9QF`
+levanta un vecino falso que se anuncia y luego invita.
+
 ## Presencia (awareness)
 
 - Cada cliente publica: nombre, color asignado, editor activo (Playlist,

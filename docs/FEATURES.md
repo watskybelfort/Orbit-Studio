@@ -100,6 +100,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 |---|---|
 | Pistas ilimitadas con nombre y mute, + Pista | v0.1 |
 | Clips de patrón: pintar en serie, mover, redimensionar, duplicar (Ctrl+arrastre) | v0.1 |
+| **Secciones del arreglo**: la forma del tema (intro, subida, drop, vuelta, outro) en su franja sobre la rejilla — arrastrar crea, agarrar mueve con sus clips, el borde derecho estira empujando lo de detrás y el clic derecho ofrece duplicar con sus clips, seleccionar los suyos, color y tres formas de borrar. Duplicar un drop copia sus clips, empuja lo posterior y mueve los marcadores (o el tempo se descuadraría), todo en un paso de undo | v2.4 |
+| **Estructura de un clic**: las tres formas que reparte el generador de beats (de manual, con vuelta larga, al grano), leídas del mismo catálogo que usa él | v2.4 |
 | **Copiar, cortar y pegar clips** (Ctrl+C/X/V): pega en el caret y en la pista bajo el ratón (sin ratón dentro, en la que se copió); si el grupo no cabe hacia abajo sube entero. Los puntos de automatización se clonan y `frozenFrom` no viaja —una copia que dijera ser dueña de los clips escondidos descongelaría encima del original— | v2.2 |
 | Clips de automatización (con su curva dibujada; doble clic abre el editor) | v0.1 |
 | Clips de audio (soltar un sonido del browser en la playlist) | v0.2 |
@@ -315,6 +317,9 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | **Congelar tu audio** mientras el otro trastea: los comandos remotos se siguen aplicando al modelo, pero tu motor se queda con el último snapshot hasta que lo sueltas. No silencia al otro — lo que oyes es tu propio motor tocando el proyecto común | v1.1 |
 | Aviso de "N sonidos de la sala todavía no están disponibles aquí", con nombres | v1.1 |
 | Audio streaming de la sesión (escuchar el master remoto) | v1+ |
+
+| **Gente en la red local**: los que tienen Orbit abierto en la misma red salen en el panel, se guardan como amigos y se les invita de un clic; al otro le llega un aviso con el botón de entrar. Baliza UDP multicast con TTL 1 (no sale de la subred), sin servidor central ni cuentas. Escuchar es siempre —es lo que hace que lleguen las invitaciones—; anunciar tu nombre es opcional | v2.4 |
+| **La invitación no entra sola**: llega, se enseña quién invita y a qué sala, y decide el usuario. Lo que llega por el socket se valida entero (versión, tamaño, id, código de sala) y la URL tiene que ser ws/wss, o quien invita elegiría a qué se conecta el invitado | v2.4 |
 
 ## 13. Claude integrado
 

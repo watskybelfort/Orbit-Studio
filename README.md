@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.3.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-833%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.4.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-880%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,43 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.4.0 — "la forma del tema, y quién está al lado".** Dos cosas: la
+estructura del beat deja de vivir solo en la cabeza, y meter a alguien en una
+sala deja de ser dictarle un código por teléfono.
+
+**Las secciones del arreglo.** Encima de la rejilla de la playlist hay una
+franja donde se dibuja la forma: intro, subida, drop, vuelta, outro. Arrastrar
+crea, agarrar mueve, el borde derecho estira. Y lo que las convierte en una
+herramienta y no en una etiqueta es que las operaciones se llevan lo que hay
+dentro: **duplicar un drop copia sus clips, empuja todo lo que venía detrás y
+mueve los marcadores** —si el marcador de tempo se quedara donde estaba, el tema
+se descuadraría a partir de ahí— y todo eso se deshace con un Ctrl+Z. También
+se puede borrar una vuelta cerrando el hueco, o quitar solo la etiqueta.
+
+Un clip pertenece a la sección **donde empieza**, no a la que invade: por
+solape, un clip que arranca antes y se mete dentro se copiaría al duplicar y
+dejaría un agujero en la sección anterior.
+
+Y el botón **Secciones** trae las tres formas que ya reparte el generador de
+beats —de manual, con vuelta larga, al grano— leídas del mismo catálogo que usa
+él, para que el generador y el editor no acaben con dos ideas distintas de qué
+es un drop.
+
+**Gente en la red.** El panel de Colaboración ahora enseña quién tiene Orbit
+abierto en la misma red, deja **guardarlos como amigos** e **invitarlos de un
+clic**: al otro le llega un aviso con el botón de entrar. Es una baliza UDP con
+TTL 1 —no sale de la subred— sin servidor central ni cuentas, como el resto de
+la colaboración.
+
+Dos asimetrías a propósito: **escuchar es siempre** (es lo que hace que te
+lleguen las invitaciones) pero **anunciar tu nombre es opcional**; y **una
+invitación no entra en ninguna sala**, porque unirse reemplaza el proyecto
+abierto y esa decisión no la puede tomar un paquete que llega por el wifi. Todo
+lo que entra por el socket se valida: la URL tiene que ser `ws`/`wss` o quien
+invita elegiría a qué se conecta el invitado, y solo se manda una invitación a
+direcciones de la red local, para que el proceso principal no sea un lanzador de
+paquetes a donde le digan.
 
 **v2.3.0 — "la mano encima de la curva".** Sale del roadmap: la automatización
 tenía puntos y tensión, pero no se podía **dibujar**. Un barrido de filtro eran
@@ -325,7 +362,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Estructura del beat, editable** | El generador ya encadena secciones; que se puedan dibujar y reordenar en la playlist es lo que las convierte en una herramienta |
 | **Sala con invitación caducable** | La contraseña cierra la puerta, pero compartirla es para siempre: un enlace que caduque es otra cosa |
 
 ### Horizonte
@@ -342,7 +378,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 833 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 880 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
