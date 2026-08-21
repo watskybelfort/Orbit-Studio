@@ -19,6 +19,8 @@
   --au-point-ring: #e8e9ec;
   --au-tip-bg: rgba(16, 17, 20, 0.88);
   --au-tip-text: #e8e9ec;
+  /* Lo que se está dibujando, antes de soltar: distinto de la curva guardada. */
+  --au-draw: #7ce65a;
 }
 
 html[data-theme='light'] .automation {
@@ -31,6 +33,7 @@ html[data-theme='light'] .automation {
   --au-point-ring: #17181c;
   --au-tip-bg: rgba(255, 255, 255, 0.94);
   --au-tip-text: #17181c;
+  --au-draw: #2f9e2f;
 }
 
 html[data-theme='acrylic'] .automation {
@@ -43,6 +46,7 @@ html[data-theme='acrylic'] .automation {
   --au-point-ring: #e8e9ec;
   --au-tip-bg: rgba(0, 0, 0, 0.6);
   --au-tip-text: #e8e9ec;
+  --au-draw: #7ce65a;
 }
 
 /* ── Toolbar (cabecera del clip) ── */
@@ -173,4 +177,35 @@ html[data-theme='acrylic'] .automation {
 .au-create:disabled {
   opacity: 0.45;
   border-color: var(--border);
+}
+
+/* ── Herramientas del lienzo ── */
+
+.au-tools {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.au-tool {
+  padding: 3px 9px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.au-tool:hover {
+  color: var(--text);
+}
+
+.au-tool.active {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
 }

@@ -9,11 +9,18 @@
  *
  * Con clip: cabecera con el destino legible, inicio/longitud editables y
  * borrar; el canvas pinta la rejilla por beats y la curva con la MISMA
- * interpolación de tensión que el motor (réplica de compile.ts). Doble clic
- * añade punto (snap 1/16, Alt = libre), arrastrar un punto lo mueve (clamp
- * 0..1 y entre vecinos), arrastrar el tramo entre dos puntos curva la
- * tensión y el clic derecho borra (mínimo 1 punto). Durante el arrastre se
- * muestra el valor REAL desnormalizado junto al cursor.
+ * interpolación de tensión que el motor (réplica de compile.ts).
+ *
+ * Tres herramientas (P / D / R, con guarda de hover):
+ * - **Puntos**: doble clic añade (snap 1/16, Alt = libre), arrastrar un punto
+ *   lo mueve (clamp 0..1 y entre vecinos), arrastrar el tramo entre dos curva
+ *   la tensión y el clic derecho borra (mínimo 1 punto).
+ * - **Lápiz**: se dibuja a mano alzada. El trazo vive en un ref mientras dura
+ *   —se pinta encima, en otro color— y al soltar se simplifica y sustituye el
+ *   tramo dibujado en UN paso de undo.
+ * - **Recta**: una rampa entre dos puntos, con la misma sustitución de tramo.
+ *
+ * Durante el arrastre se muestra el valor REAL desnormalizado junto al cursor.
  *
  * Toda mutación pasa por store.dispatch (bus de comandos de @orbit/core);
  * las ráfagas de arrastre se funden en un solo undo con mergeKey
@@ -38,6 +45,8 @@ import {
   type Project,
 } from '@orbit/core';
 import { store } from '../../state/app';
+import type { CurveSample } from '../../state/simplify';
+import { lineBetween, replaceRange, strokeToPoints } from './curve-tools';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { NumberScrubber } from '../../widgets/NumberScrubber';
@@ -404,7 +413,33 @@ function NewClipForm({ project }: NewClipFormProps) {
 
 type DragState =
   | { mode: 'point'; pointId: string }
-  | { mode: 'tension'; leftId: string; startY: number; startTension: number; dir: 1 | -1 };
+  | { mode: 'tension'; leftId: string; startY: number; startTension: number; dir: 1 | -1 }
+  /** Lápiz: el trazo vive en un ref y no en el modelo hasta que se suelta. */
+  | { mode: 'pencil' }
+  | { mode: 'line'; fromTime: number; fromValue: number; toTime: number; toValue: number };
+
+/** Herramienta del lienzo. */
+type AuTool = 'points' | 'pencil' | 'line';
+
+const TOOLS: { id: AuTool; label: string; key: string; hint: string }[] = [
+  {
+    id: 'points',
+    label: 'Puntos',
+    key: 'P',
+    hint: 'Doble clic añade un punto, arrastrarlo lo mueve y el tramo entre dos curva la tensión',
+  },
+  { id: 'pencil', label: 'Lápiz', key: 'D', hint: 'Arrastra y dibuja la curva a mano alzada' },
+  { id: 'line', label: 'Recta', key: 'R', hint: 'Arrastra una rampa recta entre dos puntos' },
+];
+
+/**
+ * Tolerancia de la simplificación del lápiz, en unidades de valor (0..1).
+ *
+ * Un barrido a mano deja cientos de muestras. Con 0.008 (≈0.8 % del recorrido)
+ * el trazo queda en unas decenas de puntos: se dibuja igual y se puede seguir
+ * retocando a mano sin pelearse con una nube de breakpoints.
+ */
+const PENCIL_EPS = 0.008;
 
 interface ClipEditorProps {
   clip: Clip;
@@ -414,9 +449,20 @@ interface ClipEditorProps {
 function ClipEditor({ clip, project }: ClipEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const drag = useRef<DragState | null>(null);
   /** Rótulo de valor junto al cursor durante el arrastre. */
   const tip = useRef<{ x: number; y: number; text: string } | null>(null);
+  /**
+   * Muestras del trazo en curso (lápiz). Van en un ref y no en el store porque
+   * un barrido son cientos de eventos: despachar cada uno llenaría el historial
+   * y recompilaría el proyecto sesenta veces por segundo. Al soltar se
+   * simplifica y se despacha UNA vez.
+   */
+  const stroke = useRef<CurveSample[]>([]);
+  const [tool, setTool] = useState<AuTool>('points');
+  /** Ratón dentro del editor: guarda de los atajos de herramienta. */
+  const hovering = useRef(false);
 
   const target = clip.target;
   // El proyecto se muta in place (identidad estable): se ordena en cada render
@@ -552,6 +598,36 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       }
     }
 
+    /*
+     * Lo que se está dibujando AHORA, encima de la curva y en otro color.
+     *
+     * Se pinta desde el ref, sin haber tocado el modelo: así se ve lo que va a
+     * quedar mientras se dibuja, y hasta soltar no hay ni un dispatch. Lo que
+     * se pinta es el trazo crudo, no el simplificado — el simplificado es lo
+     * que se guarda, y mentiría enseñar una curva y guardar otra... salvo que
+     * la tolerancia es menor que el grosor de la línea, así que coinciden.
+     */
+    const d = drag.current;
+    if (d?.mode === 'pencil' && stroke.current.length > 0) {
+      ctx.beginPath();
+      stroke.current.forEach((s, i) => {
+        const px = g.timeToX(s.time);
+        const py = g.valueToY(s.norm);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.strokeStyle = col('--au-draw');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (d?.mode === 'line') {
+      ctx.beginPath();
+      ctx.moveTo(g.timeToX(d.fromTime), g.valueToY(d.fromValue));
+      ctx.lineTo(g.timeToX(d.toTime), g.valueToY(d.toValue));
+      ctx.strokeStyle = col('--au-draw');
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
     // Rótulo de valor junto al cursor durante el arrastre.
     if (tip.current) {
       const t = tip.current;
@@ -663,6 +739,24 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       }
       if (e.button !== 0) return;
 
+      const g0 = geom();
+      const t0 = clamp(g0.xToTime(x), 0, clip.length);
+      const v0 = clamp01(g0.yToValue(y));
+
+      if (tool === 'pencil') {
+        drag.current = { mode: 'pencil' };
+        stroke.current = [{ time: t0, norm: v0 }];
+        tip.current = { x, y, text: formatValue(target, project, v0) };
+        draw();
+        return;
+      }
+      if (tool === 'line') {
+        drag.current = { mode: 'line', fromTime: t0, fromValue: v0, toTime: t0, toValue: v0 };
+        tip.current = { x, y, text: formatValue(target, project, v0) };
+        draw();
+        return;
+      }
+
       const hit = pointAt(x, y);
       if (hit) {
         drag.current = { mode: 'point', pointId: hit.id };
@@ -688,7 +782,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
         draw();
       }
     },
-    [pointAt, segmentAt, points, patchPoints, target, project, draw],
+    [pointAt, segmentAt, points, patchPoints, target, project, draw, tool, geom, clip.length],
   );
 
   const onPointerMove = useCallback(
@@ -701,16 +795,38 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       const d = drag.current;
 
       if (!d) {
-        // Cursor contextual: punto, tramo (tensión) o lienzo.
-        canvas.style.cursor = pointAt(x, y)
-          ? 'pointer'
-          : segmentAt(x, y) >= 0
-            ? 'ns-resize'
-            : 'crosshair';
+        // Cursor contextual: con lápiz o recta manda la herramienta; con
+        // Puntos, lo que haya debajo (punto, tramo o lienzo).
+        canvas.style.cursor =
+          tool !== 'points'
+            ? 'crosshair'
+            : pointAt(x, y)
+              ? 'pointer'
+              : segmentAt(x, y) >= 0
+                ? 'ns-resize'
+                : 'crosshair';
         return;
       }
 
       const g = geom();
+      if (d.mode === 'pencil') {
+        // Una muestra por evento; el orden y los repetidos los arregla
+        // strokeToPoints al soltar (arrastrar hacia atrás es legítimo).
+        const time = clamp(g.xToTime(x), 0, clip.length);
+        const value = clamp01(g.yToValue(y));
+        stroke.current.push({ time, norm: value });
+        tip.current = { x, y, text: formatValue(target, project, value) };
+        draw();
+        return;
+      }
+      if (d.mode === 'line') {
+        const time = clamp(g.xToTime(x), 0, clip.length);
+        const value = clamp01(g.yToValue(y));
+        drag.current = { ...d, toTime: time, toValue: value };
+        tip.current = { x, y, text: formatValue(target, project, value) };
+        draw();
+        return;
+      }
       if (d.mode === 'point') {
         const idx = points.findIndex((p) => p.id === d.pointId);
         if (idx < 0) return;
@@ -754,11 +870,33 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     [pointAt, segmentAt, geom, points, clip.length, patchPoints, target, project, draw],
   );
 
+  /**
+   * Al soltar se cierra el gesto. Lápiz y recta son los únicos que despachan
+   * AQUÍ (los demás ya han ido patcheando con mergeKey): el trazo entero es un
+   * solo paso de undo, que es como se espera deshacer "lo que acabo de pintar".
+   */
   const onPointerUp = useCallback(() => {
+    const d = drag.current;
+    if (d?.mode === 'pencil') {
+      const fresh = strokeToPoints(stroke.current, { eps: PENCIL_EPS });
+      if (fresh.length > 0) {
+        const from = fresh[0]!.time;
+        const to = fresh[fresh.length - 1]!.time;
+        patchPoints(replaceRange(points, from, to, fresh), 'Dibujar automatización', false);
+      }
+    } else if (d?.mode === 'line') {
+      const fresh = lineBetween(d.fromTime, d.fromValue, d.toTime, d.toValue);
+      if (fresh.length > 0) {
+        const from = fresh[0]!.time;
+        const to = fresh[fresh.length - 1]!.time;
+        patchPoints(replaceRange(points, from, to, fresh), 'Rampa de automatización', false);
+      }
+    }
+    stroke.current = [];
     drag.current = null;
     tip.current = null;
     draw();
-  }, [draw]);
+  }, [draw, points, patchPoints]);
 
   /** Doble clic: añadir punto (snap 1/16; Alt = libre). */
   const onDoubleClick = useCallback(
@@ -768,6 +906,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
+      if (tool !== 'points') return; // con lápiz o recta, el doble clic no añade nada
       if (pointAt(x, y)) return; // sobre un punto existente no se duplica
       const g = geom();
       const raw = clamp(g.xToTime(x), 0, clip.length);
@@ -779,7 +918,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
         false,
       );
     },
-    [pointAt, geom, clip.length, points, patchPoints],
+    [pointAt, geom, clip.length, points, patchPoints, tool],
   );
 
   // ── Cabecera ──────────────────────────────────────────────────────────────
@@ -794,10 +933,60 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     [clip.id],
   );
 
+  /*
+   * Atajos de herramienta, con guarda de hover: P, D y R son letras sueltas y
+   * el Piano Roll tiene las suyas. Solo actúan con el ratón dentro de este
+   * editor (o el foco dentro), igual que hace la Playlist con Ctrl+A y Ctrl+B.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      const el = e.target as HTMLElement;
+      if (
+        el.tagName === 'INPUT' ||
+        el.tagName === 'SELECT' ||
+        el.tagName === 'TEXTAREA' ||
+        el.isContentEditable
+      ) {
+        return;
+      }
+      const root = rootRef.current;
+      if (!hovering.current && !(root !== null && root.contains(document.activeElement))) return;
+      const found = TOOLS.find((t) => t.key === e.key.toUpperCase());
+      if (!found) return;
+      e.preventDefault();
+      setTool(found.id);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
-    <div className="automation">
+    <div
+      className="automation"
+      ref={rootRef}
+      onPointerEnter={() => {
+        hovering.current = true;
+      }}
+      onPointerLeave={() => {
+        hovering.current = false;
+      }}
+    >
       <div className="au-toolbar">
         <span className="au-title" title={title}>{title}</span>
+        <div className="au-tools" role="group" aria-label="Herramienta">
+          {TOOLS.map((t) => (
+            <button
+              key={t.id}
+              className={`au-tool${tool === t.id ? ' active' : ''}`}
+              title={`${t.hint} (${t.key})`}
+              aria-pressed={tool === t.id}
+              onClick={() => setTool(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
         <label className="au-field">
           Inicio
           <NumberScrubber
