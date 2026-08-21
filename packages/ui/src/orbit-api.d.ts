@@ -56,6 +56,8 @@ interface OrbitInvite {
   /** URL ws:// o wss:// del servidor de esa sala. */
   url: string;
   address: string;
+  /** Invitación caducable: con ella se entra sin saber la contraseña. */
+  token?: string;
 }
 
 interface OrbitNetState {
@@ -174,8 +176,16 @@ interface OrbitApi {
     state(): Promise<OrbitNetState>;
     /** Enciende o apaga la baliza. */
     announce(on: boolean, name?: string): Promise<OrbitNetState>;
-    /** Invita a una dirección de la red local a una sala. */
-    invite(address: string, room: string, url: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Invita a una dirección de la red local a una sala. Con `token`, el otro
+     * entra sin saber la contraseña (invitación caducable y de un solo uso).
+     */
+    invite(
+      address: string,
+      room: string,
+      url: string,
+      token?: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     /** Cambios en la lista de vecinos. Devuelve la desuscripción. */
     onPeers(cb: (peers: OrbitPeer[]) => void): () => void;
     /** Invitación entrante, ya validada por el main. */

@@ -11,6 +11,7 @@
  */
 
 import { create } from 'zustand';
+import { requestInvite, useCollabStore } from './collab-state';
 
 export interface NetPeer {
   id: string;
@@ -31,6 +32,8 @@ export interface IncomingInvite {
   room: string;
   url: string;
   address: string;
+  /** Invitación caducable: con ella se entra sin saber la contraseña. */
+  token?: string;
   /** Cuándo llegó (para poder caducarla en la vista). */
   at: number;
 }
@@ -59,6 +62,15 @@ export const useNetworkStore = create<NetworkState>(() => ({
   invite: null,
   notice: null,
 }));
+
+/**
+ * Vida del token que viaja en una invitación de la red local: media hora.
+ *
+ * Corta a propósito. El token va por el socket (es lo que distingue una
+ * invitación de la contraseña, que nunca viaja), así que un paquete capturado
+ * tiene que servir para poco: un uso, y durante un rato.
+ */
+const INVITE_TTL_MS = 30 * 60 * 1000;
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -142,11 +154,27 @@ export async function invitePerson(
 ): Promise<void> {
   const api = window.orbit;
   if (!api) return;
-  const result = await api.net.invite(who.address, room, url);
+
+  /*
+   * Con la sala protegida, la invitación lleva un token de UN uso y media hora
+   * de vida: es lo que hace que el otro entre de un clic sin que nadie le tenga
+   * que decir la contraseña. Si no se consigue (no eres el productor, la sala
+   * está sin contraseña, o el servidor dijo que no), se manda igual: al otro le
+   * pedirán la contraseña, que es como estaba antes de esto.
+   */
+  const token = useCollabStore.getState().roomProtected
+    ? await requestInvite(INVITE_TTL_MS, 1)
+    : null;
+
+  const result = await api.net.invite(who.address, room, url, token ?? undefined);
+  if (!result.ok) {
+    notify(`No se pudo invitar a ${who.name}: ${result.error ?? 'error desconocido'}`);
+    return;
+  }
   notify(
-    result.ok
-      ? `Invitación enviada a ${who.name}.`
-      : `No se pudo invitar a ${who.name}: ${result.error ?? 'error desconocido'}`,
+    token
+      ? `Invitación enviada a ${who.name} (entra sin contraseña, un uso y 30 min).`
+      : `Invitación enviada a ${who.name}.`,
   );
 }
 

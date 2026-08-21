@@ -15,6 +15,7 @@ export {
   clearFreshInvite,
   createRoomInvite,
   joinRoomWithInvite,
+  requestInvite,
   revokeRoomInvite,
   saveCollabSettings,
   sendChat,

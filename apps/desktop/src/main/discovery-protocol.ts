@@ -12,7 +12,7 @@
  * sería un botón que puede pulsar cualquiera del bar.
  */
 
-import { isValidRoomCode, normalizeRoomCode } from '@orbit/collab';
+import { isValidRoomCode, normalizeRoomCode, parseInviteToken } from '@orbit/collab';
 
 /** Versión del protocolo: si no coincide, el paquete se ignora entero. */
 export const DISCOVERY_VERSION = 1;
@@ -47,6 +47,16 @@ export interface Invite {
   room: string;
   /** URL del servidor de colaboración: ws:// o wss://, nada más. */
   url: string;
+  /**
+   * Token de invitación caducable, cuando la sala tiene contraseña.
+   *
+   * Con él, el invitado entra sin saber la contraseña; sin él, la sala se la
+   * pedirá. Que un token viaje por el socket es el precio de una invitación de
+   * un clic, y por eso los que se generan aquí son de UN uso y de vida corta:
+   * un paquete capturado sirve para entrar una vez y durante un rato, no para
+   * siempre — que es exactamente lo que pasaba compartiendo la contraseña.
+   */
+  token?: string;
 }
 
 export type DiscoveryMessage = Beacon | Invite;
@@ -138,7 +148,17 @@ export function parseMessage(raw: string | Uint8Array): DiscoveryMessage | null 
     const room = normalizeRoomCode(typeof m['room'] === 'string' ? m['room'] : '');
     const url = cleanServerUrl(m['url']);
     if (!isValidRoomCode(room) || url === '') return null;
-    return { kind: 'invite', id, name: name || 'Alguien', room, url };
+    // Un token con forma rara no se reenvía a la sesión: mejor entrar pidiendo
+    // la contraseña que mandarle basura a la puerta.
+    const token = parseInviteToken(m['token']) === null ? undefined : (m['token'] as string);
+    return {
+      kind: 'invite',
+      id,
+      name: name || 'Alguien',
+      room,
+      url,
+      ...(token ? { token } : null),
+    };
   }
   return null;
 }

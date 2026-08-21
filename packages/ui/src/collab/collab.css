@@ -511,3 +511,9 @@
 .net-invite {
   border-color: var(--accent);
 }
+
+/* El token de una invitación: monoespaciado y seleccionable de una pasada. */
+.invite-token {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 10px;
+}

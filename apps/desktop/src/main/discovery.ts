@@ -180,13 +180,21 @@ export function sendInvite(
   address: string,
   room: string,
   url: string,
+  token?: string,
 ): { ok: boolean; error?: string } {
   if (!socket) return { ok: false, error: 'El descubrimiento no está en marcha.' };
   if (!isLanAddress(address)) {
     return { ok: false, error: `Solo se invita dentro de la red local (${address} no lo es).` };
   }
   const payload = Buffer.from(
-    encodeMessage({ kind: 'invite', id: selfId, name: selfName, room, url }),
+    encodeMessage({
+      kind: 'invite',
+      id: selfId,
+      name: selfName,
+      room,
+      url,
+      ...(token ? { token } : null),
+    }),
   );
   socket.send(payload, DISCOVERY_PORT, address, () => undefined);
   return { ok: true };

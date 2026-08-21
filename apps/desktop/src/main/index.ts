@@ -636,16 +636,19 @@ function registerIpc(): void {
    * no puede convertir el proceso principal en un lanzador de paquetes UDP a
    * donde le apetezca.
    */
-  ipcMain.handle('net:invite', (_event, address: unknown, room: unknown, url: unknown) => {
-    if (typeof address !== 'string' || typeof room !== 'string' || typeof url !== 'string') {
-      return { ok: false, error: 'Invitación incompleta.' };
-    }
-    const known =
-      knownPeers().some((p) => p.address === address) ||
-      readFriends().some((f) => f.address === address);
-    if (!known) return { ok: false, error: 'Esa dirección no es de nadie que hayas visto.' };
-    return sendInvite(address, room, url);
-  });
+  ipcMain.handle(
+    'net:invite',
+    (_event, address: unknown, room: unknown, url: unknown, token: unknown) => {
+      if (typeof address !== 'string' || typeof room !== 'string' || typeof url !== 'string') {
+        return { ok: false, error: 'Invitación incompleta.' };
+      }
+      const known =
+        knownPeers().some((p) => p.address === address) ||
+        readFriends().some((f) => f.address === address);
+      if (!known) return { ok: false, error: 'Esa dirección no es de nadie que hayas visto.' };
+      return sendInvite(address, room, url, typeof token === 'string' ? token : undefined);
+    },
+  );
 
   ipcMain.handle('friend:list', () => readFriends());
 

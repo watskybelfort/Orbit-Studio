@@ -26,6 +26,7 @@ import {
 import { useUiStore } from '../state/ui';
 import { NetworkSection } from './NetworkSection';
 import { InviteBanner } from './InviteBanner';
+import { InvitesBlock } from './InvitesBlock';
 import { initNetwork } from './network-state';
 import {
   DEFAULT_ROOM_CAPACITY,
@@ -649,6 +650,8 @@ export function CollabPanel() {
           <p className="collab-note">La cerradura la cambia el productor de la sala.</p>
         )}
         {passwordNotice && <p className="collab-warn">{passwordNotice}</p>}
+
+        <InvitesBlock canManage={assignedRole === 'productor'} roomProtected={roomProtected} />
 
         <p className="collab-warn">Todos en la sala editan el MISMO proyecto en vivo.</p>
 

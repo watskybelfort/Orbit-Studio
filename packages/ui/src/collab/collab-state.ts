@@ -329,6 +329,15 @@ async function startSession(
     },
     onInviteCreated: (token, expiresAt, uses) => {
       if (session !== s) return;
+      // Si alguien la pidió para mandarla (el "Invitar" de la red), el token va
+      // a él y NO al panel: enseñar en pantalla una llave que ya viaja sola
+      // sería pedirle al usuario que la copie para nada.
+      if (pendingInvite) {
+        const resolve = pendingInvite;
+        pendingInvite = null;
+        resolve(token);
+        return;
+      }
       // El token se enseña UNA vez: el servidor guarda su hash y no lo puede
       // repetir. Se queda en el panel hasta que el usuario lo cierre.
       useCollabStore.setState({ freshInvite: { token, expiresAt, uses } });
@@ -535,6 +544,30 @@ export async function joinRoom(
     return;
   }
   await startSession(code, url, userName, password);
+}
+
+/** Quién está esperando un token (el "Invitar" de la red local). */
+let pendingInvite: ((token: string | null) => void) | null = null;
+
+/**
+ * Pide una invitación y ESPERA su token, para poder mandarlo en el acto.
+ *
+ * Si el servidor la deniega (no eres el productor, la sala no tiene
+ * contraseña, hay demasiadas) no llega ningún `inviteCreated` y esto resuelve
+ * a null por tiempo: quien llama lo cuenta y sigue — invitar sin token todavía
+ * vale, solo que al otro le pedirán la contraseña.
+ */
+export function requestInvite(ttlMs: number, uses: number): Promise<string | null> {
+  if (!session) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    pendingInvite = resolve;
+    session?.createInvite(ttlMs, uses);
+    setTimeout(() => {
+      if (pendingInvite !== resolve) return;
+      pendingInvite = null;
+      resolve(null);
+    }, 5000);
+  });
 }
 
 /**

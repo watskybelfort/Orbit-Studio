@@ -11,7 +11,7 @@
  */
 
 import { formatRoomCode } from '@orbit/collab';
-import { joinRoom } from './collab-state';
+import { joinRoom, joinRoomWithInvite } from './collab-state';
 import { dismissInvite, useNetworkStore } from './network-state';
 
 export interface InviteBannerProps {
@@ -29,15 +29,21 @@ export function InviteBanner({ userName }: InviteBannerProps) {
         <b>{invite.name}</b> te invita a la sala <b>{formatRoomCode(invite.room)}</b>.
       </p>
       <p className="collab-note">
-        Al entrar, el proyecto de la sala sustituye al tuyo. Si la sala pide contraseña, te la
-        pedirá después.
+        Al entrar, el proyecto de la sala sustituye al tuyo.{' '}
+        {invite.token
+          ? 'La invitación te deja entrar sin contraseña (vale una vez y caduca).'
+          : 'Si la sala pide contraseña, te la pedirá después.'}
       </p>
       <div className="collab-row">
         <button
           className="collab-btn primary"
           onClick={() => {
             dismissInvite();
-            void joinRoom(invite.room, invite.url, userName);
+            if (invite.token) {
+              void joinRoomWithInvite(invite.room, invite.url, userName, invite.token);
+            } else {
+              void joinRoom(invite.room, invite.url, userName);
+            }
           }}
         >
           Unirme

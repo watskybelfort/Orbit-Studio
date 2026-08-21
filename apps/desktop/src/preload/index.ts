@@ -55,6 +55,8 @@ interface OrbitInvite {
   /** URL ws:// o wss:// del servidor de esa sala. */
   url: string;
   address: string;
+  /** Invitación caducable: con ella se entra sin saber la contraseña. */
+  token?: string;
 }
 
 interface OrbitNetState {
@@ -176,8 +178,16 @@ export interface OrbitApi {
     state(): Promise<OrbitNetState>;
     /** Enciende o apaga la baliza. */
     announce(on: boolean, name?: string): Promise<OrbitNetState>;
-    /** Invita a una dirección de la red local a una sala. */
-    invite(address: string, room: string, url: string): Promise<{ ok: boolean; error?: string }>;
+    /**
+     * Invita a una dirección de la red local a una sala. Con `token`, el otro
+     * entra sin saber la contraseña (invitación caducable y de un solo uso).
+     */
+    invite(
+      address: string,
+      room: string,
+      url: string,
+      token?: string,
+    ): Promise<{ ok: boolean; error?: string }>;
     /** Cambios en la lista de vecinos. Devuelve la desuscripción. */
     onPeers(cb: (peers: OrbitPeer[]) => void): () => void;
     /** Invitación entrante, ya validada por el main. */
@@ -335,7 +345,8 @@ const api: OrbitApi = {
   net: {
     state: () => ipcRenderer.invoke('net:state'),
     announce: (on, name) => ipcRenderer.invoke('net:announce', on, name),
-    invite: (address, room, url) => ipcRenderer.invoke('net:invite', address, room, url),
+    invite: (address, room, url, token) =>
+      ipcRenderer.invoke('net:invite', address, room, url, token),
     onPeers: (cb) => {
       const listener = (_e: unknown, peers: OrbitPeer[]) => cb(peers);
       ipcRenderer.on('net:peers', listener);
