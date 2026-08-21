@@ -209,3 +209,72 @@ html[data-theme='acrylic'] .automation {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
+
+/* ── Generador de formas ──
+   Flota sobre el lienzo (el wrap ya es position: relative) para no encoger el
+   área de dibujo: la gracia del panel es ver la curva candidata mientras se
+   tocan los campos. */
+
+.au-shape {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 268px;
+  padding: 8px 10px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.au-shape-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.au-shape-title {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.au-shape-rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Aquí la etiqueta va ENCIMA del control: en la toolbar caben en línea, pero
+   dentro de la rejilla de dos columnas se pisaban unas a otras. */
+.au-shape .au-field {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
+}
+
+.au-shape .au-field select {
+  max-width: none;
+}
+
+.au-shape-wide {
+  grid-column: 1 / -1;
+}
+
+.au-shape-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Cuántos breakpoints va a escribir: con resolución alta el número sube rápido
+   y conviene verlo ANTES de aplicar. */
+.au-shape-count {
+  margin-right: auto;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}

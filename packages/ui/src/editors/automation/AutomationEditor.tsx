@@ -47,6 +47,7 @@ import {
 import { store } from '../../state/app';
 import type { CurveSample } from '../../state/simplify';
 import { lineBetween, replaceRange, strokeToPoints } from './curve-tools';
+import { ShapeDialog } from './ShapeDialog';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { NumberScrubber } from '../../widgets/NumberScrubber';
@@ -461,6 +462,16 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
    */
   const stroke = useRef<CurveSample[]>([]);
   const [tool, setTool] = useState<AuTool>('points');
+  const [shapeOpen, setShapeOpen] = useState(false);
+  /**
+   * Curva candidata del generador de formas, dibujada encima de la de verdad.
+   *
+   * Va en un ref y no en estado a propósito: el panel la recalcula en CADA
+   * render suyo, así que un setState aquí lo re-renderizaría, que recalcularía,
+   * que volvería a llamar… bucle infinito. Con el ref, el panel avisa y se
+   * repinta el lienzo, sin tocar el árbol de React.
+   */
+  const preview = useRef<AutomationPoint[] | null>(null);
   /** Ratón dentro del editor: guarda de los atajos de herramienta. */
   const hovering = useRef(false);
 
@@ -607,6 +618,26 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
      * que se guarda, y mentiría enseñar una curva y guardar otra... salvo que
      * la tolerancia es menor que el grosor de la línea, así que coinciden.
      */
+    // Curva candidata del generador de formas: discontinua y en el color del
+    // trazo, para que se distinga de lo que ya está guardado.
+    const pv = preview.current;
+    if (pv && pv.length > 0) {
+      const xa = g.timeToX(pv[0]!.time);
+      const xb = g.timeToX(pv[pv.length - 1]!.time);
+      ctx.save();
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xa, g.valueToY(evalCurve(pv, pv[0]!.time)));
+      for (let px = xa + 2; px < xb; px += 2) {
+        ctx.lineTo(px, g.valueToY(evalCurve(pv, g.xToTime(px))));
+      }
+      ctx.lineTo(xb, g.valueToY(pv[pv.length - 1]!.value));
+      ctx.strokeStyle = col('--au-draw');
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     const d = drag.current;
     if (d?.mode === 'pencil' && stroke.current.length > 0) {
       ctx.beginPath();
@@ -705,6 +736,18 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
     },
     [clip.id],
   );
+
+  /**
+   * El panel de formas avisa de su curva candidata. Estable (deps vacías) y
+   * apoyado en un ref del `draw` de AHORA: si fuese un setState, el panel
+   * recalcularía en cada render suyo y se realimentaría sin parar.
+   */
+  const drawRef = useRef(draw);
+  drawRef.current = draw;
+  const setPreview = useCallback((pts: AutomationPoint[] | null) => {
+    preview.current = pts;
+    drawRef.current();
+  }, []);
 
   const removeClip = useCallback(() => {
     store.dispatch(
@@ -1011,6 +1054,13 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
             onChange={(v) => patchClip({ length: v }, 'Cambiar longitud de la automatización', 'len')}
           />
         </label>
+        <button
+          className={`tbtn${shapeOpen ? ' active' : ''}`}
+          onClick={() => setShapeOpen((v) => !v)}
+          title="Rellenar un tramo con una onda (seno, sierra, cuadrada…)"
+        >
+          Forma…
+        </button>
         <button className="au-delete" onClick={removeClip} title="Borrar este clip de la playlist">
           Borrar clip
         </button>
@@ -1025,6 +1075,22 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
           onDoubleClick={onDoubleClick}
           onContextMenu={(e) => e.preventDefault()}
         />
+        {shapeOpen && (
+          <ShapeDialog
+            clipLength={clip.length}
+            formatValue={(norm) => formatValue(target, project, norm)}
+            onPreview={setPreview}
+            onApply={(pts, from, to) => {
+              patchPoints(replaceRange(points, from, to, pts), 'Forma de automatización', false);
+              setPreview(null);
+              setShapeOpen(false);
+            }}
+            onClose={() => {
+              setPreview(null);
+              setShapeOpen(false);
+            }}
+          />
+        )}
       </div>
     </div>
   );
