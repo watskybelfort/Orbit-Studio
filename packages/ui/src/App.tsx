@@ -27,7 +27,7 @@ import { initLiveInput } from './state/live-input';
 import { initPlugins } from './state/plugins';
 import { CommandPalette } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
-import { useProjectFile } from './state/project-file';
+import { refreshRecents, useProjectFile } from './state/project-file';
 import { useBounceStore } from './state/bounce';
 import { useUiStore } from './state/ui';
 
@@ -60,6 +60,9 @@ export function App() {
     // desacoplados mandan sobre la disposición interna.
     void initWorkspaceMemory().finally(() => restoreDetached());
     registerDefaultCommands();
+    // Los recientes se piden una vez al arrancar; a partir de ahí los refresca
+    // cada abrir/guardar (la lista la mantiene el main).
+    void refreshRecents();
     // Recuperación: primero mirar si quedó un autosave pendiente, y solo
     // después arrancar el bucle (que no escribe hasta que algo cambie).
     void checkRecovery().then((offer) => {

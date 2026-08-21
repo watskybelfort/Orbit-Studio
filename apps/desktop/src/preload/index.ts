@@ -114,6 +114,15 @@ export interface OrbitApi {
     open(): Promise<{ path: string; json: string } | null>;
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
+    /** Últimos proyectos abiertos o guardados, del más reciente al más viejo. */
+    recent(): Promise<{ path: string; name: string; exists: boolean }[]>;
+    /**
+     * Abre un reciente sin diálogo. La ruta se valida contra la lista que
+     * guarda el main: lo que no esté ahí no se lee.
+     */
+    openRecent(path: string): Promise<{ path: string; json: string } | null>;
+    /** Olvida un reciente; sin ruta, vacía la lista. Devuelve la lista nueva. */
+    forgetRecent(path?: string): Promise<string[]>;
   };
   readonly midi: {
     /** Diálogo de apertura .mid; null si el usuario cancela. */
@@ -249,6 +258,9 @@ const api: OrbitApi = {
     open: () => ipcRenderer.invoke('project:open'),
     save: (path, json, suggestedName) =>
       ipcRenderer.invoke('project:save', path, json, suggestedName),
+    recent: () => ipcRenderer.invoke('project:recent'),
+    openRecent: (path) => ipcRenderer.invoke('project:open-recent', path),
+    forgetRecent: (path) => ipcRenderer.invoke('project:forget-recent', path),
   },
   midi: {
     open: () => ipcRenderer.invoke('midi:open'),

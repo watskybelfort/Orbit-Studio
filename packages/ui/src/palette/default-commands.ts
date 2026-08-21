@@ -21,7 +21,14 @@ import { LAYOUT_PRESETS, applyLayout, applyPreset, listLayouts } from '../state/
 import { addLfoFor, createAutomationClipFor, findLfoFor } from '../state/param-actions';
 import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { useParamTouch } from '../state/param-touch';
-import { importMidi, newProject, openProject, saveProject } from '../state/project-file';
+import {
+  importMidi,
+  newProject,
+  openProject,
+  openRecentProject,
+  saveProject,
+  useRecentProjects,
+} from '../state/project-file';
 import { toggleRecording, useRecorderStore } from '../state/recorder';
 import { useUiStore, type WindowId } from '../state/ui';
 import { registerPaletteProvider, type PaletteCommand } from './registry';
@@ -201,6 +208,18 @@ export function registerDefaultCommands(): void {
       // Archivo
       { id: 'archivo.nuevo', title: 'Nuevo proyecto', group: 'Archivo', run: () => newProject() },
       { id: 'archivo.abrir', title: 'Abrir proyecto…', group: 'Archivo', shortcut: 'Ctrl+O', run: () => void openProject() },
+      // Recientes: uno por archivo, con su nombre en el título para que se
+      // encuentren escribiendo el nombre del beat y no "reciente".
+      ...useRecentProjects
+        .getState()
+        .list.filter((r) => r.exists)
+        .map((r) => ({
+          id: `archivo.reciente.${r.path}`,
+          title: `Abrir reciente: ${r.name}`,
+          group: 'Archivo',
+          keywords: `${r.path} proyecto orbit`,
+          run: () => void openRecentProject(r.path),
+        })),
       { id: 'archivo.guardar', title: 'Guardar proyecto', group: 'Archivo', shortcut: 'Ctrl+S', run: () => void saveProject() },
       { id: 'archivo.guardar-como', title: 'Guardar proyecto como…', group: 'Archivo', run: () => void saveProject(true) },
       { id: 'archivo.importar-midi', title: 'Importar MIDI…', group: 'Archivo', keywords: 'mid smf', run: () => void importMidi() },

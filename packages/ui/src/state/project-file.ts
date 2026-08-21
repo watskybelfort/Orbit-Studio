@@ -68,6 +68,18 @@ export function newProjectFromTemplate(id: string): void {
   notify(template ? `Plantilla "${template.name}" cargada.` : 'Proyecto nuevo.');
 }
 
+/** Lo que hay que hacer con un .orbit ya leído, venga del diálogo o de los recientes. */
+function applyOpened(result: { path: string; json: string }): void {
+  const project = parseProject(result.json);
+  store.replaceProject(project);
+  useProjectFile.setState({ path: result.path });
+  markClean();
+  // Los samples referenciados se resuben al kernel (arranca vacío).
+  void rehydrateSamples();
+  void refreshRecents();
+  notify(`Abierto ${fileName(result.path)}.`);
+}
+
 export async function openProject(): Promise<void> {
   const api = window.orbit;
   if (!api) {
@@ -77,15 +89,63 @@ export async function openProject(): Promise<void> {
   try {
     const result = await api.project.open();
     if (!result) return; // cancelado
-    const project = parseProject(result.json);
-    store.replaceProject(project);
-    useProjectFile.setState({ path: result.path });
-    markClean();
-    // Los samples referenciados se resuben al kernel (arranca vacío).
-    void rehydrateSamples();
-    notify(`Abierto ${fileName(result.path)}.`);
+    applyOpened(result);
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo abrir el proyecto.');
+  }
+}
+
+// ── Proyectos recientes ──────────────────────────────────────────────────────
+
+export interface RecentProject {
+  path: string;
+  name: string;
+  /** false = la ruta ya no existe (disco desconectado, archivo movido). */
+  exists: boolean;
+}
+
+/**
+ * La lista la sirve el main, que es su dueño: vive en settings.json por un canal
+ * propio y `settings:set` no la puede escribir. Aquí solo se cachea para poder
+ * pintarla sin esperar al IPC cada vez que se abre el menú.
+ */
+export const useRecentProjects = create<{ list: RecentProject[] }>(() => ({ list: [] }));
+
+export async function refreshRecents(): Promise<void> {
+  const api = window.orbit;
+  if (!api) return;
+  try {
+    useRecentProjects.setState({ list: await api.project.recent() });
+  } catch {
+    useRecentProjects.setState({ list: [] });
+  }
+}
+
+/** Abre un reciente sin diálogo. Si ya no está, el main lo olvida y se avisa. */
+export async function openRecentProject(path: string): Promise<void> {
+  const api = window.orbit;
+  if (!api) {
+    notify('Abrir proyectos requiere la app de escritorio.');
+    return;
+  }
+  try {
+    const result = await api.project.openRecent(path);
+    if (!result) return;
+    applyOpened(result);
+  } catch (err) {
+    void refreshRecents();
+    notify(err instanceof Error ? err.message : 'No se pudo abrir ese reciente.');
+  }
+}
+
+/** Vacía la lista de recientes (sin tocar los archivos). */
+export async function clearRecents(): Promise<void> {
+  const api = window.orbit;
+  if (!api) return;
+  try {
+    await api.project.forgetRecent();
+  } finally {
+    void refreshRecents();
   }
 }
 
@@ -163,6 +223,7 @@ export async function saveProject(saveAs = false): Promise<void> {
     if (!path) return; // cancelado
     useProjectFile.setState({ path });
     markClean();
+    void refreshRecents();
     // Cada guardado deja también una VERSIÓN: es el punto que uno considera
     // digno de guardar, así que es exactamente el punto al que querrá volver.
     void saveVersion('guardado');

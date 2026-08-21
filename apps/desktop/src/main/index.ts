@@ -568,8 +568,13 @@ function registerIpc(): void {
    * `settings.set({ userFolders: ['C:\\'] })` y la guarda deja de guardar nada.
    * Las carpetas se registran por su canal propio, que solo acepta lo que salió
    * del diálogo.
+   *
+   * `recentProjects` va por lo mismo: es la lista blanca de `project:open-recent`
+   * y solo la escribe el main cuando un diálogo confirma que el usuario eligió
+   * ese archivo. Si el renderer pudiera meter rutas, "abrir un reciente" sería
+   * "leer cualquier archivo del disco".
    */
-  const SETTINGS_LOCKED = new Set(['userFolders']);
+  const SETTINGS_LOCKED = new Set(['userFolders', 'recentProjects']);
 
   ipcMain.handle('settings:set', (_event, patch: unknown) => {
     const base = readSettings();
@@ -684,6 +689,85 @@ function registerIpc(): void {
 
   // ── Proyectos .orbit (diálogos + fs SOLO en el main) ───────────────────────
 
+  /** Cuántos proyectos recientes se recuerdan. */
+  const RECENT_KEEP = 10;
+
+  function readRecents(): string[] {
+    const raw = readSettings()['recentProjects'];
+    return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : [];
+  }
+
+  /**
+   * Sube una ruta al principio de los recientes.
+   *
+   * Solo se llama tras un diálogo aceptado (abrir o guardar como) o tras
+   * sobrescribir una ruta ya autorizada: la lista es, por construcción, un
+   * subconjunto de lo que el usuario ha elegido con sus propias manos.
+   *
+   * La comparación es sin distinguir mayúsculas porque en Windows
+   * `C:\Beats\x.orbit` y `c:\beats\X.ORBIT` son el MISMO archivo, y sin esto la
+   * lista se llenaba de duplicados del mismo proyecto.
+   */
+  function rememberRecent(path: string): void {
+    const key = path.toLowerCase();
+    const next = [path, ...readRecents().filter((p) => p.toLowerCase() !== key)].slice(
+      0,
+      RECENT_KEEP,
+    );
+    writeSettings({ ...readSettings(), recentProjects: next });
+  }
+
+  /** Los recientes con su nombre y si el archivo sigue estando. */
+  ipcMain.handle('project:recent', async () => {
+    const list = readRecents();
+    return Promise.all(
+      list.map(async (path) => ({
+        path,
+        name: path.split(/[\\/]/).pop() ?? path,
+        exists: await stat(path).then(
+          (s) => s.isFile(),
+          () => false,
+        ),
+      })),
+    );
+  });
+
+  /** Quita una ruta de los recientes; sin ruta, vacía la lista entera. */
+  ipcMain.handle('project:forget-recent', (_event, path: unknown) => {
+    if (typeof path !== 'string') {
+      writeSettings({ ...readSettings(), recentProjects: [] });
+      return [];
+    }
+    const key = resolvePath(path).toLowerCase();
+    const next = readRecents().filter((p) => resolvePath(p).toLowerCase() !== key);
+    writeSettings({ ...readSettings(), recentProjects: next });
+    return next;
+  });
+
+  /**
+   * Abre un reciente SIN diálogo. La ruta que manda el renderer se comprueba
+   * contra la lista guardada: si no está, no se lee nada. Un archivo que ya no
+   * existe se olvida en el sitio, para que la lista no se llene de fantasmas.
+   */
+  ipcMain.handle('project:open-recent', async (_event, path: unknown) => {
+    if (typeof path !== 'string' || path.length === 0) return null;
+    const target = resolvePath(path);
+    const known = readRecents().find((p) => resolvePath(p).toLowerCase() === target.toLowerCase());
+    if (known === undefined) throw new Error('Ese proyecto no está en los recientes.');
+    let json: string;
+    try {
+      json = await readFile(known, 'utf8');
+    } catch {
+      const next = readRecents().filter((p) => p !== known);
+      writeSettings({ ...readSettings(), recentProjects: next });
+      throw new Error(`Ya no está: ${known}`);
+    }
+    const chosen = resolvePath(known);
+    grantedWritePaths.add(chosen);
+    rememberRecent(chosen);
+    return { path: chosen, json };
+  });
+
   ipcMain.handle('project:open', async (event) => {
     const win = windowOf(event.sender);
     const options = {
@@ -704,6 +788,7 @@ function registerIpc(): void {
     // pedir ruta otra vez, aunque esté fuera de las carpetas de usuario.
     grantedWritePaths.add(chosen);
     const json = await readFile(path, 'utf8');
+    rememberRecent(chosen);
     return { path: chosen, json };
   });
 
@@ -742,6 +827,9 @@ function registerIpc(): void {
       }
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, json, 'utf8');
+      // Guardar también cuenta como "estuve aquí": el proyecto que acabas de
+      // guardar es justo el que querrás reabrir mañana.
+      rememberRecent(target);
       return target;
     },
   );

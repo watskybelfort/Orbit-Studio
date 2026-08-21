@@ -115,6 +115,12 @@ interface OrbitApi {
     open(): Promise<{ path: string; json: string } | null>;
     /** Guarda el JSON; con path null abre "guardar como". Devuelve la ruta o null. */
     save(path: string | null, json: string, suggestedName?: string): Promise<string | null>;
+    /** Últimos proyectos abiertos o guardados, del más reciente al más viejo. */
+    recent(): Promise<{ path: string; name: string; exists: boolean }[]>;
+    /** Abre un reciente sin diálogo (la ruta la valida el main contra su lista). */
+    openRecent(path: string): Promise<{ path: string; json: string } | null>;
+    /** Olvida un reciente; sin ruta, vacía la lista. Devuelve la lista nueva. */
+    forgetRecent(path?: string): Promise<string[]>;
   };
   readonly midi: {
     /** Diálogo de apertura .mid; null si el usuario cancela. */
