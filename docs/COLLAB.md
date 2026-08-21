@@ -123,6 +123,54 @@ guarda en `settings.json`), y bloque "Puerta de la sala" dentro, donde el
 productor la pone, la cambia o la quita. Para QA headless:
 `ORBIT_COLLAB_PASSWORD=... npx tsx tools/qa/presence-peer.ts <SALA>`.
 
+## Invitaciones caducables (v2.5)
+
+La contraseña cierra la puerta, pero compartirla es para siempre: quien la
+tiene entra hoy y el mes que viene, y quitársela a uno se la quita a todos. Una
+invitación es la forma de dejar entrar a alguien **sin dársela**.
+
+```
+token = <id>.<secreto>          ← los dos en base64url; el secreto, 144 bits
+guardado = SHA-256(secreto)     ← lo ÚNICO que guarda el servidor
+```
+
+Cada invitación tiene **caducidad** y **usos**, y se puede **revocar**. Al
+entrar se gasta un uso; cuando llega a cero desaparece sola, igual que cuando
+pasa su hora.
+
+**Un token es un portador, y eso es deliberado.** La contraseña no viaja nunca
+(SCRAM: viaja una prueba distinta en cada conexión); un token, por definición,
+sí — es un secreto que le das a alguien para que lo enseñe. Lo que compensa esa
+diferencia es que caduca, se gasta y se revoca, no disimularla. Por eso las
+invitaciones que genera el botón «Invitar» de la red local son de **un uso y
+media hora**: un paquete capturado sirve para entrar una vez y durante un rato,
+que es exactamente lo que no pasaba compartiendo la contraseña.
+
+**En la puerta** valen dos respuestas al mismo `challenge`: `auth` (la prueba de
+la contraseña) o `joinInvite` (el token). Mismas reglas para las dos: una por
+conexión, 20 s de margen, y fallar cierra con 1008. El motivo del rechazo se
+distingue en el log pero **no** en lo que se le dice a quien llama — un mensaje
+por caso sería un oráculo de qué invitaciones existen.
+
+**Crear y revocar** los juzga el servidor con el rol que él reparte, igual que
+`setPassword`: un invitado que mande el mensaje a mano no fabrica llaves. Y no
+se pueden crear sin contraseña puesta: sin puerta entra quien sepa el código y
+una invitación no significaría nada.
+
+**El token se manda una vez**, solo al que la pidió. El servidor guarda el hash,
+así que ese mensaje es el único momento en el que el secreto existe fuera de
+quien lo va a usar; si se pierde, se revoca y se hace otra.
+
+**Dónde viven:** en el mismo `<código>.auth.json` que la puerta, y por el mismo
+motivo — fuera del Y.Doc, que se replica en la máquina de cada invitado. Quitar
+la contraseña se las lleva; cambiarla **no** las revoca (son otra credencial,
+igual que cambiarla tampoco echa a los que ya están dentro).
+
+Probado contra el servidor de verdad en `apps/server/test/room-invite.test.ts`:
+que abre sin contraseña, que la de un uso no abre dos veces, que revocar surte
+efecto en el acto, que sobreviven a cerrar la sala y que en el archivo solo hay
+huellas.
+
 ## Gente en la red local (v2.4)
 
 Para entrar en una sala hacía falta que alguien te dictara el código y la

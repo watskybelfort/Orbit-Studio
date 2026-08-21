@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.4.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-880%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.5.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-912%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,27 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.5.0 — "una llave que caduca".** Se cierra el roadmap: la contraseña de sala
+cierra la puerta, pero compartirla es para siempre — quien la tiene entra hoy y
+el mes que viene, y quitársela a uno se la quita a todos.
+
+Ahora el productor puede crear **invitaciones que caducan**: se elige cuánto
+valen (de quince minutos a un día) y para cuánta gente (una, tres o diez), y se
+revocan cuando quieras. Entrar con una no pide la contraseña, que es justo la
+gracia: **dejar entrar a alguien sin dársela**.
+
+Con eso, el botón «Invitar» de la red local que llegó en v2.4 se cierra del
+todo: si la sala está protegida, la invitación sale con un token de **un uso y
+media hora**, y al otro le llega el aviso con «Unirme» que entra directo. Sin
+código dictado por teléfono y sin contraseña compartida.
+
+El servidor guarda **SHA-256 del secreto**, como con la contraseña, así que el
+token se enseña una vez y ni él lo puede repetir: si se pierde, se revoca y se
+hace otra. Y un token, a diferencia de la contraseña, **sí viaja** — es un
+secreto que le das a alguien para que lo enseñe. Eso no se disimula: se
+compensa con que caduque, se gaste y se pueda revocar, y por eso las que genera
+el botón son de un solo uso.
 
 **v2.4.0 — "la forma del tema, y quién está al lado".** Dos cosas: la
 estructura del beat deja de vivir solo en la cabeza, y meter a alguien en una
@@ -358,12 +379,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 | **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
 | **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
 
-### Después
-
-| Qué | Por qué |
-|---|---|
-| **Sala con invitación caducable** | La contraseña cierra la puerta, pero compartirla es para siempre: un enlace que caduque es otra cosa |
-
 ### Horizonte
 
 | Qué | Estado |
@@ -378,7 +393,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 880 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 912 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

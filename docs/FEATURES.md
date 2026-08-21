@@ -319,6 +319,8 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Audio streaming de la sesión (escuchar el master remoto) | v1+ |
 
 | **Gente en la red local**: los que tienen Orbit abierto en la misma red salen en el panel, se guardan como amigos y se les invita de un clic; al otro le llega un aviso con el botón de entrar. Baliza UDP multicast con TTL 1 (no sale de la subred), sin servidor central ni cuentas. Escuchar es siempre —es lo que hace que lleguen las invitaciones—; anunciar tu nombre es opcional | v2.4 |
+| **Invitaciones caducables**: el productor crea llaves con caducidad (15 min a 1 día) y usos (1, 3 o 10), las ve en una lista con lo que les queda y las revoca. Entrar con una no pide la contraseña. El servidor guarda SHA-256 del secreto y el token se enseña UNA vez: ni él lo puede repetir | v2.5 |
+| **Invitar de un clic**: el botón de la red local adjunta un token de un uso y media hora, así que al otro le llega un aviso con «Unirme» que entra directo, sin contraseña ni código dictado | v2.5 |
 | **La invitación no entra sola**: llega, se enseña quién invita y a qué sala, y decide el usuario. Lo que llega por el socket se valida entero (versión, tamaño, id, código de sala) y la URL tiene que ser ws/wss, o quien invita elegiría a qué se conecta el invitado | v2.4 |
 
 ## 13. Claude integrado
