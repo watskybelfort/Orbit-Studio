@@ -1,6 +1,12 @@
 /** Barra de menús minimalista. Los dropdowns usan .popup (regla del acrílico). */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 import {
   IconAutomation,
   IconBrowser,
@@ -53,6 +59,9 @@ import { usePaletteStore } from '../palette';
 import { useUiStore } from '../state/ui';
 import './shell.css';
 
+/** Orden de los menús de la barra (también el que recorren ← y →). */
+const MENU_ORDER = ['Archivo', 'Editar', 'Patrón', 'Ver', 'Ayuda'];
+
 interface MenuItem {
   label: string;
   icon?: ReactNode;
@@ -95,17 +104,148 @@ function nextRedoLabel(): string | null {
   return null;
 }
 
-/** Una entrada de submenú abierta se identifica por su índice en la lista. */
-function MenuList({ items, onRun }: { items: MenuItem[]; onRun: () => void }) {
+// ── Teclado de los desplegables ──────────────────────────────────────────────
+//
+// El recorrido se hace sobre el DOM y con el foco DE VERDAD, no con un índice
+// en un estado: así el lector de pantalla sigue al usuario, Enter y Espacio ya
+// los sirve el <button> nativo, y no hay dos ideas distintas de "cuál está
+// señalado" (la del ratón y la del teclado) que se puedan desincronizar.
+
+/** Botones activables de ESTA lista; los del submenú abierto no cuentan. */
+function itemsOf(list: HTMLElement): HTMLButtonElement[] {
+  return [...list.querySelectorAll<HTMLButtonElement>(':scope > .menu-row > .menu-item')].filter(
+    (b) => !b.disabled,
+  );
+}
+
+/** Mueve el foco `delta` posiciones dentro de la lista, dando la vuelta. */
+function moveFocus(list: HTMLElement, delta: number): void {
+  const items = itemsOf(list);
+  if (items.length === 0) return;
+  const from = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next = from < 0 ? (delta > 0 ? 0 : items.length - 1) : (from + delta + items.length) % items.length;
+  items[next]?.focus();
+}
+
+/** Salta a la siguiente entrada que empiece por esa letra (como en Windows). */
+function focusByLetter(list: HTMLElement, letter: string): boolean {
+  const items = itemsOf(list);
+  if (items.length === 0) return false;
+  const from = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
+  for (let n = 1; n <= items.length; n++) {
+    const candidate = items[(from + n) % items.length]!;
+    if ((candidate.dataset['letter'] ?? '') === letter) {
+      candidate.focus();
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Primera letra del label, sin acentos y en minúscula: se busca "a" y sale
+ * "Ajustes" igual que "Automatización" (igual que el buscador del Browser).
+ */
+function firstLetter(label: string): string {
+  return label
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .charAt(0)
+    .toLowerCase();
+}
+
+interface MenuListProps {
+  items: MenuItem[];
+  /** Cierra el menú entero (tras ejecutar algo). */
+  onRun: () => void;
+  /** Cierra SOLO esta lista y devuelve el foco a quien la abrió (← y Esc). */
+  onClose?: () => void;
+  /** Al abrirse por teclado, el foco entra directo en la primera entrada. */
+  autoFocus?: boolean;
+}
+
+function MenuList({ items, onRun, onClose, autoFocus }: MenuListProps) {
   const [openSub, setOpenSub] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  /** El submenú que se acaba de abrir con el teclado tiene que recibir el foco. */
+  const focusSub = useRef(false);
+
+  useEffect(() => {
+    if (autoFocus && listRef.current) itemsOf(listRef.current)[0]?.focus();
+  }, [autoFocus]);
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const list = listRef.current;
+    if (!list) return;
+    // Con un submenú abierto hay dos listas escuchando por burbujeo: solo
+    // atiende la MÁS INTERNA, o una flecha saltaría dos posiciones.
+    if ((e.target as HTMLElement).closest('.menu-dropdown') !== list) return;
+
+    const focused = document.activeElement as HTMLButtonElement | null;
+    const index = focused ? Number(focused.dataset['index'] ?? -1) : -1;
+    const item = index >= 0 ? items[index] : undefined;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        moveFocus(list, 1);
+        return;
+      case 'ArrowUp':
+        e.preventDefault();
+        moveFocus(list, -1);
+        return;
+      case 'Home':
+        e.preventDefault();
+        itemsOf(list)[0]?.focus();
+        return;
+      case 'End': {
+        e.preventDefault();
+        const all = itemsOf(list);
+        all[all.length - 1]?.focus();
+        return;
+      }
+      case 'ArrowRight':
+        // Solo se queda la tecla si hay submenú que abrir; si no, sube y la
+        // barra la usa para pasar al menú de al lado.
+        if (item?.submenu) {
+          e.preventDefault();
+          e.stopPropagation();
+          focusSub.current = true;
+          setOpenSub(index);
+        }
+        return;
+      case 'ArrowLeft':
+        if (onClose) {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+        }
+        return;
+      case 'Escape':
+        e.preventDefault();
+        e.stopPropagation();
+        if (onClose) onClose();
+        else onRun();
+        return;
+      default:
+        break;
+    }
+    // Letra suelta: salta a la entrada que empieza por ella.
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (focusByLetter(list, e.key.toLowerCase())) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+  };
 
   return (
-    <div className="menu-dropdown popup">
+    <div className="menu-dropdown popup" role="menu" ref={listRef} onKeyDown={onKeyDown}>
       {items.map((item, i) =>
         item.separator ? (
-          <div key={`sep-${i}`} className="menu-sep" />
+          <div key={`sep-${i}`} className="menu-sep" role="separator" />
         ) : item.heading ? (
-          <div key={`head-${i}`} className="menu-heading">
+          <div key={`head-${i}`} className="menu-heading" role="presentation">
             {item.label}
           </div>
         ) : (
@@ -118,9 +258,17 @@ function MenuList({ items, onRun }: { items: MenuItem[]; onRun: () => void }) {
           >
             <button
               className={`menu-item${item.checked ? ' checked' : ''}`}
+              role="menuitem"
+              data-index={i}
+              data-letter={firstLetter(item.label)}
+              {...(item.checked !== undefined ? { 'aria-checked': item.checked } : null)}
+              {...(item.submenu
+                ? { 'aria-haspopup': 'menu' as const, 'aria-expanded': openSub === i }
+                : null)}
               disabled={item.disabled}
               onClick={() => {
                 if (item.submenu) {
+                  focusSub.current = false;
                   setOpenSub(openSub === i ? null : i);
                   return;
                 }
@@ -141,7 +289,20 @@ function MenuList({ items, onRun }: { items: MenuItem[]; onRun: () => void }) {
             </button>
             {item.submenu && openSub === i && (
               <div className="menu-sub">
-                <MenuList items={item.submenu} onRun={onRun} />
+                <MenuList
+                  items={item.submenu}
+                  onRun={onRun}
+                  autoFocus={focusSub.current}
+                  onClose={() => {
+                    setOpenSub(null);
+                    // El foco vuelve a la entrada que lo abrió: sin esto se
+                    // queda en un botón que acaba de desaparecer y el teclado
+                    // deja de mover nada.
+                    listRef.current
+                      ?.querySelector<HTMLButtonElement>(`.menu-item[data-index="${i}"]`)
+                      ?.focus();
+                  }}
+                />
               </div>
             )}
           </div>
@@ -153,6 +314,8 @@ function MenuList({ items, onRun }: { items: MenuItem[]; onRun: () => void }) {
 
 export function MenuBar() {
   const [open, setOpen] = useState<string | null>(null);
+  /** El menú abierto con el teclado entra con el foco puesto; con el ratón, no. */
+  const [keyboard, setKeyboard] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const toggleWindow = useUiStore((s) => s.toggleWindow);
 
@@ -164,6 +327,55 @@ export function MenuBar() {
     window.addEventListener('pointerdown', onDown);
     return () => window.removeEventListener('pointerdown', onDown);
   }, [open]);
+
+  /*
+   * Alt a secas abre la barra, como en cualquier app de Windows.
+   *
+   * "A secas" es la parte importante: se mira en el keyUP y solo si entremedias
+   * no se ha pulsado nada más. Sin eso, Alt+A (arpegiador), Alt+C (acorde) o
+   * Alt+arrastre (sin snap en la playlist) abrirían el menú de propina.
+   */
+  useEffect(() => {
+    let bare = false;
+    const onDown = (e: KeyboardEvent) => {
+      bare = e.key === 'Alt' && !e.ctrlKey && !e.shiftKey && !e.repeat;
+    };
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key !== 'Alt' || !bare) return;
+      bare = false;
+      e.preventDefault();
+      setKeyboard(true);
+      setOpen((current) => (current === null ? MENU_ORDER[0]! : null));
+    };
+    const cancel = () => {
+      bare = false;
+    };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('pointerdown', cancel);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('pointerdown', cancel);
+    };
+  }, []);
+
+  /** Cierra, y devuelve el foco al botón del menú (si se venía del teclado). */
+  const closeMenu = (name?: string) => {
+    setOpen(null);
+    setKeyboard(false);
+    if (name === undefined) return;
+    ref.current?.querySelector<HTMLButtonElement>(`.menu-btn[data-menu="${name}"]`)?.focus();
+  };
+
+  /** ← y → saltan al menú de al lado; si había uno abierto, el nuevo se abre. */
+  const stepMenu = (name: string, delta: number) => {
+    const at = MENU_ORDER.indexOf(name);
+    const next = MENU_ORDER[(at + delta + MENU_ORDER.length) % MENU_ORDER.length]!;
+    setKeyboard(true);
+    setOpen(next);
+    ref.current?.querySelector<HTMLButtonElement>(`.menu-btn[data-menu="${next}"]`)?.focus();
+  };
 
   // Los menús se construyen en el mismo render que los abre (el clic cambia
   // `open`), así que leer los stores con getState() sale siempre fresco y no
@@ -404,19 +616,59 @@ export function MenuBar() {
   };
 
   return (
-    <div className="menubar" ref={ref}>
-      {Object.entries(menus).map(([name, items]) => (
-        <div key={name} className="menu">
+    <div className="menubar" ref={ref} role="menubar">
+      {MENU_ORDER.map((name) => (
+        <div
+          key={name}
+          className="menu"
+          /*
+           * ← y → van AQUÍ y no en el botón: así valen igual con el foco en el
+           * botón que dentro del desplegable, que es donde el usuario está la
+           * mayor parte del tiempo. Un submenú que ya las ha usado (abrir /
+           * cerrar) corta la propagación y no llega nada.
+           */
+          onKeyDown={(e) => {
+            if (e.defaultPrevented) return;
+            if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+              e.preventDefault();
+              stepMenu(name, e.key === 'ArrowRight' ? 1 : -1);
+            }
+          }}
+        >
           <button
             className={`menu-btn${open === name ? ' open' : ''}`}
-            onClick={() => setOpen(open === name ? null : name)}
+            data-menu={name}
+            role="menuitem"
+            aria-haspopup="menu"
+            aria-expanded={open === name}
+            onClick={() => {
+              setKeyboard(false);
+              setOpen(open === name ? null : name);
+            }}
             onPointerEnter={() => {
-              if (open && open !== name) setOpen(name);
+              if (open && open !== name) {
+                setKeyboard(false);
+                setOpen(name);
+              }
+            }}
+            onKeyDown={(e) => {
+              // Enter y Espacio ya abren por el onClick del <button>; lo que
+              // añade esto es entrar con el FOCO en la primera entrada.
+              if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setKeyboard(true);
+                setOpen(name);
+              } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeMenu();
+              }
             }}
           >
             {name}
           </button>
-          {open === name && <MenuList items={items} onRun={() => setOpen(null)} />}
+          {open === name && (
+            <MenuList items={menus[name]!} autoFocus={keyboard} onRun={() => closeMenu(name)} />
+          )}
         </div>
       ))}
     </div>

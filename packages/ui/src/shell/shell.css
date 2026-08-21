@@ -589,3 +589,24 @@ html[data-theme='acrylic'] .iw-title {
 .menu-dropdown > .menu-heading:first-child {
   padding-top: 2px;
 }
+
+/* El teclado mueve el FOCO de verdad por las entradas, así que el resalte del
+   foco tiene que ser el mismo que el del ratón: si no, con las flechas no se
+   ve dónde estás. */
+.menu-item:focus:not(:disabled) {
+  background: var(--accent);
+  color: #fff;
+  outline: none;
+}
+
+.menu-item:focus:not(:disabled) .menu-shortcut,
+.menu-item:focus:not(:disabled) .menu-arrow,
+.menu-item:focus:not(:disabled) .menu-check {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.menu-btn:focus-visible {
+  background: var(--titlebar-hover);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
