@@ -20,7 +20,7 @@ import { saveVersion } from './versions';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { setActivePattern, store } from './app';
-import { markClean } from './autosave';
+import { confirmDiscard, markClean } from './autosave';
 
 interface ProjectFileState {
   /** Ruta del .orbit abierto; null = proyecto sin guardar. */
@@ -47,6 +47,7 @@ function fileName(path: string): string {
 }
 
 export function newProject(): void {
+  if (!confirmDiscard('Empezar un proyecto nuevo')) return;
   store.replaceProject(createEmptyProject());
   useProjectFile.setState({ path: null });
   markClean();
@@ -59,6 +60,7 @@ export function newProject(): void {
  * lo que trae se edita o se borra.
  */
 export function newProjectFromTemplate(id: string): void {
+  if (!confirmDiscard('Cargar la plantilla')) return;
   const template = findTemplate(id);
   store.replaceProject(createProjectFromTemplate(id));
   useProjectFile.setState({ path: null });
@@ -86,6 +88,7 @@ export async function openProject(): Promise<void> {
     notify('Abrir proyectos requiere la app de escritorio.');
     return;
   }
+  if (!confirmDiscard('Abrir otro proyecto')) return;
   try {
     const result = await api.project.open();
     if (!result) return; // cancelado
@@ -128,6 +131,7 @@ export async function openRecentProject(path: string): Promise<void> {
     notify('Abrir proyectos requiere la app de escritorio.');
     return;
   }
+  if (!confirmDiscard('Abrir ese proyecto')) return;
   try {
     const result = await api.project.openRecent(path);
     if (!result) return;

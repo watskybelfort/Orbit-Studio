@@ -16,6 +16,7 @@ import {
   checkRecovery,
   discardRecovery,
   initAutosave,
+  isDirty,
   useAutosave,
   type RecoveryOffer,
 } from './state/autosave';
@@ -27,8 +28,9 @@ import { initLiveInput } from './state/live-input';
 import { initPlugins } from './state/plugins';
 import { CommandPalette } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
-import { refreshRecents, useProjectFile } from './state/project-file';
+import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
 import { useBounceStore } from './state/bounce';
+import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
@@ -41,6 +43,9 @@ export function App() {
   const compact = useUiStore((s) => s.compact);
   const aboutOpen = useUiStore((s) => s.aboutOpen);
   const notice = useProjectFile((s) => s.notice);
+  const projectPath = useProjectFile((s) => s.path);
+  const dirty = useAutosave((s) => s.dirty);
+  const project = useProject();
   const bounceBusy = useBounceStore((s) => s.busy);
   const bounceNotice = useBounceStore((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
@@ -76,6 +81,18 @@ export function App() {
       .catch(() => {
         void applyTheme('dark');
       });
+    /*
+     * "Guardar y salir" del diálogo de cierre. El main no sabe serializar el
+     * proyecto, así que solo pide: aquí se guarda y, si el guardado salió
+     * bien (markClean deja el flag a false), se vuelve a cerrar — esta vez sin
+     * nada que preguntar. Si el usuario cancela el "guardar como", seguimos
+     * sucios y la ventana se queda donde está, que es lo correcto.
+     */
+    const offSaveAndClose = window.orbit?.app.onSaveAndClose(() => {
+      void saveProject().then(() => {
+        if (!isDirty()) void window.orbit?.window.close();
+      });
+    });
     // El AudioContext necesita un gesto: el primer pointerdown lo despierta.
     const wake = () => {
       ensureAudioReady();
@@ -84,13 +101,22 @@ export function App() {
     window.addEventListener('pointerdown', wake);
     return () => {
       alive = false;
+      offSaveAndClose?.();
       window.removeEventListener('pointerdown', wake);
     };
   }, []);
 
+  /*
+   * Título de la ventana: el nombre del proyecto manda, y el punto delante dice
+   * que hay cambios sin guardar. Antes ponía "Orbit Studio" y nada más, así que
+   * con dos proyectos abiertos en dos ventanas no se sabía cuál era cuál.
+   */
+  const projectName = project.meta.title || (projectPath ? projectPath.split(/[\/]/).pop() : '') || 'Sin título';
+  const windowTitle = `${dirty ? '● ' : ''}${projectName} — Orbit Studio`;
+
   return (
     <div className={`app-shell${compact ? ' compact' : ''}`}>
-      <TitleBar trafficLights={trafficLights} />
+      <TitleBar trafficLights={trafficLights} title={windowTitle} />
       <div className="toolbar">
         <MenuBar />
         <Transport />

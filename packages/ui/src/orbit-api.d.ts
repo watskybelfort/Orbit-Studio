@@ -39,6 +39,16 @@ interface OrbitApi {
   /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
   readonly app: {
     info(): Promise<OrbitAppInfo>;
+    /**
+     * Avisa de si el proyecto tiene cambios sin guardar. Con el flag puesto, el
+     * main frena el cierre de la ventana y pregunta: el renderer no se entera
+     * de un Alt+F4 ni de la X del sistema.
+     */
+    setDirty(dirty: boolean): Promise<boolean>;
+    /**
+     * El main pide "guardar y salir" desde ese diálogo. Devuelve el unsubscribe.
+     */
+    onSaveAndClose(cb: () => void): () => void;
   };
   readonly window: {
     minimize(): Promise<void>;

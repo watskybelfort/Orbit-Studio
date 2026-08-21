@@ -14,7 +14,19 @@ import { store } from './app';
 const INTERVAL_MS = 60_000;
 
 let timer: ReturnType<typeof setInterval> | null = null;
-let cleanVersion = -1;
+
+/**
+ * Dos marcas de agua distintas, y se separan a propósito.
+ *
+ * `savedVersion` es lo último que el USUARIO guardó (o abrió): es lo que decide
+ * si hay cambios que se pueden perder. `autosavedVersion` es lo último que el
+ * bucle escribió en `pending.orbit`, y sube solo cada minuto. Con una sola
+ * variable —como estaba— el primer autosave dejaba el proyecto marcado como sin
+ * cambios aunque no se hubiera guardado nada de verdad, y la guardia de salir
+ * no habría avisado de nada.
+ */
+let savedVersion = -1;
+let autosavedVersion = -1;
 
 export interface RecoveryOffer {
   json: string;
@@ -61,8 +73,34 @@ export function applyRecovery(offer: RecoveryOffer): boolean {
   return true;
 }
 
-/** Lo último que falló al recuperar (para enseñarlo en el cartel). */
-export const useAutosave = create<{ error: string | null }>(() => ({ error: null }));
+/**
+ * Lo último que falló al recuperar (para el cartel) y si hay cambios sin
+ * guardar (para el punto de la barra de título y la guardia de salir).
+ */
+export const useAutosave = create<{ error: string | null; dirty: boolean }>(() => ({
+  error: null,
+  dirty: false,
+}));
+
+/** ¿Hay trabajo que se perdería ahora mismo? */
+export function isDirty(): boolean {
+  return store.version !== savedVersion;
+}
+
+/**
+ * Recalcula el flag. Se llama en cada cambio del proyecto, así que compara
+ * antes de escribir: sin la guarda, un arrastre de perilla dispararía cientos
+ * de `setState` idénticos y con ellos el render de media app.
+ */
+function refreshDirty(): void {
+  const dirty = isDirty();
+  if (useAutosave.getState().dirty !== dirty) {
+    useAutosave.setState({ dirty });
+    // El main necesita saberlo para poder parar el cierre de la ventana: el
+    // renderer no se entera de un Alt+F4 ni de la X del sistema.
+    void window.orbit?.app.setDirty(dirty);
+  }
+}
 
 /** Descarta el pendiente de la sesión anterior. */
 export function discardRecovery(): void {
@@ -71,17 +109,36 @@ export function discardRecovery(): void {
 
 /** El estado actual pasa a ser el punto limpio (tras guardar o abrir). */
 export function markClean(): void {
-  cleanVersion = store.version;
+  savedVersion = store.version;
+  autosavedVersion = store.version;
+  refreshDirty();
   void window.orbit?.autosave.clear();
 }
 
 export function initAutosave(): void {
   const api = window.orbit;
   if (!api?.autosave || timer) return;
-  cleanVersion = store.version;
+  savedVersion = store.version;
+  autosavedVersion = store.version;
+  refreshDirty();
+  // El flag de "sin guardar" se recalcula en cada cambio del proyecto. El
+  // ProjectStore solo emite cuando el proyecto cambia de verdad (dispatch,
+  // undo/redo, replaceProject), no con los medidores del kernel.
+  store.subscribe(refreshDirty);
   timer = setInterval(() => {
-    if (store.version === cleanVersion) return;
-    cleanVersion = store.version;
+    if (store.version === autosavedVersion) return;
+    autosavedVersion = store.version;
     void api.autosave.write(serializeProject(store.project));
   }, INTERVAL_MS);
+}
+
+/**
+ * Guardia previa a algo que pisa el proyecto (nuevo, abrir, recuperar).
+ * Devuelve false si el usuario dice que no. Sin cambios pendientes no pregunta.
+ */
+export function confirmDiscard(what: string): boolean {
+  if (!isDirty()) return true;
+  return window.confirm(
+    `El proyecto tiene cambios sin guardar.\n\n¿${what} de todas formas? Se perderá lo que no hayas guardado.`,
+  );
 }

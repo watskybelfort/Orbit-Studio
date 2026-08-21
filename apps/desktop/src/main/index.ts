@@ -234,6 +234,8 @@ function rememberAllDetachedBounds(): void {
 
 /** Ventana viva más reciente: destino de las tool calls del puente Claude. */
 let mainWindow: BrowserWindow | null = null;
+/** El renderer dice si el proyecto tiene cambios sin guardar (canal `app:dirty`). */
+let unsavedChanges = false;
 
 function createWindow(): BrowserWindow {
   const settings = readSettings();
@@ -311,6 +313,38 @@ function createWindow(): BrowserWindow {
 
   win.on('maximize', () => win.webContents.send('window:maximized-changed', true));
   win.on('unmaximize', () => win.webContents.send('window:maximized-changed', false));
+
+  /*
+   * Guardia de cierre.
+   *
+   * Va en el main y no en el botón de la barra de título porque el renderer no
+   * se entera de un Alt+F4, de la X del sistema ni de un cierre de sesión: el
+   * único sitio donde se puede parar el cierre es aquí. El renderer mantiene el
+   * flag al día por `app:dirty`.
+   *
+   * "Guardar y salir" no guarda desde el main (el que sabe serializar es el
+   * renderer): se le pide que guarde, y su `markClean` deja el flag a false, con
+   * lo que el `close()` de después ya no encuentra nada que preguntar.
+   */
+  win.on('close', (e) => {
+    if (!unsavedChanges || win.isDestroyed()) return;
+    e.preventDefault();
+    const choice = dialog.showMessageBoxSync(win, {
+      type: 'warning',
+      buttons: ['Guardar y salir', 'Salir sin guardar', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 2,
+      title: 'Orbit Studio',
+      message: 'El proyecto tiene cambios sin guardar.',
+      detail: 'Si sales ahora se perderá lo que hayas hecho desde el último guardado.',
+    });
+    if (choice === 1) {
+      unsavedChanges = false;
+      win.close();
+    } else if (choice === 0) {
+      win.webContents.send('app:save-and-close');
+    }
+  });
   // Al cerrar la principal, las hijas se van con ella sin dar tiempo a su
   // propio 'close': su sitio se apunta desde aquí.
   win.on('close', () => rememberAllDetachedBounds());
@@ -513,6 +547,16 @@ function registerIpc(): void {
     dev: !app.isPackaged,
     userData: app.getPath('userData'),
   }));
+
+  /**
+   * El renderer avisa de si el proyecto tiene cambios sin guardar. Es lo único
+   * que el main necesita para poder frenar el cierre de la ventana; lo que hay
+   * dentro del proyecto sigue sin salir de allí.
+   */
+  ipcMain.handle('app:dirty', (_event, flag: unknown) => {
+    unsavedChanges = flag === true;
+    return unsavedChanges;
+  });
 
   // Solo QA (con ORBIT_DEBUG_PORT): la ventana se pone siempre-encima a sí
   // misma para capturas de pantalla — sin SetForegroundWindow, que Windows
