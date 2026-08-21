@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {
   TRACK_ICONS,
   clampFades,
+  clipsInSpan,
   createPlaylistTrack,
   newId,
   pickColor,
@@ -51,6 +52,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
+import { SectionLane } from './SectionLane';
 import {
   clampGroupMove,
   clipsInMarquee,
@@ -1769,6 +1771,18 @@ export function Playlist() {
         </div>
       </div>
 
+      <SectionLane
+        project={project}
+        beatToX={beatToX}
+        xToBeat={xToBeat}
+        quantize={(beat, altKey) => quant(beat, altKey ? null : snapBeats, true)}
+        barLen={barLen}
+        onSelectSpan={(from, to) =>
+          setSelection(
+            new Set(clipsInSpan(project, project.activeArrangementId, from, to).map((c) => c.id)),
+          )
+        }
+      />
       <div className="pl-main">
         <div className="pl-headers">
           <div className="pl-corner">Pistas</div>

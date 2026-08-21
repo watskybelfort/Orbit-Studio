@@ -431,3 +431,53 @@ html[data-theme='acrylic'] .playlist {
 .pl-marker-close:hover {
   color: var(--text);
 }
+
+/* ── Franja de secciones ──
+   Fila propia entre la toolbar y la rejilla. El hueco de la izquierda mide lo
+   mismo que .pl-headers (140 px) para que el lienzo empiece exactamente donde
+   empieza la rejilla: si no, la forma del tema quedaría desplazada respecto a
+   los clips que describe. La altura la pone el TSX en línea. */
+
+.pl-sections {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.pl-sections-corner {
+  flex: none;
+  width: 140px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  border-right: 1px solid var(--border);
+}
+
+.pl-sections-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pl-sections-canvas {
+  display: block;
+}
+
+/* La fila de color dentro del menú contextual de la sección. */
+.pl-section-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pl-section-color input[type='color'] {
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+}
