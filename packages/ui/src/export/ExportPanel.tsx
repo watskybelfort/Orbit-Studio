@@ -267,6 +267,37 @@ export function ExportPanel() {
         También OGG (Ogg FLAC, sin pérdida)
       </label>
 
+      <label
+        className="exp-check"
+        title="Opus con el códec propio de Orbit. Trabaja a 48 kHz: a otra frecuencia se salta."
+      >
+        <input
+          type="checkbox"
+          disabled={busy}
+          checked={opts.opus}
+          onChange={(e) => set('opus', e.target.checked)}
+        />
+        También OPUS (códec propio, con pérdida)
+      </label>
+
+      {opts.opus && (
+        <div className="exp-row">
+          <span className="exp-label">Bitrate Opus</span>
+          <select
+            className="exp-select"
+            disabled={busy}
+            value={String(opts.opusBitrate)}
+            onChange={(e) => set('opusBitrate', Number(e.target.value))}
+          >
+            <option value="64000">64 kbps</option>
+            <option value="96000">96 kbps</option>
+            <option value="128000">128 kbps</option>
+            <option value="192000">192 kbps</option>
+            <option value="256000">256 kbps</option>
+          </select>
+        </div>
+      )}
+
       <div className="exp-row">
         <span className="exp-label">Profundidad</span>
         <select
@@ -392,6 +423,12 @@ export function ExportPanel() {
             <div className="exp-summary-row">
               <span className="exp-summary-key">FLAC</span>
               <span className="exp-summary-val">{fileNameOf(status.summary.flacPath)}</span>
+            </div>
+          )}
+          {status.summary.opusPath && (
+            <div className="exp-summary-row">
+              <span className="exp-summary-key">Opus</span>
+              <span className="exp-summary-val">{fileNameOf(status.summary.opusPath)}</span>
             </div>
           )}
           {status.summary.oggPath && (

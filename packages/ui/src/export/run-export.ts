@@ -42,6 +42,7 @@ import {
   type FlacDepth,
   type RenderResult,
   type WavDepth,
+  encodeOpusFile,
 } from '@orbit/engine';
 import { encodeMp3 } from './mp3';
 import { collectPluginSources, collectSamples } from './render-inputs';
@@ -57,6 +58,8 @@ export const TARGET_LUFS = -14;
 export const SAMPLE_RATES = [44100, 48000, 88200, 96000] as const;
 /** MPEG no admite más de 48 kHz: por encima, el MP3 se salta con aviso. */
 export const MP3_MAX_RATE = 48000;
+/** Opus trabaja a 48 kHz y sólo a 48 kHz: es la frecuencia del modo de CELT. */
+export const OPUS_RATE = 48000;
 
 /**
  * Qué se exporta. `selection` es la región marcada en la regla de la playlist
@@ -83,6 +86,10 @@ export interface ExportOptions {
   flac: boolean;
   /** También un .ogg (Ogg FLAC: sin pérdida, contenedor propio). */
   ogg: boolean;
+  /** También un .opus (CELT propio, con pérdida). Sólo a 48 kHz. */
+  opus: boolean;
+  /** Bitrate del .opus, en bits por segundo. */
+  opusBitrate: number;
   depth: WavDepth;
   sampleRate: number;
   tailSeconds: number;
@@ -98,6 +105,8 @@ export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
   mp3: false,
   flac: false,
   ogg: false,
+  opus: false,
+  opusBitrate: 128000,
   depth: 16,
   sampleRate: 44100,
   tailSeconds: 2,
@@ -120,6 +129,8 @@ export interface ExportSummary {
   flacPath: string | null;
   /** Ruta del .ogg (Ogg FLAC), o null. */
   oggPath: string | null;
+  /** Ruta del .opus, o null si no se pidió/falló. */
+  opusPath: string | null;
   warnings: string[];
 }
 
@@ -409,6 +420,43 @@ async function renderAndWrite(
     }
   }
 
+  // OPUS al lado del WAV, con el encoder propio. Es el único formato con
+  // pérdida de Orbit que no depende de nadie: MP3 y Opus salen los dos de aquí,
+  // pero éste es un códec entero escrito en casa (ver render/opus/).
+  let opusPath: string | null = null;
+  if (opts.opus && mix.sampleRate !== OPUS_RATE) {
+    warnings.push(
+      `Opus trabaja a 48 kHz: exporta a esa frecuencia si lo quieres (WAV escrito a ${(mix.sampleRate / 1000).toFixed(1)} kHz).`,
+    );
+  } else if (opts.opus) {
+    opusPath = `${splitExtension(target).base}.opus`;
+    try {
+      await report('Codificando Opus…');
+      // El encoder recibe las muestras entrelazadas.
+      const frames = mix.left.length;
+      const pcm = new Float64Array(frames * 2);
+      for (let i = 0; i < frames; i++) {
+        pcm[i * 2] = mix.left[i]!;
+        pcm[i * 2 + 1] = mix.right[i]!;
+      }
+      await orbit.file.write(
+        opusPath,
+        encodeOpusFile(pcm, {
+          channels: 2,
+          bitrate: opts.opusBitrate,
+          tags: {
+            ...(proj.meta.title ? { TITLE: proj.meta.title } : {}),
+            ...(proj.meta.author ? { ARTIST: proj.meta.author } : {}),
+            ENCODER: 'Orbit Studio',
+          },
+        }),
+      );
+    } catch (e) {
+      warnings.push(`No se pudo escribir ${opusPath}: ${errorText(e)}`);
+      opusPath = null;
+    }
+  }
+
   // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
   let midiPath: string | null = null;
   if (opts.midi) {
@@ -463,6 +511,7 @@ async function renderAndWrite(
     mp3Path,
     flacPath,
     oggPath,
+    opusPath,
     warnings,
   };
 }
@@ -519,6 +568,11 @@ function parseLastExport(raw: unknown): LastExport | null {
       mp3: bool(o['mp3'], DEFAULT_EXPORT_OPTIONS.mp3),
       flac: bool(o['flac'], DEFAULT_EXPORT_OPTIONS.flac),
       ogg: bool(o['ogg'], DEFAULT_EXPORT_OPTIONS.ogg),
+      opus: bool(o['opus'], DEFAULT_EXPORT_OPTIONS.opus),
+      opusBitrate:
+        typeof o['opusBitrate'] === 'number' && Number.isFinite(o['opusBitrate'])
+          ? Math.max(16000, Math.min(510000, Math.round(o['opusBitrate'])))
+          : DEFAULT_EXPORT_OPTIONS.opusBitrate,
       depth: (depth === 24 || depth === 32 ? depth : 16) as WavDepth,
       sampleRate: num(o['sampleRate'], DEFAULT_EXPORT_OPTIONS.sampleRate),
       tailSeconds: num(o['tailSeconds'], DEFAULT_EXPORT_OPTIONS.tailSeconds),

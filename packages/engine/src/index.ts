@@ -10,6 +10,21 @@ export { encodeWav, type WavDepth } from './render/wav';
 export { secondsAtBeat, type TempoSegment } from './tempo';
 export { encodeOggFlac, lacing, oggCrc, type OggFlacOptions } from './render/ogg';
 export { encodeFlac, encodeFlacStream, type FlacDepth } from './render/flac';
+export {
+  encodeOggOpus,
+  parseOggOpus,
+  parseOggPages,
+  opusDuration,
+  type OggOpusOptions,
+  type OpusPacket,
+} from './render/ogg-opus';
+export {
+  encodeOpusFile,
+  encodeOpusPackets,
+  tocByte,
+  PRE_SKIP,
+  type EncodeOptions as OpusEncodeOptions,
+} from './render/opus/encoder';
 export { analyzeMix, gainToTarget, type MixAnalysis } from './render/analysis';
 export {
   correctPitch,
