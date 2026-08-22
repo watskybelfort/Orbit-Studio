@@ -146,6 +146,25 @@ export const LOG2_FRAC_TABLE = [
 export const FITS32_MAX_N = [32767, 32767, 32767, 1476, 283, 109, 60, 40, 29, 24, 20, 18, 16, 14, 13] as const;
 export const FITS32_MAX_K = [32767, 32767, 32767, 32767, 1172, 238, 95, 53, 36, 27, 22, 18, 16, 15, 13] as const;
 
+/**
+ * Energía media esperada de cada banda, en la escala logarítmica del códec.
+ *
+ * Se resta antes de cuantizar y se vuelve a sumar al reconstruir. Sirve para que
+ * el residuo que viaja esté centrado en cero en música normal: sin esto, las
+ * bandas graves mandarían siempre valores grandes y las agudas siempre pequeños,
+ * y el modelo de Laplace no acertaría en ninguna.
+ *
+ * En la referencia está dos veces —enteros y coma flotante— y son la misma
+ * tabla: la de flotante es la de enteros dividida por 16.
+ */
+export const E_MEANS = [
+  6.4375, 6.25, 5.75, 5.3125, 5.0625,
+  4.8125, 4.5, 4.375, 4.875, 4.6875,
+  4.5625, 4.4375, 4.875, 4.625, 4.3125,
+  4.5, 4.375, 4.625, 4.75, 4.4375,
+  3.75, 3.75, 3.75, 3.75, 3.75,
+] as const;
+
 /** Coeficientes de predicción de la energía entre tramas, por tamaño (Q15/32768). */
 export const PRED_COEF = [0.8984375, 0.796875, 0.6484375, 0.5] as const;
 export const BETA_COEF = [0.920013427734375, 0.67999267578125, 0.3699951171875, 0.20001220703125] as const;

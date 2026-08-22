@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BAND_ALLOCATION,
   BETA_COEF,
+  E_MEANS,
   BETA_INTRA,
   BITRES,
   EBAND_5MS,
@@ -61,6 +62,7 @@ describe('tablas · firma', () => {
       LOG2_FRAC_TABLE: [24, 641],
       FITS32_MAX_N: [15, 100403],
       FITS32_MAX_K: [15, 132773],
+      E_MEANS: [25, 116.3125], // = 1861/16, la suma de los enteros del fuente
     };
     const tables: Record<string, unknown> = {
       EBAND_5MS,
@@ -74,6 +76,7 @@ describe('tablas · firma', () => {
       LOG2_FRAC_TABLE,
       FITS32_MAX_N,
       FITS32_MAX_K,
+      E_MEANS,
     };
     for (const [name, [length, total]] of Object.entries(expected)) {
       const values = flat(tables[name]);
@@ -82,7 +85,7 @@ describe('tablas · firma', () => {
     }
   });
 
-  it('son 696 números en total, que es lo que se transcribe del formato', () => {
+  it('son 721 números en total, que es lo que se transcribe del formato', () => {
     const all = [
       EBAND_5MS,
       BAND_ALLOCATION,
@@ -95,8 +98,9 @@ describe('tablas · firma', () => {
       LOG2_FRAC_TABLE,
       FITS32_MAX_N,
       FITS32_MAX_K,
+      E_MEANS,
     ].flatMap(flat);
-    expect(all).toHaveLength(696);
+    expect(all).toHaveLength(721);
   });
 });
 
@@ -252,6 +256,17 @@ describe('tablas · resto', () => {
       expect(value).toBeGreaterThan(0);
       expect(value).toBeLessThanOrEqual(1);
     }
+  });
+
+  it('la energía media por banda baja de graves a agudos', () => {
+    // Es lo que centra el residuo en cero: sin restar esto, las bandas graves
+    // mandarían siempre valores grandes y las agudas siempre pequeños, y el
+    // modelo de Laplace no acertaría en ninguna.
+    expect(E_MEANS).toHaveLength(25);
+    expect(E_MEANS[0]!).toBeGreaterThan(E_MEANS[NB_BANDS - 1]!);
+    // Las últimas cinco entradas son relleno con el mismo valor: sólo hay 21
+    // bandas, pero la tabla de la referencia mide 25.
+    for (let i = 21; i < 25; i++) expect(E_MEANS[i]).toBe(E_MEANS[20]);
   });
 
   it('la resolución del asignador son octavos de bit', () => {

@@ -86,6 +86,9 @@ const ebands = numbers(tableBody(modes, 'eband5ms'));
 const allocation = numbers(tableBody(modes, 'band_allocation'));
 const eProb = numbers(tableBody(quantBands, 'e_prob_model'));
 const smallEnergy = numbers(tableBody(quantBands, 'small_energy_icdf'));
+// `eMeans` está dos veces (coma fija y flotante). La de enteros es la primera y
+// es la que manda: la de flotante es exactamente esos enteros divididos por 16.
+const eMeansFixed = numbers(tableBody(quantBands, 'eMeans'));
 const trim = numbers(tableBody(celt, 'trim_icdf'));
 const spread = numbers(tableBody(celt, 'spread_icdf'));
 const tapset = numbers(tableBody(celt, 'tapset_icdf'));
@@ -122,6 +125,7 @@ assertSize('tf_select_table', tfSelect.length, 4 * 8);
 assertSize('LOG2_FRAC_TABLE', log2FracTable.length, 24);
 assertSize('maxN', maxN.length, 15);
 assertSize('maxK', maxK.length, 15);
+assertSize('eMeans', eMeansFixed.length, 25);
 
 /** Parte una lista plana en filas, para que el archivo generado se pueda leer. */
 function rows(values: number[], perRow: number, indent = '  '): string {
@@ -256,6 +260,21 @@ ${rows(log2FracTable, 12)}
 export const FITS32_MAX_N = [${maxN.join(', ')}] as const;
 export const FITS32_MAX_K = [${maxK.join(', ')}] as const;
 
+/**
+ * Energía media esperada de cada banda, en la escala logarítmica del códec.
+ *
+ * Se resta antes de cuantizar y se vuelve a sumar al reconstruir. Sirve para que
+ * el residuo que viaja esté centrado en cero en música normal: sin esto, las
+ * bandas graves mandarían siempre valores grandes y las agudas siempre pequeños,
+ * y el modelo de Laplace no acertaría en ninguna.
+ *
+ * En la referencia está dos veces —enteros y coma flotante— y son la misma
+ * tabla: la de flotante es la de enteros dividida por 16.
+ */
+export const E_MEANS = [
+${rows(eMeansFixed.map(v => v/16), 5)}
+] as const;
+
 /** Coeficientes de predicción de la energía entre tramas, por tamaño (Q15/32768). */
 export const PRED_COEF = [${q15('pred_coef').join(', ')}] as const;
 export const BETA_COEF = [${q15('beta_coef').join(', ')}] as const;
@@ -281,6 +300,7 @@ console.log(
     tfSelect.length +
     log2FracTable.length +
     maxN.length +
-    maxK.length
+    maxK.length +
+    eMeansFixed.length
   } números`,
 );
