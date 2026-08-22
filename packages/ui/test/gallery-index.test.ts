@@ -117,3 +117,64 @@ describe('índice de galería', () => {
     expect(index?.plugins[0]?.tags).toHaveLength(8);
   });
 });
+
+describe('firma y hashes en el índice', () => {
+  const base = {
+    name: 'G',
+    plugins: [{ id: 'a', name: 'A', url: 'https://x.example/a.js' }],
+  };
+
+  it('un índice sin firma sigue valiendo (lo de siempre)', () => {
+    const index = parseGalleryIndex(JSON.stringify(base));
+    expect(index?.signature).toBeUndefined();
+  });
+
+  it('acepta un bloque de firma con la forma buena', () => {
+    const index = parseGalleryIndex(
+      JSON.stringify({
+        ...base,
+        signature: { alg: 'ECDSA-P256-SHA256', key: 'AAAA', sig: 'BBBB', signedAt: 123 },
+      }),
+    );
+    expect(index?.signature).toEqual({
+      alg: 'ECDSA-P256-SHA256',
+      key: 'AAAA',
+      sig: 'BBBB',
+      signedAt: 123,
+    });
+  });
+
+  it('una firma con otro algoritmo, sin clave o gigante se descarta', () => {
+    const malas = [
+      { alg: 'RSA', key: 'A', sig: 'B' },
+      { alg: 'ECDSA-P256-SHA256', sig: 'B' },
+      { alg: 'ECDSA-P256-SHA256', key: 'A' },
+      { alg: 'ECDSA-P256-SHA256', key: 'x'.repeat(600), sig: 'B' },
+      'no soy un objeto',
+      null,
+    ];
+    for (const signature of malas) {
+      expect(parseGalleryIndex(JSON.stringify({ ...base, signature }))?.signature).toBeUndefined();
+    }
+  });
+
+  it('descartar la firma NO tira el índice entero', () => {
+    const index = parseGalleryIndex(JSON.stringify({ ...base, signature: { alg: 'RSA' } }));
+    expect(index?.plugins).toHaveLength(1);
+  });
+
+  it('el sha256 se acepta solo con forma de SHA-256 en base64', () => {
+    const bueno = 'A'.repeat(43) + '=';
+    const conHash = parseGalleryIndex(
+      JSON.stringify({ ...base, plugins: [{ ...base.plugins[0], sha256: bueno }] }),
+    );
+    expect(conHash?.plugins[0]?.sha256).toBe(bueno);
+
+    for (const malo of ['', 'corto', 'x'.repeat(200), 'no-base64-!!!!']) {
+      const index = parseGalleryIndex(
+        JSON.stringify({ ...base, plugins: [{ ...base.plugins[0], sha256: malo }] }),
+      );
+      expect(index?.plugins[0]?.sha256).toBeUndefined();
+    }
+  });
+});

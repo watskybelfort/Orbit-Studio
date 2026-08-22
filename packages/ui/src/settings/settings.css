@@ -320,3 +320,30 @@ input[type='range'] {
   border: 1px solid var(--border);
   border-radius: 999px;
 }
+
+/* Chapa de confianza de una galería: verde si la firma cuadra con la clave que
+   aceptaste, roja si algo no encaja. La huella va en el tooltip. */
+.gal-tag.ok {
+  color: var(--meter);
+  border-color: var(--meter);
+}
+
+.gal-tag.danger {
+  color: var(--meter-clip);
+  border-color: var(--meter-clip);
+}
+
+/* El bloque que sustituye a la lista de plugins cuando no hay confianza: si se
+   pudiera instalar igual, la comprobación no serviría de nada. */
+.gal-warn {
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--meter-clip);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--meter-clip) 8%, transparent);
+}
+
+.gal-warn code {
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
