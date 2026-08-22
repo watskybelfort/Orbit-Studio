@@ -239,7 +239,7 @@ function computeCaps(
             // El coste medido de theta es 0,897 veces qb; aquí, 459/512.
             const num = 459 * ((2 * n - 1) * offset + maxBits);
             const den = ((2 * n - 1) << 9) - 459;
-            maxBits += Math.min(Math.floor((num + (den >> 1)) / den), 57);
+            maxBits += Math.min(Math.trunc((num + (den >> 1)) / den), 57);
             n <<= 1;
           }
 
@@ -251,7 +251,7 @@ function computeCaps(
             const ndof = 2 * n - 1 - (n === 2 ? 1 : 0);
             const num = (n === 2 ? 512 : 487) * (maxBits + ndof * offset);
             const den = (ndof << 9) - (n === 2 ? 512 : 487);
-            maxBits += Math.min(Math.floor((num + (den >> 1)) / den), n === 2 ? 64 : 61);
+            maxBits += Math.min(Math.trunc((num + (den >> 1)) / den), n === 2 ? 64 : 61);
           }
 
           // Y los bits finos que se van a gastar.
@@ -260,12 +260,12 @@ function computeCaps(
           if (n === 2) offset += (1 << BITRES) >> 2; // N=2 se sale de la curva
           const num = maxBits + ndof * offset;
           const den = (ndof - 1) << BITRES;
-          const qb = Math.min(Math.floor((num + (den >> 1)) / den), MAX_FINE_BITS);
+          const qb = Math.min(Math.trunc((num + (den >> 1)) / den), MAX_FINE_BITS);
           maxBits += (channels * qb) << BITRES;
         }
 
         const width = (ebands[j + 1]! - ebands[j]!) << i;
-        const cap = Math.floor((4 * maxBits) / (channels * width)) - 64;
+        const cap = Math.trunc((4 * maxBits) / (channels * width)) - 64;
         if (cap < 0 || cap > 255) {
           throw new Error(`techo fuera de rango en banda ${j}, LM ${i}, ${channels} canales: ${cap}`);
         }

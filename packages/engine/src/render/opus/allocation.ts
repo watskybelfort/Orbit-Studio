@@ -314,7 +314,7 @@ function interpBitsToPulses(input: InterpInput): AllocationResult {
     }
 
     let left = total - psum;
-    let percoeff = Math.floor(left / (ebands[codedBands]! - ebands[start]!));
+    let percoeff = Math.trunc(left / (ebands[codedBands]! - ebands[start]!));
     left -= (ebands[codedBands]! - ebands[start]!) * percoeff;
     const rem = Math.max(left - (ebands[j]! - ebands[start]!), 0);
     const bandWidth = ebands[codedBands]! - ebands[j]!;
@@ -372,7 +372,7 @@ function interpBitsToPulses(input: InterpInput): AllocationResult {
 
   // Lo que quede se reparte por coeficiente, y el resto de uno en uno.
   let left = total - psum;
-  const percoeff = Math.floor(left / (ebands[codedBands]! - ebands[start]!));
+  const percoeff = Math.trunc(left / (ebands[codedBands]! - ebands[start]!));
   left -= (ebands[codedBands]! - ebands[start]!) * percoeff;
   for (let j = start; j < codedBands; j++) {
     bits[j] = bits[j]! + percoeff * (ebands[j + 1]! - ebands[j]!);
@@ -407,7 +407,7 @@ function interpBitsToPulses(input: InterpInput): AllocationResult {
       if (bits[j]! + offset < (den * 2) << BITRES) offset += nClogN >> 2;
       else if (bits[j]! + offset < (den * 3) << BITRES) offset += nClogN >> 3;
 
-      ebits[j] = Math.max(0, Math.floor((bits[j]! + offset + (den << (BITRES - 1))) / (den << BITRES)));
+      ebits[j] = Math.max(0, Math.trunc((bits[j]! + offset + (den << (BITRES - 1))) / (den << BITRES)));
       // Que no se pase de lo que hay.
       if (channels * ebits[j]! > bits[j]! >> BITRES) ebits[j] = bits[j]! >> stereo >> BITRES;
       ebits[j] = Math.min(ebits[j]!, MAX_FINE_BITS);

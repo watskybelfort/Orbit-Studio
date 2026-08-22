@@ -68,13 +68,17 @@ function fracFromRange(nbitsTotal: number, rng: number): number {
     b = b * 2 + shift;
     r = shift ? Math.floor(r / 2) : r;
   }
-  return nbitsTotal * 8 - (l * 8 + b) + 1;
+  // Sin `+1`: un codificador recién creado declara 1 bit usado, que en octavos
+  // son exactamente 8. Un desplazamiento constante aquí es invisible en una ida
+  // y vuelta contra uno mismo —los dos lados lo comparten— pero descuadra TODAS
+  // las decisiones de presupuesto contra cualquier otro decodificador.
+  return nbitsTotal * 8 - (l * 8 + b);
 }
 
 // ── Encoder ──────────────────────────────────────────────────────────────────
 
 export class RangeEncoder {
-  private readonly buf: Uint8Array;
+  private buf: Uint8Array;
   /** Bytes escritos por delante (el flujo del range coder). */
   private offs = 0;
   /** Bytes escritos por detrás (el flujo de bits crudos). */
@@ -100,6 +104,46 @@ export class RangeEncoder {
 
   get busted(): boolean {
     return this.overflow;
+  }
+
+  /**
+   * Copia exacta del estado, para poder **probar dos codificaciones y quedarse
+   * con la mejor**.
+   *
+   * CELT lo necesita en la energía de banda: se codifica la trama prediciendo de
+   * la anterior y también sin predecir, y se elige la que salga mejor. Sin poder
+   * clonar habría que elegir a ciegas, y elegir mal deja la energía de la banda
+   * en un valor equivocado — que es de las cosas que peor se oyen.
+   */
+  clone(): RangeEncoder {
+    const copy = new RangeEncoder(this.buf.length);
+    copy.buf = Uint8Array.from(this.buf);
+    copy.offs = this.offs;
+    copy.endOffs = this.endOffs;
+    copy.endWindow = this.endWindow;
+    copy.endBits = this.endBits;
+    copy.val = this.val;
+    copy.rng = this.rng;
+    copy.rem = this.rem;
+    copy.ext = this.ext;
+    copy.nbitsTotal = this.nbitsTotal;
+    copy.overflow = this.overflow;
+    return copy;
+  }
+
+  /** Vuelca sobre este codificador el estado de otro. La vuelta de `clone`. */
+  restore(other: RangeEncoder): void {
+    this.buf.set(other.buf);
+    this.offs = other.offs;
+    this.endOffs = other.endOffs;
+    this.endWindow = other.endWindow;
+    this.endBits = other.endBits;
+    this.val = other.val;
+    this.rng = other.rng;
+    this.rem = other.rem;
+    this.ext = other.ext;
+    this.nbitsTotal = other.nbitsTotal;
+    this.overflow = other.overflow;
   }
 
   /**

@@ -293,7 +293,7 @@ export function computeQn(
   // El tope de arriba garantiza que en una partición estéreo con el ángulo al
   // máximo queden bits para al menos un pulso en el side; si no, se colapsaría
   // y encima no se le hace folding.
-  let qb = Math.min(b - pulseCap - (4 << BITRES), Math.floor((b + n2 * offset) / n2));
+  let qb = Math.min(b - pulseCap - (4 << BITRES), Math.trunc((b + n2 * offset) / n2));
   qb = Math.min(8 << BITRES, qb);
   if (qb < (1 << BITRES) >> 1) return 1;
   const qn = exp2Table8[qb & 0x7]! >> (14 - (qb >> BITRES));

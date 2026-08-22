@@ -288,7 +288,7 @@ export function quantBand(ctx: QuantContext, params: BandParams): number {
           );
         } else {
           const fs = ctx.dec!.decode(ft);
-          const v = fs < (x0 + 1) * p0 ? Math.floor(fs / p0) : x0 + 1 + (fs - (x0 + 1) * p0);
+          const v = fs < (x0 + 1) * p0 ? Math.trunc(fs / p0) : x0 + 1 + (fs - (x0 + 1) * p0);
           ctx.dec!.update(
             v <= x0 ? p0 * v : v - 1 - x0 + (x0 + 1) * p0,
             v <= x0 ? p0 * (v + 1) : v - x0 + (x0 + 1) * p0,
@@ -324,7 +324,7 @@ export function quantBand(ctx: QuantContext, params: BandParams): number {
           ctx.dec!.update(fl, fl + fs, ft);
         }
       }
-      itheta = Math.floor((itheta * 16384) / qn);
+      itheta = Math.trunc((itheta * 16384) / qn);
 
       if (ctx.encode && stereo) {
         if (itheta === 0) {
@@ -661,7 +661,11 @@ export function quantAllBands(
 
     let b = 0;
     if (i <= input.codedBands - 1) {
-      const currBalance = Math.floor(balance / Math.min(3, input.codedBands - i));
+      // `trunc` y NO `floor`: C trunca hacia cero al dividir enteros y
+      // JavaScript redondea hacia menos infinito. Con `balance` negativo —que
+      // pasa en cuanto una banda gasta de más— dan resultados distintos, y ahí
+      // se va la sincronía con cualquier decodificador que no sea el nuestro.
+      const currBalance = Math.trunc(balance / Math.min(3, input.codedBands - i));
       b = Math.max(0, Math.min(16383, Math.min(full.remainingBits + 1, input.pulses[i]! + currBalance)));
     }
 
