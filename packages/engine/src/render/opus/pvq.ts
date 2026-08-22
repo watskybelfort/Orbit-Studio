@@ -200,6 +200,27 @@ export function pvqSizeFromUrow(n: number, k: number): number {
 }
 
 /**
+ * `V(n, 0..maxK)` de una sola pasada.
+ *
+ * Pedir `pvqSize` en un bucle es cuadrático: cada llamada reconstruye la fila
+ * entera. Como el generador de la caché necesita justamente toda la fila, aquí
+ * se construye una vez — que es además lo que hace `ncwrs_urow` en la referencia.
+ */
+export function pvqSizeRow(n: number, maxK: number): Float64Array {
+  const out = new Float64Array(maxK + 1);
+  out[0] = 1;
+  if (maxK === 0) return out;
+  if (n === 0) return out; // V(0,k>0) = 0
+  if (n === 1) {
+    out.fill(2, 1);
+    return out;
+  }
+  const u = urow(n, maxK);
+  for (let k = 1; k <= maxK; k++) out[k] = u[k]! + u[k + 1]!;
+  return out;
+}
+
+/**
  * Numera un vector de pulsos. Devuelve un entero en `[0, V(n,k))`.
  *
  * Port de `icwrs`. El recorrido va de la ÚLTIMA coordenada hacia la primera,
