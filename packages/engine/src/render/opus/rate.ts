@@ -309,6 +309,26 @@ export function bandCap(cache: PulseCache, band: number, lm: number, channels: n
   return cache.caps[(lm * 2 + (channels - 1)) * cache.bands + band]!;
 }
 
+/**
+ * Techos por banda ya escalados, tal y como los espera el asignador.
+ *
+ * El `caps` de la caché guarda bits POR COEFICIENTE menos 64, para que quepa en
+ * un byte; aquí se deshace ese apaño. Port de `init_caps`.
+ */
+export function initCaps(
+  cache: PulseCache,
+  ebands: readonly number[],
+  lm: number,
+  channels: number,
+): Int32Array {
+  const out = new Int32Array(cache.bands);
+  for (let band = 0; band < cache.bands; band++) {
+    const width = (ebands[band + 1]! - ebands[band]!) << lm;
+    out[band] = ((bandCap(cache, band, lm, channels) + 64) * channels * width) >> 2;
+  }
+  return out;
+}
+
 /** El modo estándar de Opus a 48 kHz: 21 bandas, tramas de 120 a 960 muestras. */
 export const OPUS_EBANDS: readonly number[] = EBAND_5MS;
 export const OPUS_MAX_LM = 3;
