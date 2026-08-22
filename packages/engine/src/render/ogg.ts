@@ -65,7 +65,7 @@ export function lacing(size: number): number[] {
   return out;
 }
 
-interface PageInput {
+export interface PageInput {
   segments: number[];
   body: Uint8Array;
   granule: number;
@@ -74,7 +74,7 @@ interface PageInput {
   flags: number;
 }
 
-function writePage(page: PageInput): Uint8Array {
+export function writePage(page: PageInput): Uint8Array {
   const out = new Uint8Array(27 + page.segments.length + page.body.length);
   const view = new DataView(out.buffer);
   out.set(CAPTURE, 0);
@@ -247,7 +247,7 @@ export function encodeOggFlac(stream: FlacStream, options: OggFlacOptions = {}):
   return out;
 }
 
-/** Solo para tests: la bandera de "continúa" existe aunque aquí no se use. */
+/** Banderas de cabecera de página, para quien construya otro mapeo sobre Ogg. */
 export const OGG_FLAGS = {
   continued: HEADER_CONTINUED,
   bos: HEADER_BOS,
