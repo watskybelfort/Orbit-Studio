@@ -441,26 +441,37 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 #### Encoder Opus: qué hay hecho y qué falta
 
-Se está construyendo por fases, cada una verificable por sí sola. Lo hecho:
+Se está construyendo por fases, cada una verificable por sí sola. La referencia
+es la implementación normativa incluida en la **RFC 6716** (Apéndice A),
+extraída del propio documento y verificada por SHA-1
+(`86a927223e73d2476646a1b933fcd3fffb6ecc8c`).
 
 | Pieza | Cómo está verificada |
 |---|---|
-| **Range coder** (RFC 6716 §4.1) | Ida y vuelta exacta en ráfagas largas y mezcladas; 100.000 operaciones con 25 semillas |
-| **MDCT + ventana de CELT** | TDAC: ruido, seno, impulso y silencio vuelven enteros a 1e-11 en los cuatro tamaños de trama. Todo lo rápido se compara contra la definición directa |
+| **Range coder** (§4.1) | Ida y vuelta exacta en ráfagas mezcladas; 100.000 operaciones con 25 semillas |
+| **MDCT + ventana de CELT** | TDAC: ruido, seno, impulso y silencio vuelven enteros a 1e-11 en los cuatro tamaños. Todo lo rápido se compara contra la definición directa |
 | **FFT de radix mixto** | Contra la DFT directa. Hace falta porque los tamaños de Opus (120/240/480/960) **no son potencias de dos** |
-| **PVQ** | Enumeración **normativa** (port de `celt/cwrs.c`), con la cuenta `V` contrastada contra una recurrencia independiente, y biyección probada **agotando** todos los vectores para n≤5, k≤6 |
-| **Contenedor Ogg Opus** (RFC 7845) | **Bit a bit contra ffmpeg**: se le meten paquetes Opus reales, se repaginan con el muxer propio y el audio decodificado sale idéntico. `npx tsx tools/qa/ogg-opus-verify.ts` |
+| **PVQ** | Enumeración **normativa** (port de `cwrs.c`), con la cuenta `V` contrastada contra una recurrencia independiente y biyección probada **agotando** todos los vectores |
+| **Tablas de CELT** | 721 valores extraídos **con script** (`tools/opus-tables.ts`), con invariantes y firma por suma tabla a tabla |
+| **Caché de pulsos + log2 en coma fija** | Se **genera** desde `V(n,k)`; el logaritmo es exacto en potencias de dos y nunca se queda corto |
+| **Codificador Laplace** | Ida y vuelta con el modelo real de las 21 bandas y los 4 tamaños |
+| **Energía por bandas** (3 pasadas) | Diez tramas encadenadas: los dos lados acaban con el **mismo estado**, también con el paquete casi lleno |
+| **Asignador de bits** | Codificador y decodificador llegan al **mismo reparto** en mono, estéreo, 4 tamaños, 11 inclinaciones, dynalloc e histéresis |
+| **Bandas: energía/forma** | Separación sin pérdida, y la energía sobrevive aunque la forma se sustituya por otra |
+| **Contenedor Ogg Opus** (RFC 7845) | **Bit a bit contra ffmpeg**: `npx tsx tools/qa/ogg-opus-verify.ts` |
 
-Lo que falta es el ensamblador de tramas de CELT: la cuantización de energía por
-bandas, el asignador de bits y el pegado de todo eso al range coder. Esa parte
-arrastra **unas 1.500 constantes de la RFC 6716** (`band_allocation`,
-`e_prob_model`, `cache_bits`) que van transcritas exactas — inventarse una sola
-entrada da un archivo que no abre nadie.
+Falta el **ensamblador de trama**: `quant_band` (la cuantización PVQ por banda,
+con particiones recursivas y el ángulo de estéreo) y el flujo de trama que lo
+pega todo al range coder.
+
+> **Corrección a lo que decía antes esta tabla:** estimé «~1.500 constantes que
+> van transcritas exactas». Son **721**, y el grueso de aquella cifra —la caché
+> de pulsos— **no se transcribe: se genera** desde los bordes de banda y `V(n,k)`.
+> Menos superficie que copiar a ciegas y más que se puede verificar sola.
 
 > **El export a Opus no está disponible todavía**, y no lo estará hasta que
 > ffmpeg decodifique un archivo hecho entero por Orbit. Los cimientos pasan sus
-> tests, pero unos tests en verde no son un archivo que suene: mientras el
-> códec no esté completo, esto es infraestructura, no una función.
+> tests, pero unos tests en verde no son un archivo que suene.
 
 ### Horizonte
 
