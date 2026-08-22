@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.5.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-912%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.6.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-941%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,34 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.6.0 — "el cable también decide".** Del roadmap: hasta ahora el enrutado
+solo sumaba —un envío era «manda esto ahí con esta ganancia»— y el graph editor
+recableaba lo que el modelo ya sabía expresar. Ahora los envíos **procesan**.
+
+Cada uno elige tres cosas:
+
+- **De dónde toma la señal.** *Post-fader* (lo de siempre: bajar la pista baja
+  lo que mandas) o **pre-fader**, que es lo que hace posible una reverb que se
+  queda cuando cierras el fader, o una mezcla de auriculares con sus propias
+  proporciones. La toma va después de los efectos y el EQ: lo que viaja es el
+  sonido procesado de la pista, no el crudo.
+- **Qué parte manda.** Todo, el **centro** (mid), los **lados** (side), o un solo
+  canal. Mandar solo los lados a un bus con su compresor era, hasta hoy,
+  duplicar la pista y pelearse con las fases.
+- **Con qué polaridad.** Invertida, el envío **resta** en vez de sumar: los
+  trucos de paralelo y el null test de toda la vida, más pan y mute propios.
+
+Un envío que hace algo especial **se ve sin abrirlo** (una chapita `preSø` en el
+strip) y **el grafo dibuja lo que lleva cada cable**: discontinuo si toma antes
+del fader, más fino si va solo una parte, rojo si invierte. El grafo pasa de
+enseñar por dónde va la señal a enseñar *qué* va por ahí.
+
+Lo que se prueba de esto no es que «se oiga algo» sino **qué** se oye: los lados
+de una fuente centrada tienen que dar silencio, el centro de una fuente en
+contrafase también, y una pista sumada con su propia copia invertida tiene que
+cancelar. Si el kernel se equivoca de signo o de fórmula, eso falla al momento
+— y mirando la pantalla no se vería.
 
 **v2.5.0 — "una llave que caduca".** Se cierra el roadmap: la contraseña de sala
 cierra la puerta, pero compartirla es para siempre — quien la tiene entra hoy y
@@ -375,7 +403,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Nodos con más que enrutado** | El graph editor recablea lo que el modelo ya sabe expresar; meter procesos propios en el grafo (splits, sumas raras) es cambiar el motor |
 | **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
 | **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
 
@@ -393,7 +420,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 912 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 941 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

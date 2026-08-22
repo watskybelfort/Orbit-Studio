@@ -147,6 +147,9 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Recablear arrastrando de un puerto a otra pista: cambia la pista del canal, el `routeTo` o añade un envío. Un cable que cerraría un BUCLE se pinta en rojo y no se guarda (el compilador tolera los ciclos, pero lo que suena entonces no es lo que nadie quería) | v1.7 |
 | Doble clic en un cable lo devuelve al master (o quita el envío); el nivel del envío se arrastra desde su chapa; pan, zoom, "Ver todas" y encaje automático | v1.7 |
 
+| **Envíos que procesan, no solo enrutan**: cada envío elige de dónde toma la señal (**pre** o post-fader), **qué parte** manda (todo, centro/mid, lados/side, solo izquierdo o solo derecho), su **polaridad** (invertida = resta en vez de sumar), su pan y su mute. Un bus de lados con su compresor, una reverb que se queda al cerrar el fader o un null test dejan de pedir pistas duplicadas | v2.6 |
+| El envío marcado se ve sin abrirlo (chapa «preSø» en el strip) y **el grafo dibuja lo que lleva cada cable**: discontinuo si es pre, fino si va solo una parte, rojo si invierte | v2.6 |
+
 ## 6. Instrumentos incluidos
 
 | Instrumento | Qué es | Versión |
