@@ -33,6 +33,14 @@
   --ui-scale: 1;
   --font-ui: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
 
+  /*
+   * Los controles NATIVOS (el desplegable de un <select>, los scrollbars, el
+   * selector de color) los pinta el navegador, no nuestro CSS, y sin esto los
+   * pinta en claro: texto negro dentro de un popup que nosotros hemos pintado
+   * oscuro — invisible. Es lo único que hace legible la lista desplegada.
+   */
+  color-scheme: dark;
+
   /* ── Paleta oscura (defecto: también aplica sin data-theme) ── */
   --bg: #141518;
   --surface: #1c1e23;
@@ -40,6 +48,15 @@
   --text: #e8e9ec;
   --text-dim: #9a9da6;
   --border: #2e3138;
+
+  /*
+   * Fondo y texto de la lista de un <select> abierta. OPACOS a la fuerza: ese
+   * popup lo dibuja el sistema fuera de la ventana, así que no hay nada detrás
+   * que translucir. Con un token con alfa (el caso del tema acrílico) el
+   * navegador lo compone contra negro y la lista se queda ilegible.
+   */
+  --select-bg: #24262c;
+  --select-text: #e8e9ec;
 
   /* Barra de título */
   --titlebar-bg: #1c1e23;
@@ -72,12 +89,17 @@ html[data-theme='dark'] {
 
 /* ── Claro ────────────────────────────────────────────────────────────────── */
 html[data-theme='light'] {
+  color-scheme: light;
+
   --bg: #f4f5f7;
   --surface: #ffffff;
   --surface-2: #eceef1;
   --text: #17181c;
   --text-dim: #5f6470;
   --border: #d8dbe1;
+
+  --select-bg: #ffffff;
+  --select-text: #17181c;
 
   --titlebar-bg: #eceef1;
   --titlebar-hover: rgba(0, 0, 0, 0.07);
@@ -96,12 +118,19 @@ html[data-theme='light'] {
       transparente no hay píxeles que muestrear; dentro de la página sí.
       PROHIBIDO en la raíz o en paneles grandes. */
 html[data-theme='acrylic'] {
+  /* El acrílico es un tema OSCURO con vidrio: los controles nativos van en
+     oscuro, y su popup en opaco (ver --select-bg arriba). */
+  color-scheme: dark;
+
   --bg: color-mix(in srgb, var(--glass-tint) calc(var(--glass-alpha) * 100%), transparent);
   --surface: rgba(255, 255, 255, 0.04);
   --surface-2: rgba(255, 255, 255, 0.06);
   --text: #e8e9ec;
   --text-dim: #a6a9b2;
   --border: rgba(255, 255, 255, 0.09);
+
+  --select-bg: #22242a;
+  --select-text: #e8e9ec;
 
   /* La barra de título es región propia (no se solapa con el main):
      puede llevar su tinte sin acumular alfa. */

@@ -82,3 +82,22 @@ button {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* ── Listas desplegables de los <select> ──
+   Una regla global y no una por editor: hay dieciséis selects repartidos por
+   la app y el popup es del sistema, así que no lo arregla el CSS del panel que
+   lo contiene. El color va explícito —no heredado— porque el navegador pinta
+   el texto de las <option> con SU color por defecto en cuanto la lista sale de
+   la ventana; y el fondo es opaco porque ahí fuera no hay vidrio que translucir
+   (con un token con alfa, la lista sale negra sobre negro). */
+select option,
+select optgroup {
+  background-color: var(--select-bg);
+  color: var(--select-text);
+}
+
+/* La opción deshabilitada se apaga, pero sigue leyéndose: es la que explica por
+   qué no se puede elegir. */
+select option:disabled {
+  color: var(--text-dim);
+}
