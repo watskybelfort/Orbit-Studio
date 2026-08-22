@@ -10,6 +10,7 @@ import {
   findNovaPreset,
   findPrismaPreset,
   paramRefKey,
+  resolveSend,
   paramRefNorm,
   paramRefValue,
   type AutomationPoint,
@@ -290,7 +291,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     audible: i === 0 ? true : anyMixerSolo ? t.solo : !t.mute,
     slots: t.slots.map((s) => (s ? compileEffect(s) : null)),
     routeTo: t.routeTo,
-    sends: t.sends.map((s) => ({ ...s })),
+    // Resueltos AQUÍ y una sola vez: el kernel recibe envíos completos y no
+    // tiene que conocer los valores por defecto del modelo.
+    sends: t.sends.map((s) => resolveSend(s)),
   }));
 
   const events: CompiledNoteEvent[] = [];

@@ -365,11 +365,43 @@ export interface EffectSlot {
 
 export const MIXER_SLOTS = 10;
 
+/**
+ * Dónde se toma la señal que viaja por un envío.
+ *
+ * `post` (por defecto) es después del fader: bajar la pista baja también lo que
+ * mandas. `pre` es antes, que es lo que hace posible una reverb que se queda
+ * cuando cierras el fader, o una mezcla de auriculares con sus propias
+ * proporciones.
+ */
+export type SendTap = 'post' | 'pre';
+
+/**
+ * Qué parte de la señal viaja.
+ *
+ * Esto es lo que convierte un envío en un proceso y no en un cable: mandar solo
+ * los LADOS de una pista a un bus con su compresor es una decisión de mezcla que
+ * antes había que montar duplicando la pista.
+ */
+export type SendPart = 'stereo' | 'mid' | 'side' | 'left' | 'right';
+
 export interface Send {
   /** Índice de pista destino. */
   target: number;
   /** Ganancia lineal 0..2. */
   level: number;
+  /** Antes o después del fader. Ausente = 'post', como siempre. */
+  tap?: SendTap;
+  /** Qué parte de la señal se manda. Ausente = 'stereo'. */
+  part?: SendPart;
+  /**
+   * Polaridad invertida. Con esto el envío RESTA en vez de sumar: es la
+   * herramienta de los trucos de paralelo y de comprobar cancelaciones.
+   */
+  invert?: boolean;
+  /** Pan propio del envío (-1..1). Ausente = centrado. */
+  pan?: number;
+  /** Silenciado sin perder sus ajustes. */
+  mute?: boolean;
 }
 
 export interface MixerTrack {

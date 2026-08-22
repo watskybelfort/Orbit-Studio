@@ -77,6 +77,15 @@ export class KernelCore {
   private lastR: Float32Array[] = [];
   private dryL = new Float32Array(MAX_BLOCK);
   private dryR = new Float32Array(MAX_BLOCK);
+  /**
+   * Copia de la señal ANTES del fader, para los envíos pre.
+   *
+   * Un par y no uno por pista: los envíos de una pista se resuelven dentro de
+   * su propia vuelta del bucle, así que cuando le toca a la siguiente ya nadie
+   * mira esto. Reservar 26 pares sería malgastar memoria del worklet.
+   */
+  private preL = new Float32Array(MAX_BLOCK);
+  private preR = new Float32Array(MAX_BLOCK);
   private effects = new Map<string, EffectUnit>();
   /** EQ de strip por pista (se crea con los buffers, uno por pista). */
   private trackEq: StripEq[] = [];
@@ -1275,9 +1284,17 @@ export class KernelCore {
       const bl = this.bufL[t]!;
       const br = this.bufR[t]!;
 
+      // Pre-fader es antes del FADER, no antes del mute: una pista silenciada
+      // no manda nada por ningún sitio, que es lo que uno espera al muteala.
+      const needsPre = track.sends.some((send) => send.tap === 'pre' && !send.mute);
+
       if (!track.audible) {
         bl.fill(0, 0, n);
         br.fill(0, 0, n);
+        if (needsPre) {
+          this.preL.fill(0, 0, n);
+          this.preR.fill(0, 0, n);
+        }
       } else {
         // Slots de efectos
         for (let s = 0; s < track.slots.length; s++) {
@@ -1308,6 +1325,20 @@ export class KernelCore {
         if (eq && (track.eqLow !== 0 || track.eqMid !== 0 || track.eqHigh !== 0)) {
           eq.update(track.eqLow, track.eqMid, track.eqHigh, this.sr);
           eq.process(bl, br, n);
+        }
+
+        /*
+         * Toma pre-fader. Se copia justo aquí —después de efectos y EQ, antes
+         * de width/pan/volumen— porque eso es lo que significa "pre-fader" en
+         * una mesa: la reverb que se queda cuando cierras el fader sigue
+         * llevando el sonido procesado de la pista, no el crudo.
+         *
+         * Solo se copia si alguien la va a usar: es un memcpy por pista y por
+         * bloque, y casi ninguna sesión tiene envíos pre.
+         */
+        if (needsPre) {
+          this.preL.set(bl.subarray(0, n));
+          this.preR.set(br.subarray(0, n));
         }
 
         // Width / pan / volumen
@@ -1381,13 +1412,66 @@ export class KernelCore {
           dr[i]! += br[i]!;
         }
       }
+      /*
+       * Envíos. Ya no son "suma esto con esta ganancia": cada uno decide de
+       * dónde toma la señal, qué parte de ella manda y con qué polaridad, que
+       * es lo que los convierte en un proceso del enrutado.
+       *
+       * `mid` y `side` son la descomposición de siempre (m = (L+R)/2,
+       * s = (L−R)/2). El side se reconstruye en estéreo como +s / −s: así, un
+       * bus de lados suena a lo que se sale del centro, y devolverlo con la
+       * polaridad invertida cancela justo esa parte.
+       *
+       * `left` y `right` salen en MONO a las dos salidas: se extrae un canal
+       * para tratarlo, y dejarlo pegado a su lado obligaría a corregir el pan
+       * en el destino.
+       */
       for (const send of track.sends) {
+        if (send.mute || send.level === 0) continue;
         const dl = this.bufL[send.target];
         const dr = this.bufR[send.target];
         if (!dl || !dr) continue;
-        for (let i = 0; i < n; i++) {
-          dl[i]! += bl[i]! * send.level;
-          dr[i]! += br[i]! * send.level;
+        const sl = send.tap === 'pre' ? this.preL : bl;
+        const sr = send.tap === 'pre' ? this.preR : br;
+        const gain = send.invert ? -send.level : send.level;
+        // Pan del envío con la misma ley de potencia constante que el strip.
+        const p = send.pan;
+        const gl = p === 0 ? gain : gain * Math.cos(((p + 1) / 4) * Math.PI) * 1.414;
+        const gr = p === 0 ? gain : gain * Math.sin(((p + 1) / 4) * Math.PI) * 1.414;
+
+        switch (send.part) {
+          case 'mid':
+            for (let i = 0; i < n; i++) {
+              const m = (sl[i]! + sr[i]!) * 0.5;
+              dl[i]! += m * gl;
+              dr[i]! += m * gr;
+            }
+            break;
+          case 'side':
+            for (let i = 0; i < n; i++) {
+              const sd = (sl[i]! - sr[i]!) * 0.5;
+              dl[i]! += sd * gl;
+              dr[i]! += -sd * gr;
+            }
+            break;
+          case 'left':
+            for (let i = 0; i < n; i++) {
+              dl[i]! += sl[i]! * gl;
+              dr[i]! += sl[i]! * gr;
+            }
+            break;
+          case 'right':
+            for (let i = 0; i < n; i++) {
+              dl[i]! += sr[i]! * gl;
+              dr[i]! += sr[i]! * gr;
+            }
+            break;
+          default:
+            for (let i = 0; i < n; i++) {
+              dl[i]! += sl[i]! * gl;
+              dr[i]! += sr[i]! * gr;
+            }
+            break;
         }
       }
     }

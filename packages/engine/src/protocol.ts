@@ -87,7 +87,21 @@ export interface CompiledMixerTrack {
   audible: boolean; // mute/solo resueltos
   slots: (CompiledEffect | null)[];
   routeTo: number | null;
-  sends: { target: number; level: number }[];
+  /**
+   * Envíos ya resueltos por el compilador: el kernel no adivina valores por
+   * defecto (si lo hiciera, un `.orbit` viejo podría sonar distinto de lo que
+   * pinta la UI, que resuelve con `resolveSend`).
+   */
+  sends: {
+    target: number;
+    level: number;
+    /** 'pre' toma la señal antes del fader. */
+    tap: 'post' | 'pre';
+    part: 'stereo' | 'mid' | 'side' | 'left' | 'right';
+    invert: boolean;
+    pan: number;
+    mute: boolean;
+  }[];
 }
 
 export interface CompiledAutomationEvent {
