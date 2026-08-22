@@ -23,6 +23,7 @@ import type {
   Project,
   ProjectMeta,
   SampleRef,
+  Send,
   TimeSig,
 } from './model/types';
 import { CHANNEL_SLOTS } from './model/types';
@@ -128,6 +129,18 @@ export type Command =
     }
   | { type: 'setEffectParam'; trackIndex: number; slotIndex: number; key: string; value: number }
   | { type: 'setSend'; trackIndex: number; target: number; level: number | null }
+  /**
+   * Cambia CÓMO es un envío (de dónde toma, qué parte lleva, polaridad, pan,
+   * mute) sin tocar su nivel. Aparte de `setSend` porque ese usa `level: null`
+   * para borrar el envío, y "quitarle el mute" no puede compartir camino con
+   * "quítalo entero".
+   */
+  | {
+      type: 'patchSend';
+      trackIndex: number;
+      target: number;
+      patch: Partial<Omit<Send, 'target'>>;
+    }
   | { type: 'setRoute'; trackIndex: number; routeTo: number | null }
   // Samples
   | { type: 'registerSample'; sample: SampleRef }
@@ -683,6 +696,23 @@ export function applyCommand(project: Project, cmd: Command): Command {
         track.sends.push({ target: cmd.target, level: cmd.level });
       }
       return { type: 'setSend', trackIndex: cmd.trackIndex, target: cmd.target, level: oldLevel };
+    }
+    case 'patchSend': {
+      const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
+      const send = track.sends.find((s) => s.target === cmd.target);
+      // Un envío que ya no existe (lo quitó otro, o llegó tarde de la sala) no
+      // se recrea a medias: el patch se cae y el inverso no toca nada.
+      if (!send) {
+        return { type: 'patchSend', trackIndex: cmd.trackIndex, target: cmd.target, patch: {} };
+      }
+      const inverse: Command = {
+        type: 'patchSend',
+        trackIndex: cmd.trackIndex,
+        target: cmd.target,
+        patch: pickOld(send, cmd.patch),
+      };
+      Object.assign(send, cmd.patch);
+      return inverse;
     }
     case 'setRoute': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);

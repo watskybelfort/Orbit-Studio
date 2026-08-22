@@ -319,6 +319,7 @@ export function describeCommand(cmd: Command): string {
     case 'setEffect': return cmd.slot ? 'Insertar efecto' : 'Quitar efecto';
     case 'patchEffect': return 'Efecto';
     case 'setEffectParam': return `Efecto: ${cmd.key}`;
+    case 'patchSend': return 'Ajustar send';
     case 'setSend': return 'Send';
     case 'setRoute': return 'Routing';
     case 'registerSample': return `Sample "${cmd.sample.name}"`;

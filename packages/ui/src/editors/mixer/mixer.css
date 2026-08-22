@@ -251,11 +251,40 @@
 .send-label {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: none;
+  font: inherit;
   font-size: 10px;
   color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+  cursor: pointer;
+}
+
+.send-label:hover {
+  color: var(--text);
+}
+
+/* Un envío que hace algo más que llevar la señal se marca: si no, la única
+   forma de saber que ese send manda solo los lados sería abrirlo. */
+.send-label.shaped {
+  color: var(--accent);
+}
+
+.send-tag {
+  flex: none;
+  padding: 0 3px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.3px;
+  opacity: 0.9;
 }
 
 .send-del {
@@ -509,4 +538,71 @@
   letter-spacing: 0.04em;
   color: var(--text-dim);
   margin-right: 2px;
+}
+
+/* ── Panel de "qué lleva este envío" ── */
+
+.send-menu {
+  width: 260px;
+  padding: 8px 10px 10px;
+}
+
+.send-menu-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.send-menu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.send-menu-row select,
+.send-menu-row input[type='range'] {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 11px;
+}
+
+.send-menu-row select {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 4px;
+}
+
+/* La nota explica QUÉ hace lo elegido, que es lo que no se adivina de un
+   nombre como "mid" o "pre". */
+.send-menu-note {
+  margin: 0 0 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--text-dim);
+  opacity: 0.85;
+}
+
+.send-menu-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+
+.send-menu-summary {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--accent);
 }

@@ -23,13 +23,24 @@ import {
   EFFECT_LABELS,
   EFFECT_PARAMS,
   MIXER_SLOTS,
+  SEND_PARTS,
+  SEND_PART_LABELS,
+  SEND_PART_SHORT,
+  SEND_TAPS,
+  SEND_TAP_LABELS,
   defaultEffectParams,
+  describeSend,
+  resolveSend,
+  sendIsShaped,
   gainToDb,
   newId,
   type EffectKind,
   type EffectSlot,
   type MixerTrack,
   type ParamSpec,
+  type Send,
+  type SendPart,
+  type SendTap,
 } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
@@ -741,6 +752,13 @@ function ChainPanel({
     y: number;
     anchor: Element;
   } | null>(null);
+  /** Qué envío tiene abierto su panel de "qué lleva". */
+  const [sendMenu, setSendMenu] = useState<{
+    x: number;
+    y: number;
+    trackIndex: number;
+    target: number;
+  } | null>(null);
   const plugins = usePluginsStore((s) => s.plugins);
   const capturing = useTrackCapture((s) => s.trackIndex === trackIndex);
   const captureSeconds = useTrackCapture((s) => s.seconds);
@@ -929,9 +947,29 @@ function ChainPanel({
         <div className="mixer-sends">
           {track.sends.map((s) => (
             <div key={s.target} className="send-row">
-              <span className="send-label" title={`Send hacia ${trackLabel(s.target, mixer)}`}>
+              {/* La etiqueta abre lo que el envío ES. El strip mide 88 px: los
+                  cinco controles no caben en la fila, y meterlos escondería el
+                  nivel, que es lo que se toca a diario. */}
+              <button
+                className={`send-label${sendIsShaped(s) ? ' shaped' : ''}`}
+                title={
+                  describeSend(s)
+                    ? `Send hacia ${trackLabel(s.target, mixer)} — ${describeSend(s)}`
+                    : `Send hacia ${trackLabel(s.target, mixer)}. Clic para elegir qué lleva.`
+                }
+                onClick={(e) =>
+                  setSendMenu({ x: e.clientX, y: e.clientY, trackIndex, target: s.target })
+                }
+              >
                 → {trackLabel(s.target, mixer)}
-              </span>
+                {sendIsShaped(s) && (
+                  <span className="send-tag">
+                    {resolveSend(s).tap === 'pre' ? 'pre' : ''}
+                    {SEND_PART_SHORT[resolveSend(s).part]}
+                    {resolveSend(s).invert ? 'ø' : ''}
+                  </span>
+                )}
+              </button>
               <Knob
                 value={s.level}
                 min={0}
@@ -1046,6 +1084,18 @@ function ChainPanel({
           );
         })}
       </div>
+      {sendMenu && (
+        <SendMenu
+          x={sendMenu.x}
+          y={sendMenu.y}
+          trackIndex={sendMenu.trackIndex}
+          send={
+            mixer[sendMenu.trackIndex]?.sends.find((s) => s.target === sendMenu.target) ?? null
+          }
+          label={trackLabel(sendMenu.target, mixer)}
+          onClose={() => setSendMenu(null)}
+        />
+      )}
       {fxMenu && (
         <FloatingMenu
           x={fxMenu.x}
@@ -1238,5 +1288,117 @@ export function Mixer() {
         </FloatingMenu>
       )}
     </div>
+  );
+}
+
+
+/**
+ * Qué lleva un envío: de dónde toma la señal, qué parte y con qué polaridad.
+ *
+ * En un menú flotante y no en el strip porque el strip mide 88 px de ancho:
+ * cinco controles más ahí dentro esconderían el nivel, que es lo que se toca a
+ * diario. Aquí se entra a decidir, no a mezclar.
+ */
+function SendMenu({
+  x,
+  y,
+  trackIndex,
+  send,
+  label,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  trackIndex: number;
+  send: Send | null;
+  label: string;
+  onClose: () => void;
+}) {
+  if (!send) return null;
+  const r = resolveSend(send);
+  const patch = (p: Partial<Omit<Send, 'target'>>, what: string): void => {
+    store.dispatch(
+      { type: 'patchSend', trackIndex, target: send.target, patch: p },
+      { label: `Send: ${what}` },
+    );
+  };
+
+  return (
+    <MenuPortal anchor={null} x={x} y={y} onClose={onClose} className="param-menu send-menu">
+      <div className="send-menu-title">Send → {label}</div>
+
+      <label className="send-menu-row">
+        Toma
+        <select
+          value={r.tap}
+          onChange={(e) => patch({ tap: e.target.value as SendTap }, 'toma')}
+        >
+          {SEND_TAPS.map((tap) => (
+            <option key={tap} value={tap}>
+              {SEND_TAP_LABELS[tap]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="send-menu-note">
+        {r.tap === 'pre'
+          ? 'Antes del fader: lo que mandas se queda aunque cierres la pista (pero no si la muteas).'
+          : 'Después del fader: bajar la pista baja también lo que mandas.'}
+      </p>
+
+      <label className="send-menu-row">
+        Manda
+        <select
+          value={r.part}
+          onChange={(e) => patch({ part: e.target.value as SendPart }, 'parte')}
+        >
+          {SEND_PARTS.map((part) => (
+            <option key={part} value={part}>
+              {SEND_PART_LABELS[part]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="send-menu-note">
+        {r.part === 'side'
+          ? 'Solo lo que se sale del centro: tratar los lados sin tocar lo que va en medio.'
+          : r.part === 'mid'
+            ? 'Solo el centro: la voz y el bombo sin lo que abre la imagen.'
+            : r.part === 'stereo'
+              ? 'La señal entera, como siempre.'
+              : 'Ese canal, en mono a las dos salidas.'}
+      </p>
+
+      <label className="send-menu-row">
+        Pan
+        <input
+          type="range"
+          min={-1}
+          max={1}
+          step={0.05}
+          value={r.pan}
+          onChange={(e) => patch({ pan: Number(e.target.value) }, 'pan')}
+        />
+      </label>
+
+      <label className="send-menu-check">
+        <input
+          type="checkbox"
+          checked={r.invert}
+          onChange={(e) => patch({ invert: e.target.checked }, 'polaridad')}
+        />
+        Invertir la polaridad (resta en vez de sumar)
+      </label>
+      <label className="send-menu-check">
+        <input
+          type="checkbox"
+          checked={r.mute}
+          onChange={(e) => patch({ mute: e.target.checked }, 'mute')}
+        />
+        Silenciar este envío
+      </label>
+
+      {describeSend(send) !== '' && <div className="send-menu-summary">{describeSend(send)}</div>}
+    </MenuPortal>
   );
 }
