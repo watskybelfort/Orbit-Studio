@@ -437,41 +437,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Encoder Opus propio** | **En marcha**: los cimientos están puestos y verificados (ver abajo). Falta el ensamblador de tramas de CELT y sus tablas de la RFC |
-
-#### Encoder Opus: qué hay hecho y qué falta
-
-Se está construyendo por fases, cada una verificable por sí sola. La referencia
-es la implementación normativa incluida en la **RFC 6716** (Apéndice A),
-extraída del propio documento y verificada por SHA-1
-(`86a927223e73d2476646a1b933fcd3fffb6ecc8c`).
-
-| Pieza | Cómo está verificada |
-|---|---|
-| **Range coder** (§4.1) | Ida y vuelta exacta en ráfagas mezcladas; 100.000 operaciones con 25 semillas |
-| **MDCT + ventana de CELT** | TDAC: ruido, seno, impulso y silencio vuelven enteros a 1e-11 en los cuatro tamaños. Todo lo rápido se compara contra la definición directa |
-| **FFT de radix mixto** | Contra la DFT directa. Hace falta porque los tamaños de Opus (120/240/480/960) **no son potencias de dos** |
-| **PVQ** | Enumeración **normativa** (port de `cwrs.c`), con la cuenta `V` contrastada contra una recurrencia independiente y biyección probada **agotando** todos los vectores |
-| **Tablas de CELT** | 721 valores extraídos **con script** (`tools/opus-tables.ts`), con invariantes y firma por suma tabla a tabla |
-| **Caché de pulsos + log2 en coma fija** | Se **genera** desde `V(n,k)`; el logaritmo es exacto en potencias de dos y nunca se queda corto |
-| **Codificador Laplace** | Ida y vuelta con el modelo real de las 21 bandas y los 4 tamaños |
-| **Energía por bandas** (3 pasadas) | Diez tramas encadenadas: los dos lados acaban con el **mismo estado**, también con el paquete casi lleno |
-| **Asignador de bits** | Codificador y decodificador llegan al **mismo reparto** en mono, estéreo, 4 tamaños, 11 inclinaciones, dynalloc e histéresis |
-| **Bandas: energía/forma** | Separación sin pérdida, y la energía sobrevive aunque la forma se sustituya por otra |
-| **Contenedor Ogg Opus** (RFC 7845) | **Bit a bit contra ffmpeg**: `npx tsx tools/qa/ogg-opus-verify.ts` |
-
-Falta el **ensamblador de trama**: `quant_band` (la cuantización PVQ por banda,
-con particiones recursivas y el ángulo de estéreo) y el flujo de trama que lo
-pega todo al range coder.
-
-> **Corrección a lo que decía antes esta tabla:** estimé «~1.500 constantes que
-> van transcritas exactas». Son **721**, y el grueso de aquella cifra —la caché
-> de pulsos— **no se transcribe: se genera** desde los bordes de banda y `V(n,k)`.
-> Menos superficie que copiar a ciegas y más que se puede verificar sola.
-
-> **El export a Opus no está disponible todavía**, y no lo estará hasta que
-> ffmpeg decodifique un archivo hecho entero por Orbit. Los cimientos pasan sus
-> tests, pero unos tests en verde no son un archivo que suene.
+| **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera; le faltan las decisiones finas (postfiltro, transitorios, dispersión adaptativa) que lo acercarían a libopus en calidad por bit |
 
 ### Horizonte
 
@@ -480,6 +446,47 @@ pega todo al range coder.
 | **Puente CLAP / VST3** | Necesita un host nativo con GUI embebida: proyecto aparte, no un rato |
 | **Export a OGG** | Ya está: el `.ogg` de Orbit es **Ogg FLAC**, sin pérdida y del encoder propio. El contenedor **Ogg Opus** también está escrito y validado; lo que falta para un `.opus` es el códec |
 | **Export de vídeo para visuales** | Fuera del alcance del DAW hasta que el resto esté redondo |
+
+## Encoder Opus propio
+
+Orbit exporta `.opus` con un **códec escrito entero en casa**: range coder,
+MDCT, PVQ, cuantización de energía, asignador de bits y contenedor Ogg. Sin
+librerías de terceros.
+
+La referencia es la implementación normativa incluida en la **RFC 6716**
+(Apéndice A), extraída del propio documento y verificada por SHA-1
+(`86a927223e73d2476646a1b933fcd3fffb6ecc8c`). Las 721 constantes del formato no
+están copiadas a mano: las extrae `tools/opus-tables.ts` del fuente, con
+aserciones de tamaño e invariantes.
+
+### Que funciona no es una opinión
+
+```bash
+npx tsx tools/qa/opus-verify.ts
+```
+
+Genera audio, lo codifica con Orbit y se lo da a **ffmpeg** para que lo
+decodifique. Doce configuraciones —mono y estéreo, tramas de 2,5 a 20 ms, de 32
+a 256 kbps— con correlación **0,997 a 1,000** contra el original, retardo cero y
+ganancia 1,000.
+
+Esa comprobación externa existe por una razón muy concreta, y hay dos bugs de
+esta implementación que la justifican: una división entera que redondeaba hacia
+−∞ donde C trunca hacia cero, y un `+1` de más en la cuenta de bits gastados.
+Los dos lados de Orbit compartían el error, así que la ida y vuelta contra
+nuestro propio decodificador pasaba en verde mientras el archivo era ilegible
+para cualquier otro. Ningún test interno los habría pillado. **Sólo los vio
+ffmpeg.**
+
+### Lo que todavía no hace
+
+El encoder toma las decisiones conservadoras: sin postfiltro, sin detección de
+transitorios y con dispersión fija. Eso son **decisiones**, no sintaxis — dan un
+archivo válido que suena algo peor que el de libopus a igualdad de bits, no uno
+roto. Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus
+vecinas, sin el cual un tono puro suena sucio a bitrate medio) y la elección
+intra/inter de la energía, que se decide **codificando las dos y quedándose con
+la que menos recorta**.
 
 ## Arranque rápido (desarrollo)
 
