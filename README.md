@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.6.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-941%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.7.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-964%20passing-7ce65a)
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -70,6 +70,40 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v2.7.0 — "quién firma esto".** Del roadmap. La galería trae código de terceros
+y lo único que la protegía era que ese código **no se ejecuta** para saber qué es
+(parseo estático) y que corre aislado. Eso limita el daño, pero no dice nada de
+si lo que te llega es lo que el autor publicó: un CDN comprometido o un repo con
+permisos de más cambian el archivo y nadie se entera.
+
+Ahora un índice puede ir **firmado**, y la firma cubre el **hash de cada
+plugin** — así la cadena llega hasta el código: al instalar, la app baja el
+archivo, lo hashea y lo compara. Si no cuadra, no se guarda, aunque la URL sea la
+correcta y el servidor conteste 200.
+
+El modelo de confianza es el de SSH: **no hay autoridad que valide a nadie**
+(cualquiera puede generar una clave y firmar lo suyo), así que lo que aporta la
+firma no es «esto es bueno» sino «esto lo publicó **el mismo de siempre**». La
+app acepta la primera clave que ve, la fija y exige que no cambie. Un cambio de
+clave no es un aviso: **es un alto** — la lista de plugins desaparece hasta que
+una persona compare las dos huellas y decida. Y una galería que estaba firmada y
+llega sin firma cuenta igual, porque quitar la firma es justo el ataque que esto
+corta.
+
+Lo que se firma no son los bytes del JSON —reformatearlo lo rompería sin que
+nadie haya hecho nada malo— sino una cadena canónica con los campos ya validados
+y los plugins ordenados por id. Está probado en las dos direcciones: cambiar la
+URL de un plugin invalida la firma, y re-serializar el JSON entero no.
+
+Y hay con qué publicar: `tools/gallery-sign.ts` genera el par de claves y firma
+un índice (bajando cada plugin para hashearlo), importando la misma
+canonicalización que usa la app — no una copia que pueda desviarse.
+
+> La firma **no vuelve seguro el código**. Un plugin firmado puede ser igual de
+> malo que uno sin firmar: garantiza autoría e integridad, y de lo que el plugin
+> haga siguen protegiéndote el sandbox y el bypass. Eso se dice también en la
+> propia pantalla.
 
 **v2.6.0 — "el cable también decide".** Del roadmap: hasta ahora el enrutado
 solo sumaba —un envío era «manda esto ahí con esta ganancia»— y el graph editor
@@ -403,7 +437,6 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Galería con firma** | La galería ya trae plugins de terceros; que el índice vaya firmado es lo que falta para confiar en uno que no conoces |
 | **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
 
 ### Horizonte
@@ -420,7 +453,7 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 941 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 964 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 

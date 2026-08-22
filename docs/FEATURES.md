@@ -400,6 +400,8 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Galería de plugins de la comunidad en el browser | v1+ |
 | Puente CLAP / VST3 vía proceso host nativo (necesita host nativo con GUI embebida: proyecto aparte) | v1+ |
 
+| **Galería firmada** (v2.7): el índice puede ir firmado (ECDSA P-256) y la firma cubre el **hash de cada plugin**, así que al instalar se comprueba que el archivo es exactamente el que se publicó. Confianza al primer uso, como SSH: la primera clave queda aceptada y un cambio **para la galería en seco** hasta que alguien compare las huellas. `tools/gallery-sign.ts` es el otro lado (generar clave y firmar) | v2.7 |
+
 ## 17. Rendimiento y fiabilidad
 
 | Función | Versión |

@@ -71,6 +71,82 @@ los proyectos que lo usan (mostrarán «Plugin no encontrado»).
 - Al **exportar**, las fuentes de los plugins usados viajan al render offline:
   el WAV suena igual que en vivo.
 
+## Galería firmada (v2.7)
+
+Una galería es un JSON publicado donde sea. Eso significa que el archivo viaja
+por una red y se sirve desde un sitio que no controla quien lo escribió: un CDN
+comprometido, un DNS envenenado o un repo con permisos de más pueden cambiar lo
+que baja. Desde v2.7 el índice puede ir **firmado**.
+
+```jsonc
+{
+  "name": "Galería de Ana",
+  "plugins": [
+    {
+      "id": "tremolo",
+      "name": "Tremolo suave",
+      "url": "https://ana.example/tremolo.js",
+      // SHA-256 del archivo, en base64. Es lo que ata la firma al código.
+      "sha256": "Bdi…="
+    }
+  ],
+  "signature": {
+    "alg": "ECDSA-P256-SHA256",
+    "key": "MFkwEwYHKoZIzj0…",   // clave pública (SPKI, base64)
+    "sig": "MEUCIQ…",             // firma (raw r||s, base64)
+    "signedAt": 1755800000000
+  }
+}
+```
+
+**Qué se firma.** No los bytes del JSON —reformatearlo lo rompería sin que nadie
+haya hecho nada malo— sino una cadena canónica construida con los campos ya
+validados y los plugins **ordenados por id**:
+
+```
+orbit-gallery-v1
+name:<nombre>
+description:<descripción>
+plugin:<id>|<url>|<sha256>
+plugin:…
+```
+
+Lo que no está en esa cadena **no está firmado**. Y como el `sha256` sí lo está,
+la cadena llega hasta el código: al instalar, la app baja el archivo, lo hashea
+y lo compara. Si no cuadra, no se guarda — da igual que la URL sea la correcta.
+
+**El modelo de confianza es el de SSH.** No hay autoridad que valide a nadie:
+cualquiera puede generar una clave y firmar lo suyo. Lo que aporta la firma no
+es «esto es bueno», sino «esto lo publicó **el mismo de siempre**». La app
+acepta la primera clave que ve, la fija, y a partir de ahí exige que no cambie.
+Un cambio de clave **no es un aviso, es un alto**: la lista de plugins
+desaparece hasta que una persona compare las dos huellas y decida. Una galería
+que estaba firmada y llega sin firma cuenta igual, porque quitar la firma es
+justo el ataque que esto corta.
+
+> **La firma no vuelve seguro el código.** Un plugin firmado puede ser igual de
+> malo que uno sin firmar: lo que garantiza es la autoría y que nadie lo tocó
+> por el camino. Todo lo de «Seguridad y robustez» de arriba sigue siendo lo que
+> te protege de lo que el plugin haga.
+
+**Publicar una galería firmada:**
+
+```bash
+npx tsx tools/gallery-sign.ts keygen > mi-clave.json   # guarda esto a buen recaudo
+npx tsx tools/gallery-sign.ts sign galeria.json mi-clave.json
+```
+
+`sign` baja cada plugin, calcula su hash, lo escribe en el índice y firma el
+resultado — a propósito descarga: lo que se firma tiene que ser lo que hay
+**ahora** en esas URLs. Publica también la **huella** de tu clave (`keygen` la
+imprime) donde la gente pueda comprobarla; es lo que van a mirar la primera vez.
+
+Para comprobar un índice sin abrir la app, con el mismo código que usa ella:
+
+```bash
+npx tsx tools/qa/gallery-verify.ts galeria.json
+```
+
 ## Ejemplo completo: tremolo
 
 Guarda esto como `tremolo.js` en la carpeta de plugins y reinicia la app:
