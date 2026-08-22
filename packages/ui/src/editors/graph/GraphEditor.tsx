@@ -19,11 +19,30 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { wouldLoop, type Id } from '@orbit/core';
+import {
+  SEND_PART_LABELS,
+  SEND_PART_SHORT,
+  wouldLoop,
+  type Id,
+  type ResolvedSend,
+} from '@orbit/core';
 import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { capturePointer } from '../../widgets/pointer';
+
+/**
+ * Qué lleva un cable de envío, en una frase. Trabaja sobre la forma YA resuelta
+ * que viene en la arista (`describeSend` de core parte del envío en crudo).
+ */
+function describeSendShape(send: ResolvedSend): string {
+  const bits: string[] = [];
+  if (send.tap === 'pre') bits.push('pre-fader');
+  if (send.part !== 'stereo') bits.push(SEND_PART_LABELS[send.part].toLowerCase());
+  if (send.invert) bits.push('polaridad invertida');
+  if (send.mute) bits.push('silenciado');
+  return bits.join(' · ');
+}
 import { layoutGraph, type GraphLink, type GraphNode } from './layout';
 import './graph.css';
 
@@ -351,7 +370,19 @@ export function GraphEditor() {
               const b = inPort(link.to);
               const d = path(a.x, a.y, b.x, b.y);
               return (
-                <g key={link.key} className={`graph-wire ${link.kind}`}>
+                <g
+                  key={link.key}
+                  className={
+                    `graph-wire ${link.kind}` +
+                    // Un cable que lleva otra cosa que la señal entera se
+                    // dibuja distinto: el grafo está para entender por dónde va
+                    // el sonido, y "va, pero solo los lados" es parte de eso.
+                    (link.send && link.send.tap === 'pre' ? ' pre' : '') +
+                    (link.send && link.send.part !== 'stereo' ? ' shaped' : '') +
+                    (link.send?.invert ? ' inverted' : '') +
+                    (link.send?.mute ? ' muted' : '')
+                  }
+                >
                   <path className="wire-line" d={d} />
                   {/* Franja ancha e invisible: agarrar una curva de 2 px es imposible. */}
                   <path className="wire-hit" d={d} onDoubleClick={() => cutLink(link)} />
@@ -381,13 +412,24 @@ export function GraphEditor() {
                   key={`lvl:${link.key}`}
                   className="graph-send-level"
                   style={{ left: (a.x + b.x) / 2, top: (a.y + b.y) / 2 }}
-                  title="Arrastra arriba/abajo para el nivel · doble clic quita el envío"
+                  title={
+                    (link.send && describeSendShape(link.send)
+                      ? `Lleva: ${describeSendShape(link.send)}. `
+                      : '') + 'Arrastra arriba/abajo para el nivel · doble clic quita el envío'
+                  }
                   onPointerDown={(e) => startSendDrag(e, link)}
                   onPointerMove={onPointerMove}
                   onPointerUp={onPointerUp}
                   onDoubleClick={() => cutLink(link)}
                 >
                   {gainDb(link.level ?? 0)}
+                  {link.send && (
+                    <span className="graph-send-tag">
+                      {link.send.tap === 'pre' ? 'pre' : ''}
+                      {SEND_PART_SHORT[link.send.part]}
+                      {link.send.invert ? 'ø' : ''}
+                    </span>
+                  )}
                 </button>
               );
             })}

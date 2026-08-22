@@ -17,6 +17,7 @@ import {
   type Id,
   type Project,
   type RoutingEdgeKind,
+  type ResolvedSend,
 } from '@orbit/core';
 
 export interface GraphNode {
@@ -42,6 +43,8 @@ export interface GraphLink {
   to: GraphNode;
   /** Ganancia del envío (solo 'send'). */
   level?: number;
+  /** Cómo es el envío: de dónde toma, qué parte lleva, polaridad (solo 'send'). */
+  send?: ResolvedSend;
 }
 
 export interface GraphLayout {
@@ -193,6 +196,7 @@ export function layoutGraph(project: Project, opts: LayoutOptions): GraphLayout 
     if (!from || !to || !visibleSet.has(edge.to)) continue;
     const link: GraphLink = { key: `${edge.kind}:${fromKey}->${edge.to}`, kind: edge.kind, from, to };
     if (edge.level !== undefined) link.level = edge.level;
+    if (edge.send !== undefined) link.send = edge.send;
     links.push(link);
   }
 

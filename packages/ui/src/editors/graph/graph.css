@@ -241,3 +241,37 @@
 .graph-port:hover {
   filter: brightness(1.15);
 }
+
+/* ── Cables que llevan algo distinto de la señal entera ──
+   El grafo está para entender por dónde va el sonido, y "va, pero solo los
+   lados" o "va desde antes del fader" es parte de eso: si todos los cables se
+   pintan igual, hay que abrir cada envío para saberlo. */
+
+/* Pre-fader: discontinuo, porque no sigue al fader como los demás. */
+.graph-wire.send.pre .wire-line {
+  stroke-dasharray: 6 4;
+}
+
+/* Solo una parte de la señal: más fino, porque lleva menos. */
+.graph-wire.send.shaped .wire-line {
+  stroke-width: 1.2;
+}
+
+/* Polaridad invertida: resta en vez de sumar. */
+.graph-wire.send.inverted .wire-line {
+  stroke: var(--meter-clip);
+}
+
+.graph-wire.send.muted .wire-line {
+  opacity: 0.3;
+}
+
+/* Chapita junto al nivel: "pre", "S", "ø"… lo que ese cable transporta. */
+.graph-send-tag {
+  margin-left: 3px;
+  padding: 0 2px;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font-size: 8px;
+  letter-spacing: 0.3px;
+}

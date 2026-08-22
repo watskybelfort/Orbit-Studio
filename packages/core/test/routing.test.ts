@@ -54,10 +54,26 @@ describe('aristas del enrutado', () => {
     project.mixer[4]!.routeTo = 2;
     project.mixer[4]!.sends = [{ target: 6, level: 0.4 }];
     const edges = routingEdges(project).filter((e) => e.from === 4);
-    expect(edges).toEqual([
-      { kind: 'route', from: 4, to: 2 },
+    expect(edges.map(({ kind, from, to, level }) => ({ kind, from, to, level }))).toEqual([
+      { kind: 'route', from: 4, to: 2, level: undefined },
       { kind: 'send', from: 4, to: 6, level: 0.4 },
     ]);
+  });
+
+  it('la arista de un envío lleva CÓMO es, ya resuelto', () => {
+    const project = base();
+    project.mixer[4]!.sends = [{ target: 6, level: 0.4, tap: 'pre', part: 'side', invert: true }];
+    const edge = routingEdges(project).find((e) => e.kind === 'send' && e.from === 4);
+    // Resuelto en la arista y no leído otra vez desde el proyecto: el grafo
+    // dibuja lo que la lista dice, y así no puede pintar otra cosa.
+    expect(edge?.send).toMatchObject({ tap: 'pre', part: 'side', invert: true, mute: false });
+  });
+
+  it('un envío de siempre viaja con los valores de siempre', () => {
+    const project = base();
+    project.mixer[4]!.sends = [{ target: 6, level: 0.4 }];
+    const edge = routingEdges(project).find((e) => e.kind === 'send' && e.from === 4);
+    expect(edge?.send).toMatchObject({ tap: 'post', part: 'stereo', invert: false });
   });
 
   it('el master no tiene salida (routeTo null) y no inventa arista', () => {

@@ -13,7 +13,8 @@
  * Todo son funciones puras sobre el proyecto: sin React y sin comandos.
  */
 
-import type { Id, MixerTrack, Project } from './types';
+import type { Id, MixerTrack, Project, Send } from './types';
+import { resolveSend, type ResolvedSend } from './sends';
 
 /** Cómo llega la señal de un nodo a otro. */
 export type RoutingEdgeKind =
@@ -34,6 +35,14 @@ export interface RoutingEdge {
   to: number;
   /** Ganancia del envío (solo 'send'). */
   level?: number;
+  /**
+   * Cómo es el envío, ya resuelto (solo 'send').
+   *
+   * Va en la arista y no se vuelve a leer del proyecto en la vista: el grafo
+   * dibuja lo que la lista de aristas dice, y si tuviera que ir a buscar el
+   * envío otra vez podría pintar una cosa distinta de la que se validó.
+   */
+  send?: ResolvedSend;
 }
 
 /** Índice de pista válido dentro del mixer del proyecto. */
@@ -82,7 +91,13 @@ export function routingEdges(project: Project): RoutingEdge[] {
     }
     for (const send of track.sends) {
       if (!inRange(send.target, project.mixer) || send.target === i) continue;
-      edges.push({ kind: 'send', from: i, to: send.target, level: send.level });
+      edges.push({
+        kind: 'send',
+        from: i,
+        to: send.target,
+        level: send.level,
+        send: resolveSend(send),
+      });
     }
   });
   return edges;
