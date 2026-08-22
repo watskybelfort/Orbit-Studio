@@ -437,14 +437,37 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo.
 
 | Qué | Por qué |
 |---|---|
-| **Encoder Opus propio** | El `.ogg` (Ogg FLAC) cubre el formato y el ADPCM el streaming, pero con pérdida y calidad de radio: Opus sería lo bueno, y es un proyecto entero |
+| **Encoder Opus propio** | **En marcha**: los cimientos están puestos y verificados (ver abajo). Falta el ensamblador de tramas de CELT y sus tablas de la RFC |
+
+#### Encoder Opus: qué hay hecho y qué falta
+
+Se está construyendo por fases, cada una verificable por sí sola. Lo hecho:
+
+| Pieza | Cómo está verificada |
+|---|---|
+| **Range coder** (RFC 6716 §4.1) | Ida y vuelta exacta en ráfagas largas y mezcladas; 100.000 operaciones con 25 semillas |
+| **MDCT + ventana de CELT** | TDAC: ruido, seno, impulso y silencio vuelven enteros a 1e-11 en los cuatro tamaños de trama. Todo lo rápido se compara contra la definición directa |
+| **FFT de radix mixto** | Contra la DFT directa. Hace falta porque los tamaños de Opus (120/240/480/960) **no son potencias de dos** |
+| **PVQ** | Biyección índice ↔ vector probada **agotando** todos los vectores para n≤5, k≤6, en las dos direcciones |
+| **Contenedor Ogg Opus** (RFC 7845) | **Bit a bit contra ffmpeg**: se le meten paquetes Opus reales, se repaginan con el muxer propio y el audio decodificado sale idéntico. `npx tsx tools/qa/ogg-opus-verify.ts` |
+
+Lo que falta es el ensamblador de tramas de CELT: la cuantización de energía por
+bandas, el asignador de bits y el pegado de todo eso al range coder. Esa parte
+arrastra **unas 1.500 constantes de la RFC 6716** (`band_allocation`,
+`e_prob_model`, `cache_bits`) que van transcritas exactas — inventarse una sola
+entrada da un archivo que no abre nadie.
+
+> **El export a Opus no está disponible todavía**, y no lo estará hasta que
+> ffmpeg decodifique un archivo hecho entero por Orbit. Los cimientos pasan sus
+> tests, pero unos tests en verde no son un archivo que suene: mientras el
+> códec no esté completo, esto es infraestructura, no una función.
 
 ### Horizonte
 
 | Qué | Estado |
 |---|---|
 | **Puente CLAP / VST3** | Necesita un host nativo con GUI embebida: proyecto aparte, no un rato |
-| **Export a OGG** | **Descartado con medida**: este Electron no admite contenedor Ogg en `MediaRecorder` y grabaría en tiempo real. El camino sensato es un encoder Opus propio, como se hizo con el FLAC |
+| **Export a OGG** | Ya está: el `.ogg` de Orbit es **Ogg FLAC**, sin pérdida y del encoder propio. El contenedor **Ogg Opus** también está escrito y validado; lo que falta para un `.opus` es el códec |
 | **Export de vídeo para visuales** | Fuera del alcance del DAW hasta que el resto esté redondo |
 
 ## Arranque rápido (desarrollo)
