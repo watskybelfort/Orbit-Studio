@@ -288,7 +288,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | MP3 a 192 kbps junto al WAV | v0.5 |
 | FLAC sin pérdida (codificador propio: FIXED + Rice, bit-exacto vs ffmpeg) | v0.6 |
 | **OGG (Ogg FLAC)**: lo que faltaba no era un códec, era el CONTENEDOR — y ese sí se escribe. Páginas Ogg con su CRC (el del formato, no el de zip), tabla de trozos y granulado, con el mapeo de FLAC sobre Ogg: un `.ogg` de Orbit es sin pérdida y lo abre cualquier reproductor. Verificado con ffmpeg: decodifica bit a bit igual que el original | v1.9 |
-| Opus propio — **en construcción**. El range coder, la MDCT con ventana de CELT, la FFT de radix mixto y el PVQ están hechos y verificados; el contenedor Ogg Opus está validado bit a bit contra ffmpeg. Falta el ensamblador de tramas de CELT y sus tablas de la RFC, así que **no hay export a Opus todavía**. El `.ogg` de arriba (Ogg FLAC) cubre el hueco de formato; el streaming de la sala se comprime con el ADPCM propio | v2.8+ |
+| Opus propio — **en construcción**. El range coder, la MDCT con ventana de CELT, la FFT de radix mixto y el PVQ (con la enumeración normativa de la RFC) están hechos y verificados; el contenedor Ogg Opus está validado bit a bit contra ffmpeg. Falta el ensamblador de tramas de CELT y sus tablas de la RFC, así que **no hay export a Opus todavía**. El `.ogg` de arriba (Ogg FLAC) cubre el hueco de formato; el streaming de la sala se comprime con el ADPCM propio | v2.8+ |
 | Export MIDI multipista junto al WAV (flujo FL de Orbit: .mid + wav) | v0.2 |
 
 ## 12. Colaboración en tiempo real

@@ -19,14 +19,29 @@
  * indexar y desindexar— y que el test sea el que es: una **biyección**, probada
  * agotando todos los vectores.
  *
- * ## Lo que falta para que esto sea compatible con Opus
+ * ## El orden de numeración es el de la RFC, no uno mío
  *
- * El orden concreto en que se numeran los vectores tiene que ser EL MISMO que el
- * del decodificador, y eso lo fija la RFC 6716 (§4.3.4). El de aquí está
- * documentado abajo y es consistente consigo mismo —los tests lo demuestran—
- * pero **no está contrastado contra la spec**. Hasta que lo esté, esto sirve como
- * cuantizador correcto, no como bitstream compatible. Se dice aquí para que nadie
- * lo dé por hecho leyendo los tests en verde.
+ * Esto importa más que cualquier otra cosa del módulo: el decodificador
+ * desindexa con UN orden concreto, así que numerar "de forma consistente" no
+ * basta — hay que numerar **igual**. La primera versión de esto ordenaba por el
+ * valor absoluto de la primera coordenada, hacia delante. La RFC va al revés:
+ * recorre el vector **desde el final**, con una tabla `U(n,k)` distinta de la
+ * cuenta `V(n,k)`, relacionadas por `V(n,k) = U(n,k) + U(n,k+1)`.
+ *
+ * Aquí está portado el algoritmo de `celt/cwrs.c` de la implementación de
+ * referencia (`icwrs`, `cwrsi`, `ncwrs_urow`, `unext`, `uprev`), con los mismos
+ * nombres para que se pueda cotejar línea a línea.
+ *
+ * `pvqSize` NO se ha tocado: sigue calculando `V` con su propia recurrencia,
+ * independiente de la de la referencia. Eso lo convierte en un testigo — si las
+ * dos cuentas coinciden en todo el rango, es que el port está bien.
+ *
+ * ---
+ * Las constantes y el algoritmo de esta parte derivan de la implementación de
+ * referencia incluida en la RFC 6716, bajo licencia BSD de 3 cláusulas:
+ * Copyright 1994-2011 IETF Trust, Xiph.Org, Skype Limited, Octasic,
+ * Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell,
+ * Mark Borgerding, Erik de Castro Lopo. Todos los derechos reservados.
  */
 
 /** Tope prudente: por encima de esto los conteos dejan de ser exactos en double. */
@@ -132,60 +147,123 @@ export function pvqBits(n: number, k: number): number {
   return Math.log2(pvqSize(n, k));
 }
 
+// ── Enumeración normativa (celt/cwrs.c) ──────────────────────────────────────
+//
+// `U(n,k)` cuenta los vectores de n dimensiones con k pulsos cuya PRIMERA
+// coordenada no es cero. De ahí sale `V(n,k) = U(n,k) + U(n,k+1)`, y de ahí que
+// el recorrido pueda ir sumando filas de U en vez de buscar.
+
+/** `U(n,·)` → `U(n+1,·)`, in situ. `U(n+1,k) = U(n,k) + U(n,k-1) + U(n+1,k-1)`. */
+function unext(u: Float64Array): void {
+  let carry = 0;
+  for (let j = 1; j < u.length; j++) {
+    const next = u[j]! + u[j - 1]! + carry;
+    u[j - 1] = carry;
+    carry = next;
+  }
+  u[u.length - 1] = carry;
+}
+
+/** `U(n,·)` → `U(n-1,·)`, in situ. La inversa exacta de `unext`. */
+function uprev(u: Float64Array, len: number): void {
+  let carry = 0;
+  for (let j = 1; j < len; j++) {
+    const next = u[j]! - u[j - 1]! - carry;
+    u[j - 1] = carry;
+    carry = next;
+  }
+  u[len - 1] = carry;
+}
+
+/** Fila `U(n, 0..k+1)`. Arranca en `U(2,k) = 2k-1` y sube con `unext`. */
+function urow(n: number, k: number): Float64Array {
+  const u = new Float64Array(k + 2);
+  for (let i = 1; i < u.length; i++) u[i] = 2 * i - 1;
+  for (let dim = 2; dim < n; dim++) unext(u);
+  return u;
+}
+
+/**
+ * `V(n,k)` calculada como la calcula la referencia: `U(n,k) + U(n,k+1)`.
+ *
+ * Existe **sólo para contrastarla con `pvqSize`**, que la calcula con otra
+ * recurrencia distinta. Dos caminos independientes que dan el mismo número en
+ * todo el rango es lo que convierte "mi port se cree a sí mismo" en "mi port
+ * coincide con la spec".
+ */
+export function pvqSizeFromUrow(n: number, k: number): number {
+  if (k === 0) return 1;
+  if (n === 0) return 0;
+  if (n === 1) return 2;
+  const u = urow(n, k);
+  return u[k]! + u[k + 1]!;
+}
+
 /**
  * Numera un vector de pulsos. Devuelve un entero en `[0, V(n,k))`.
  *
- * El orden es: primero por el valor absoluto de la primera coordenada (0, 1, 2…),
- * y dentro de cada valor no nulo, primero el positivo y luego el negativo. El
- * resto del vector se numera igual, recursivamente. Es el orden que hace que
- * contar cuántos van por delante sea una suma de `V` y no una búsqueda.
+ * Port de `icwrs`. El recorrido va de la ÚLTIMA coordenada hacia la primera,
+ * acumulando la fila de `U` que corresponde a las dimensiones que quedan; el
+ * signo negativo suma un bloque entero, que es lo que separa `+m` de `−m`.
  */
 export function pvqIndex(y: readonly number[]): number {
-  const k = y.reduce((sum, v) => sum + Math.abs(v), 0);
-  let index = 0;
-  let rest = k;
-  for (let i = 0; i < y.length; i++) {
-    const dims = y.length - i - 1;
-    const value = y[i]!;
-    const magnitude = Math.abs(value);
-    // Todo lo que empieza con un valor absoluto MENOR va antes.
-    for (let m = 0; m < magnitude; m++) {
-      index += (m === 0 ? 1 : 2) * pvqSize(dims, rest - m);
-    }
-    // Dentro del mismo valor absoluto, el positivo va antes que el negativo.
-    if (magnitude > 0 && value < 0) index += pvqSize(dims, rest - magnitude);
-    rest -= magnitude;
+  const n = y.length;
+  const total = y.reduce((sum, v) => sum + Math.abs(v), 0);
+  if (total === 0) return 0;
+  if (n === 1) return y[0]! < 0 ? 1 : 0;
+
+  const u = new Float64Array(total + 2);
+  for (let i = 1; i < u.length; i++) u[i] = 2 * i - 1;
+
+  // La última coordenada arranca la cuenta: su signo ES el bit de más peso.
+  let k = Math.abs(y[n - 1]!);
+  let index = y[n - 1]! < 0 ? 1 : 0;
+
+  for (let j = n - 2; j >= 0; j--) {
+    if (j < n - 2) unext(u);
+    index += u[k]!;
+    k += Math.abs(y[j]!);
+    if (y[j]! < 0) index += u[k + 1]!;
   }
   return index;
 }
 
-/** Reconstruye el vector a partir de su número. La inversa exacta de `pvqIndex`. */
+/**
+ * Reconstruye el vector a partir de su número. Port de `cwrsi`.
+ *
+ * Va al revés que `pvqIndex`: rellena de la primera coordenada a la última,
+ * bajando la fila de `U` con `uprev` a cada paso.
+ */
 export function pvqDeindex(n: number, k: number, index: number): number[] {
   const total = pvqSize(n, k);
   if (index < 0 || index >= total) {
     throw new Error(`el índice ${index} se sale de V(${n}, ${k}) = ${total}`);
   }
   const y = new Array<number>(n).fill(0);
+  if (k === 0) return y;
+  if (n === 1) {
+    y[0] = index === 1 ? -k : k;
+    return y;
+  }
+
+  const u = urow(n, k);
   let rest = k;
   let remaining = index;
-  for (let i = 0; i < n; i++) {
-    const dims = n - i - 1;
-    let magnitude = 0;
-    for (;;) {
-      const block = (magnitude === 0 ? 1 : 2) * pvqSize(dims, rest - magnitude);
-      if (remaining < block) break;
-      remaining -= block;
-      magnitude++;
-    }
-    if (magnitude === 0) {
-      y[i] = 0;
-    } else {
-      const half = pvqSize(dims, rest - magnitude);
-      const negative = remaining >= half;
-      if (negative) remaining -= half;
-      y[i] = negative ? -magnitude : magnitude;
-      rest -= magnitude;
-    }
+  for (let j = 0; j < n; j++) {
+    // El bloque alto es el de los negativos: si el índice cae ahí, se le resta
+    // y se recuerda el signo.
+    const block = u[rest + 1]!;
+    const negative = remaining >= block;
+    if (negative) remaining -= block;
+
+    let value = rest;
+    let p = u[rest]!;
+    while (p > remaining) p = u[--rest]!;
+    remaining -= p;
+    value -= rest;
+
+    y[j] = negative ? -value : value;
+    uprev(u, rest + 2);
   }
   return y;
 }

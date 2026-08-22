@@ -448,7 +448,7 @@ Se está construyendo por fases, cada una verificable por sí sola. Lo hecho:
 | **Range coder** (RFC 6716 §4.1) | Ida y vuelta exacta en ráfagas largas y mezcladas; 100.000 operaciones con 25 semillas |
 | **MDCT + ventana de CELT** | TDAC: ruido, seno, impulso y silencio vuelven enteros a 1e-11 en los cuatro tamaños de trama. Todo lo rápido se compara contra la definición directa |
 | **FFT de radix mixto** | Contra la DFT directa. Hace falta porque los tamaños de Opus (120/240/480/960) **no son potencias de dos** |
-| **PVQ** | Biyección índice ↔ vector probada **agotando** todos los vectores para n≤5, k≤6, en las dos direcciones |
+| **PVQ** | Enumeración **normativa** (port de `celt/cwrs.c`), con la cuenta `V` contrastada contra una recurrencia independiente, y biyección probada **agotando** todos los vectores para n≤5, k≤6 |
 | **Contenedor Ogg Opus** (RFC 7845) | **Bit a bit contra ffmpeg**: se le meten paquetes Opus reales, se repaginan con el muxer propio y el audio decodificado sale idéntico. `npx tsx tools/qa/ogg-opus-verify.ts` |
 
 Lo que falta es el ensamblador de tramas de CELT: la cuantización de energía por

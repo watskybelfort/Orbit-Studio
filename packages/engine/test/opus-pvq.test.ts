@@ -22,6 +22,7 @@ import {
   pvqNormalize,
   pvqSearch,
   pvqSize,
+  pvqSizeFromUrow,
 } from '../src/render/opus/pvq';
 
 /** Todos los vectores de `n` dimensiones con exactamente `k` pulsos. */
@@ -103,6 +104,35 @@ describe('pvq · contar', () => {
     for (const [n, k] of [[16, 8], [44, 6], [8, 20], [176, 8]] as const) {
       expect(Math.abs(pvqBitsApprox(n, k) - pvqBits(n, k)), `n=${n} k=${k}`).toBeLessThan(1e-9);
     }
+  });
+
+  it('las dos cuentas de V coinciden: la mía y la de la referencia', () => {
+    // Éste es EL test que dice que el port de la enumeración es correcto y no
+    // sólo coherente consigo mismo. `pvqSize` usa la recurrencia
+    // V(n,k) = V(n-1,k) + V(n,k-1) + V(n-1,k-1); `pvqSizeFromUrow` usa la tabla
+    // U de la referencia y V = U(n,k) + U(n,k+1). No comparten una línea.
+    let compared = 0;
+    for (let n = 1; n <= 40; n++) {
+      for (let k = 0; k <= 40; k++) {
+        // Sólo donde la cuenta exacta cabe: más allá, comparar dos redondeos no
+        // demostraría nada.
+        if (k > 0 && n > 1 && pvqBitsApprox(n, k) > 52) continue;
+        expect(pvqSizeFromUrow(n, k), `V(${n},${k})`).toBe(pvqSize(n, k));
+        compared++;
+      }
+    }
+    expect(compared).toBeGreaterThan(400);
+
+    // Y en tamaños de banda reales de CELT.
+    for (const [n, k] of [[176, 8], [88, 10], [44, 13], [16, 34], [8, 60]] as const) {
+      expect(pvqSizeFromUrow(n, k), `V(${n},${k})`).toBe(pvqSize(n, k));
+    }
+  });
+
+  it('U(2,k) = 2k-1 y V(2,k) = 4k, como dice la referencia', () => {
+    // Los valores de arranque de la tabla U. Si éstos estuvieran mal, todo lo
+    // que se construye encima estaría desplazado.
+    for (let k = 1; k <= 20; k++) expect(pvqSizeFromUrow(2, k)).toBe(4 * k);
   });
 
   it('rechaza lo que no existe', () => {
