@@ -307,3 +307,37 @@ describe('el keymap sobrevive al disco', () => {
     expect(back.channels[channel.id]!.keymap).toBeUndefined();
   });
 });
+
+describe('repartir rangos con capas en la misma nota', () => {
+  it('las capas de una misma nota comparten trozo de teclado', () => {
+    // Repartiendo por ZONA y no por raíz, dos capas de la misma nota se
+    // pisaban el punto medio la una a la otra y salían con el rango del revés
+    // (una zona de una sola tecla, o directamente muda).
+    const zones = spreadKeymapRanges([
+      zone({ sampleId: 'do-p', keyRoot: 60 }),
+      zone({ sampleId: 'do-f', keyRoot: 60 }),
+      zone({ sampleId: 'mi', keyRoot: 64 }),
+    ]);
+    const doP = zones.find((z) => z.sampleId === 'do-p')!;
+    const doF = zones.find((z) => z.sampleId === 'do-f')!;
+    expect(doP.keyLow).toBe(doF.keyLow);
+    expect(doP.keyHigh).toBe(doF.keyHigh);
+    expect(doP.keyLow).toBeLessThanOrEqual(60);
+    expect(doP.keyHigh).toBeGreaterThanOrEqual(60);
+    for (const z of zones) expect(z.keyLow).toBeLessThanOrEqual(z.keyHigh);
+  });
+
+  it('el teclado sigue cubierto entero con capas de por medio', () => {
+    const zones = spreadKeymapVelocities(
+      spreadKeymapRanges([
+        zone({ sampleId: 'a1', keyRoot: 48 }),
+        zone({ sampleId: 'a2', keyRoot: 48 }),
+        zone({ sampleId: 'b1', keyRoot: 72 }),
+        zone({ sampleId: 'b2', keyRoot: 72 }),
+      ]),
+    );
+    for (let key = 0; key <= 127; key++) {
+      expect(zonesForNote(zones, key, 0.9).length).toBeGreaterThan(0);
+    }
+  });
+});

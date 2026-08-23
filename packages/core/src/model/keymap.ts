@@ -150,17 +150,29 @@ export function zoneTranspose(zone: KeymapZone, key: number): number {
  * solas y no haya que arrastrar cuarenta bordes.
  */
 export function spreadKeymapRanges(zones: readonly KeymapZone[]): KeymapZone[] {
-  const sorted = [...zones].sort((a, b) => a.keyRoot - b.keyRoot);
-  return sorted.map((zone, i) => {
-    const prev = sorted[i - 1];
-    const next = sorted[i + 1];
+  // Los rangos se reparten entre RAÍCES DISTINTAS, no entre zonas: varias
+  // zonas en la misma nota son capas de velocidad y comparten trozo de
+  // teclado. Repartiendo por zona, dos capas de la misma nota se pisaban el
+  // punto medio la una a la otra y salían con el rango del revés.
+  const roots = [...new Set(zones.map((z) => z.keyRoot))].sort((a, b) => a - b);
+  const range = new Map<number, { low: number; high: number }>();
+  roots.forEach((root, i) => {
+    const prev = roots[i - 1];
+    const next = roots[i + 1];
     // El punto medio se parte hacia ARRIBA con el vecino de abajo y hacia
     // abajo con el de arriba, así que dos raíces contiguas no se pelean por la
     // misma tecla ni la dejan sin cubrir.
-    const low = prev ? Math.floor((prev.keyRoot + zone.keyRoot) / 2) + 1 : 0;
-    const high = next ? Math.floor((zone.keyRoot + next.keyRoot) / 2) : 127;
-    return normalizeKeymapZone({ ...zone, keyLow: low, keyHigh: high });
+    range.set(root, {
+      low: prev === undefined ? 0 : Math.floor((prev + root) / 2) + 1,
+      high: next === undefined ? 127 : Math.floor((root + next) / 2),
+    });
   });
+  return sortKeymap(
+    zones.map((zone) => {
+      const r = range.get(zone.keyRoot)!;
+      return normalizeKeymapZone({ ...zone, keyLow: r.low, keyHigh: r.high });
+    }),
+  );
 }
 
 /**
