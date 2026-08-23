@@ -200,3 +200,16 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.param-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* Esperando a que muevas el mando del controlador. */
+.param-menu-item.learning {
+  color: var(--accent);
+  font-weight: 600;
+}
+

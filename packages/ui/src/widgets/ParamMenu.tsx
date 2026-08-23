@@ -13,11 +13,22 @@
  */
 
 import type { ParamRef } from '@orbit/core';
+import {
+  cancelMidiLearn,
+  isLearning,
+  midiMappingFor,
+
+  midiSourceLabel,
+  removeMidiMapping,
+  startMidiLearn,
+  useMidiLearnStore,
+} from '../state/midi-learn';
 import { addLfoFor, createAutomationClipFor, findLfoFor, removeLfo } from '../state/param-actions';
 import { useProject } from '../state/useProject';
 import { useUiStore } from '../state/ui';
 import { MenuPortal } from './MenuPortal';
 import './widgets.css';
+
 
 export interface ParamMenuProps {
   target: ParamRef;
@@ -31,11 +42,17 @@ export interface ParamMenuProps {
 export function ParamMenu({ target, x, y, anchor, onClose }: ParamMenuProps) {
   const project = useProject();
   const lfo = findLfoFor(target, project);
+  const mappings = useMidiLearnStore((s) => s.mappings);
+  const learning = useMidiLearnStore((s) => s.learning);
+  const mapping = midiMappingFor(target, mappings);
+  const waiting = isLearning(target, learning);
+
 
   const run = (fn: () => void) => () => {
     fn();
     onClose();
   };
+
 
   return (
     <MenuPortal anchor={anchor} x={x} y={y} onClose={onClose} className="param-menu">
@@ -59,6 +76,21 @@ export function ParamMenu({ target, x, y, anchor, onClose }: ParamMenuProps) {
           Añadir LFO
         </button>
       )}
+      <div className="param-menu-sep" />
+      {mapping ? (
+        <button className="param-menu-item" onClick={run(() => removeMidiMapping(mapping.source))}>
+          Soltar {midiSourceLabel(mapping.source)}
+        </button>
+      ) : waiting ? (
+        <button className="param-menu-item learning" onClick={run(cancelMidiLearn)}>
+          Mueve un mando… (clic para cancelar)
+        </button>
+      ) : (
+        <button className="param-menu-item" onClick={run(() => startMidiLearn(target))}>
+          Aprender MIDI
+        </button>
+      )}
     </MenuPortal>
+
   );
 }

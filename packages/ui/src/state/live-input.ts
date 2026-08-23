@@ -13,7 +13,6 @@
  * `midi-message.ts`. Las dos piezas se prueban sin hardware.
  */
 
-
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
 import { ensureAudioReady, store } from './app';
@@ -26,7 +25,9 @@ import {
   transposeKey,
   type VelocityCurve,
 } from './midi-message';
+import { ccSource, loadMidiMappings, onMidiControl, SOURCE_BEND } from './midi-learn';
 import { SustainPedal } from './sustain';
+
 import { useUiStore } from './ui';
 
 const SIXTEENTH = 0.25; // 1/16 en beats
@@ -312,6 +313,7 @@ export function initLiveInput(): void {
   window.addEventListener('blur', () => releaseAll());
 
   void loadSettings();
+  void loadMidiMappings();
 
   // ── Web MIDI ──
   const nav = navigator as Navigator & {
@@ -392,6 +394,15 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       // El panic del teclado se lleva por delante su pedal también.
       for (const source of pedal.forgetDevice(deviceId)) noteOff(source);
       releaseAll(sourcePrefix(deviceId));
+      break;
+    case 'cc':
+      onMidiControl(ccSource(msg.controller), msg.value);
+      break;
+    case 'pitchBend':
+      // La rueda de tono entra como un mando más (bipolar → 0..1). Doblar el
+      // tono de una voz VIVA es otra cosa: pediría reafinar por voz en el
+      // kernel, y no todos los instrumentos saben.
+      onMidiControl(SOURCE_BEND, (msg.value + 1) / 2);
       break;
     default:
       break;
