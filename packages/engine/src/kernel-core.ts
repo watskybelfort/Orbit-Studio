@@ -709,7 +709,8 @@ export class KernelCore {
       this.makeInstrumentVoice(ch, channelIndex, key, order, velocity) ??
       createVoice(
         ch.kind, channelIndex, key, order, velocity, ch.params, this.voiceCtx,
-        ch.sampleId, ch.nova, ch.prisma, ch.slicePoints,
+        ch.sampleId, ch.nova, ch.prisma, ch.slicePoints, ch.keymap,
+
       );
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey, pan });
   }

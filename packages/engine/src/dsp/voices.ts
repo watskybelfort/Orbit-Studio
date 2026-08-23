@@ -4,7 +4,8 @@
  * bloque, así los cambios en vivo entran sin recrear la voz.
  */
 
-import { DRUM_MAP, midiToHz, sliceRange } from '@orbit/core';
+import { DRUM_MAP, midiToHz, sliceRange, zonesForNote, zoneTranspose, type KeymapZone } from '@orbit/core';
+
 import { ADSR, DecayEnv } from './env';
 import { Noise, Osc, TWO_PI } from './osc';
 import { Biquad, SVF } from './filters';
@@ -866,7 +867,75 @@ export class SlicerVoice extends Voice {
   }
 }
 
+/**
+ * Sampler multisample: la nota dispara las zonas del keymap que la cubren.
+ *
+ * No reimplementa la lectura del sample — la delega en `SamplerVoice`, una por
+ * zona. Ese código tiene sus guardas de interpolación bien pagadas (un índice
+ * de más produce un NaN que se queda para siempre en el limiter del master y
+ * convierte el export entero en basura), y copiarlo para tener dos versiones
+ * que se desincronizan es exactamente lo que no hay que hacer.
+ *
+ * Las capas son UNA voz para el kernel: un acorde de cuatro notas con tres
+ * micros cada una no puede contar como doce voces contra el tope.
+ */
+export class MultiSamplerVoice extends Voice {
+  private layers: SamplerVoice[] = [];
+
+  constructor(
+    channelIndex: number,
+    key: number,
+    order: number,
+    velocity: number,
+    p: Record<string, number>,
+    ctx: VoiceContext,
+    zones: readonly KeymapZone[],
+  ) {
+    super(channelIndex, key, order);
+    for (const zone of zonesForNote(zones, key, velocity)) {
+      // El recorte start/end y los fades del canal NO se aplican: son de un
+      // sample concreto y aquí hay veinte de duraciones distintas. Lo que sí
+      // manda el canal es la envolvente, el loop, la fase y la ganancia.
+      const layerParams: Record<string, number> = {
+        ...p,
+        keytrack: 0,
+        pitch: (p['pitch'] ?? 0) + zoneTranspose(zone, key),
+        gain: (p['gain'] ?? 1) * zone.gain,
+        start: 0,
+        end: 1,
+        fadeIn: 0,
+        fadeOut: 0,
+      };
+      this.layers.push(
+        new SamplerVoice(channelIndex, key, order, velocity, layerParams, ctx, zone.sampleId),
+      );
+    }
+  }
+
+  noteOff(): void {
+    this.releasing = true;
+    for (const l of this.layers) l.noteOff();
+  }
+
+  override dispose(): void {
+    for (const l of this.layers) l.dispose();
+    this.layers.length = 0;
+  }
+
+  render(outL: Float32Array, outR: Float32Array, from: number, to: number, gainL: number, gainR: number): boolean {
+    let alive = false;
+    for (const l of this.layers) {
+      // Se renderizan TODAS aunque una haya terminado antes: cada capa suma lo
+      // suyo y la voz vive mientras quede alguna. Cortar en la primera muerta
+      // silenciaría a las que aún tienen cola.
+      if (l.render(outL, outR, from, to, gainL, gainR)) alive = true;
+    }
+    return alive;
+  }
+}
+
 // ── Fábrica ──────────────────────────────────────────────────────────────────
+
 
 export function createVoice(
   kind: string,
@@ -880,7 +949,9 @@ export function createVoice(
   nova?: { layers: NovaLayerDef[]; macros: NovaMacroDef[] },
   prisma?: PrismaDef,
   slicePoints?: readonly number[],
+  keymap?: readonly KeymapZone[],
 ): Voice {
+
   switch (kind) {
     case 'nova':
       return nova
@@ -897,7 +968,13 @@ export function createVoice(
     case 'supersaw': return new SupersawVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'fm': return new FmVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'drums': return new DrumVoice(channelIndex, key, order, velocity, params, ctx.sr);
-    case 'sampler': return new SamplerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
+    // Con keymap manda el keymap; sin él, el sampler de un solo sample de
+    // siempre. Quitar el keymap devuelve el canal exactamente a como estaba.
+    case 'sampler':
+      return keymap && keymap.length > 0
+        ? new MultiSamplerVoice(channelIndex, key, order, velocity, params, ctx, keymap)
+        : new SamplerVoice(channelIndex, key, order, velocity, params, ctx, sampleId);
+
     case 'vox': return new VoxVoice(channelIndex, key, order, velocity, params, ctx.sr);
     case 'slicer': return new SlicerVoice(channelIndex, key, order, velocity, params, ctx, sampleId, slicePoints);
     default: return new SynthVoice(channelIndex, key, order, velocity, params, ctx.sr);

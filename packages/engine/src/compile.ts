@@ -241,6 +241,12 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       ...(ch.slicePoints && ch.slicePoints.length > 1
         ? { slicePoints: [...ch.slicePoints] }
         : null),
+      // Multisample: las zonas viajan copiadas, que el kernel no puede quedarse
+      // con una referencia al objeto que la UI va a seguir editando.
+      ...(ch.keymap && ch.keymap.length > 0
+        ? { keymap: ch.keymap.map((z) => ({ ...z })) }
+        : null),
+
     };
     // Plugin JS de instrumento: el canal lo declara por id y el kernel hace el
     // resto. El campo aún no vive en `Channel`, así que se lee de forma

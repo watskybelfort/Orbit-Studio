@@ -5,7 +5,8 @@
  * (eventos aplanados + cadena de mixer) y mensajes de transporte/parámetros.
  */
 
-import type { EffectKind, InstrumentKind } from '@orbit/core';
+import type { EffectKind, InstrumentKind, KeymapZone } from '@orbit/core';
+
 import type { NovaLayerDef, NovaMacroDef } from './dsp/voices';
 import type { PrismaDef } from './dsp/prisma-voice';
 
@@ -37,6 +38,12 @@ export interface CompiledChannel {
    * iguales, que es como funcionó siempre.
    */
   slicePoints?: number[];
+  /**
+   * kind === 'sampler': multisample. Con zonas MANDA sobre `sampleId` —que
+   * viaja igual, para que quitar el keymap devuelva el canal a como estaba—.
+   */
+  keymap?: KeymapZone[];
+
   /**
    * kind === 'nova': el preset ya resuelto. El kernel no conoce la librería
    * de sonidos — recibe las capas y el mapa de macros y con eso construye la
