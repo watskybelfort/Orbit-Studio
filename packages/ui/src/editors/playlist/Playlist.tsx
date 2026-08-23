@@ -958,7 +958,10 @@ export function Playlist() {
 
   const clearLoop = useCallback(() => {
     setLoopRegion(null);
-    engine.setLoop(0, 0, false);
+    // Quitar la región NO para el transporte: se vuelve a ciclar el timeline
+    // entero (enabled=true, sin región). Con `false` el patrón sonaba una sola
+    // vez y el transporte se quedaba muerto.
+    engine.setLoop(0, 0, true);
   }, []);
 
   /** Corta un clip en el beat dado (dos clips, con offsets coherentes). */

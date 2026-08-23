@@ -107,14 +107,30 @@ describe('loop del transporte', () => {
     expect(peak).toBeGreaterThan(0.01);
   });
 
-  it('al quitar la región, la reproducción vuelve a cubrir el patrón entero', () => {
+  it('quitar la región (clear) sigue ciclando el timeline entero, no para', () => {
     const core = new KernelCore(44100);
     core.handleMessage({ type: 'snapshot', project: patternOf(8) });
     core.handleMessage({ type: 'setLoop', start: 0, end: 2, enabled: true });
-    core.handleMessage({ type: 'setLoop', start: 0, end: 0, enabled: false });
-    core.handleMessage({ type: 'snapshot', project: patternOf(8) });
+    // El "clear" de la playlist: enabled=true SIN región (end<=start) = volver a
+    // ciclar el timeline entero. Antes mandaba enabled=false y el transporte se
+    // moría al llegar al final.
+    core.handleMessage({ type: 'setLoop', start: 0, end: 0, enabled: true });
     core.handleMessage({ type: 'play', fromBeat: 0 });
+    // 5 s = 10 beats sobre un patrón de 8: tiene que haber dado la vuelta y
+    // seguir sonando (no pararse en el 8).
+    const peak = runSeconds(core, 5);
+    expect(core.posBeats).toBeLessThan(8);
+    expect(peak).toBeGreaterThan(0.01);
+  });
+
+  it('sin ciclado (enabled=false, como el render offline) suena una vez y para', () => {
+    const core = new KernelCore(44100);
+    core.handleMessage({ type: 'snapshot', project: patternOf(4) });
+    // Rango completo con ciclado apagado: es como arranca el render offline.
+    core.handleMessage({ type: 'setLoop', start: 0, end: 4, enabled: false });
+    core.handleMessage({ type: 'play', fromBeat: 0 });
+    // 4 beats = 2 s; a los 3 s ya tiene que haber parado en el final.
     runSeconds(core, 3);
-    expect(core.posBeats).toBeGreaterThan(5.8);
+    expect(core.playing).toBe(false);
   });
 });

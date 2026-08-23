@@ -22,6 +22,15 @@ export class AudioEngine {
   private loadedSamples = new Set<string>();
   /** Duración real de cada sample ya decodificado (segundos). */
   private sampleDurations = new Map<string, number>();
+  /**
+   * Arranque en vuelo. `init()` tarda dos `await` en asignar `this.ctx`, así que
+   * dos llamadas casi a la vez (el pointerdown que despierta el audio y el click
+   * que da al play en el primer arranque) veían ambas `ctx === null` y creaban
+   * DOS AudioContext + dos worklets; el que quedaba en `this.node` recibía los
+   * mensajes y el otro sonaba de fantasma para siempre. Memoizar la promesa hace
+   * que la segunda llamada espere a la primera.
+   */
+  private initPromise: Promise<void> | null = null;
 
   playMode: PlayMode = { mode: 'song' };
   onMeters: ((frame: MeterFrame) => void) | null = null;
@@ -45,11 +54,22 @@ export class AudioEngine {
   }
 
   /** Idempotente; llamar tras un gesto del usuario (autoplay policy). */
-  async init(): Promise<void> {
+  init(): Promise<void> {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') await this.ctx.resume();
-      return;
+      return this.ctx.state === 'suspended' ? this.ctx.resume() : Promise.resolve();
     }
+    // Un solo arranque en vuelo (ver initPromise). Si falla, se limpia para
+    // poder reintentar; si no, quedaría una promesa rechazada cacheada.
+    if (!this.initPromise) {
+      this.initPromise = this.doInit().catch((err) => {
+        this.initPromise = null;
+        throw err;
+      });
+    }
+    return this.initPromise;
+  }
+
+  private async doInit(): Promise<void> {
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     await ctx.audioWorklet.addModule(workletUrl);
     const node = new AudioWorkletNode(ctx, KERNEL_NAME, {
@@ -179,5 +199,11 @@ export class AudioEngine {
     this.node = null;
     await this.ctx?.close();
     this.ctx = null;
+    // Sin esto, tras dispose()+init() `loadSample` devolvía la duración cacheada
+    // sin re-subir el audio al kernel NUEVO → samplers y clips mudos.
+    this.initPromise = null;
+    this.loadedSamples.clear();
+    this.sampleDurations.clear();
+    this.pending = [];
   }
 }

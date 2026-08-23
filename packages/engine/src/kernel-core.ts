@@ -36,6 +36,8 @@ interface ActiveVoice {
   pendingOffset: number;
   released: boolean;
   previewKey: string | null;
+  /** Pan de la NOTA (-1..1, 0 = centro). Se combina con el pan del canal. */
+  pan: number;
 }
 
 const MAX_VOICES = 64;
@@ -177,6 +179,10 @@ export class KernelCore {
         this.registerPlugin(msg.pluginId, msg.code);
         break;
       case 'play':
+        // Un play mientras ya sonaba (salto de posición sin stop, p. ej. seguir
+        // un transporte remoto) deja huérfanas las notas vivas: su note-off
+        // estaba en un punto del timeline que el salto se lleva por delante.
+        if (this.playing) this.releaseSequencedVoices();
         this.posBeats = msg.fromBeat;
         this.playing = true;
         this.resyncCursor();
@@ -195,20 +201,46 @@ export class KernelCore {
         this.releaseSequencedVoices();
         break;
       case 'setLoop':
-        this.loopEnabled = msg.enabled;
-        // Solo una región marcada a mano congela los límites; al quitarla,
-        // el siguiente snapshot vuelve a estirar el loop a todo el timeline.
-        this.loopUserSet = msg.enabled;
-        this.loopStart = msg.start;
-        this.loopEnd = Math.max(msg.start + 0.25, msg.end);
+        // `enabled` = "que el transporte CICLE"; la región es aparte. Tres casos:
+        //  - enabled + región (end>start): región marcada a mano; manda el
+        //    usuario (loopUserSet) y se cicla dentro de ella.
+        //  - enabled sin región (end<=start): quitar la región y volver a ciclar
+        //    el timeline entero (el "clear" de la playlist). Antes esto apagaba
+        //    el ciclado y el patrón sonaba UNA vez y el transporte se moría.
+        //  - !enabled: no ciclar, sonar el rango una vez y parar al final. Es lo
+        //    que usa el render offline (setLoop(0, len, false)).
+        if (msg.enabled && msg.end > msg.start) {
+          this.loopEnabled = true;
+          this.loopUserSet = true;
+          this.loopStart = msg.start;
+          this.loopEnd = Math.max(msg.start + 0.25, msg.end);
+        } else if (msg.enabled) {
+          this.loopEnabled = true;
+          this.loopUserSet = false;
+          this.loopStart = 0;
+          this.loopEnd = this.project ? this.project.lengthBeats : this.loopEnd;
+        } else {
+          this.loopEnabled = false;
+          this.loopUserSet = false;
+          this.loopStart = msg.start;
+          this.loopEnd = Math.max(msg.start + 0.25, msg.end);
+        }
         break;
       case 'setMetronome':
         this.metronome = msg.enabled;
         break;
-      case 'setScope':
+      case 'setScope': {
+        // Al activar o cambiar de pista se limpia el anillo: si no, el primer
+        // frame del Orbit Scope enseña 2048 muestras de la pista anterior (o de
+        // hace minutos, si el scope llevaba rato apagado).
+        const nextTrack = msg.trackIndex ?? 0;
+        if (msg.enabled && (!this.scopeEnabled || nextTrack !== this.scopeTrack)) {
+          this.scopeRing.fill(0);
+        }
         this.scopeEnabled = msg.enabled;
-        this.scopeTrack = msg.trackIndex ?? 0;
+        this.scopeTrack = nextTrack;
         break;
+      }
       case 'setTrackCapture':
         this.captureTrack = msg.enabled ? msg.trackIndex : -1;
         this.capturePos = 0;
@@ -361,6 +393,10 @@ export class KernelCore {
     if (!this.loopUserSet || this.loopEnd > p.lengthBeats || this.loopEnd <= this.loopStart) {
       this.loopStart = 0;
       this.loopEnd = p.lengthBeats;
+      // El reset NO es una región del usuario: si dejáramos loopUserSet en true,
+      // una región [8,16] que no cabe en el proyecto nuevo se reescribe a [0,4]
+      // y quedaría CONGELADA como si el usuario hubiera pedido ciclar 0-4.
+      this.loopUserSet = false;
     }
     this.eventCursor = 0;
     this.resyncCursor();
@@ -411,9 +447,29 @@ export class KernelCore {
         this.instruments.set(pluginId, mod.instrument);
         found = true;
       }
-      // Si el proyecto ya referencia este plugin, re-instancia sus slots (las
-      // voces no hace falta: la fábrica nueva entra en la siguiente nota).
-      if (found && this.project) this.setSnapshot(this.project);
+      // Si el proyecto ya referencia este plugin, re-instancia sus slots. Hay
+      // que BORRAR primero las unidades de ese plugin de `this.effects`: como el
+      // id del slot no cambia, `ensureUnit` reutilizaría la unidad vieja y
+      // seguiría corriendo el código anterior (o el bypass permanente si aquella
+      // versión lanzó). Las voces de instrumento no: la fábrica nueva entra en
+      // la siguiente nota.
+      if (found && this.project) {
+        for (const t of this.project.mixer) {
+          for (const slot of t.slots) {
+            if (slot && slot.kind === 'plugin' && slot.pluginId === pluginId) {
+              this.effects.delete(slot.id);
+            }
+          }
+        }
+        for (const ch of this.project.channels) {
+          for (const slot of ch.fx ?? []) {
+            if (slot && slot.kind === 'plugin' && slot.pluginId === pluginId) {
+              this.effects.delete(slot.id);
+            }
+          }
+        }
+        this.setSnapshot(this.project);
+      }
     } catch {
       // Código roto: el plugin no se registra (el slot queda en bypass).
     }
@@ -468,6 +524,10 @@ export class KernelCore {
     this.loopStart = 0;
     this.loopEnd = p.lengthBeats;
     this.loopEnabled = true;
+    // Estos límites los pone el sistema, no el usuario: si no, una región
+    // marcada antes seguiría diciendo "manda el usuario" sobre un loop que ya
+    // no marcó él.
+    this.loopUserSet = false;
   }
 
   // ── Scheduler ─────────────────────────────────────────────────────────────
@@ -515,7 +575,7 @@ export class KernelCore {
           continue;
         }
       }
-      this.spawnVoice(ev.channelIndex, ev.key, ev.velocity, offset, offBeat, null);
+      this.spawnVoice(ev.channelIndex, ev.key, ev.velocity, offset, offBeat, null, ev.pan);
     }
   }
 
@@ -526,6 +586,7 @@ export class KernelCore {
     pendingOffset: number,
     offBeat: number,
     previewKey: string | null,
+    pan = 0,
   ): void {
     const p = this.project;
     if (!p) return;
@@ -573,7 +634,7 @@ export class KernelCore {
         ch.kind, channelIndex, key, order, velocity, ch.params, this.voiceCtx,
         ch.sampleId, ch.nova, ch.prisma, ch.slicePoints,
       );
-    this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey });
+    this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey, pan });
   }
 
   /**
@@ -1048,10 +1109,22 @@ export class KernelCore {
       av.pendingOffset = 0;
       let alive: boolean;
       if (slot >= 0) {
-        alive = av.voice.render(this.chBufL[slot]!, this.chBufR[slot]!, from, n, 1, 1);
+        // Con inserts, el pan del CANAL se aplica post-cadena; el de la NOTA se
+        // aplica aquí, en la voz. Sin pan de nota (el caso normal) es unidad, y
+        // el render sale bit-idéntico al de siempre.
+        let ngL = 1;
+        let ngR = 1;
+        if (av.pan !== 0) {
+          ngL = Math.cos(((av.pan + 1) / 4) * Math.PI) * 1.414;
+          ngR = Math.sin(((av.pan + 1) / 4) * Math.PI) * 1.414;
+        }
+        alive = av.voice.render(this.chBufL[slot]!, this.chBufR[slot]!, from, n, ngL, ngR);
       } else {
         const track = Math.min(nTracks - 1, Math.max(0, ch.mixerTrack));
-        const pan = ch.pan;
+        // Pan de la nota combinado con el del canal (sumados y acotados): una
+        // nota a la derecha en un canal a la derecha suena a tope a la derecha.
+        // Sin pan de nota queda exactamente el pan del canal de antes.
+        const pan = av.pan !== 0 ? Math.max(-1, Math.min(1, ch.pan + av.pan)) : ch.pan;
         // Mute del canal: la voz sigue viva (y su envolvente avanza) pero no
         // llega nada al bus, igual que hace el mixer con una pista muteada.
         // Antes solo se miraba `audible` al lanzar notas nuevas, así que
@@ -1562,6 +1635,10 @@ export type { FromKernel };
  */
 class PluginVoice extends Voice {
   private broken = false;
+  // Scratch propio: el instrumento renderiza aquí y solo se suma al bus si la
+  // salida es finita (ver render). Se alocan la primera vez y se reutilizan.
+  private scratchL: Float32Array | null = null;
+  private scratchR: Float32Array | null = null;
 
   constructor(
     channelIndex: number,
@@ -1611,14 +1688,34 @@ class PluginVoice extends Voice {
     gainR: number,
   ): boolean {
     if (this.broken) return false;
+    const sl = (this.scratchL ??= new Float32Array(MAX_BLOCK));
+    const sr = (this.scratchR ??= new Float32Array(MAX_BLOCK));
+    sl.fill(0, from, to);
+    sr.fill(0, from, to);
+    let ret: boolean;
     try {
-      // Solo un `false` explícito mata la voz; si el plugin se olvida de
+      // El instrumento escribe en el scratch a ganancia 1; el gain se aplica al
+      // sumar. Solo un `false` explícito mata la voz; si el plugin se olvida de
       // devolver nada se queda viva hasta que el robo de voces la recicle.
-      return this.inst.render(outL, outR, from, to, gainL, gainR) !== false;
+      ret = this.inst.render(sl, sr, from, to, 1, 1) !== false;
     } catch {
       this.broken = true;
       return false;
     }
+    // Un solo NaN/Inf del instrumento envenenaría PARA SIEMPRE los estados IIR
+    // de la cadena del canal y del master (igual que el scrub del camino de
+    // efectos): se descarta el tramo y la voz pasa a bypass permanente.
+    for (let i = from; i < to; i++) {
+      if (!Number.isFinite(sl[i]!) || !Number.isFinite(sr[i]!)) {
+        this.broken = true;
+        return false;
+      }
+    }
+    for (let i = from; i < to; i++) {
+      outL[i]! += sl[i]! * gainL;
+      outR[i]! += sr[i]! * gainR;
+    }
+    return ret;
   }
 }
 
