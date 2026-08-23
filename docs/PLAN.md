@@ -6,7 +6,47 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 23-08-2026: v3.0.0
+## Estado — 23-08-2026: v3.1.0
+
+v3.1, "el instrumento entero". Multisample: un canal de sampler con varias
+muestras repartidas por teclas y por velocidad, en vez de una estirada por todo
+el teclado con keytrack (un piano grabado en do sonaba a chipmunk dos octavas
+arriba, porque cambiar la velocidad de lectura mueve las formantes y el ataque
+con el tono).
+
+Sale de la primera fila del roadmap de la v3.0.
+
+**El modelo** (`core/model/keymap.ts`): una zona es un rectángulo en el plano
+(tecla × velocidad) con su muestra, su raíz, su afinación fina y su ganancia.
+Las zonas pueden solaparse a propósito —capas suave/fuerte, dos micros de la
+misma toma— y todas las que caigan bajo la nota suenan. Viaja por `patchChannel`
+como los cortes del Slicer, así que trae undo y colaboración sin comando nuevo,
+y se sanea al abrir el .orbit.
+
+**El auto-mapa** (`core/model/keymap-automap.ts`) es lo que hace que se use:
+las muestras entran con su nota leída del nombre. Lo difícil no es leer
+`Piano_C3.wav`, son los falsos positivos — `Bass2.wav` no es un si. Lo que no
+sabe leer NO lo coloca: lo dice.
+
+**El motor**: `MultiSamplerVoice` delega la lectura en `SamplerVoice`, una por
+zona, en vez de reimplementarla — ese código tiene guardas de interpolación
+bien pagadas (un NaN se queda para siempre en el limiter del master) y dos
+copias se desincronizan. Las capas son UNA voz contra el tope del kernel.
+
+**Un fallo que habría salido mudo**: el recolector de samples del render miraba
+solo `ch.sampleId`, así que exportar un instrumento multisample lo habría
+sacado en silencio. La decisión de qué samples hacen falta es ahora una función
+pura con pruebas.
+
+Y la tool 22 del bridge, `set_keymap`: Claude monta el multisample con las
+muestras que ya tiene el proyecto.
+
+**Fuera, con motivo escrito**: el pack de fábrica en multisample (toca el
+generador, el manifest y el tamaño del instalador: su propia entrega) y soltar
+muestras en bloque (el Browser arrastra una entrada cada vez). 1335 tests.
+
+## Estado anterior — 23-08-2026: v3.0.0
+
 
 v3.0, "la toma en vivo". Orbit producía de maravilla y no se tocaba: esta
 versión cierra el agujero por el que entra el sonido de fuera. Sale de las tres

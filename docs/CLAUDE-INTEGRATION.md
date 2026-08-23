@@ -29,6 +29,8 @@ Consecuencias de diseño (por qué es elegante):
 | `get_notes` / `set_notes` | Leer/escribir notas de un patrón+canal (piano roll) |
 | `add_channel` / `set_channel` | Crear canal con instrumento y preset; ajustar vol/pan/ruta |
 | `set_steps` | Programar el step sequencer de un canal |
+| `set_keymap` | Multisample: repartir varias muestras por el teclado de un sampler (nota leída del nombre del archivo, o dada a mano) |
+
 | `arrange_clip` | Colocar/mover/cortar clips en la playlist |
 | `set_mixer` | Fader/pan/mute/solo/routing/sends de pistas |
 | `add_effect` / `set_effect` | Insertar efecto en un slot y ajustar sus parámetros |

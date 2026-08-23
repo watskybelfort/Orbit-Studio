@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.0.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-1261%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.1.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-1335%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -42,7 +42,9 @@ guardables con nombre).
 
 1. **Motor de audio propio** — DSP sample-accurate en un AudioWorklet: **10
    instrumentos** (sustractivo, supersaw, FM, 808 con glide, drums sintetizados
-   en 3 kits, sampler, slicer, formantes y los dos de presets, Nova y Prisma) y
+   en 3 kits, sampler **con multisample**, slicer, formantes y los dos de
+   presets, Nova y Prisma) y
+
    **16 efectos** (EQ paramétrico, compresor con sidechain real, limiter
    lookahead, reverb, convolución, delay sync, auto-filter con LFO, vinyl,
    gate, mono-maker…), con **4 inserts propios por canal** además del mixer de
@@ -81,7 +83,33 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.0.0 — "la toma en vivo".** Orbit producía de maravilla y no se tocaba.
+**v3.1.0 — "el instrumento entero".** Un canal de sampler tenía UN sample y lo
+estiraba por todo el teclado con keytrack: un piano grabado en do sonaba a
+chipmunk dos octavas arriba y a monstruo dos abajo, porque cambiar la
+velocidad de lectura mueve las formantes y el tiempo del ataque con el tono.
+
+Ahora el canal admite un **keymap**: varias muestras repartidas por teclas y
+por velocidad, cada una sonando a su nota real. Una zona es un rectángulo
+(tecla × velocidad) con su muestra, su raíz, su afinación fina y su ganancia, y
+las zonas **pueden solaparse a propósito** — así se hacen las capas suave/fuerte
+y así se apilan dos micros de la misma toma.
+
+Lo que hace que se use es el **auto-mapa**: se sueltan las muestras en el editor
+y entran con su nota leída del nombre del archivo, repartiéndose los rangos
+solas. Lo difícil ahí no es leer `Piano_C3.wav`, son los falsos positivos —
+`Bass2.wav` no es un si y `Deep4.wav` no es un re—, y lo que no sabe leer lo
+dice en vez de colocarlo a bulto: una nota en el sitio equivocado no se ve, se
+descubre tocando. Claude lo monta también, con la tool `set_keymap`.
+
+De regalo, un fallo que habría salido mudo: el recolector de samples del
+**export** miraba solo el sample del canal, así que un instrumento multisample
+se habría renderizado en silencio. Ahora esa decisión es una función pura con
+sus pruebas.
+
+<details>
+<summary><b>v3.0.0 — "la toma en vivo"</b></summary>
+
+ Orbit producía de maravilla y no se tocaba.
 Esta versión cierra el agujero por el que entra el sonido de fuera: el
 controlador MIDI, el micro y el clic de la cuenta.
 
@@ -89,7 +117,6 @@ Es un salto de versión mayor porque el estudio deja de ser una cosa en la que
 solo se *programa* música: ahora se toca y se graba dentro. Y por debajo cambia
 la forma del motor — el nodo del kernel tiene entrada, el protocolo de
 medidores lleva la señal que entra, y la grabación ya no pasa por el navegador.
-
 
 **El controlador, en serio.** Cada dispositivo se enciende y se apaga por su
 cuenta, con su canal, su transposición por octavas y su curva de pulsación;
@@ -124,20 +151,23 @@ enseñaba el conteo en pantalla y no sonaba nada. Ahora la cuenta la lleva el
 kernel, con clics sample-accurate, y un beat después del último arranca él
 mismo: la cuenta y el compás 1 comparten reloj.
 
+</details>
+
 ## Roadmap
 
 Lo que hay pensado a continuación. Nada de esto está prometido con fecha: se
 saca cuando toca, en el mismo orden en que estorba no tenerlo. Las tres filas de
 entrada en vivo que abrían este roadmap —controlador MIDI, monitor del micro y
-clic de la cuenta— salieron en la **v3.0**; las de abajo son lo que dejaron
+clic de la cuenta— salieron en la **v3.0**, y el multisample en la **v3.1**; lo
+de abajo es lo que dejaron detrás.
 
-detrás.
 
 ### Siguiente
 
 | Qué | Por qué |
 |---|---|
-| **Instrumentos multisample (keymaps)** | Un sampler con varias muestras repartidas por el teclado y por velocidad, no una sola por canal. Ahora que hay teclado físico de verdad, es lo que más se nota que falta |
+| **El pack de fábrica, en multisample** | Los 24 instrumentos del pack son una muestra estirada por todo el teclado, que es justo lo que la v3.1 vino a arreglar. Generarlos con tres o cuatro raíces cada uno y su keymap montado es lo que haría que el pack sonara como suena un instrumento de verdad — y toca el generador, el manifest y el tamaño del instalador, así que es su propia entrega |
+| **Muestras al keymap en bloque** | Hoy se sueltan de una en una: el Browser arrastra una entrada. Soltar una carpeta entera —o una selección múltiple— es lo que pide un piano de treinta muestras |
 | **Rueda de tono que doble el tono** | Hoy la rueda entra como un mando más y mueve el parámetro que le asignes. Doblar una voz VIVA pide reafinar por voz en el kernel, y de los diez instrumentos no todos saben: `glideTo` existe pero la mitad ignora el cambio después de nacer. Hacerlo a medias sería peor que no hacerlo — se notaría en unos sonidos sí y en otros no |
 | **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
@@ -208,7 +238,7 @@ la que menos recorta**.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 1261 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 1335 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
