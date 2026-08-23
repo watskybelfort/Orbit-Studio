@@ -24,6 +24,8 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Metrónomo (click sintetizado en el kernel) | v0.1 |
 | Metrónomo AUDIBLE con acento según el compás (fix: antes no disparaba nunca) | v0.6 |
 | Count-in de 1 o 2 compases con metrónomo antes de grabar (la toma entra exacta en el caret) | v1.0 |
+| **La cuenta atrás SUENA con el transporte parado**: el metrónomo del kernel solo clica rodando, así que grabar desde el compás 1 —donde no hay sitio por delante para el pre-roll— enseñaba el conteo y no sonaba nada. Ahora la cuenta la lleva el kernel: clics sample-accurate y, un beat después del último, arranca él mismo. Y el micro abre contra el reloj de audio, no cuando llegue el frame de medidores | v2.10 |
+
 | Loop de reproducción (región desde la regla de la playlist) | v0.1 |
 | Swing global (perilla como FL) | v0.1 |
 | Undo/redo por origen (500 niveles, fusión de ráfagas de perilla) | v0.1 |
@@ -93,6 +95,11 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | **Riff machine** (Alt+G): motivos sobre la escala, deterministas por semilla, con densidad, rango y carácter | v1.0 |
 | Tocar en vivo con controlador MIDI o el teclado del PC (filas Z y Q) | v0.5 |
 | Grabación MIDI armada al patrón (cuantización de inicios a 1/16, un undo) | v0.5 |
+| **Controladores de verdad**: cada dispositivo se enciende y se apaga por su cuenta, filtro de canal (omni o uno), transposición por octavas y curva de pulsación (suave/lineal/dura/fija). Panel en Ajustes con LED de actividad — cuando un teclado "no funciona", lo primero es saber si sus mensajes llegan | v2.10 |
+| **Pedal de sostenido** (CC 64) por dispositivo, con histéresis en la mitad de la carrera (hay pedales continuos). Resuelve los dos casos que dejan notas colgando: repicar una tecla con el pedal pisado y apagar el teclado sin levantarlo | v2.10 |
+| **MIDI learn**: clic derecho en cualquier perilla o fader → Aprender MIDI, y el mando queda atado a ese parámetro. Escribe por el bus de comandos (con undo, y viaja a la sala), a un volcado por frame y con un solo paso de undo por barrido. El mapa va por mando (`cc:74`), no por dispositivo: cambiar de puerto USB no lo rompe | v2.10 |
+| **Grabación MIDI con el tiempo del evento**: la nota cae donde estaba el playhead cuando la tocaste, no donde estaba cuando la UI se enteró (hasta 46 ms de diferencia). Rejilla elegible (sin cuantizar, 1/32, 1/16, 1/8, negra) y volcado al patrón al cerrar CADA vuelta del loop —overdub— partiendo las teclas que sigas pulsando | v2.10 |
+
 
 ## 4. Playlist
 
@@ -266,6 +273,9 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 |---|---|
 | Clips de audio en playlist (drop desde el browser; samples rehidratados al abrir) | v0.2 |
 | Grabación de micro a la playlist (botón en el transport; toma → WAV + clip) | v0.4 |
+| **Monitor de entrada con la cadena puesta**: el micro entra por la entrada del nodo del kernel y se suma a su pista de mixer ANTES de los inserts — cantar oyendo el reverb y el compresor que va a llevar la toma, no la voz seca. Botón con medidor en el transporte y sección Entrada en Ajustes (dispositivo, pista, ganancia, nivel en dB). Escuchar y monitorizar van separados: medir el nivel para ajustar la ganancia no obliga a sacarlo por los altavoces | v2.10 |
+| **La toma se graba EN CRUDO**: antes la hacía `MediaRecorder`, que en este Electron solo sabe webm/opus — cada toma se comprimía con pérdida y se volvía a decodificar para escribirla como un WAV de 24 bits que ya no los tenía. Ahora las muestras vuelven del kernel tal cual, antes de la ganancia y de la cadena, y van directas a WAV. Además arranca ~3 ms después del mensaje en vez de cuando el navegador abra su codificador | v2.10 |
+
 | Editor de audio estilo Edison: recorte por asas, ganancia, normalizar, reverse, fades | v0.4 |
 | Time-stretch de clips (SOLA por grains, pitch intacto, toggle Stretch) | v0.7 |
 | **Afinador de tomas** (PSOLA): lleva cada nota a la más cercana o a una escala, con fuerza y transposición | v1.0 |

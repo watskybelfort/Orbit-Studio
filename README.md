@@ -1,7 +1,8 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.8.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-964%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v2.10.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-1261%20passing-7ce65a)
+
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
 
@@ -37,7 +38,7 @@ Minimalista, iconografía propia estilo Mac, semáforo de macOS opcional y
 customizador integrado (acento, transparencia y tinte del vidrio, temas
 guardables con nombre).
 
-## Los cinco pilares
+## Los seis pilares
 
 1. **Motor de audio propio** — DSP sample-accurate en un AudioWorklet: **10
    instrumentos** (sustractivo, supersaw, FM, 808 con glide, drums sintetizados
@@ -53,66 +54,86 @@ guardables con nombre).
    automatización con curvas de tensión y LFOs, Mixer con 10 slots por pista.
    Export offline a WAV 16/24/32, FLAC, MP3, stems por pista y normalización a
    -14 LUFS.
-3. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos**
+3. **Se toca y se graba** — controladores MIDI de verdad (cada dispositivo
+   aparte, canal, octava, curva de pulsación, pedal de sostenido y **MIDI
+   learn** sobre cualquier perilla), grabación al patrón con el tiempo del
+   evento y overdub por vuelta, **monitor de micro con la cadena del canal
+   puesta** y tomas grabadas **en crudo por el kernel**, sin códec de por medio.
+
+4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos**
+
    generados por síntesis propia) con categorías, tags de género/tonalidad/BPM,
    detección automática de BPM y tonalidad, búsqueda instantánea y preview
    renderizado por el propio kernel.
-4. **Colaboración en tiempo real** — el proyecto es un log de comandos sobre
+5. **Colaboración en tiempo real** — el proyecto es un log de comandos sobre
+
    CRDT (Yjs): salas por código de 6 letras **con contraseña opcional que nunca
    viaja**, **aforo ajustable (2–64)**, servidor propio que puedes atar a la
    dirección que quieras (localhost, la IP del VPN, la de la LAN o todas),
    convergencia sin conflictos, roles que reparte y hace cumplir el servidor,
    chat anclado al timeline, modo seguidor y undo POR USUARIO (tu Ctrl+Z no
    deshace lo del otro).
-5. **Claude dentro del estudio** — la app expone un servidor MCP con **21 tools**
+6. **Claude dentro del estudio** — la app expone un servidor MCP con **21 tools**
+
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
 
-**v2.8.0 — "el códec propio".** Orbit exporta `.opus` con un códec **escrito
-entero en casa**: range coder, MDCT, PVQ, cuantización de energía, asignador de
-bits y contenedor Ogg. Sin librerías de terceros.
+**v2.10.0 — "la toma en vivo".** Orbit producía de maravilla y no se tocaba.
+Esta versión cierra el agujero por el que entra el sonido de fuera: el
+controlador MIDI, el micro y el clic de la cuenta.
 
-La referencia es la implementación normativa de la **RFC 6716**, extraída del
-propio documento y verificada por SHA-1. Las 721 constantes del formato no están
-copiadas a mano: las saca un script del fuente.
+**El controlador, en serio.** Cada dispositivo se enciende y se apaga por su
+cuenta, con su canal, su transposición por octavas y su curva de pulsación;
+pedal de sostenido con los dos casos que dejan notas colgando resueltos
+—repicar una tecla con el pedal pisado, apagar el teclado sin levantarlo—; y
+**MIDI learn** sobre cualquier perilla o fader del programa: clic derecho,
+mueves el mando y quedan casados. El mando escribe por el bus de comandos, así
+que tiene undo y viaja a la sala, y un barrido entero es UN paso de undo.
 
-Y que funciona no es una opinión: `npx tsx tools/qa/opus-verify.ts` codifica con
-Orbit y le pide a **ffmpeg** que lo decodifique. Doce configuraciones —mono y
-estéreo, tramas de 2,5 a 20 ms, de 32 a 256 kbps— con correlación **0,997 a
-1,000** contra el original, retardo cero y ganancia 1,000.
+**Grabar tocando cuadra donde tocaste.** La nota caía donde estaba el playhead
+cuando la UI se enteraba, no cuando la tocaste: hasta 46 ms repartidos al azar.
+Ahora se usa el sello del evento. La rejilla se elige (sin cuantizar incluido) y
+lo tocado cae al patrón al cerrar CADA vuelta del loop, sin parar.
 
-Esa comprobación externa existe por algo concreto. Dos de los bugs más difíciles
-fueron una división que redondeaba hacia −∞ donde C trunca hacia cero, y un `+1`
-de más en la cuenta de bits gastados. **Los dos lados de Orbit compartían el
-error**, así que la ida y vuelta contra nuestro propio decodificador pasaba en
-verde mientras el archivo era ilegible para cualquier otro. Ningún test interno
-los habría pillado: sólo los vio ffmpeg.
+**El micro se oye con su cadena puesta.** El nodo del kernel tenía
+`numberOfInputs: 0` —no había por dónde meter audio de fuera—. Ahora la entrada
+se suma a su pista de mixer *antes* de los inserts: cantar oyendo el reverb y el
+compresor que va a llevar la toma, no la voz seca. Medir el nivel y oírse son
+dos interruptores distintos, que ajustar la ganancia no puede obligarte a montar
+un acople.
 
-El encoder sigue tomando las decisiones conservadoras —sin postfiltro, sin
-detección de transitorios, dispersión fija—, que son *decisiones* y no sintaxis:
-dan un archivo válido que suena algo peor que el de libopus a igualdad de bits,
-no uno roto.
+**Y la toma se graba en crudo.** Esto era una pérdida de calidad escondida a
+plena vista: la grabación la hacía `MediaRecorder`, que en este Electron solo
+sabe **webm/opus**. Cada toma se comprimía con pérdida y se volvía a decodificar
+para escribirla como un WAV de 24 bits que ya no tenía 24 bits de información.
+Ahora las muestras vuelven del kernel tal cual —antes de la ganancia y de la
+cadena— y van directas a WAV.
+
+**La cuenta atrás suena.** El metrónomo del kernel solo clica rodando, así que
+grabar desde el compás 1, donde no hay sitio por delante para el pre-roll,
+enseñaba el conteo en pantalla y no sonaba nada. Ahora la cuenta la lleva el
+kernel, con clics sample-accurate, y un beat después del último arranca él
+mismo: la cuenta y el compás 1 comparten reloj.
 
 ## Roadmap
 
 Lo que hay pensado a continuación. Nada de esto está prometido con fecha: se
-saca cuando toca, en el mismo orden en que estorba no tenerlo. Este roadmap se
-rehízo tras la **auditoría profunda de la v2.8** (diagnóstico + reparación de
-todo el árbol, 6 zonas, ~40 arreglos con test): las tres primeras filas de
-"Siguiente" salen justo de lo que esa revisión dejó medido y deferido.
+saca cuando toca, en el mismo orden en que estorba no tenerlo. Las tres filas de
+entrada en vivo que abrían este roadmap —controlador MIDI, monitor del micro y
+clic de la cuenta— salieron en la **v2.10**; las de abajo son lo que dejaron
+detrás.
 
 ### Siguiente
 
 | Qué | Por qué |
 |---|---|
-| **Tocar y grabar con un controlador MIDI** | Web MIDI: teclado/pads físicos que iluminen las teclas ya soportadas y graben directo al patrón. Es la entrada que más se echa en falta para producir de verdad |
-| **Monitor de entrada y efectos en vivo sobre el micro** | Oír la voz/instrumento con la cadena del canal puesta mientras se graba, no solo después |
-| **Clic de la cuenta atrás con el transporte parado** | Grabar desde el compás 1 enseña el conteo pero no suena (el kernel solo hace clic rodando); falta un generador de clic por AudioContext durante la espera |
+| **Instrumentos multisample (keymaps)** | Un sampler con varias muestras repartidas por el teclado y por velocidad, no una sola por canal. Ahora que hay teclado físico de verdad, es lo que más se nota que falta |
+| **Rueda de tono que doble el tono** | Hoy la rueda entra como un mando más y mueve el parámetro que le asignes. Doblar una voz VIVA pide reafinar por voz en el kernel, y de los diez instrumentos no todos saben: `glideTo` existe pero la mitad ignora el cambio después de nacer. Hacerlo a medias sería peor que no hacerlo — se notaría en unos sonidos sí y en otros no |
 | **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
-| **Instrumentos multisample (keymaps)** | Un sampler con varias muestras repartidas por el teclado y por velocidad, no una sola por canal |
+| **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
 
 ### Más adelante
 
@@ -122,6 +143,7 @@ todo el árbol, 6 zonas, ~40 arreglos con test): las tres primeras filas de
 | **Analizador de espectro por pista y medidor de LUFS integrado** | Ver el espectro y la sonoridad de cada strip, y normalizar el export a un objetivo (−14 LUFS y compañía) sin salir de la app |
 | **Historial en árbol y biblioteca de plantillas** | Deshacer que no pierda ramas al divergir, y arrancar proyectos desde plantillas con nombre |
 | **Optimizaciones del motor medidas en la auditoría** | Descargar samples que ya no usa nadie (hoy la RAM del worklet solo crece), export de stems en UNA petición al worker (hoy clona los samples por stem), suavizado de coeficientes al automatizar EQ/filtros, y flush de denormales en las colas de reverb |
+| **Compensación de latencia de la toma** | La toma entra por el mismo reloj de audio que el transporte, pero entre el micro y el kernel hay el buffer del sistema. Medirlo (bucle de calibración) y correr el clip esa cantidad dejaría la voz clavada sin tocar nada a mano |
 
 ### Horizonte
 
@@ -179,7 +201,8 @@ la que menos recorta**.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 964 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 1261 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```
 
@@ -225,6 +248,30 @@ orbit-studio/
 ```
 
 ## Historial
+
+<details>
+<summary><b>v2.9.0 — "la casa revisada de arriba a abajo"</b></summary>
+
+Auditoría profunda del árbol entero, zona por zona, con arreglo y test de cada
+cosa encontrada: suplantación y borrado de pistas ajenas en la sala, SSRF y
+escapes por enlace en el shell de escritorio, cotas del bridge y ReDoS del
+parser de la galería, un stop que en realidad era pausa, undo que perdía datos,
+batch no atómico, MIDI sin cambios de tempo, audio fantasma, loop que se moría,
+pan de nota muerto, limiter que dejaba pasar picos, foldback en contrafase y un
+notch que amplificaba.
+
+</details>
+
+<details>
+<summary><b>v2.8.0 — "el códec propio"</b></summary>
+
+Orbit exporta `.opus` con un códec escrito entero en casa — range coder, MDCT,
+PVQ, cuantización de energía, asignador de bits y contenedor Ogg — con la
+RFC 6716 como referencia y verificado contra ffmpeg. La sección **Encoder Opus
+propio**, más abajo, lo cuenta entero (incluidos los dos bugs que solo vio un
+decodificador ajeno).
+
+</details>
 
 <details>
 <summary><b>v1.2.0 — "la casa en orden"</b></summary>
