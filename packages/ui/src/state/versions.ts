@@ -103,19 +103,21 @@ export async function refreshVersions(): Promise<void> {
   }
 }
 
-/** Guarda el proyecto tal y como está ahora. */
-export async function saveVersion(label: string): Promise<void> {
+/** Guarda el proyecto tal y como está ahora. Devuelve si de verdad se guardó. */
+export async function saveVersion(label: string): Promise<boolean> {
   const api = window.orbit?.versions;
-  if (!api) return;
+  if (!api) return false;
   useVersions.setState({ busy: true, notice: null });
   try {
     await api.save(store.project.id, label, serializeProject(store.project));
     await refreshVersions();
     useVersions.setState({ notice: `Versión guardada: ${label || 'sin nombre'}` });
+    return true;
   } catch (err) {
     useVersions.setState({
       notice: err instanceof Error ? err.message : 'No se pudo guardar la versión',
     });
+    return false;
   } finally {
     useVersions.setState({ busy: false });
   }
@@ -168,7 +170,17 @@ export async function restoreVersion(file: string): Promise<void> {
     useVersions.setState({ busy: false });
     return;
   }
-  await saveVersion('antes de restaurar');
+  // El respaldo "antes de restaurar" es la red que hace de restaurar algo
+  // reversible: si NO se pudo guardar, se aborta en vez de reemplazar el estado
+  // actual sin vuelta atrás.
+  const backedUp = await saveVersion('antes de restaurar');
+  if (!backedUp) {
+    useVersions.setState({
+      busy: false,
+      notice: 'No se restauró: no se pudo guardar el respaldo del estado actual',
+    });
+    return;
+  }
   store.replaceProject(project);
   // El proyecto nuevo llega lleno de referencias y el kernel, vacío.
   void rehydrateSamples();

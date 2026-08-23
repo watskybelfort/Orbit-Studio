@@ -559,6 +559,11 @@ let pendingInvite: ((token: string | null) => void) | null = null;
  */
 export function requestInvite(ttlMs: number, uses: number): Promise<string | null> {
   if (!session) return Promise.resolve(null);
+  // Si ya había una petición en vuelo, se resuelve a null antes de pisarla: el
+  // token que llegue será para la nueva. Sin esto, el primer `requestInvite`
+  // quedaba colgado para siempre (su timeout veía pendingInvite !== resolve y
+  // salía sin resolver) y quien lo esperaba no mandaba nada ni recibía aviso.
+  if (pendingInvite) pendingInvite(null);
   return new Promise((resolve) => {
     pendingInvite = resolve;
     session?.createInvite(ttlMs, uses);
@@ -654,6 +659,10 @@ export function leaveRoom(): void {
     roomProtected: false,
     passwordPrompt: null,
     passwordNotice: null,
+    // Sin esto, el token y la lista de invitaciones de la sala que dejas se
+    // quedaban en pantalla al entrar en la siguiente.
+    invites: [],
+    freshInvite: null,
   });
 }
 

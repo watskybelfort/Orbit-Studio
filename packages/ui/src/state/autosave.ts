@@ -109,10 +109,25 @@ export function discardRecovery(): void {
 
 /** El estado actual pasa a ser el punto limpio (tras guardar o abrir). */
 export function markClean(): void {
-  savedVersion = store.version;
-  autosavedVersion = store.version;
+  markCleanAt(store.version);
+}
+
+/**
+ * Marca como guardada una VERSIÓN concreta del store, no la de ahora. Lo usa
+ * saveProject: el JSON se serializa ANTES del diálogo de guardado, así que si el
+ * proyecto cambia mientras el diálogo está abierto (sala, Claude, el usuario),
+ * marcar limpio el estado de DESPUÉS enterraría esos cambios sin que el guardián
+ * de "sin guardar" avise. Marcando la versión serializada, isDirty vuelve a ser
+ * true si el proyecto avanzó.
+ */
+export function markCleanAt(version: number): void {
+  savedVersion = version;
+  autosavedVersion = version;
   refreshDirty();
-  void window.orbit?.autosave.clear();
+  // La recuperación pendiente solo se descarta si lo guardado ES el estado
+  // actual; si el proyecto avanzó durante el diálogo, esos cambios aún no están
+  // en disco y su pending debe seguir vivo.
+  if (store.version === version) void window.orbit?.autosave.clear();
 }
 
 export function initAutosave(): void {

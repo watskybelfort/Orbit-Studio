@@ -140,6 +140,13 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
   await play();
 
   while (!cancelCountIn) {
+    // Si el transporte se para por otro lado (Space, Stop) durante la cuenta,
+    // currentBeat() se congela y este bucle sondearía cada 25 ms para siempre,
+    // dejando la fase en 'countin' con el micro abierto. Se aborta.
+    if (!useUiStore.getState().playing) {
+      cancelCountIn = true;
+      break;
+    }
     const beat = currentBeat();
     if (beat >= target - 1e-3) break;
     // Tope en `bars`: el primer frame de medidores puede llegar con la
@@ -231,10 +238,45 @@ async function stopRecording(): Promise<void> {
   if (!rec) return;
   useRecorderStore.setState({ phase: 'saving' });
 
-  const blob = await new Promise<Blob>((resolve) => {
-    rec.onstop = () => resolve(new Blob(chunks, { type: rec.mimeType }));
-    rec.stop();
-  });
+  // El micro se cierra SÍ o SÍ (aquí abajo): si `rec.stop()` lanzaba (recorder
+  // inactivo, micro desenchufado) o `onstop` no llegaba nunca, la promesa se
+  // quedaba sin resolver → fase clavada en 'saving', botón Rec muerto y los
+  // tracks del stream nunca se paraban (micro abierto hasta cerrar la app).
+  let blob: Blob;
+  try {
+    blob = await new Promise<Blob>((resolve, reject) => {
+      const type = rec.mimeType || 'audio/webm';
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        resolve(new Blob(chunks, { type }));
+      };
+      rec.onstop = finish;
+      rec.onerror = () => {
+        if (!done) {
+          done = true;
+          reject(new Error('El micro falló durante la grabación'));
+        }
+      };
+      // Red de seguridad: si onstop no dispara, se resuelve con lo grabado.
+      setTimeout(finish, 4000);
+      try {
+        if (rec.state !== 'inactive') rec.stop();
+        else finish();
+      } catch {
+        finish();
+      }
+    });
+  } catch (err) {
+    stream?.getTracks().forEach((t) => t.stop());
+    chunks = [];
+    useRecorderStore.setState({
+      phase: 'idle',
+      error: err instanceof Error ? err.message : 'No se pudo cerrar la grabación',
+    });
+    return;
+  }
   stream?.getTracks().forEach((t) => t.stop());
   chunks = [];
 

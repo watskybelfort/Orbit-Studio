@@ -20,7 +20,7 @@ import { saveVersion } from './versions';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { setActivePattern, store } from './app';
-import { confirmDiscard, markClean } from './autosave';
+import { confirmDiscard, markClean, markCleanAt } from './autosave';
 
 interface ProjectFileState {
   /** Ruta del .orbit abierto; null = proyecto sin guardar. */
@@ -219,14 +219,19 @@ export async function saveProject(saveAs = false): Promise<void> {
   try {
     const current = useProjectFile.getState().path;
     const title = store.project.meta.title || 'proyecto';
+    // Se captura la versión JUNTO al JSON, antes del diálogo: lo que se marca
+    // limpio es esta foto, no el estado de después (que un peer/Claude pudo
+    // mover mientras el diálogo estaba abierto).
+    const savedVersion = store.version;
+    const json = serializeProject(store.project);
     const path = await api.project.save(
       saveAs ? null : current,
-      serializeProject(store.project),
+      json,
       `${title.replace(/[<>:"/\\|?*]/g, '-')}.orbit`,
     );
     if (!path) return; // cancelado
     useProjectFile.setState({ path });
-    markClean();
+    markCleanAt(savedVersion);
     void refreshRecents();
     // Cada guardado deja también una VERSIÓN: es el punto que uno considera
     // digno de guardar, así que es exactamente el punto al que querrá volver.

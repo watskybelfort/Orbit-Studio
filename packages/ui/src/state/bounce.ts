@@ -100,8 +100,11 @@ export function unfreezeTrack(trackId: string): void {
       commands: [
         { type: 'removeClips', clipIds: [frozen.id] },
         {
+          // Freeze subió el carril con (lane ?? 0)+1; descongelar lo revierte en
+          // vez de aplanar a 0, que en un comping tiraba la toma buena (lane 2)
+          // encima de las muteadas.
           type: 'patchClips',
-          patches: sources.map((c) => ({ id: c.id, muted: false, lane: 0 })),
+          patches: sources.map((c) => ({ id: c.id, muted: false, lane: Math.max(0, (c.lane ?? 1) - 1) })),
         },
       ],
     },
@@ -189,17 +192,33 @@ async function bounceClips(
       audioGain: 1,
     };
 
+    // Revalidar contra el proyecto de AHORA: el render pudo tardar segundos y en
+    // ese hueco un peer/Claude/el usuario pudo borrar clips o la pista destino.
+    // Sin esto el batch referencia ids muertos (con el rollback de core: se cae
+    // entero y no consolida nada) o deja un clip huérfano sobre una pista que ya
+    // no existe.
+    const now = store.project;
+    if (!now.playlistTracks[trackId]) {
+      notify('No se consolidó: la pista destino ya no existe.');
+      return;
+    }
+    const liveClips = clips.filter((c) => now.clips[c.id]);
+    if (liveClips.length === 0) {
+      notify('No se consolidó: esos clips ya no están.');
+      return;
+    }
+
     // Congelar conserva los clips originales (muteados y un carril más abajo);
     // consolidar los sustituye.
     const commands: Command[] = [{ type: 'registerSample', sample }];
     if (opts.freeze) {
-      audioClip.frozenFrom = clips.map((c) => c.id);
+      audioClip.frozenFrom = liveClips.map((c) => c.id);
       commands.push({
         type: 'patchClips',
-        patches: clips.map((c) => ({ id: c.id, muted: true, lane: (c.lane ?? 0) + 1 })),
+        patches: liveClips.map((c) => ({ id: c.id, muted: true, lane: (c.lane ?? 0) + 1 })),
       });
     } else {
-      commands.push({ type: 'removeClips', clipIds: clips.map((c) => c.id) });
+      commands.push({ type: 'removeClips', clipIds: liveClips.map((c) => c.id) });
     }
     commands.push({ type: 'addClips', clips: [audioClip] });
     const label = opts.freeze ? `Congelar ${what}` : `Consolidar ${what} a audio`;
@@ -210,7 +229,7 @@ async function bounceClips(
       ...(missingPlugins.length ? [`plugins en bypass: ${missingPlugins.join(', ')}`] : []),
     ];
     notify(
-      `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${clips.length} clip(s) → ${sample.name}` +
+      `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${liveClips.length} clip(s) → ${sample.name}` +
         (warn.length ? ` (${warn.join('; ')})` : ''),
     );
   } catch (err) {

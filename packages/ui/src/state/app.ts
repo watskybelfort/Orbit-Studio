@@ -209,6 +209,11 @@ export async function play(): Promise<void> {
 
 export function stopPlayback(): void {
   engine.stop();
+  // También se lleva el cursor del KERNEL a 0: si no, el siguiente frame de
+  // medidores (que trae posBeats del kernel, aún en su sitio) devolvía el caret
+  // a donde estaba ~46 ms después, y el play reanudaba ahí — stop se comportaba
+  // como pausa.
+  engine.seek(0);
   // Stop devuelve al principio el caret del modo en el que estás; el del otro
   // modo se queda donde lo dejaste, que es justo la gracia de tenerlos aparte.
   modePos[useUiStore.getState().playMode] = 0;
