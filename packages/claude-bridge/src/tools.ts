@@ -199,7 +199,48 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'set_keymap',
+    description:
+      'Multisample: reparte varias muestras YA REGISTRADAS en el proyecto por el teclado de un ' +
+      'canal de sampler, cada una sonando a su nota real en vez de estirar una sola. Las muestras ' +
+      'se dan por id o por nombre (`samples`), y la nota de cada una se lee de su nombre de ' +
+      'archivo (`Piano_C3.wav`); con `roots` se dan a mano, en el mismo orden. Los rangos de tecla ' +
+      'se reparten solos entre las raíces. Con `velocityLayers` las muestras que caigan en la ' +
+      'misma nota se reparten la velocidad (capas suave/fuerte) en vez de sonar a la vez. ' +
+      '`samples` vacío quita el keymap y el canal vuelve a su único sample. Un paso de undo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        channelId: { type: 'string', description: 'Id o nombre del canal (tiene que ser sampler).' },
+        samples: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ids o nombres de samples del proyecto. Vacío = quitar el keymap.',
+        },
+        roots: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0, maximum: 127 },
+          description:
+            'Nota raíz de cada muestra (MIDI, C5=60), en el mismo orden que `samples`. Sin esto se ' +
+            'lee del nombre del archivo.',
+        },
+        octaveOffset: {
+          type: 'integer',
+          minimum: -4,
+          maximum: 4,
+          description: 'Octavas que se le suman a lo leído del nombre (otra convención de octava).',
+        },
+        velocityLayers: {
+          type: 'boolean',
+          description: 'Repartir la velocidad entre las muestras que compartan nota. Por defecto sí.',
+        },
+      },
+      required: ['channelId', 'samples'],
+    },
+  },
+  {
     name: 'set_steps',
+
     description:
       'Programa el step sequencer de un canal en un patrón: un string donde cada carácter es un paso ' +
       'de 1/16 (0.25 beats). "x" o "X" = golpe (velocity 0.9), dígito 1-9 = golpe con velocity n/9, ' +

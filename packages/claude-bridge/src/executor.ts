@@ -15,15 +15,22 @@ import {
   EFFECT_PARAMS,
   INSTRUMENT_PARAMS,
   MIXER_SLOTS,
+  autoMapKeymap,
   createChannel,
+  createKeymapZone,
   createPattern,
   dbToGain,
+
   findParamSpec,
   gainToDb,
   midiToNote,
   newId,
+  normalizeKeymap,
   noteToMidi,
+  spreadKeymapRanges,
+  spreadKeymapVelocities,
   type AutomationPoint,
+
   type Channel,
   type Clip,
   type Command,
@@ -38,7 +45,9 @@ import {
   type PlaylistTrack,
   type Project,
   type ProjectStore,
+  type SampleRef,
 } from '@orbit/core';
+
 import {
   analyzeMix,
   compileProject,
@@ -136,7 +145,14 @@ const MAX_POINTS = 4096;
 /** Tope superior de posiciones/duraciones en beats (≈ miles de compases). */
 const MAX_BEATS = 100_000;
 
+function reqArray(o: Record<string, unknown>, key: string): unknown[] {
+  const v = o[key];
+  if (!Array.isArray(v)) throw new ToolError(`Falta el parámetro "${key}" (lista)`);
+  return v;
+}
+
 function reqNumber(o: Record<string, unknown>, key: string): number {
+
   const v = o[key];
   if (typeof v !== 'number' || !Number.isFinite(v)) {
     throw new ToolError(`Falta el parámetro "${key}" (número)`);
@@ -235,7 +251,9 @@ export class ToolExecutor {
       case 'set_notes': return { text: this.setNotes(a) };
       case 'add_channel': return { text: this.addChannel(a) };
       case 'set_channel': return { text: this.setChannel(a) };
+      case 'set_keymap': return { text: this.setKeymap(a) };
       case 'set_steps': return { text: this.setSteps(a) };
+
       case 'add_pattern': return { text: this.addPattern(a) };
       case 'arrange_clip': return { text: this.arrangeClip(a) };
       case 'set_tempo': return { text: this.setTempo(a) };
@@ -271,7 +289,21 @@ export class ToolExecutor {
     throw new ToolError(`No existe el patrón "${ref}". Disponibles: ${names || '(ninguno)'}`);
   }
 
+  /** Sample del proyecto por id o por nombre exacto. */
+  private findSample(ref: string): SampleRef {
+    const p = this.project;
+    const byId = p.samples[ref];
+    if (byId) return byId;
+    const lower = ref.toLowerCase();
+    for (const s of Object.values(p.samples)) {
+      if (s.name.toLowerCase() === lower) return s;
+    }
+    const names = Object.values(p.samples).map((s) => `"${s.name}"`).slice(0, 12).join(', ');
+    throw new ToolError(`No hay ningún sample "${ref}" en el proyecto. Hay: ${names || '(ninguno)'}`);
+  }
+
   private findChannel(ref: string): Channel {
+
     const p = this.project;
     const byId = p.channels[ref];
     if (byId) return byId;
@@ -500,7 +532,79 @@ export class ToolExecutor {
     return `Añadidas ${notes.length} notas a "${channel.name}" en "${pattern.name}"${replaced}${grew}.`;
   }
 
+  /**
+   * Multisample por el bridge. La gracia de que Claude pueda montarlo es la
+   * de siempre: las muestras las tiene el usuario y el reparto es aritmética
+   * aburrida — decir "hazme un piano con esas doce" es más rápido que
+   * arrastrar doce bordes.
+   */
+  private setKeymap(a: Record<string, unknown>): string {
+    const channel = this.findChannel(reqString(a, 'channelId'));
+    if (channel.kind !== 'sampler') {
+      throw new ToolError(
+        `El canal "${channel.name}" es ${channel.kind}, y el keymap es del sampler`,
+      );
+    }
+    const refs = reqArray(a, 'samples').map((v, i) => {
+      if (typeof v !== 'string') throw new ToolError(`samples[${i}] no es un texto`);
+      return v;
+    });
+
+    const label = `Keymap de "${channel.name}"`;
+    if (refs.length === 0) {
+      this.dispatch({ type: 'patchChannel', channelId: channel.id, patch: { keymap: [] } }, label);
+      return `Keymap quitado: "${channel.name}" vuelve a su único sample`;
+    }
+
+    const samples = refs.map((ref) => this.findSample(ref));
+    const roots = a['roots'] === undefined ? null : reqArray(a, 'roots');
+    if (roots !== null && roots.length !== samples.length) {
+      throw new ToolError(`roots trae ${roots.length} notas y samples ${samples.length}`);
+    }
+
+    let zones;
+    let unreadable: string[] = [];
+    if (roots !== null) {
+      // Raíces a mano: no hay nada que adivinar, solo repartir los rangos.
+      zones = spreadKeymapRanges(
+        samples.map((s, i) => {
+          const root = roots[i];
+          if (typeof root !== 'number') throw new ToolError(`roots[${i}] no es un número`);
+          return createKeymapZone(s.id, { keyRoot: root });
+        }),
+      );
+      if (a['velocityLayers'] !== false) zones = spreadKeymapVelocities(zones);
+    } else {
+      const result = autoMapKeymap(
+        // El nombre del ARCHIVO, que es donde va la nota: el del SampleRef
+        // puede venir ya limpio y sin ella.
+        samples.map((s) => ({ id: s.id, name: s.path.replace(/^[a-z]+:/, '') || s.name })),
+        {
+          octaveOffset: optNumber(a, 'octaveOffset') ?? 0,
+          velocityLayers: optBoolean(a, 'velocityLayers') !== false,
+        },
+      );
+      zones = result.zones;
+      unreadable = result.unreadable;
+      if (zones.length === 0) {
+        throw new ToolError(
+          `No he sabido leer la nota de ninguno de esos nombres (${unreadable.join(', ')}). ` +
+            'Pásalas en `roots`.',
+        );
+      }
+    }
+
+    this.dispatch(
+      { type: 'patchChannel', channelId: channel.id, patch: { keymap: normalizeKeymap(zones) ?? [] } },
+      label,
+    );
+    const range = `${midiToNote(zones[0]!.keyLow)}–${midiToNote(zones[zones.length - 1]!.keyHigh)}`;
+    const aviso = unreadable.length > 0 ? ` (fuera, sin nota legible: ${unreadable.join(', ')})` : '';
+    return `Keymap de "${channel.name}": ${zones.length} zona(s) cubriendo ${range}${aviso}`;
+  }
+
   private setSteps(a: Record<string, unknown>): string {
+
     const pattern = this.findPattern(reqString(a, 'patternId'));
     const channel = this.findChannel(reqString(a, 'channelId'));
     const steps = reqString(a, 'steps');

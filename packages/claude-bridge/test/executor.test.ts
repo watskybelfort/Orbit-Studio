@@ -246,3 +246,113 @@ describe('ToolExecutor', () => {
     );
   });
 });
+
+describe('set_keymap', () => {
+  /** Registra samples en el proyecto con nombres de archivo de librería. */
+  function withSamples(store: ProjectStore, files: string[]): void {
+    for (const file of files) {
+      store.dispatch({
+        type: 'registerSample',
+        sample: {
+          id: file,
+          name: file.replace(/\.wav$/, ''),
+          path: `user:${file}`,
+          hash: file,
+          duration: 1,
+        },
+      });
+    }
+  }
+
+  it('monta el keymap leyendo las notas de los nombres', async () => {
+    const { store, executor } = setup();
+    const id = await addChannel(executor, store, 'sampler', 'Piano');
+    withSamples(store, ['Piano_C3.wav', 'Piano_C4.wav', 'Piano_C5.wav']);
+    await executor.execute('set_keymap', {
+      channelId: 'Piano',
+      samples: ['Piano_C3.wav', 'Piano_C4.wav', 'Piano_C5.wav'],
+    });
+    const keymap = store.project.channels[id]!.keymap!;
+    expect(keymap).toHaveLength(3);
+    expect(keymap.map((z) => z.keyRoot).sort((a, b) => a - b)).toEqual([
+      noteToMidi('C3'),
+      noteToMidi('C4'),
+      noteToMidi('C5'),
+    ]);
+    // Y cubren el teclado entero: es lo que se espera de "repartir".
+    expect(keymap[0]!.keyLow).toBe(0);
+    expect(keymap[keymap.length - 1]!.keyHigh).toBe(127);
+  });
+
+  it('acepta las raíces a mano cuando el nombre no dice nada', async () => {
+    const { store, executor } = setup();
+    const id = await addChannel(executor, store, 'sampler', 'Kit');
+    withSamples(store, ['golpe-a.wav', 'golpe-b.wav']);
+    await executor.execute('set_keymap', {
+      channelId: 'Kit',
+      samples: ['golpe-a.wav', 'golpe-b.wav'],
+      roots: [40, 80],
+    });
+    expect(store.project.channels[id]!.keymap!.map((z) => z.keyRoot)).toEqual([40, 80]);
+  });
+
+  it('con la lista vacía quita el keymap', async () => {
+    const { store, executor } = setup();
+    const id = await addChannel(executor, store, 'sampler', 'Piano');
+    withSamples(store, ['Piano_C3.wav']);
+    await executor.execute('set_keymap', { channelId: 'Piano', samples: ['Piano_C3.wav'] });
+    expect(store.project.channels[id]!.keymap).toHaveLength(1);
+    await executor.execute('set_keymap', { channelId: 'Piano', samples: [] });
+    expect(store.project.channels[id]!.keymap ?? []).toHaveLength(0);
+  });
+
+  it('se queja si el canal no es un sampler', async () => {
+    const { store, executor } = setup();
+    await addChannel(executor, store, 'sub808', 'Bajo');
+    withSamples(store, ['Piano_C3.wav']);
+    await expect(
+      executor.execute('set_keymap', { channelId: 'Bajo', samples: ['Piano_C3.wav'] }),
+    ).rejects.toThrow(/sampler/);
+  });
+
+  it('se queja si el sample no está en el proyecto', async () => {
+    const { store, executor } = setup();
+    await addChannel(executor, store, 'sampler', 'Piano');
+    await expect(
+      executor.execute('set_keymap', { channelId: 'Piano', samples: ['no-existe.wav'] }),
+    ).rejects.toThrow(/no-existe/);
+  });
+
+  it('se queja —en vez de colocar a bulto— si no sabe leer ninguna nota', async () => {
+    const { store, executor } = setup();
+    await addChannel(executor, store, 'sampler', 'Kit');
+    withSamples(store, ['golpe.wav']);
+    await expect(
+      executor.execute('set_keymap', { channelId: 'Kit', samples: ['golpe.wav'] }),
+    ).rejects.toThrow(/roots/);
+  });
+
+  it('se queja si roots no cuadra con samples', async () => {
+    const { store, executor } = setup();
+    await addChannel(executor, store, 'sampler', 'Kit');
+    withSamples(store, ['a.wav', 'b.wav']);
+    await expect(
+      executor.execute('set_keymap', { channelId: 'Kit', samples: ['a.wav', 'b.wav'], roots: [40] }),
+    ).rejects.toThrow();
+  });
+
+  it('todo el keymap es UN paso de undo', async () => {
+    const { store, executor } = setup();
+    const id = await addChannel(executor, store, 'sampler', 'Piano');
+    withSamples(store, ['Piano_C3.wav', 'Piano_C5.wav']);
+    await executor.execute('set_keymap', {
+      channelId: 'Piano',
+      samples: ['Piano_C3.wav', 'Piano_C5.wav'],
+    });
+    expect(store.project.channels[id]!.keymap).toHaveLength(2);
+    // Por el origen de Claude, que es donde va lo que hace el bridge.
+    await executor.execute('undo', {});
+    expect(store.project.channels[id]!.keymap ?? []).toHaveLength(0);
+
+  });
+});

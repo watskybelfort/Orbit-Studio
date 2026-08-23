@@ -341,7 +341,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | Servidor **MCP** expuesto por la app (`.mcp.json` en el repo, stdio→WS) | v0.1 |
-| **21 tools**: proyecto, notas, canales, steps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, packs de sonidos, undo/redo | v0.1 |
+| **22 tools**: proyecto, notas, canales, steps, keymaps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, packs de sonidos, undo/redo | v0.1 |
 | Todas sus ediciones pasan por el bus de comandos → undo separado del tuyo | v0.1 |
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
