@@ -29,6 +29,7 @@ import {
   type IndexSignature,
   type SignableIndex,
 } from '../packages/ui/src/state/gallery-signature';
+import { parseGalleryIndex } from '../packages/ui/src/state/gallery-index';
 
 const subtle = globalThis.crypto.subtle;
 
@@ -86,7 +87,15 @@ async function sign(indexPath: string, keyPath: string): Promise<void> {
   // La firma se calcula SIN el bloque de firma dentro (es lo que hace el
   // verificador), así que se quita antes por si el archivo ya venía firmado.
   delete (index as Record<string, unknown>)['signature'];
-  const data = new TextEncoder().encode(canonicalIndex(index));
+
+  // Se firma el índice NORMALIZADO, no el crudo. La app canoniza sobre lo que
+  // sale de parseGalleryIndex (id en minúsculas, tope de 200, entradas inválidas
+  // descartadas); si aquí se firmara el crudo, un id en mayúsculas o una entrada
+  // de más producían una firma que la app rechazaba — y el auto-chequeo de abajo
+  // no lo pillaba porque también usaba el crudo.
+  const normalized = parseGalleryIndex(JSON.stringify(index));
+  if (!normalized) throw new Error('El índice no es válido tras normalizar');
+  const data = new TextEncoder().encode(canonicalIndex(normalized));
   const sig = await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, data);
   const signature: IndexSignature = {
     alg: SIGNATURE_ALG,
@@ -95,9 +104,10 @@ async function sign(indexPath: string, keyPath: string): Promise<void> {
     signedAt: Date.now(),
   };
 
-  // Se verifica lo que se acaba de firmar: si esto fallara, el archivo saldría
-  // roto y nadie se enteraría hasta que alguien lo añadiera en la app.
-  const check = await verifyIndex(index, signature);
+  // Se verifica lo que se acaba de firmar CONTRA EL NORMALIZADO (igual que la
+  // app): si esto fallara, el archivo saldría roto y nadie se enteraría hasta
+  // que alguien lo añadiera en la app.
+  const check = await verifyIndex(normalized, signature);
   if (!check.ok) throw new Error(`La firma recién hecha no verifica: ${check.reason}`);
 
   const out = { ...index, signature };

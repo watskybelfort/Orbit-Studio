@@ -262,6 +262,16 @@ export async function installPlugin(plugin: GalleryPlugin, sourceUrl?: string): 
      * firmó — da igual que la URL sea la buena y que el servidor conteste 200.
      * Aquí se para.
      */
+    // Una galería FIRMADA que lista un plugin SIN sha256 es un agujero: la firma
+    // cubre "id|url|" (hash vacío) y el .js quedaría sin ningún control de
+    // integridad, pero bajo el paraguas verde de la fuente. Se rechaza: sin hash
+    // la firma no llega hasta el código, por mucho que la fuente esté firmada.
+    const signed = from?.trust === 'trusted' || from?.trust === 'pinned';
+    if (signed && !plugin.sha256) {
+      throw new Error(
+        'La galería está firmada pero este plugin no trae sha256: la firma no puede garantizar su código. No se instala.',
+      );
+    }
     if (plugin.sha256) {
       const got = await sha256Base64(source);
       if (got !== plugin.sha256) {

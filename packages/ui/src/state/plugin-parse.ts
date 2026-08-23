@@ -258,11 +258,21 @@ function hasFactory(source: string, fn: string): boolean {
   return decl.test(source) || assign.test(source);
 }
 
-/** Lee `const name = '...'` como literal string. */
+/**
+ * Lee `const name = '...'` como literal string.
+ *
+ * El literal se lee con el LiteralReader (lexer lineal), NO con un regex: el
+ * patrón anterior `(?:\\.|(?!\1)[\s\S])*` tenía backtracking catastrófico
+ * (`\\.` de 2 chars solapa con `[\s\S]` de 1 en las barras invertidas), así que
+ * un `.js` con una comilla sin cerrar tras una tirada de `\` colgaba el hilo que
+ * escanea los plugins. El buscador solo mira que lo siguiente sea una comilla.
+ */
 function parseName(source: string): string | null {
-  const m = /(?:const|let|var)\s+name\s*=\s*(['"])((?:\\.|(?!\1)[\s\S])*)\1/.exec(source);
+  const m = /(?:const|let|var)\s+name\s*=\s*(?=['"])/.exec(source);
   if (!m) return null;
-  const val = m[2]!.replace(/\\(.)/g, '$1').trim();
+  const value = new LiteralReader(source.slice(m.index + m[0].length)).value();
+  if (typeof value !== 'string') return null;
+  const val = value.trim();
   return val !== '' ? val : null;
 }
 

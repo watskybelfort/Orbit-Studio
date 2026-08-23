@@ -125,11 +125,29 @@ function optString(o: Record<string, unknown>, key: string): string | undefined 
   return v;
 }
 
+// Cotas de tamaño: los args de las tools los manda un cliente MCP (o el modelo
+// con un JSON mal formado) y el JSON Schema de tools.ts es solo consejo para el
+// modelo — nadie lo valida en runtime. Sin estos topes, un set_notes con
+// millones de notas, un start de 1e12 o un set_steps gigantesco congelaban o
+// tumbaban el renderer (o reservaban un buffer astronómico en el render).
+const MAX_NOTES_PER_CALL = 4096;
+const MAX_STEPS_LEN = 4096;
+const MAX_POINTS = 4096;
+/** Tope superior de posiciones/duraciones en beats (≈ miles de compases). */
+const MAX_BEATS = 100_000;
+
 function reqNumber(o: Record<string, unknown>, key: string): number {
   const v = o[key];
   if (typeof v !== 'number' || !Number.isFinite(v)) {
     throw new ToolError(`Falta el parámetro "${key}" (número)`);
   }
+  return v;
+}
+
+/** Número finito y acotado a [min, max]: lanza si se sale (no clampa). */
+function boundedNumber(o: Record<string, unknown>, key: string, min: number, max: number): number {
+  const v = reqNumber(o, key);
+  if (v < min || v > max) throw new ToolError(`"${key}" fuera de rango [${min}, ${max}]: ${v}`);
   return v;
 }
 
@@ -423,13 +441,16 @@ export class ToolExecutor {
     if (!Array.isArray(rawNotes) || rawNotes.length === 0) {
       throw new ToolError('Falta "notes": array con al menos una nota');
     }
+    if (rawNotes.length > MAX_NOTES_PER_CALL) {
+      throw new ToolError(`Demasiadas notas en una llamada (${rawNotes.length} > ${MAX_NOTES_PER_CALL})`);
+    }
 
     const notes: Note[] = rawNotes.map((raw, i) => {
       const n = asObject(raw);
-      const start = reqNumber(n, 'start');
-      const duration = reqNumber(n, 'duration');
-      if (start < 0 || duration <= 0) {
-        throw new ToolError(`Nota ${i}: start debe ser >= 0 y duration > 0`);
+      const start = boundedNumber(n, 'start', 0, MAX_BEATS);
+      const duration = boundedNumber(n, 'duration', 0, MAX_BEATS);
+      if (duration <= 0) {
+        throw new ToolError(`Nota ${i}: duration debe ser > 0`);
       }
       let key = optNumber(n, 'key');
       const noteName = optString(n, 'note');
@@ -483,6 +504,9 @@ export class ToolExecutor {
     const pattern = this.findPattern(reqString(a, 'patternId'));
     const channel = this.findChannel(reqString(a, 'channelId'));
     const steps = reqString(a, 'steps');
+    if (steps.length > MAX_STEPS_LEN) {
+      throw new ToolError(`"steps" demasiado largo (${steps.length} > ${MAX_STEPS_LEN})`);
+    }
     const key = optNumber(a, 'key') ?? 36;
     if (!Number.isInteger(key) || key < 0 || key > 127) {
       throw new ToolError(`key ${key} fuera de rango MIDI 0..127`);
@@ -615,7 +639,9 @@ export class ToolExecutor {
     const pattern = createPattern(this.project.patternOrder.length, optString(a, 'name'));
     const length = optNumber(a, 'length');
     if (length !== undefined) {
-      if (length <= 0) throw new ToolError('length debe ser > 0 beats');
+      if (length <= 0 || length > MAX_BEATS) {
+        throw new ToolError(`length debe estar entre 0 y ${MAX_BEATS} beats`);
+      }
       pattern.length = length;
     }
     this.dispatch({ type: 'addPattern', pattern }, `Añadir "${pattern.name}"`);
@@ -746,8 +772,8 @@ export class ToolExecutor {
       throw new ToolError(`kind inválido "${kind}". Válidos: ${EFFECT_KINDS.join(', ')}`);
     }
     const track = this.mixerTrack(trackIndex);
-    if (slotIndex < 0 || slotIndex >= MIXER_SLOTS) {
-      throw new ToolError(`slotIndex ${slotIndex} fuera de rango (0..${MIXER_SLOTS - 1})`);
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= MIXER_SLOTS) {
+      throw new ToolError(`slotIndex ${slotIndex} fuera de rango (entero 0..${MIXER_SLOTS - 1})`);
     }
     const existing = track.slots[slotIndex];
     if (existing) {
@@ -827,9 +853,9 @@ export class ToolExecutor {
 
   private setAutomation(a: Record<string, unknown>): string {
     const track = this.playlistTrack(reqNumber(a, 'trackIndex'));
-    const startBeat = reqNumber(a, 'startBeat');
-    const lengthBeats = reqNumber(a, 'lengthBeats');
-    if (startBeat < 0 || lengthBeats <= 0) throw new ToolError('startBeat >= 0 y lengthBeats > 0');
+    const startBeat = boundedNumber(a, 'startBeat', 0, MAX_BEATS);
+    const lengthBeats = boundedNumber(a, 'lengthBeats', 0, MAX_BEATS);
+    if (lengthBeats <= 0) throw new ToolError('lengthBeats > 0');
 
     let targetRaw = a['targetJson'];
     if (typeof targetRaw === 'string') {
@@ -844,6 +870,9 @@ export class ToolExecutor {
     const rawPoints = a['points'];
     if (!Array.isArray(rawPoints) || rawPoints.length === 0) {
       throw new ToolError('Falta "points": array con al menos un punto {time, value, tension?}');
+    }
+    if (rawPoints.length > MAX_POINTS) {
+      throw new ToolError(`Demasiados puntos (${rawPoints.length} > ${MAX_POINTS})`);
     }
     const points: AutomationPoint[] = rawPoints
       .map((raw, i) => {

@@ -80,6 +80,23 @@ const params = [
     expect(parsePluginSource(`return { factory: true, name: 'Troyano', params: [] };`)).toBeNull();
   });
 
+  it('un name con muchas barras y comilla sin cerrar no cuelga (ReDoS)', () => {
+    // El regex anterior de parseName tenía backtracking catastrófico: una tirada
+    // de `\` sin comilla de cierre lo colgaba. Con el LiteralReader es lineal.
+    const evil = src(`const name = "${'\\'.repeat(40)}`); // comilla sin cerrar
+    const t0 = performance.now();
+    const parsed = parsePluginSource(evil);
+    expect(performance.now() - t0).toBeLessThan(500);
+    // La fuente sigue siendo un plugin válido (tiene createEffect); el name
+    // simplemente no se pudo leer.
+    expect(parsed).not.toBeNull();
+  });
+
+  it('lee name con escapes correctamente (via LiteralReader)', () => {
+    const parsed = parsePluginSource(src(`const name = "Mi\\nTremolo";`));
+    expect(parsed?.name).toBe('Mi\nTremolo');
+  });
+
   it('NO ejecuta el top-level del plugin (parseo estático)', () => {
     const marker = '__orbit_plugin_exec_test__';
     const g = globalThis as unknown as Record<string, unknown>;
