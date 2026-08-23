@@ -4,24 +4,64 @@
  * de arriba, estilo FL), y grabación MIDI armada: mientras suena el
  * transporte, lo tocado se acumula y al parar (o desarmar) cae al patrón
  * activo con los inicios cuantizados a 1/16 — en un solo undo.
+ *
+ * Los controladores no se tratan como "una entrada MIDI genérica": cada
+ * dispositivo se enciende y se apaga por su cuenta (el teclado maestro sí, la
+ * superficie de mandos no), se elige qué canal se escucha, cuántas octavas se
+ * transpone y con qué curva pega el teclado. La lectura de los bytes vive en
+ * `midi-message.ts`, que se prueba sin hardware.
  */
 
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
 import { ensureAudioReady, store } from './app';
 import { previewNote } from './active-notes';
+import {
+  applyVelocityCurve,
+  channelMatches,
+  isVelocityCurve,
+  parseMidiMessage,
+  transposeKey,
+  type VelocityCurve,
+} from './midi-message';
 import { useUiStore } from './ui';
 
 const SIXTEENTH = 0.25; // 1/16 en beats
 
+/** Un controlador conectado. */
+export interface MidiDeviceInfo {
+  id: string;
+  name: string;
+  /** Lo apaga el usuario en Ajustes (se recuerda entre sesiones). */
+  enabled: boolean;
+}
+
 export const useLiveInputStore = create<{
-  /** Dispositivos MIDI de entrada conectados. */
+  /** Dispositivos MIDI de entrada ACTIVOS (los que están escuchando). */
   midiInputs: number;
+  /** Todos los conectados, encendidos o no. */
+  devices: MidiDeviceInfo[];
   /** Grabación MIDI armada. */
   armed: boolean;
   /** Notas sonando ahora mismo (indicador). */
   heldKeys: number;
-}>(() => ({ midiInputs: 0, armed: false, heldKeys: 0 }));
+  /** `performance.now()` del último mensaje que entró (LED de actividad). */
+  lastMessageAt: number;
+  /** Canal que se escucha: 0 = todos. */
+  channel: number;
+  /** Octavas de transposición de lo que entra (teclado del PC incluido). */
+  octave: number;
+  velocityCurve: VelocityCurve;
+}>(() => ({
+  midiInputs: 0,
+  devices: [],
+  armed: false,
+  heldKeys: 0,
+  lastMessageAt: 0,
+  channel: 0,
+  octave: 0,
+  velocityCurve: 'linear',
+}));
 
 /** Nota MIDI por tecla del PC (fila Z = C4=60, fila Q = C5=72). */
 const KEY_TO_NOTE: Record<string, number> = {
@@ -86,6 +126,13 @@ function noteOff(source: string): void {
   }
 }
 
+/** Suelta lo que esté pulsado (todo, o solo lo de un prefijo de fuente). */
+function releaseAll(prefix = ''): void {
+  for (const source of [...held.keys()]) {
+    if (prefix === '' || source.startsWith(prefix)) noteOff(source);
+  }
+}
+
 /** Vuelca lo grabado al patrón activo (inicios cuantizados a 1/16). */
 function commitRecording(): void {
   const notes = recorded;
@@ -124,6 +171,81 @@ export function toggleMidiArmed(): void {
   if (!next) commitRecording();
 }
 
+// ── Ajustes de entrada (persistidos en settings.json) ───────────────────────
+
+const SETTINGS_CHANNEL = 'midiInputChannel';
+const SETTINGS_OCTAVE = 'midiInputOctave';
+const SETTINGS_CURVE = 'midiInputVelocityCurve';
+const SETTINGS_DISABLED = 'midiInputDisabled';
+
+/** Ids de dispositivo que el usuario apagó (se recuerdan entre sesiones). */
+let disabledIds = new Set<string>();
+
+function persist(patch: Record<string, unknown>): void {
+  void window.orbit?.settings.set(patch).catch(() => {
+    // Sin puente de escritorio el ajuste vale para esta sesión y ya está.
+  });
+}
+
+/** Canal MIDI que se escucha (0 = todos). */
+export function setMidiChannel(channel: number): void {
+  const value = Math.min(16, Math.max(0, Math.round(channel)));
+  useLiveInputStore.setState({ channel: value });
+  persist({ [SETTINGS_CHANNEL]: value });
+}
+
+/** Transposición en octavas de lo que entra. */
+export function setMidiOctave(octave: number): void {
+  const value = Math.min(4, Math.max(-4, Math.round(octave)));
+  // Lo que ya está pulsado se suelta: si no, su note-off llegaría con la
+  // transposición NUEVA y la nota vieja se quedaría sonando sola.
+  releaseAll();
+  useLiveInputStore.setState({ octave: value });
+  persist({ [SETTINGS_OCTAVE]: value });
+}
+
+export function setMidiVelocityCurve(curve: VelocityCurve): void {
+  useLiveInputStore.setState({ velocityCurve: curve });
+  persist({ [SETTINGS_CURVE]: curve });
+}
+
+/** Prefijo de fuente de un dispositivo (para soltar solo lo suyo). */
+function sourcePrefix(deviceId: string): string {
+  return 'midi:' + deviceId + ':';
+}
+
+/** Enciende o apaga un controlador concreto. */
+export function setMidiDeviceEnabled(id: string, enabled: boolean): void {
+  if (enabled) disabledIds.delete(id);
+  else disabledIds.add(id);
+  persist({ [SETTINGS_DISABLED]: [...disabledIds] });
+  releaseAll(sourcePrefix(id));
+  reattach?.();
+}
+
+async function loadSettings(): Promise<void> {
+  const raw = (await window.orbit?.settings.get().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  if (!raw) return;
+  const patch: Partial<{ channel: number; octave: number; velocityCurve: VelocityCurve }> = {};
+  const channel = raw[SETTINGS_CHANNEL];
+  if (typeof channel === 'number') patch.channel = Math.min(16, Math.max(0, Math.round(channel)));
+  const octave = raw[SETTINGS_OCTAVE];
+  if (typeof octave === 'number') patch.octave = Math.min(4, Math.max(-4, Math.round(octave)));
+  const curve = raw[SETTINGS_CURVE];
+  if (isVelocityCurve(curve)) patch.velocityCurve = curve;
+  const disabled = raw[SETTINGS_DISABLED];
+  if (Array.isArray(disabled)) {
+    disabledIds = new Set(disabled.filter((v): v is string => typeof v === 'string'));
+  }
+  if (Object.keys(patch).length > 0) useLiveInputStore.setState(patch);
+  // Los ajustes llegan por IPC, o sea DESPUÉS de haberse repartido los
+  // manejadores: hay que repartirlos otra vez con la lista de apagados puesta.
+  reattach?.();
+}
+
 // Gancho de QA solo-dev: inspeccionar el estado de entrada en vivo desde CDP.
 const env = (import.meta as { env?: { DEV?: boolean } }).env;
 if (env?.DEV === true && typeof window !== 'undefined') {
@@ -136,6 +258,8 @@ if (env?.DEV === true && typeof window !== 'undefined') {
 }
 
 let wired = false;
+/** Vuelve a repartir los manejadores (al cambiar qué está encendido). */
+let reattach: (() => void) | null = null;
 
 export function initLiveInput(): void {
   if (wired || typeof window === 'undefined') return;
@@ -155,18 +279,20 @@ export function initLiveInput(): void {
   };
   window.addEventListener('keydown', (e) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || typing()) return;
-    const note = KEY_TO_NOTE[e.key.toLowerCase()];
-    if (note === undefined) return;
-    noteOn(`pc:${e.key.toLowerCase()}`, note, 0.8);
+    const base = KEY_TO_NOTE[e.key.toLowerCase()];
+    if (base === undefined) return;
+    const note = transposeKey(base, useLiveInputStore.getState().octave);
+    if (note === null) return;
+    noteOn('pc:' + e.key.toLowerCase(), note, 0.8);
   });
   window.addEventListener('keyup', (e) => {
     const note = KEY_TO_NOTE[e.key.toLowerCase()];
     if (note === undefined) return;
-    noteOff(`pc:${e.key.toLowerCase()}`);
+    noteOff('pc:' + e.key.toLowerCase());
   });
-  window.addEventListener('blur', () => {
-    for (const source of [...held.keys()]) noteOff(source);
-  });
+  window.addEventListener('blur', () => releaseAll());
+
+  void loadSettings();
 
   // ── Web MIDI ──
   const nav = navigator as Navigator & {
@@ -177,25 +303,61 @@ export function initLiveInput(): void {
     .requestMIDIAccess()
     .then((access) => {
       const attach = () => {
-        let count = 0;
+        const devices: MidiDeviceInfo[] = [];
         for (const input of access.inputs.values()) {
-          count++;
-          input.onmidimessage = (e: MIDIMessageEvent) => {
-            const data = e.data;
-            if (!data || data.length < 3) return;
-            const status = data[0]! & 0xf0;
-            const key = data[1]!;
-            const vel = data[2]!;
-            if (status === 0x90 && vel > 0) noteOn(`midi:${key}`, key, vel / 127);
-            else if (status === 0x80 || (status === 0x90 && vel === 0)) noteOff(`midi:${key}`);
-          };
+          const id = input.id;
+          const enabled = !disabledIds.has(id);
+          devices.push({ id, name: input.name ?? 'Controlador MIDI', enabled });
+          // Apagado = sin manejador. No basta con filtrar dentro: apagar un
+          // controlador tiene que dejarlo mudo del todo, LED de actividad
+          // incluido.
+          input.onmidimessage = enabled ? (e: MIDIMessageEvent) => handleMidi(id, e) : null;
         }
-        useLiveInputStore.setState({ midiInputs: count });
+        useLiveInputStore.setState({
+          devices,
+          midiInputs: devices.filter((d) => d.enabled).length,
+        });
       };
+      reattach = attach;
       attach();
       access.onstatechange = attach;
     })
     .catch(() => {
       // sin permiso o sin soporte: el teclado del PC sigue funcionando
     });
+}
+
+/** Un mensaje de un controlador encendido. */
+function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
+  const data = e.data;
+  if (!data) return;
+  const msg = parseMidiMessage(data);
+  if (!msg) return;
+  const st = useLiveInputStore.getState();
+  if (!channelMatches(msg.channel, st.channel)) return;
+  useLiveInputStore.setState({ lastMessageAt: performance.now() });
+
+  // La fuente lleva el dispositivo y la tecla SIN transponer: así el note-off
+  // encuentra su nota aunque la octava haya cambiado con la tecla pulsada, y
+  // dos teclados en el mismo do no se pisan el uno al otro.
+  switch (msg.kind) {
+    case 'noteOn': {
+      const key = transposeKey(msg.key, st.octave);
+      if (key === null) return;
+      noteOn(
+        sourcePrefix(deviceId) + msg.key,
+        key,
+        applyVelocityCurve(msg.velocity, st.velocityCurve),
+      );
+      break;
+    }
+    case 'noteOff':
+      noteOff(sourcePrefix(deviceId) + msg.key);
+      break;
+    case 'allNotesOff':
+      releaseAll(sourcePrefix(deviceId));
+      break;
+    default:
+      break;
+  }
 }
