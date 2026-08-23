@@ -10,12 +10,15 @@
 import { useEffect, useState } from 'react';
 import { describeParamRef } from '@orbit/core';
 import {
+  MIDI_QUANTIZE,
   setMidiChannel,
   setMidiDeviceEnabled,
   setMidiOctave,
+  setMidiQuantize,
   setMidiVelocityCurve,
   useLiveInputStore,
 } from '../state/live-input';
+
 import {
   midiSourceLabel,
   removeMidiMapping,
@@ -33,6 +36,8 @@ export function MidiSection() {
   const channel = useLiveInputStore((s) => s.channel);
   const octave = useLiveInputStore((s) => s.octave);
   const curve = useLiveInputStore((s) => s.velocityCurve);
+  const quantize = useLiveInputStore((s) => s.quantize);
+
   const heldKeys = useLiveInputStore((s) => s.heldKeys);
   const sustainedKeys = useLiveInputStore((s) => s.sustainedKeys);
   const lastMessageAt = useLiveInputStore((s) => s.lastMessageAt);
@@ -154,7 +159,33 @@ export function MidiSection() {
         </span>
       </div>
 
+      <div className="set-row">
+        <span className="set-label">Grabar a</span>
+        <select
+          className="set-select"
+          value={quantize}
+          onChange={(e) => setMidiQuantize(e.target.value)}
+        >
+          {MIDI_QUANTIZE.map((q) => (
+            <option key={q.id} value={q.id}>
+              {q.label}
+            </option>
+          ))}
+        </select>
+        <span className="set-value">
+          {quantize === 'off'
+            ? 'Los inicios se quedan donde caigan'
+            : `Los inicios se cuadran a ${quantize}`}
+        </span>
+      </div>
+      <p className="set-note">
+        Grabando sobre un patrón en loop, lo tocado cae al patrón al cerrar cada vuelta: no hay que
+        parar para verlo. Las teclas que sigas pulsando se parten en el cierre y siguen en la
+        vuelta siguiente.
+      </p>
+
       <h3 className="set-heading">Mandos aprendidos</h3>
+
       {learning !== null && (
         <p className="set-note learning">
           Esperando a que muevas un mando para atarlo a{' '}

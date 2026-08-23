@@ -112,8 +112,19 @@ let meterStamp = { beats: 0, at: 0, playing: false };
  * Entre frames se extrapola con el tempo del proyecto.
  */
 export function currentBeat(): number {
+  return beatAt(performance.now());
+}
+
+/**
+ * La posición que tenía (o tendrá) el playhead en un instante concreto de
+ * `performance.now()`. Lo usa la grabación MIDI: un evento de teclado trae su
+ * propio `timeStamp` en esa misma base, y colocar la nota en "el beat de
+ * ahora" en vez de en "el beat de cuando la tocaste" reparte hasta 46 ms de
+ * error según cuándo cayera respecto del último frame de medidores.
+ */
+export function beatAt(atMs: number): number {
   if (!meterStamp.playing) return meterStamp.beats;
-  const dt = (performance.now() - meterStamp.at) / 1000;
+  const dt = (atMs - meterStamp.at) / 1000;
   return meterStamp.beats + (dt * store.project.tempo) / 60;
 }
 

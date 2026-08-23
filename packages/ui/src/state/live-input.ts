@@ -15,7 +15,8 @@
 
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
-import { ensureAudioReady, store } from './app';
+import { beatAt, ensureAudioReady, store } from './app';
+
 import { previewNote } from './active-notes';
 import {
   applyVelocityCurve,
@@ -31,6 +32,24 @@ import { SustainPedal } from './sustain';
 import { useUiStore } from './ui';
 
 const SIXTEENTH = 0.25; // 1/16 en beats
+
+/**
+ * Rejillas de cuantización de la grabación MIDI, en beats. `off` deja los
+ * inicios donde cayeron: hay flows que viven de que NO estén cuadrados.
+ */
+export const MIDI_QUANTIZE: { id: string; label: string; beats: number }[] = [
+  { id: 'off', label: 'Sin cuantizar', beats: 0 },
+  { id: '1/32', label: '1/32', beats: 0.125 },
+  { id: '1/16', label: '1/16', beats: 0.25 },
+  { id: '1/8', label: '1/8', beats: 0.5 },
+  { id: '1/4', label: '1/4 (negra)', beats: 1 },
+];
+
+/** Rejilla activa en beats (0 = sin cuantizar). */
+function grid(): number {
+  const id = useLiveInputStore.getState().quantize;
+  return MIDI_QUANTIZE.find((q) => q.id === id)?.beats ?? SIXTEENTH;
+}
 
 /** Un controlador conectado. */
 export interface MidiDeviceInfo {
@@ -59,7 +78,10 @@ export const useLiveInputStore = create<{
   /** Octavas de transposición de lo que entra (teclado del PC incluido). */
   octave: number;
   velocityCurve: VelocityCurve;
+  /** Rejilla a la que se cuadran los inicios grabados (id de MIDI_QUANTIZE). */
+  quantize: string;
 }>(() => ({
+
   midiInputs: 0,
   devices: [],
   armed: false,
@@ -70,6 +92,7 @@ export const useLiveInputStore = create<{
   channel: 0,
   octave: 0,
   velocityCurve: 'linear',
+  quantize: '1/16',
 }));
 
 /** Nota MIDI por tecla del PC (fila Z = C4=60, fila Q = C5=72). */
@@ -100,7 +123,13 @@ function targetChannel(): { id: string; index: number } | null {
   return index >= 0 ? { id, index } : null;
 }
 
-function noteOn(source: string, key: number, velocity: number): void {
+/**
+ * `atMs` es el sello del evento del navegador (`MIDIMessageEvent.timeStamp`,
+ * la misma base que `performance.now()`). Con él la nota cae en el beat de
+ * CUANDO la tocaste y no en el del último frame de medidores, que reparte
+ * hasta 46 ms de error según dónde cayera el mensaje.
+ */
+function noteOn(source: string, key: number, velocity: number, atMs = performance.now()): void {
   if (held.has(source)) return;
   const ch = targetChannel();
   if (!ch) return;
@@ -109,7 +138,7 @@ function noteOn(source: string, key: number, velocity: number): void {
   held.set(source, {
     key,
     velocity,
-    startBeat: useUiStore.getState().positionBeats,
+    startBeat: beatAt(atMs),
     channelIndex: ch.index,
   });
   useLiveInputStore.setState({ heldKeys: held.size });
@@ -117,25 +146,31 @@ function noteOn(source: string, key: number, velocity: number): void {
   if (st.armed && useUiStore.getState().playing) recordChannelId = ch.id;
 }
 
-function noteOff(source: string): void {
+function noteOff(source: string, atMs = performance.now()): void {
   const h = held.get(source);
   if (!h) return;
   held.delete(source);
   useLiveInputStore.setState({ heldKeys: held.size });
   previewNote(h.channelIndex, h.key, false);
 
-  const ui = useUiStore.getState();
-  if (useLiveInputStore.getState().armed && ui.playing) {
-    // Si el patrón dio la vuelta mientras sonaba, la duración sale negativa:
-    // se recorta a una semicorchea en vez de perder la nota.
-    const raw = ui.positionBeats - h.startBeat;
-    recorded.push({
-      key: h.key,
-      velocity: h.velocity,
-      start: h.startBeat,
-      duration: raw > 0 ? Math.max(SIXTEENTH, raw) : SIXTEENTH,
-    });
+  if (useLiveInputStore.getState().armed && useUiStore.getState().playing) {
+    push(h, beatAt(atMs));
   }
+}
+
+/** Apunta una nota tocada, cerrada en `endBeat`. */
+function push(h: HeldNote, endBeat: number): void {
+  // Si el patrón dio la vuelta mientras sonaba, la duración sale negativa: se
+  // recorta a la rejilla (o a una semicorchea sin ella) en vez de perder la
+  // nota.
+  const min = grid() || SIXTEENTH;
+  const raw = endBeat - h.startBeat;
+  recorded.push({
+    key: h.key,
+    velocity: h.velocity,
+    start: h.startBeat,
+    duration: raw > 0 ? Math.max(min, raw) : min,
+  });
 }
 
 /** Suelta lo que esté pulsado (todo, o solo lo de un prefijo de fuente). */
@@ -149,13 +184,17 @@ function releaseAll(prefix = ''): void {
   useLiveInputStore.setState({ sustainedKeys: pedal.holding });
 }
 
-/** Vuelca lo grabado al patrón activo (inicios cuantizados a 1/16). */
+/** Vuelca lo grabado al patrón activo, cuadrando los inicios a la rejilla. */
+
 function commitRecording(): void {
   const notes = recorded;
   const channelId = recordChannelId;
   recorded = [];
-  recordChannelId = null;
+  // El canal NO se olvida al volcar por vuelta: la pasada sigue viva y las
+  // teclas que estén pulsadas tienen que caer en el mismo canal.
+  if (held.size === 0) recordChannelId = null;
   if (notes.length === 0 || !channelId) return;
+
   // El patrón activo es estado de UI y NADIE lo limpia al borrarlo: si apunta a
   // uno que ya no existe hay que caer al primero, o el addNotes de abajo tiraría
   // por el `must` de core y la toma se perdería con una excepción.
@@ -165,15 +204,17 @@ function commitRecording(): void {
   if (!patternId || !store.project.patterns[patternId] || !store.project.channels[channelId]) {
     return;
   }
+  const q = grid();
   const out: Note[] = notes.map((n) => ({
     id: newId(),
     key: n.key,
-    start: Math.round(n.start / SIXTEENTH) * SIXTEENTH,
+    start: Math.max(0, q > 0 ? Math.round(n.start / q) * q : n.start),
     duration: n.duration,
     velocity: n.velocity,
     pan: 0,
     slide: false,
   }));
+
   store.dispatch(
     { type: 'addNotes', patternId, channelId, notes: out },
     { label: `Grabación MIDI (${out.length} notas)` },
@@ -193,6 +234,7 @@ const SETTINGS_CHANNEL = 'midiInputChannel';
 const SETTINGS_OCTAVE = 'midiInputOctave';
 const SETTINGS_CURVE = 'midiInputVelocityCurve';
 const SETTINGS_DISABLED = 'midiInputDisabled';
+const SETTINGS_QUANTIZE = 'midiRecordQuantize';
 
 /** Ids de dispositivo que el usuario apagó (se recuerdan entre sesiones). */
 let disabledIds = new Set<string>();
@@ -225,6 +267,13 @@ export function setMidiVelocityCurve(curve: VelocityCurve): void {
   persist({ [SETTINGS_CURVE]: curve });
 }
 
+/** Rejilla de la grabación MIDI (un id de `MIDI_QUANTIZE`). */
+export function setMidiQuantize(id: string): void {
+  if (!MIDI_QUANTIZE.some((q) => q.id === id)) return;
+  useLiveInputStore.setState({ quantize: id });
+  persist({ [SETTINGS_QUANTIZE]: id });
+}
+
 /** Prefijo de fuente de un dispositivo (para soltar solo lo suyo). */
 function sourcePrefix(deviceId: string): string {
   return 'midi:' + deviceId + ':';
@@ -249,13 +298,24 @@ async function loadSettings(): Promise<void> {
     unknown
   > | null;
   if (!raw) return;
-  const patch: Partial<{ channel: number; octave: number; velocityCurve: VelocityCurve }> = {};
+  const patch: Partial<{
+    channel: number;
+    octave: number;
+    velocityCurve: VelocityCurve;
+    quantize: string;
+  }> = {};
+
   const channel = raw[SETTINGS_CHANNEL];
   if (typeof channel === 'number') patch.channel = Math.min(16, Math.max(0, Math.round(channel)));
   const octave = raw[SETTINGS_OCTAVE];
   if (typeof octave === 'number') patch.octave = Math.min(4, Math.max(-4, Math.round(octave)));
   const curve = raw[SETTINGS_CURVE];
   if (isVelocityCurve(curve)) patch.velocityCurve = curve;
+  const quantize = raw[SETTINGS_QUANTIZE];
+  if (typeof quantize === 'string' && MIDI_QUANTIZE.some((q) => q.id === quantize)) {
+    patch.quantize = quantize;
+  }
+
   const disabled = raw[SETTINGS_DISABLED];
   if (Array.isArray(disabled)) {
     disabledIds = new Set(disabled.filter((v): v is string => typeof v === 'string'));
@@ -285,9 +345,30 @@ export function initLiveInput(): void {
   if (wired || typeof window === 'undefined') return;
   wired = true;
 
-  // Al parar el transporte con la grabación armada, se vuelca lo tocado.
   useUiStore.subscribe((s, prev) => {
-    if (prev.playing && !s.playing && useLiveInputStore.getState().armed) commitRecording();
+    if (!useLiveInputStore.getState().armed) return;
+    // Al parar el transporte, se vuelca lo tocado.
+    if (prev.playing && !s.playing) {
+      commitRecording();
+      return;
+    }
+    /*
+     * Y al CERRAR LA VUELTA también, sin parar: grabando sobre un patrón en
+     * loop, lo tocado en la pasada tiene que aparecer ya para la siguiente
+     * (overdub). Antes había que parar para ver una sola nota.
+     *
+     * Las teclas que sigan pulsadas se cierran EN el final de la vuelta y
+     * vuelven a abrirse en el principio de la siguiente: si no, su note-off
+     * llegaría con un inicio de la vuelta anterior y la nota caería en un
+     * sitio absurdo (o con duración negativa).
+     */
+    if (s.playing && prev.playing && s.positionBeats < prev.positionBeats - 1e-6) {
+      for (const h of held.values()) {
+        push(h, prev.positionBeats);
+        h.startBeat = s.positionBeats;
+      }
+      commitRecording();
+    }
   });
 
   // ── Teclado del PC ──
@@ -303,13 +384,14 @@ export function initLiveInput(): void {
     if (base === undefined) return;
     const note = transposeKey(base, useLiveInputStore.getState().octave);
     if (note === null) return;
-    noteOn('pc:' + e.key.toLowerCase(), note, 0.8);
+    noteOn('pc:' + e.key.toLowerCase(), note, 0.8, e.timeStamp);
   });
   window.addEventListener('keyup', (e) => {
     const note = KEY_TO_NOTE[e.key.toLowerCase()];
     if (note === undefined) return;
-    noteOff('pc:' + e.key.toLowerCase());
+    noteOff('pc:' + e.key.toLowerCase(), e.timeStamp);
   });
+
   window.addEventListener('blur', () => releaseAll());
 
   void loadSettings();
@@ -368,8 +450,8 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       const source = sourcePrefix(deviceId) + msg.key;
       // Repicar una tecla que el pedal retiene: hay que soltarla antes, o el
       // note-on se ignora (esa fuente ya suena) y la nota nueva no ataca.
-      if (pedal.takeRetrigger(source)) noteOff(source);
-      noteOn(source, key, applyVelocityCurve(msg.velocity, st.velocityCurve));
+      if (pedal.takeRetrigger(source)) noteOff(source, e.timeStamp);
+      noteOn(source, key, applyVelocityCurve(msg.velocity, st.velocityCurve), e.timeStamp);
       useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       break;
     }
@@ -378,10 +460,11 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       if (pedal.holdNoteOff(deviceId, source)) {
         useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       } else {
-        noteOff(source);
+        noteOff(source, e.timeStamp);
       }
       break;
     }
+
     case 'sustain':
       if (msg.down) {
         pedal.press(deviceId);
