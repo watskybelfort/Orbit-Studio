@@ -39,6 +39,17 @@ export function parseProject(json: string): Project {
       throw new Error(`.orbit inválido: falta "${key}"`);
     }
   }
+  // `swing` faltaba en la lista y NO se rellenaba: sin él, `swungStart`
+  // produce NaN y corrompe el timing EN SILENCIO (peor que un throw). Se
+  // rellena a 0 (recto), que es como sonaba antes de que existiera el swing.
+  p.swing ??= 0;
+  // `samples` es aditivo (un proyecto sin audio no lo trae); sin él,
+  // `registerSample` y el diff revientan al indexar undefined.
+  p.samples ??= {};
+  // `patternOrder` es de siempre, pero un archivo tocado a mano podría no
+  // traerlo: se recupera del orden de las claves en vez de reventar más tarde
+  // en removeChannel / diff / encodeMidi con un TypeError sin nombre.
+  p.patternOrder ??= Object.keys(p.patterns ?? {});
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
   // anteriores simplemente no los traen y arrancan vacíos/planos.
   p.lfos ??= {};

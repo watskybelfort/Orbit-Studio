@@ -26,7 +26,7 @@ import type {
   Send,
   TimeSig,
 } from './model/types';
-import { CHANNEL_SLOTS } from './model/types';
+import { CHANNEL_SLOTS, MIXER_SLOTS } from './model/types';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -93,6 +93,10 @@ export type Command =
       index: number;
       tracks: PlaylistTrack[];
       clips: Clip[];
+      /** Secciones que pertenecían al arrangement (si no, quedaban huérfanas). */
+      sections: ArrangementSection[];
+      /** Arrangement activo ANTES de borrar (si no, el undo no lo restauraba). */
+      activeWas: Id;
     }
   | { type: 'patchArrangement'; arrangementId: Id; patch: Partial<Omit<Arrangement, 'id'>> }
   | { type: 'setActiveArrangement'; arrangementId: Id }
@@ -128,7 +132,18 @@ export type Command =
       patch: Partial<Pick<EffectSlot, 'enabled' | 'mix' | 'sidechainSource'>>;
     }
   | { type: 'setEffectParam'; trackIndex: number; slotIndex: number; key: string; value: number }
-  | { type: 'setSend'; trackIndex: number; target: number; level: number | null }
+  | {
+      type: 'setSend';
+      trackIndex: number;
+      target: number;
+      level: number | null;
+      /**
+       * Solo lo usa el INVERSO: restaura el envío entero (tap/part/invert/pan/
+       * mute incluidos). Sin esto, deshacer un borrado recreaba el envío con
+       * solo {target, level} y se perdía toda su forma.
+       */
+      send?: Send;
+    }
   /**
    * Cambia CÓMO es un envío (de dónde toma, qué parte lleva, polaridad, pan,
    * mute) sin tocar su nivel. Aparte de `setSend` porque ese usa `level: null`
@@ -153,6 +168,18 @@ export type Command =
 function must<T>(value: T | undefined, what: string): T {
   if (value === undefined) throw new Error(`No existe: ${what}`);
   return value;
+}
+
+/**
+ * Valida un índice de slot de efecto. Sin esto, un slotIndex fuera de rango o
+ * fraccionario (p. ej. vía MCP) rompía la invariante de longitud fija del array
+ * de slots (huecos, claves no-índice) y se PERSISTÍA en el .orbit.
+ */
+function slotIn(index: number, count: number, what: string): number {
+  if (!Number.isInteger(index) || index < 0 || index >= count) {
+    throw new Error(`Slot de ${what} fuera de rango: ${index} (0..${count - 1})`);
+  }
+  return index;
 }
 
 function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
@@ -227,12 +254,18 @@ export function applyCommand(project: Project, cmd: Command): Command {
         }
       }
       delete project.channels[cmd.channelId];
-      project.channelOrder.splice(index, 1);
+      // Guardia: si el canal está en el pool pero NO en channelOrder (estado
+      // inconsistente por un merge de colaboración), indexOf da -1 y splice(-1,1)
+      // expulsaría al ÚLTIMO canal del orden.
+      if (index >= 0) project.channelOrder.splice(index, 1);
       return { type: 'restoreChannel', channel, index, notesByPattern };
     }
     case 'restoreChannel': {
       project.channels[cmd.channel.id] = cmd.channel;
-      project.channelOrder.splice(cmd.index, 0, cmd.channel.id);
+      // index < 0 = el canal no estaba en el orden al borrarlo: se reengancha al
+      // final en vez de en una posición negativa (que insertaría antes del último).
+      if (cmd.index >= 0) project.channelOrder.splice(cmd.index, 0, cmd.channel.id);
+      else project.channelOrder.push(cmd.channel.id);
       for (const [pid, notes] of Object.entries(cmd.notesByPattern)) {
         const pat = project.patterns[pid];
         if (pat) pat.notes[cmd.channel.id] = notes;
@@ -304,13 +337,14 @@ export function applyCommand(project: Project, cmd: Command): Command {
     // Inserts propios del canal
     case 'setChannelEffect': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      const slotIndex = slotIn(cmd.slotIndex, CHANNEL_SLOTS, 'canal');
       const slots = channelFx(channel);
-      const old = slots[cmd.slotIndex] ?? null;
-      slots[cmd.slotIndex] = cmd.slot;
+      const old = slots[slotIndex] ?? null;
+      slots[slotIndex] = cmd.slot;
       return {
         type: 'setChannelEffect',
         channelId: cmd.channelId,
-        slotIndex: cmd.slotIndex,
+        slotIndex,
         slot: old,
       };
     }
@@ -512,20 +546,32 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const clips = Object.values(project.clips).filter((c) =>
         trackIds.has(c.playlistTrackId),
       );
+      // Las secciones del arreglo también se van con él: si no, quedan en el pool
+      // apuntando a un arrangement inexistente (para siempre, y viajan en cada
+      // save/patch).
+      const sections = Object.values(project.sections ?? {}).filter(
+        (s) => s.arrangementId === cmd.arrangementId,
+      );
+      const activeWas = project.activeArrangementId;
       for (const c of clips) delete project.clips[c.id];
       for (const t of tracks) delete project.playlistTracks[t.id];
+      for (const s of sections) delete project.sections[s.id];
       delete project.arrangements[cmd.arrangementId];
       project.arrangementOrder.splice(index, 1);
       if (project.activeArrangementId === cmd.arrangementId) {
         project.activeArrangementId = project.arrangementOrder[0]!;
       }
-      return { type: 'restoreArrangement', arrangement, index, tracks, clips };
+      return { type: 'restoreArrangement', arrangement, index, tracks, clips, sections, activeWas };
     }
     case 'restoreArrangement': {
       project.arrangements[cmd.arrangement.id] = cmd.arrangement;
       project.arrangementOrder.splice(cmd.index, 0, cmd.arrangement.id);
       for (const t of cmd.tracks) project.playlistTracks[t.id] = t;
       for (const c of cmd.clips) project.clips[c.id] = c;
+      for (const s of cmd.sections) project.sections[s.id] = s;
+      // Restaurar el activo de antes: el borrado pudo reasignarlo, y sin esto el
+      // inverso no era exacto (te dejaba en otro arrangement al deshacer).
+      project.activeArrangementId = cmd.activeWas;
       return { type: 'removeArrangement', arrangementId: cmd.arrangement.id };
     }
     case 'patchArrangement': {
@@ -650,12 +696,13 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setEffect': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
-      const old = track.slots[cmd.slotIndex] ?? null;
-      track.slots[cmd.slotIndex] = cmd.slot;
+      const slotIndex = slotIn(cmd.slotIndex, MIXER_SLOTS, 'mixer');
+      const old = track.slots[slotIndex] ?? null;
+      track.slots[slotIndex] = cmd.slot;
       return {
         type: 'setEffect',
         trackIndex: cmd.trackIndex,
-        slotIndex: cmd.slotIndex,
+        slotIndex,
         slot: old,
       };
     }
@@ -687,15 +734,29 @@ export function applyCommand(project: Project, cmd: Command): Command {
     case 'setSend': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
       const existing = track.sends.find((s) => s.target === cmd.target);
-      const oldLevel = existing ? existing.level : null;
-      if (cmd.level === null) {
+      // Clon del estado ANTERIOR completo (Send solo tiene primitivos): el
+      // inverso restaura el objeto entero, no solo el nivel.
+      const oldSend = existing ? { ...existing } : null;
+      if (cmd.send) {
+        // Inverso restaurando un envío entero: se reemplaza/re-crea completo.
+        track.sends = track.sends.filter((s) => s.target !== cmd.target);
+        track.sends.push({ ...cmd.send });
+      } else if (cmd.level === null) {
         track.sends = track.sends.filter((s) => s.target !== cmd.target);
       } else if (existing) {
         existing.level = cmd.level;
       } else {
         track.sends.push({ target: cmd.target, level: cmd.level });
       }
-      return { type: 'setSend', trackIndex: cmd.trackIndex, target: cmd.target, level: oldLevel };
+      return oldSend
+        ? {
+            type: 'setSend',
+            trackIndex: cmd.trackIndex,
+            target: cmd.target,
+            level: oldSend.level,
+            send: oldSend,
+          }
+        : { type: 'setSend', trackIndex: cmd.trackIndex, target: cmd.target, level: null };
     }
     case 'patchSend': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
@@ -739,8 +800,24 @@ export function applyCommand(project: Project, cmd: Command): Command {
     // Lote
     case 'batch': {
       const inverses: Command[] = [];
-      for (const sub of cmd.commands) {
-        inverses.push(applyCommand(project, sub));
+      try {
+        for (const sub of cmd.commands) {
+          inverses.push(applyCommand(project, sub));
+        }
+      } catch (err) {
+        // Rollback: un batch es todo-o-nada. Si un sub lanza (una entidad que
+        // otro borró, un must() fallido), se deshace en orden inverso lo ya
+        // aplicado y se relanza, para no dejar el proyecto mutado a medias sin
+        // entrada de undo ni emit (la UI mostraría estado stale imposible de
+        // deshacer).
+        for (let i = inverses.length - 1; i >= 0; i--) {
+          try {
+            applyCommand(project, inverses[i]!);
+          } catch {
+            // mejor esfuerzo: seguir deshaciendo el resto
+          }
+        }
+        throw err;
       }
       inverses.reverse();
       return { type: 'batch', label: cmd.label, commands: inverses };

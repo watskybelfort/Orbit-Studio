@@ -241,27 +241,55 @@ function encodeChannelTrack(
   return w;
 }
 
-function encodeConductorTrack(project: Project): ByteWriter {
+/** Tempo meta 0x51: microsegundos por negra. */
+function tempoBytes(bpm: number): number[] {
+  const us = clamp(Math.round(60_000_000 / bpm), 1, 0xffffff);
+  return [0xff, 0x51, 0x03, (us >>> 16) & 0xff, (us >>> 8) & 0xff, us & 0xff];
+}
+
+/** Compás meta 0x58: nn dd(pot. de 2) cc=24 clocks/click bb=8 fusas por negra. */
+function timeSigBytes(num: number, den: number): number[] {
+  const denPow = clamp(Math.round(Math.log2(den)), 0, 7);
+  return [0xff, 0x58, 0x04, clamp(num, 1, 255), denPow, 24, 8];
+}
+
+function encodeConductorTrack(project: Project, includeMarkers: boolean): ByteWriter {
   const w = new ByteWriter();
   const title = project.meta.title.trim() !== '' ? project.meta.title : 'Orbit Studio';
   metaText(w, 0x03, title);
 
-  // Tempo: microsegundos por negra.
-  const usPerQuarter = clamp(Math.round(60_000_000 / project.tempo), 1, 0xffffff);
-  w.vlq(0);
-  w.raw([0xff, 0x51, 0x03]);
-  w.u8((usPerQuarter >>> 16) & 0xff);
-  w.u8((usPerQuarter >>> 8) & 0xff);
-  w.u8(usPerQuarter & 0xff);
+  const events: { tick: number; bytes: number[] }[] = [
+    { tick: 0, bytes: tempoBytes(project.tempo) },
+    { tick: 0, bytes: timeSigBytes(project.timeSig.num, project.timeSig.den) },
+  ];
 
-  // Compás: nn dd(potencia de 2) cc=24 clocks/click bb=8 fusas por negra.
-  const denPow = clamp(Math.round(Math.log2(project.timeSig.den)), 0, 7);
-  w.vlq(0);
-  w.raw([0xff, 0x58, 0x04]);
-  w.u8(clamp(project.timeSig.num, 1, 255));
-  w.u8(denPow);
-  w.u8(24);
-  w.u8(8);
+  // Cambios de tempo/compás de los marcadores del timeline. El motor los honra
+  // (compile.ts arma un mapa de tempo/compás); sin esto el .mid exportado sonaba
+  // TODO al tempo inicial, desincronizado de lo que el usuario oye en Orbit.
+  // Solo en song: en pattern las notas son relativas al patrón y los marcadores
+  // del timeline de canción no aplican.
+  if (includeMarkers) {
+    const markers = Object.values(project.markers)
+      .filter((m) => m.tempo !== undefined || m.timeSigNum !== undefined)
+      .sort((a, b) => a.time - b.time);
+    for (const m of markers) {
+      const tick = Math.max(0, Math.round(m.time * PPQ));
+      if (m.tempo !== undefined) events.push({ tick, bytes: tempoBytes(m.tempo) });
+      if (m.timeSigNum !== undefined) {
+        events.push({ tick, bytes: timeSigBytes(m.timeSigNum, project.timeSig.den) });
+      }
+    }
+  }
+
+  // Estable por tick (Array.sort lo es): en el mismo tick, tempo antes que compás
+  // por el orden en que se empujaron.
+  events.sort((a, b) => a.tick - b.tick);
+  let lastTick = 0;
+  for (const ev of events) {
+    w.vlq(ev.tick - lastTick);
+    lastTick = ev.tick;
+    w.raw(ev.bytes);
+  }
 
   endOfTrack(w);
   return w;
@@ -278,7 +306,7 @@ export function encodeMidi(project: Project, opts: EncodeMidiOptions): Uint8Arra
   const byChannel = collectNotes(project, opts);
 
   // Pistas en el orden de canales del proyecto; solo canales con notas.
-  const tracks: ByteWriter[] = [encodeConductorTrack(project)];
+  const tracks: ByteWriter[] = [encodeConductorTrack(project, opts.mode === 'song')];
   let melodicIndex = 0;
   for (const channelId of project.channelOrder) {
     const channel = project.channels[channelId];
