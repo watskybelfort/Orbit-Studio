@@ -1,14 +1,28 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, session, shell } from 'electron';
 import type { WebContents } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { networkInterfaces, release } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
-import { isLanAddress, type Peer } from './discovery-protocol';
+import { isBlockedIp, pathWithin } from './path-guard';
+import { cleanServerUrl, isLanAddress, type Peer } from './discovery-protocol';
+import { isValidRoomCode, normalizeRoomCode } from '@orbit/collab';
 import {
   discoveryState,
   knownPeers,
@@ -54,17 +68,44 @@ function settingsPath(): string {
   return join(app.getPath('userData'), 'settings.json');
 }
 
+// Caché en memoria del objeto de ajustes. Cada handler IPC hacía su propio
+// `readFileSync` síncrono (a veces dos o tres por operación) en el hilo del
+// main; con la caché, el disco solo se toca la primera vez y en cada escritura.
+// Todos los escritores pasan por `{ ...readSettings(), ... }`, así que el objeto
+// cacheado nunca se muta en sitio: `writeSettings` lo REEMPLAZA por el nuevo.
+let settingsCache: Settings | null = null;
+
 function readSettings(): Settings {
+  if (settingsCache) return settingsCache;
   try {
     const parsed: unknown = JSON.parse(readFileSync(settingsPath(), 'utf8'));
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Settings) : {};
+    settingsCache = typeof parsed === 'object' && parsed !== null ? (parsed as Settings) : {};
   } catch {
-    return {}; // primer arranque o JSON corrupto: partimos de cero
+    settingsCache = {}; // primer arranque o JSON corrupto: partimos de cero
   }
+  return settingsCache;
 }
 
+// Escritura ATÓMICA: se escribe a un temporal y se renombra encima. Un
+// `writeFileSync` directo deja el archivo a medias si el proceso muere durante
+// la escritura, y el `readSettings` siguiente cae a `{}` — perdiendo de golpe
+// userFolders, recentProjects, friends e installId. El rename sobre el mismo
+// volumen es atómico: o está el archivo viejo entero, o el nuevo entero.
 function writeSettings(settings: Settings): void {
-  writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
+  settingsCache = settings;
+  const path = settingsPath();
+  const tmp = `${path}.${process.pid}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
+    renameSync(tmp, path);
+  } catch (err) {
+    try {
+      writeFileSync(path, JSON.stringify(settings, null, 2), 'utf8'); // último recurso
+    } catch {
+      // disco lleno o de solo lectura: la caché queda al día para esta sesión
+    }
+    console.warn('[settings] escritura atómica falló, se escribió directo:', err);
+  }
 }
 
 // ─── Tema de ventana (arquitectura A del skill acrylic-theming) ──────────────
@@ -137,6 +178,152 @@ function installCsp(): void {
       },
     });
   });
+}
+
+// ─── Permisos del renderer ───────────────────────────────────────────────────
+// La app es código propio servido desde file://, pero un renderer comprometido
+// (plugin, proyecto manipulado) podría pedir cámara, geolocalización, etc. Se
+// deniega TODO por defecto y se permite solo lo que la app usa de verdad: el
+// micrófono para grabar tomas ('media'). Sin este handler, las decisiones caen
+// al comportamiento por defecto de Electron para el origen file://.
+const ALLOWED_PERMISSIONS = new Set(['media']);
+
+function installPermissionHandlers(): void {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(ALLOWED_PERMISSIONS.has(permission));
+  });
+  ses.setPermissionCheckHandler((_wc, permission) => ALLOWED_PERMISSIONS.has(permission));
+}
+
+// ─── Descarga de galerías de plugins (con guarda anti-SSRF) ──────────────────
+// El renderer no puede salir a la red (la CSP se lo prohíbe), así que la
+// descarga la hace el main. Eso convierte a `gallery:fetch` en el único sitio
+// desde el que un renderer comprometido podría alcanzar la red — incluida la
+// red INTERNA que el renderer no ve: 127.0.0.1, la config del router
+// (192.168.x.1), paneles de intranet o el 169.254.169.254 de metadatos en la
+// nube. Por eso cada host al que se va a conectar se resuelve por DNS y se
+// rechaza si apunta a loopback, link-local o rango privado, y los redirects se
+// siguen a mano revalidando cada salto (un host "de galería" legítimo podría
+// redirigir a 127.0.0.1 y colarse por la puerta de atrás).
+
+const GALLERY_MAX_BYTES = 2 * 1024 * 1024;
+const GALLERY_TIMEOUT_MS = 10_000;
+const GALLERY_MAX_REDIRECTS = 4;
+
+/** Resuelve el host y lanza si CUALQUIERA de sus IPs es interna. */
+async function assertPublicHost(hostname: string): Promise<void> {
+  const bare = hostname.replace(/^\[|\]$/g, '');
+  if (isIP(bare)) {
+    if (isBlockedIp(bare)) throw new Error(`Destino no permitido (red interna): ${hostname}`);
+    return;
+  }
+  let addrs;
+  try {
+    addrs = await lookup(bare, { all: true });
+  } catch {
+    throw new Error(`No se pudo resolver el host de la galería: ${hostname}`);
+  }
+  if (addrs.length === 0 || addrs.some((a) => isBlockedIp(a.address))) {
+    throw new Error(`Destino no permitido (red interna): ${hostname}`);
+  }
+}
+
+/**
+ * Descarga el TEXTO de una galería con las tres guardas: solo http(s), destino
+ * público (resuelto por DNS en cada salto), y cuerpo leído por streaming con
+ * corte en cuanto pasa del tope — nunca se bufferiza una respuesta gigante ni
+ * se confía en el `content-length` declarado.
+ */
+async function fetchGalleryText(url: string): Promise<string> {
+  let current: URL;
+  try {
+    current = new URL(url);
+  } catch {
+    throw new Error(`URL no válida: ${url}`);
+  }
+  const signal = AbortSignal.timeout(GALLERY_TIMEOUT_MS);
+  for (let hop = 0; hop <= GALLERY_MAX_REDIRECTS; hop++) {
+    if (current.protocol !== 'http:' && current.protocol !== 'https:') {
+      throw new Error('Solo se descargan galerías por http o https');
+    }
+    await assertPublicHost(current.hostname);
+    const response = await fetch(current, { signal, redirect: 'manual' });
+    // redirect:'manual' devuelve el 3xx con la cabecera Location legible; se
+    // sigue a mano para poder revalidar el host de cada salto.
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (!location) throw new Error(`Redirección sin destino (${response.status})`);
+      current = new URL(location, current); // resuelve relativas
+      continue;
+    }
+    if (!response.ok) throw new Error(`La galería respondió ${response.status}`);
+    const declared = Number(response.headers.get('content-length') ?? '0');
+    if (declared > GALLERY_MAX_BYTES) throw new Error('La galería pasa del tope de 2 MB');
+    return await readCapped(response, GALLERY_MAX_BYTES);
+  }
+  throw new Error(`Demasiadas redirecciones (>${GALLERY_MAX_REDIRECTS})`);
+}
+
+/** Lee el cuerpo por trozos y aborta en cuanto supera `max` bytes. */
+async function readCapped(response: Response, max: number): Promise<string> {
+  const body = response.body;
+  if (!body) return '';
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (total > max) throw new Error('La respuesta pasa del tope de 2 MB');
+        chunks.push(value);
+      }
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+// ─── Guardas de ruta (contra symlinks/junctions) ─────────────────────────────
+// Las guardas de "esta ruta está dentro de la carpeta permitida" comparaban
+// prefijos de CADENA sobre la ruta resuelta, pero no seguían enlaces: un symlink
+// (o junction, que en Windows no necesita admin) cuyo nombre cae dentro de la
+// carpeta autorizada pasa el prefijo y la lectura/escritura sigue el enlace
+// FUERA de ella — p. ej. leer `~/.orbit/bridge.json` a través de un enlace
+// plantado en una carpeta de sonidos registrada. Resolver `realpath` antes de
+// comparar lo cierra. `pathWithin` e `isBlockedIp` viven en ./path-guard (puros,
+// con tests).
+
+/**
+ * realpath del destino, o —si aún no existe (una escritura)— realpath del
+ * ancestro existente más cercano con el tramo que falta pegado detrás. Ese
+ * tramo no puede contener enlaces (no existe), así que es seguro.
+ */
+async function realpathOrNearest(p: string): Promise<string> {
+  let cur = resolvePath(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = await realpath(cur);
+      return tail.length ? join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return resolvePath(p); // raíz sin resolver
+      tail.push(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/** ¿El destino REAL queda dentro de la base REAL (siguiendo enlaces)? */
+async function isRealPathWithin(target: string, base: string): Promise<boolean> {
+  const realBase = await realpath(base).catch(() => resolvePath(base));
+  const realTarget = await realpathOrNearest(target);
+  return pathWithin(realTarget, realBase);
 }
 
 // ─── Ventanas desacopladas ───────────────────────────────────────────────────
@@ -335,8 +522,21 @@ function createWindow(): BrowserWindow {
    * renderer): se le pide que guarde, y su `markClean` deja el flag a false, con
    * lo que el `close()` de después ya no encuentra nada que preguntar.
    */
+  // Si el renderer muere, no hay quien guarde ni quien responda a
+  // 'app:save-and-close': se deja cerrar (el último autosave sigue en disco y se
+  // ofrece como recuperación al arrancar). Quedarse con la ventana clavada
+  // contra un renderer muerto es peor que cerrarla.
+  win.webContents.on('render-process-gone', () => {
+    unsavedChanges = false;
+  });
+
+  let saveAndCloseTimer: NodeJS.Timeout | null = null;
+  const SAVE_AND_CLOSE_TIMEOUT_MS = 8000;
+
   win.on('close', (e) => {
     if (!unsavedChanges || win.isDestroyed()) return;
+    // Renderer colgado/caído: no se puede guardar ni esperar respuesta.
+    if (win.webContents.isCrashed()) return;
     e.preventDefault();
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
@@ -351,7 +551,22 @@ function createWindow(): BrowserWindow {
       unsavedChanges = false;
       win.close();
     } else if (choice === 0) {
+      // Se le pide al renderer que guarde y vuelva a cerrar (su markClean baja
+      // el flag). Si no contesta a tiempo —colgado, o un guardado que nunca
+      // termina—, se reabre el diálogo para que el usuario decida de nuevo en
+      // vez de quedarse atrapado con una ventana que no cierra.
       win.webContents.send('app:save-and-close');
+      if (saveAndCloseTimer) clearTimeout(saveAndCloseTimer);
+      saveAndCloseTimer = setTimeout(() => {
+        saveAndCloseTimer = null;
+        if (!win.isDestroyed() && unsavedChanges) win.close();
+      }, SAVE_AND_CLOSE_TIMEOUT_MS);
+    }
+  });
+  win.on('closed', () => {
+    if (saveAndCloseTimer) {
+      clearTimeout(saveAndCloseTimer);
+      saveAndCloseTimer = null;
     }
   });
   // Al cerrar la principal, las hijas se van con ella sin dar tiempo a su
@@ -492,20 +707,23 @@ function startClaudeBridge(): void {
 
 const grantedWritePaths = new Set<string>();
 
-function isWriteAllowed(target: string): boolean {
+async function isWriteAllowed(target: string): Promise<boolean> {
   if (grantedWritePaths.has(target)) return true;
   // 'userData' NO está: autosave, grabaciones y settings tienen sus propios
   // canales, y dejar file:write llegar ahí permitiría reescribir settings.json
   // o plantar plugins. Las carpetas de usuario son para exports.
   const roots = ['downloads', 'music', 'documents', 'desktop', 'temp'] as const;
-  return roots.some((root) => {
+  const realTarget = await realpathOrNearest(target);
+  for (const root of roots) {
     try {
-      const base = resolvePath(app.getPath(root));
-      return target === base || target.startsWith(base + '\\') || target.startsWith(base + '/');
+      const dir = app.getPath(root);
+      const base = await realpath(dir).catch(() => resolvePath(dir));
+      if (pathWithin(realTarget, base)) return true;
     } catch {
-      return false;
+      // ese path especial no existe en esta plataforma: se salta
     }
-  });
+  }
+  return false;
 }
 
 // ─── IPC ─────────────────────────────────────────────────────────────────────
@@ -646,7 +864,15 @@ function registerIpc(): void {
         knownPeers().some((p) => p.address === address) ||
         readFriends().some((f) => f.address === address);
       if (!known) return { ok: false, error: 'Esa dirección no es de nadie que hayas visto.' };
-      return sendInvite(address, room, url, typeof token === 'string' ? token : undefined);
+      // El código de sala y la URL van dentro del paquete UDP que sale de esta
+      // máquina: se validan aquí con las mismas reglas que el receptor aplica al
+      // parsearlos (código con forma de sala, URL ws/wss con host), en vez de
+      // reenviar lo que diga el renderer.
+      const cleanRoom = normalizeRoomCode(room);
+      if (!isValidRoomCode(cleanRoom)) return { ok: false, error: 'Código de sala no válido.' };
+      const safeUrl = cleanServerUrl(url);
+      if (safeUrl === '') return { ok: false, error: 'La URL del servidor debe ser ws:// o wss://.' };
+      return sendInvite(address, cleanRoom, safeUrl, typeof token === 'string' ? token : undefined);
     },
   );
 
@@ -832,7 +1058,7 @@ function registerIpc(): void {
     else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
     else throw new Error('file:write requiere datos Uint8Array o ArrayBuffer');
     const target = resolvePath(path);
-    if (!isWriteAllowed(target)) {
+    if (!(await isWriteAllowed(target))) {
       throw new Error(
         `Ruta no permitida: ${target}. Usa file:save-dialog o una carpeta de usuario (descargas, música, documentos...)`,
       );
@@ -958,7 +1184,7 @@ function registerIpc(): void {
         // Una ruta suministrada por el renderer debe estar autorizada: elegida
         // antes por diálogo (project:save/open) o en una carpeta de usuario. Si
         // no, se rechaza para que no se pueda escribir a rutas arbitrarias.
-        if (!isWriteAllowed(target)) {
+        if (!(await isWriteAllowed(target))) {
           throw new Error(`Ruta no permitida: ${target}. Usa "Guardar como".`);
         }
       } else {
@@ -1110,6 +1336,9 @@ function registerIpc(): void {
       }
       for (const item of items) {
         if (found.length >= 500) return;
+        // Los enlaces no se siguen: un symlink/junction dentro de la carpeta
+        // registrada podría listar (y luego servir) archivos de fuera de ella.
+        if (item.isSymbolicLink()) continue;
         const full = join(d, item.name);
         if (item.isDirectory()) await walk(full, depth + 1);
         else if (AUDIO_EXT.has(item.name.slice(item.name.lastIndexOf('.')).toLowerCase())) {
@@ -1124,10 +1353,15 @@ function registerIpc(): void {
   ipcMain.handle('folder:read', async (_event, file: unknown) => {
     if (typeof file !== 'string') throw new Error('folder:read requiere la ruta del archivo');
     const target = resolvePath(file);
-    const allowed = userFolders().some((f) => {
-      const base = resolvePath(f);
-      return target.startsWith(base + '\\') || target.startsWith(base + '/');
-    });
+    // realpath del destino Y de cada carpeta registrada: un enlace dentro de una
+    // carpeta registrada que apunte fuera no debe pasar la guarda.
+    let allowed = false;
+    for (const f of userFolders()) {
+      if (await isRealPathWithin(target, f)) {
+        allowed = true;
+        break;
+      }
+    }
     if (!allowed) throw new Error('folder:read solo sirve archivos de tus carpetas registradas');
     const buf = await readFile(target);
     return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -1182,9 +1416,9 @@ function registerIpc(): void {
     if (typeof file !== 'string' || file.length === 0) {
       throw new Error('recording:read requiere el nombre del archivo');
     }
-    const base = resolvePath(recordingsDir());
+    const base = recordingsDir();
     const target = resolvePath(join(base, file));
-    if (target !== base && !target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+    if (!(await isRealPathWithin(target, base))) {
       throw new Error('recording:read solo sirve archivos de la carpeta de grabaciones');
     }
     const buf = await readFile(target);
@@ -1231,43 +1465,11 @@ function registerIpc(): void {
   // plugin es el renderer, con el mismo parseo estático de siempre; y quien lo
   // escribe, `plugins:write`, que solo admite un nombre de archivo sano.
 
-  const GALLERY_MAX_BYTES = 2 * 1024 * 1024;
-  const GALLERY_TIMEOUT_MS = 10_000;
   const PLUGIN_FILE_RE = /^[a-z0-9][a-z0-9-]{0,47}\.js$/;
 
   ipcMain.handle('gallery:fetch', async (_event, url: unknown) => {
     if (typeof url !== 'string') throw new Error('gallery:fetch requiere una URL');
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new Error(`URL no válida: ${url}`);
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      throw new Error('Solo se descargan galerías por http o https');
-    }
-    const response = await fetch(parsed, {
-      signal: AbortSignal.timeout(GALLERY_TIMEOUT_MS),
-      redirect: 'follow',
-    });
-    if (!response.ok) throw new Error(`La galería respondió ${response.status}`);
-    // El tope se mira ANTES de tragarse el cuerpo, y en BYTES.
-    //
-    // `await response.text()` mete la respuesta entera en memoria del proceso
-    // main y solo después comprobaba el tamaño: una galería que conteste
-    // cientos de MB los cargaba enteros antes de que nadie los rechazara (el
-    // timeout solo cubre las descargas lentas, no las rápidas). Y `text.length`
-    // cuenta unidades UTF-16, no bytes, así que el tope real ni siquiera era el
-    // anunciado.
-    const declared = Number(response.headers.get('content-length') ?? '0');
-    if (declared > GALLERY_MAX_BYTES) {
-      throw new Error('La galería pasa del tope de 2 MB');
-    }
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.byteLength > GALLERY_MAX_BYTES) {
-      throw new Error('La respuesta pasa del tope de 2 MB');
-    }
-    return body.toString('utf8');
+    return fetchGalleryText(url);
   });
 
   ipcMain.handle('plugins:write', async (_event, file: unknown, source: unknown) => {
@@ -1405,9 +1607,9 @@ function registerIpc(): void {
     if (typeof file !== 'string' || file.length === 0) {
       throw new Error('library:read requiere la ruta relativa del manifest');
     }
-    const base = resolvePath(factoryDir());
+    const base = factoryDir();
     const target = resolvePath(base, file);
-    if (target !== base && !target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+    if (!(await isRealPathWithin(target, base))) {
       throw new Error(`Ruta fuera del pack: ${file}`);
     }
     const bytes = await readFile(target);
@@ -1499,9 +1701,9 @@ function registerIpc(): void {
     if (typeof file !== 'string' || file.length === 0) {
       throw new Error('pack:read requiere <pack>/<archivo>');
     }
-    const base = resolvePath(packsDir());
+    const base = packsDir();
     const target = resolvePath(base, file);
-    if (!target.startsWith(base + '\\') && !target.startsWith(base + '/')) {
+    if (!(await isRealPathWithin(target, base))) {
       throw new Error(`Ruta fuera de los packs: ${file}`);
     }
     const bytes = await readFile(target);
@@ -1522,15 +1724,36 @@ function registerIpc(): void {
 
 // ─── Ciclo de vida ───────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
-  installCsp();
-  registerIpc();
-  startClaudeBridge();
-  createWindow();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// Una sola instancia. Una segunda arrancaría su propio host del puente y
+// escribiría ~/.orbit/bridge.json con OTRO token antes de morir por EADDRINUSE
+// en el 7855; el relay MCP presentaría ese token a la instancia viva (que tiene
+// el puerto con el token viejo) y el puente Claude dejaría de funcionar. Peor:
+// al cerrar la segunda, su `will-quit` borraría bridge.json aunque la primera
+// siga viva. Además el server collab y el socket de descubrimiento pelearían por
+// sus puertos. Con el lock, la segunda invocación solo enfoca a la primera.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    const win = mainWindow ?? BrowserWindow.getAllWindows()[0];
+    if (win && !win.isDestroyed()) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
   });
-});
+
+  app.whenReady().then(() => {
+    installCsp();
+    installPermissionHandlers();
+    registerIpc();
+    startClaudeBridge();
+    createWindow();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('will-quit', () => {
   bridgeHost?.close();
