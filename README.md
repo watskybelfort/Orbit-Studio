@@ -1,6 +1,6 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v2.10.0-5aa9e6)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.0.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-1261%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
@@ -81,9 +81,15 @@ guardables con nombre).
 
 ## Lo último
 
-**v2.10.0 — "la toma en vivo".** Orbit producía de maravilla y no se tocaba.
+**v3.0.0 — "la toma en vivo".** Orbit producía de maravilla y no se tocaba.
 Esta versión cierra el agujero por el que entra el sonido de fuera: el
 controlador MIDI, el micro y el clic de la cuenta.
+
+Es un salto de versión mayor porque el estudio deja de ser una cosa en la que
+solo se *programa* música: ahora se toca y se graba dentro. Y por debajo cambia
+la forma del motor — el nodo del kernel tiene entrada, el protocolo de
+medidores lleva la señal que entra, y la grabación ya no pasa por el navegador.
+
 
 **El controlador, en serio.** Cada dispositivo se enciende y se apaga por su
 cuenta, con su canal, su transposición por octavas y su curva de pulsación;
@@ -123,7 +129,8 @@ mismo: la cuenta y el compás 1 comparten reloj.
 Lo que hay pensado a continuación. Nada de esto está prometido con fecha: se
 saca cuando toca, en el mismo orden en que estorba no tenerlo. Las tres filas de
 entrada en vivo que abrían este roadmap —controlador MIDI, monitor del micro y
-clic de la cuenta— salieron en la **v2.10**; las de abajo son lo que dejaron
+clic de la cuenta— salieron en la **v3.0**; las de abajo son lo que dejaron
+
 detrás.
 
 ### Siguiente

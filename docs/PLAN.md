@@ -6,11 +6,17 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 23-08-2026: v2.10.0
+## Estado — 23-08-2026: v3.0.0
 
-v2.10, "la toma en vivo". Orbit producía de maravilla y no se tocaba: esta
+v3.0, "la toma en vivo". Orbit producía de maravilla y no se tocaba: esta
 versión cierra el agujero por el que entra el sonido de fuera. Sale de las tres
 primeras filas del roadmap, que eran las tres el mismo problema.
+
+Es mayor y no menor por dos motivos. Uno de producto: el estudio deja de ser
+una cosa en la que solo se *programa* música. Y otro técnico: cambia la forma
+del motor — el nodo del kernel pasa a tener entrada, `MeterFrame` gana un campo
+obligatorio (`inputPeak`) y la ruta de grabación deja de pasar por el navegador.
+
 
 **El controlador MIDI, en serio.** La entrada era un `for` sobre todas las
 entradas de Web MIDI, en todos los canales, con la velocidad tal cual. Ahora
