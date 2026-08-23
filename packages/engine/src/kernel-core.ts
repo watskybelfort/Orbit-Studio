@@ -153,6 +153,17 @@ export class KernelCore {
    */
   private countInBuf = new Float32Array(MAX_BLOCK);
 
+  // ── Entrada en vivo (micro / instrumento) ──
+  /** Medir lo que entra (para ajustar ganancia sin oírse). */
+  private inputListening = false;
+  /** Además meterlo en la pista, antes de sus inserts. */
+  private inputMonitor = false;
+  private inputTrack = 0;
+  private inputGain = 1;
+  /** Pico del bloque, ANTES de la ganancia: un micro que satura se ve igual. */
+  private inputPeak = 0;
+
+
 
   // Medición
   private peaks = new Float32Array(1);
@@ -273,6 +284,16 @@ export class KernelCore {
       case 'cancelCountIn':
         this.cancelCountIn();
         break;
+      case 'setLiveInput':
+        this.inputListening = msg.listening;
+        this.inputMonitor = msg.monitor;
+        this.inputTrack = Math.max(0, Math.round(msg.trackIndex));
+        this.inputGain = Math.max(0, msg.gain);
+        // Al dejar de escuchar, el medidor cae a cero en el acto: si no, el
+        // último pico se queda clavado en pantalla como si siguiera entrando.
+        if (!msg.listening) this.inputPeak = 0;
+        break;
+
 
       case 'setScope': {
         // Al activar o cambiar de pista se limpia el anillo: si no, el primer
@@ -1107,7 +1128,18 @@ export class KernelCore {
 
   // ── Proceso principal ─────────────────────────────────────────────────────
 
-  process(outL: Float32Array, outR: Float32Array, n: number): void {
+  /**
+   * `inL`/`inR` son la entrada en vivo del nodo (micro, instrumento). Llegan
+   * como parámetros y no como estado porque el worklet las recibe por bloque:
+   * el render offline y las pruebas simplemente no las pasan.
+   */
+  process(
+    outL: Float32Array,
+    outR: Float32Array,
+    n: number,
+    inL?: Float32Array,
+    inR?: Float32Array,
+  ): void {
     const p = this.project;
     outL.fill(0, 0, n);
     outR.fill(0, 0, n);
@@ -1119,6 +1151,7 @@ export class KernelCore {
     }
 
 
+
     const nTracks = p.mixer.length;
     for (let t = 0; t < nTracks; t++) {
       this.bufL[t]!.fill(0, 0, n);
@@ -1128,6 +1161,41 @@ export class KernelCore {
       this.chBufL[c]!.fill(0, 0, n);
       this.chBufR[c]!.fill(0, 0, n);
     }
+
+    /*
+     * Entrada en vivo. Va aquí, con los buffers de pista recién puestos a
+     * cero y ANTES de que la mesa procese nada: eso es exactamente
+     * "pre-inserts" — lo que entra por el micro pasa por los efectos de su
+     * pista, su EQ y su fader igual que si fuera audio del proyecto. Es lo
+     * único que hace útil el monitor: cantar oyendo el reverb y el compresor
+     * que va a llevar la toma, no la voz seca.
+     */
+    if (this.inputListening && inL) {
+      const right = inR ?? inL;
+      const count = Math.min(n, inL.length);
+      let peak = 0;
+      for (let i = 0; i < count; i++) {
+        const l = inL[i]!;
+        const r = right[i]!;
+        const a = Math.abs(l);
+        const b = Math.abs(r);
+        if (a > peak) peak = a;
+        if (b > peak) peak = b;
+      }
+      this.inputPeak = peak;
+      const dl = this.bufL[this.inputTrack];
+      const dr = this.bufR[this.inputTrack];
+      if (this.inputMonitor && dl && dr) {
+        const g = this.inputGain;
+        for (let i = 0; i < count; i++) {
+          dl[i]! += inL[i]! * g;
+          dr[i]! += right[i]! * g;
+        }
+      }
+    } else if (this.inputPeak !== 0) {
+      this.inputPeak = 0;
+    }
+
 
     // El playhead puede quedar FUERA de la región de loop sin haberse salido
     // tocando: pasar de SONG (beat 200) a PAT (loop de 16), encoger el
@@ -1688,7 +1756,9 @@ export class KernelCore {
       positionBeats: this.posBeats,
       playing: this.playing,
       cpu,
+      inputPeak: this.inputPeak,
     };
+
     const countInLeft = this.countInBeatsLeft;
     if (countInLeft > 0) frame.countInBeatsLeft = countInLeft;
 

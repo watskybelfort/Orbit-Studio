@@ -72,11 +72,18 @@ export class AudioEngine {
   private async doInit(): Promise<void> {
     const ctx = new AudioContext({ latencyHint: 'interactive' });
     await ctx.audioWorklet.addModule(workletUrl);
+    // El nodo tiene UNA entrada: por ahí entra el micro cuando se monitoriza.
+    // `explicit` + 2 canales para que un micro mono llegue a los dos lados en
+    // vez de quedarse pegado a la izquierda.
     const node = new AudioWorkletNode(ctx, KERNEL_NAME, {
-      numberOfInputs: 0,
+      numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'speakers',
     });
+
     node.port.onmessage = (e: MessageEvent<FromKernel>) => {
       const msg = e.data;
       if (msg.type === 'meters') {
@@ -162,6 +169,26 @@ export class AudioEngine {
   cancelCountIn(): void {
     this.send({ type: 'cancelCountIn' });
   }
+
+  /**
+   * Entrada en vivo. `listening` mide el nivel (para ajustar ganancia sin
+   * oírse); `monitor` además la mete en la pista, antes de sus inserts.
+   */
+  setLiveInput(listening: boolean, monitor: boolean, trackIndex: number, gain = 1): void {
+    this.send({ type: 'setLiveInput', listening, monitor, trackIndex, gain });
+  }
+
+  /**
+   * Conecta una fuente de audio a la entrada del kernel (el micro). Devuelve
+   * el nodo de origen para poder desconectarlo; null si el audio no arrancó.
+   */
+  connectInput(stream: MediaStream): MediaStreamAudioSourceNode | null {
+    if (!this.ctx || !this.node) return null;
+    const source = this.ctx.createMediaStreamSource(stream);
+    source.connect(this.node);
+    return source;
+  }
+
 
 
   /**

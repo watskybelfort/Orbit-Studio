@@ -18,12 +18,18 @@ class OrbitKernelProcessor extends AudioWorkletProcessor {
     this.port.postMessage({ type: 'ready' });
   }
 
-  process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+  process(inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const out = outputs[0];
     if (!out || out.length === 0) return true;
     const l = out[0]!;
     const r = out[1] ?? out[0]!;
-    this.core.process(l, r, l.length);
+    // Entrada en vivo (micro/instrumento). Sin nada conectado el array viene
+    // vacío, y con un micro mono viene un solo canal: el kernel lo duplica.
+    const input = inputs[0];
+    const inL = input && input.length > 0 ? input[0] : undefined;
+    const inR = input && input.length > 1 ? input[1] : undefined;
+    this.core.process(l, r, l.length, inL, inR);
+
     if (++this.blocks >= METER_INTERVAL_BLOCKS) {
       this.blocks = 0;
       this.port.postMessage({ type: 'meters', frame: this.core.meterFrame() });

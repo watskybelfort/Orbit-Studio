@@ -244,8 +244,23 @@ export type ToKernel =
   | { type: 'countIn'; beats: number; beatsPerBar: number; playFrom?: number }
   /** Aborta la cuenta atrÃ¡s en marcha (y con ella su arranque diferido). */
   | { type: 'cancelCountIn' }
-
+  /**
+   * Entrada en vivo (micro/instrumento) por la entrada del nodo del kernel.
+   *
+   * `listening` = medir el nivel de lo que entra, para poder ajustar ganancia
+   * sin oírse. `monitor` = además meterlo en la pista `trackIndex` ANTES de
+   * sus inserts: oírlo con la cadena del canal puesta, que es la gracia —
+   * cantar con el reverb y el compresor que va a llevar la toma.
+   */
+  | {
+      type: 'setLiveInput';
+      listening: boolean;
+      monitor: boolean;
+      trackIndex: number;
+      gain: number;
+    }
   /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
+
   | { type: 'setScope'; enabled: boolean; trackIndex?: number }
   /** Graba la salida post-fader de una pista: el audio viaja en los frames. */
   | { type: 'setTrackCapture'; trackIndex: number; enabled: boolean }
@@ -296,6 +311,8 @@ export interface MeterFrame {
    * que suena ahora. Ausente cuando no hay cuenta en marcha.
    */
   countInBeatsLeft?: number;
+  /** Pico de la entrada en vivo ANTES de su ganancia (0 si no se escucha). */
+  inputPeak: number;
 
   /** Carga estimada del kernel 0..1. */
   cpu: number;
