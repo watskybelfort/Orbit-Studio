@@ -198,7 +198,8 @@ export function Transport() {
           title={
             countInBars === 0
               ? 'Sin cuenta atrás: la grabación entra al instante'
-              : `Cuenta atrás de ${countInBars} compás(es) con metrónomo antes de grabar`
+              : `Cuenta atrás de ${countInBars} compás(es) con clic antes de grabar`
+
           }
           onClick={cycleCountIn}
         >

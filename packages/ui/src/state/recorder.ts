@@ -26,8 +26,9 @@ interface RecorderState {
   error: string | null;
   /** Compases de cuenta atrás antes de grabar (0 = sin cuenta). */
   countInBars: number;
-  /** Compases que faltan durante la cuenta (para el rótulo del botón). */
+  /** Beats que faltan durante la cuenta (para el rótulo del botón: 4·3·2·1). */
   countdown: number;
+
 }
 
 export const useRecorderStore = create<RecorderState>(() => ({
@@ -78,42 +79,78 @@ let starting = false;
 
 /**
  * Cuenta atrás SIN sitio por delante (grabar desde el compás 1): el transporte
- * se queda parado en el beat objetivo y se espera un compás por cada uno de la
- * cuenta, al tempo del proyecto y con el metrónomo puesto. Cuando termina, el
- * transporte arranca donde tenía que arrancar.
+ * se queda parado en el beat objetivo y la cuenta la lleva el KERNEL —clic por
+ * beat al tempo del proyecto y, un beat después del último, el transporte
+ * entra solo en `target`.
+ *
+ * Antes esto era un `setTimeout` por compás con el metrónomo puesto, y el
+ * metrónomo del kernel solo clica rodando: la cuenta no sonaba. Y el arranque
+ * llegaba cuando despertaba el temporizador, no en el beat.
+ *
+ * Devuelve el beat de entrada JUSTO cuando se cierra la cuenta (medido con el
+ * reloj de audio), que es cuando quien llama tiene que abrir el micro.
  */
-async function waitCountIn(
-  bars: number,
-  beatsPerBar: number,
-  target: number,
-  wasMetronome: boolean,
-): Promise<number | null> {
-  useUiStore.setState({ metronome: true, positionBeats: target });
-  engine.setMetronome(true);
+
+async function waitCountIn(bars: number, beatsPerBar: number, target: number): Promise<number | null> {
+  await engine.init();
+  useUiStore.setState({ positionBeats: target });
   engine.seek(target);
-  useRecorderStore.setState({ phase: 'countin', countdown: bars, error: null });
-  const barMs = (beatsPerBar * 60_000) / Math.max(1, store.project.tempo);
-  for (let left = bars; left > 0 && !cancelCountIn; left--) {
-    useRecorderStore.setState({ countdown: left });
-    await new Promise((r) => setTimeout(r, barMs));
+  const beats = bars * beatsPerBar;
+  useRecorderStore.setState({ phase: 'countin', countdown: beats, error: null });
+  /*
+   * La espera se mide con el RELOJ DE AUDIO, que es el mismo con el que el
+   * kernel enciende el transporte al cerrar la cuenta. Esperar en cambio a
+   * que un frame de medidores diga `playing` mete hasta 46 ms entre el
+   * downbeat y el `recorder.start()` de quien llama: la toma entera corrida
+   * respecto del beat donde luego se coloca su clip.
+   */
+  const ctx = engine.audioContext;
+  const t0 = ctx?.currentTime ?? 0;
+  engine.countIn(beats, beatsPerBar, target);
+  const countSec = (beats * 60) / Math.max(1, store.project.tempo);
+  // Red de seguridad por si el audio no llegara a sonar (worklet caído,
+  // contexto suspendido): sin esto la espera se queda con el micro abierto.
+  const deadline = performance.now() + countSec * 1000 + 1500;
+  /** ¿Hemos llegado a ver la cuenta viva? (antes del primer frame, no). */
+  let sawCount = false;
+  while (!cancelCountIn) {
+    const left = ctx ? t0 + countSec - ctx.currentTime : Infinity;
+    if (left <= 0) break;
+    if (useUiStore.getState().playing) break;
+    if (performance.now() > deadline) {
+      engine.cancelCountIn();
+      await play();
+      break;
+    }
+    const beatsLeft = engine.lastMeters?.countInBeatsLeft ?? 0;
+    // La cuenta estaba viva y ha desaparecido sin encender el transporte:
+    // alguien dio a Stop por otro lado (el kernel cancela la cuenta con el
+    // stop). Sin esto la espera seguía hasta el plazo y arrancaba sola.
+    if (sawCount && beatsLeft === 0) {
+      cancelCountIn = true;
+      break;
+    }
+    if (beatsLeft > 0) sawCount = true;
+    if (beatsLeft !== useRecorderStore.getState().countdown) {
+      useRecorderStore.setState({ countdown: beatsLeft });
+    }
+    // Fino en el último tramo: el corte tiene que caer EN el downbeat.
+    await new Promise((r) => setTimeout(r, left > 0.05 ? 20 : 2));
   }
-  if (!wasMetronome) {
-    useUiStore.setState({ metronome: false });
-    engine.setMetronome(false);
-  }
+
   useRecorderStore.setState({ countdown: 0 });
   if (cancelCountIn) {
     cancelCountIn = false;
+    engine.cancelCountIn();
     useRecorderStore.setState({ phase: 'idle' });
     return null;
   }
-  // El transporte NO venía rodando: aquí es donde empieza a sonar.
-  await play();
   return target;
 }
 
 /**
  * Cuenta atrás antes de grabar: el transporte arranca un par de compases
+
  * antes con el metrónomo puesto y la toma empieza EXACTA en el beat donde
  * estaba el caret, que es donde el usuario quería empezar a cantar.
  */
@@ -130,13 +167,15 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
   // la app, o darle a Stop, deja el caret justo ahí. Sin sitio por delante, la
   // cuenta se hace con el transporte PARADO y el metrónomo puesto.
   if (target - from <= 1e-6) {
-    return waitCountIn(bars, beatsPerBar, target, wasMetronome);
+    return waitCountIn(bars, beatsPerBar, target);
   }
+
 
   useUiStore.setState({ metronome: true, positionBeats: from });
   engine.setMetronome(true);
   engine.seek(from);
-  useRecorderStore.setState({ phase: 'countin', countdown: bars, error: null });
+  useRecorderStore.setState({ phase: 'countin', countdown: bars * beatsPerBar, error: null });
+
   await play();
 
   while (!cancelCountIn) {
@@ -149,9 +188,11 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
     }
     const beat = currentBeat();
     if (beat >= target - 1e-3) break;
-    // Tope en `bars`: el primer frame de medidores puede llegar con la
-    // posición vieja y la cuenta arrancaría con un compás de más.
-    const left = Math.min(bars, Math.max(1, Math.ceil((target - beat) / beatsPerBar)));
+    // La cuenta se enseña en BEATS (4·3·2·1), igual que la del kernel. Tope
+    // arriba: el primer frame de medidores puede llegar con la posición vieja
+    // y la cuenta arrancaría con un beat de más.
+    const left = Math.min(bars * beatsPerBar, Math.max(1, Math.ceil(target - beat)));
+
     if (left !== useRecorderStore.getState().countdown) {
       useRecorderStore.setState({ countdown: left });
     }
