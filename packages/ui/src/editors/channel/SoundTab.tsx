@@ -27,8 +27,10 @@ import { detectTransients } from '@orbit/engine';
 import { readSampleBytes } from '../../browser/sound-actions';
 import { store } from '../../state/app';
 import { usePluginsStore } from '../../state/plugins';
+import { KeymapEditor } from './KeymapEditor';
 import { ParamControl } from './ParamControl';
 import { SampleWave } from './SampleWave';
+
 
 /**
  * Parámetros del sampler que forman el bloque de recorte y forma. El orden es
@@ -163,10 +165,13 @@ export function SoundTab({ channel, sample }: SoundTabProps) {
         </section>
       )}
 
+      {isSampler && <KeymapEditor channel={channel} />}
+
       {isSampler && (
         <section className="chan-group">
           <h4 className="chan-group-title">
             Recorte y forma
+
             <span className="chan-group-sub">{sample ? sample.name : 'Sin sample cargado'}</span>
           </h4>
           {sample ? (

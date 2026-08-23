@@ -6,13 +6,18 @@
  */
 
 import {
+  autoMapKeymap,
   createChannel,
   newId,
+  normalizeKeymap,
+  spreadKeymapRanges,
+  type AutoMapOptions,
   type Clip,
   type Command,
   type Id,
   type SampleRef,
 } from '@orbit/core';
+
 import type { SoundEntry } from '@orbit/sound-library';
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
@@ -125,7 +130,55 @@ export async function addSamplerChannel(entry: SoundEntry): Promise<void> {
   useUiStore.setState({ pianoRollChannelId: channel.id });
 }
 
+/**
+ * Drop de uno o varios sonidos sobre el keymap de un canal: sube los samples,
+ * los registra y añade sus zonas, con las notas leídas de los nombres.
+ *
+ * Las zonas nuevas se reparten ENTRE ELLAS y con las que ya había: soltar seis
+ * muestras más sobre un piano de doce tiene que dejar un piano de dieciocho
+ * bien repartido, no seis zonas encima tapando lo anterior.
+ */
+export async function addKeymapZones(
+  channelId: Id,
+  entries: readonly SoundEntry[],
+  options: AutoMapOptions = {},
+): Promise<{ added: number; unreadable: string[] }> {
+  const channel = store.project.channels[channelId];
+  if (!channel || entries.length === 0) return { added: 0, unreadable: [] };
+
+  const commands: Command[] = [];
+  for (const entry of entries) {
+    const bytes = await loadIntoEngine(entry);
+    commands.push(...(await registerIfNew(entry, bytes)));
+  }
+
+  // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota; el
+  // de la entrada puede venir ya bonito y sin ella.
+  const { zones, unreadable } = autoMapKeymap(
+    entries.map((e) => ({ id: e.id, name: e.file || e.name })),
+    options,
+  );
+  if (zones.length === 0) return { added: 0, unreadable };
+
+  // Las que ya estaban conservan su raíz y su ganancia; lo que se recalcula
+  // son los rangos, que es lo que cambia al entrar gente nueva.
+  const merged = spreadKeymapRanges([...(channel.keymap ?? []), ...zones]);
+  commands.push({
+    type: 'patchChannel',
+    channelId,
+    patch: { keymap: normalizeKeymap(merged) ?? [] },
+  });
+
+  const label = `${channel.name}: ${zones.length} muestra(s) al keymap`;
+  store.dispatch(
+    commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+    { label },
+  );
+  return { added: zones.length, unreadable };
+}
+
 /** Drop en la playlist: clip de audio con la longitud real del sonido. */
+
 export async function addAudioClip(entry: SoundEntry, trackId: Id, startBeat: number): Promise<void> {
   const bytes = await loadIntoEngine(entry);
 
