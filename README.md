@@ -99,21 +99,38 @@ no uno roto.
 ## Roadmap
 
 Lo que hay pensado a continuación. Nada de esto está prometido con fecha: se
-saca cuando toca, en el mismo orden en que estorba no tenerlo.
+saca cuando toca, en el mismo orden en que estorba no tenerlo. Este roadmap se
+rehízo tras la **auditoría profunda de la v2.8** (diagnóstico + reparación de
+todo el árbol, 6 zonas, ~40 arreglos con test): las tres primeras filas de
+"Siguiente" salen justo de lo que esa revisión dejó medido y deferido.
 
 ### Siguiente
 
 | Qué | Por qué |
 |---|---|
-| **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera; le faltan las decisiones finas (postfiltro, transitorios, dispersión adaptativa) que lo acercarían a libopus en calidad por bit |
+| **Tocar y grabar con un controlador MIDI** | Web MIDI: teclado/pads físicos que iluminen las teclas ya soportadas y graben directo al patrón. Es la entrada que más se echa en falta para producir de verdad |
+| **Monitor de entrada y efectos en vivo sobre el micro** | Oír la voz/instrumento con la cadena del canal puesta mientras se graba, no solo después |
+| **Clic de la cuenta atrás con el transporte parado** | Grabar desde el compás 1 enseña el conteo pero no suena (el kernel solo hace clic rodando); falta un generador de clic por AudioContext durante la espera |
+| **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
+| **Instrumentos multisample (keymaps)** | Un sampler con varias muestras repartidas por el teclado y por velocidad, no una sola por canal |
+
+### Más adelante
+
+| Qué | Por qué |
+|---|---|
+| **Buses y grupos de mezcla de verdad** | Carpetas del rack que sumen a un bus con su propia cadena, además del enrutado por cables que ya hay |
+| **Analizador de espectro por pista y medidor de LUFS integrado** | Ver el espectro y la sonoridad de cada strip, y normalizar el export a un objetivo (−14 LUFS y compañía) sin salir de la app |
+| **Historial en árbol y biblioteca de plantillas** | Deshacer que no pierda ramas al divergir, y arrancar proyectos desde plantillas con nombre |
+| **Optimizaciones del motor medidas en la auditoría** | Descargar samples que ya no usa nadie (hoy la RAM del worklet solo crece), export de stems en UNA petición al worker (hoy clona los samples por stem), suavizado de coeficientes al automatizar EQ/filtros, y flush de denormales en las colas de reverb |
 
 ### Horizonte
 
 | Qué | Estado |
 |---|---|
 | **Puente CLAP / VST3** | Necesita un host nativo con GUI embebida: proyecto aparte, no un rato |
-| **Export a OGG** | Ya está: el `.ogg` de Orbit es **Ogg FLAC**, sin pérdida y del encoder propio. El contenedor **Ogg Opus** también está escrito y validado; lo que falta para un `.opus` es el códec |
-| **Export de vídeo para visuales** | Fuera del alcance del DAW hasta que el resto esté redondo |
+| **SDK de plugins con interfaz propia** | Que un plugin JS pueda pintar su propia UI (canvas) además de declarar perillas |
+| **Export de vídeo para visuales** | Un visualizador que renderice el tema a vídeo; fuera del alcance del DAW hasta que el resto esté redondo |
+| **Kernel con SIMD (WASM)** | Llevar el hilo de audio a WebAssembly con SIMD y un pool de voces para acercarse a "cero alocaciones por bloque" |
 
 ## Encoder Opus propio
 
