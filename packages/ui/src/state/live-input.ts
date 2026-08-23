@@ -8,9 +8,11 @@
  * Los controladores no se tratan como "una entrada MIDI genérica": cada
  * dispositivo se enciende y se apaga por su cuenta (el teclado maestro sí, la
  * superficie de mandos no), se elige qué canal se escucha, cuántas octavas se
- * transpone y con qué curva pega el teclado. La lectura de los bytes vive en
- * `midi-message.ts`, que se prueba sin hardware.
+ * transpone y con qué curva pega el teclado. El pedal de sostenido (CC 64) va
+ * por dispositivo, en `sustain.ts`. La lectura de los bytes vive en
+ * `midi-message.ts`. Las dos piezas se prueban sin hardware.
  */
+
 
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
@@ -24,6 +26,7 @@ import {
   transposeKey,
   type VelocityCurve,
 } from './midi-message';
+import { SustainPedal } from './sustain';
 import { useUiStore } from './ui';
 
 const SIXTEENTH = 0.25; // 1/16 en beats
@@ -45,6 +48,9 @@ export const useLiveInputStore = create<{
   armed: boolean;
   /** Notas sonando ahora mismo (indicador). */
   heldKeys: number;
+  /** Notas que solo siguen sonando porque el pedal está pisado. */
+  sustainedKeys: number;
+
   /** `performance.now()` del último mensaje que entró (LED de actividad). */
   lastMessageAt: number;
   /** Canal que se escucha: 0 = todos. */
@@ -57,7 +63,9 @@ export const useLiveInputStore = create<{
   devices: [],
   armed: false,
   heldKeys: 0,
+  sustainedKeys: 0,
   lastMessageAt: 0,
+
   channel: 0,
   octave: 0,
   velocityCurve: 'linear',
@@ -77,6 +85,9 @@ interface HeldNote {
 }
 
 const held = new Map<string, HeldNote>();
+/** Pedal de sostenido (CC 64), por dispositivo. */
+const pedal = new SustainPedal();
+
 let recorded: { key: number; velocity: number; start: number; duration: number }[] = [];
 let recordChannelId: string | null = null;
 
@@ -128,9 +139,13 @@ function noteOff(source: string): void {
 
 /** Suelta lo que esté pulsado (todo, o solo lo de un prefijo de fuente). */
 function releaseAll(prefix = ''): void {
+  // El pedal se olvida ANTES: si no, sus notas retenidas se saltarían el
+  // note-off de abajo y se quedarían sonando sin nadie que las suelte.
+  if (prefix === '') pedal.clear();
   for (const source of [...held.keys()]) {
     if (prefix === '' || source.startsWith(prefix)) noteOff(source);
   }
+  useLiveInputStore.setState({ sustainedKeys: pedal.holding });
 }
 
 /** Vuelca lo grabado al patrón activo (inicios cuantizados a 1/16). */
@@ -219,8 +234,12 @@ export function setMidiDeviceEnabled(id: string, enabled: boolean): void {
   if (enabled) disabledIds.delete(id);
   else disabledIds.add(id);
   persist({ [SETTINGS_DISABLED]: [...disabledIds] });
+  // Apagar un teclado con el pedal pisado dejaba sus notas sonando: nadie iba
+  // a mandar ya el CC 64 con valor 0.
+  for (const source of pedal.forgetDevice(id)) noteOff(source);
   releaseAll(sourcePrefix(id));
   reattach?.();
+
 }
 
 async function loadSettings(): Promise<void> {
@@ -344,20 +363,38 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
     case 'noteOn': {
       const key = transposeKey(msg.key, st.octave);
       if (key === null) return;
-      noteOn(
-        sourcePrefix(deviceId) + msg.key,
-        key,
-        applyVelocityCurve(msg.velocity, st.velocityCurve),
-      );
+      const source = sourcePrefix(deviceId) + msg.key;
+      // Repicar una tecla que el pedal retiene: hay que soltarla antes, o el
+      // note-on se ignora (esa fuente ya suena) y la nota nueva no ataca.
+      if (pedal.takeRetrigger(source)) noteOff(source);
+      noteOn(source, key, applyVelocityCurve(msg.velocity, st.velocityCurve));
+      useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       break;
     }
-    case 'noteOff':
-      noteOff(sourcePrefix(deviceId) + msg.key);
+    case 'noteOff': {
+      const source = sourcePrefix(deviceId) + msg.key;
+      if (pedal.holdNoteOff(deviceId, source)) {
+        useLiveInputStore.setState({ sustainedKeys: pedal.holding });
+      } else {
+        noteOff(source);
+      }
+      break;
+    }
+    case 'sustain':
+      if (msg.down) {
+        pedal.press(deviceId);
+      } else {
+        for (const source of pedal.release(deviceId)) noteOff(source);
+      }
+      useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       break;
     case 'allNotesOff':
+      // El panic del teclado se lleva por delante su pedal también.
+      for (const source of pedal.forgetDevice(deviceId)) noteOff(source);
       releaseAll(sourcePrefix(deviceId));
       break;
     default:
       break;
   }
 }
+
