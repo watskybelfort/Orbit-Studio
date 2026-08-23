@@ -8,6 +8,8 @@ export * from './model/nova';
 export * from './model/prisma';
 export * from './model/templates';
 export * from './model/slices';
+export * from './model/keymap';
+
 export * from './model/channel-drop';
 export * from './model/routing';
 export * from './model/sends';

@@ -2,7 +2,9 @@
 
 import type { Project } from './model/types';
 import { FORMAT_VERSION } from './model/types';
+import { normalizeKeymap } from './model/keymap';
 import { normalizeSlicePoints } from './model/slices';
+
 
 export const ORBIT_EXTENSION = '.orbit';
 
@@ -65,6 +67,15 @@ export function parseProject(json: string): Project {
     const clean = normalizeSlicePoints(channel.slicePoints);
     if (clean) channel.slicePoints = clean;
     else delete channel.slicePoints;
+    // Keymap del multisample: mismo trato que los cortes. Llega del disco sin
+    // garantías y el motor lo usa tal cual, así que se sanea una vez aquí —
+    // una zona con el rango del revés o apuntando a un sample que no existe no
+    // puede llegar viva al kernel. Aditivo: los .orbit anteriores no lo traen.
+    const zones = normalizeKeymap(channel.keymap);
+    const known = zones?.filter((z) => p.samples?.[z.sampleId] !== undefined);
+    if (known && known.length > 0) channel.keymap = known;
+    else delete channel.keymap;
+
     // Carpeta que ya no existe: el canal se queda suelto en vez de
     // desaparecer del rack (se pinta por carpeta, y esa no se pinta).
     if (channel.groupId !== undefined && !p.channelGroups?.[channel.groupId]) {

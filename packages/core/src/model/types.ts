@@ -9,7 +9,13 @@
  * - Ganancias de usuario en lineal [0..2]; la UI las muestra en dB.
  */
 
+// Solo el TIPO: la cuenta y las reglas del keymap viven en `model/keymap.ts`,
+// que a su vez necesita `Id` de aquí. Al ser un import de tipos, TypeScript lo
+// borra al compilar y el ciclo no existe en tiempo de ejecución.
+import type { KeymapZone } from './keymap';
+
 export type Id = string;
+
 
 // ── Notas ────────────────────────────────────────────────────────────────────
 
@@ -81,6 +87,14 @@ export interface Channel {
   params: Record<string, number>;
   /** Sample cargado (solo sampler). */
   sampleId?: Id;
+  /**
+   * Multisample (solo sampler): varias muestras repartidas por el teclado y
+   * por velocidad (ver `model/keymap.ts`). Cuando está y tiene zonas, MANDA
+   * sobre `sampleId` — que se conserva igual, para que quitar el keymap
+   * devuelva el canal exactamente a como estaba.
+   */
+  keymap?: KeymapZone[];
+
   /**
    * Cortes propios del Slicer, normalizados 0..1 y ordenados (ver
    * `model/slices.ts`): cada uno es el INICIO de un trozo. Los pone el detector
