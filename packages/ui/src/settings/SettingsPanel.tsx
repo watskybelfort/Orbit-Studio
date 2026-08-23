@@ -8,6 +8,8 @@
 
 import { useEffect, useState } from 'react';
 import { GallerySection } from './GallerySection';
+import { MidiSection } from './MidiSection';
+
 import {
   commitAppearance,
   DEFAULT_APPEARANCE,
@@ -398,9 +400,12 @@ export function SettingsPanel() {
         <p className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
       )}
 
+      <MidiSection />
+
       <GallerySection />
 
       <h3 className="set-heading">Audio</h3>
+
       <p className="set-note">
         Motor: kernel propio en AudioWorklet · bloques de 128 samples · low-end
         mono bajo 110 Hz en master (efecto Stereo).

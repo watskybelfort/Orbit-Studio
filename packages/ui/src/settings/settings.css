@@ -347,3 +347,85 @@ input[type='range'] {
   font-size: 11px;
   letter-spacing: 0.5px;
 }
+
+/* ── MIDI ── */
+
+/* Se enciende con cada mensaje que entra: cuando un teclado "no funciona",
+   lo primero es saber si sus mensajes llegan. */
+.midi-led {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: background 120ms ease;
+}
+
+.midi-led.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.midi-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+
+.midi-device {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.midi-device:hover {
+  background: var(--surface-2);
+}
+
+.midi-device-name {
+  color: var(--text);
+}
+
+.midi-maps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+
+.midi-map {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.midi-map-source {
+  flex: 0 0 auto;
+  min-width: 120px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.midi-map-target {
+  flex: 1 1 auto;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Esperando a que muevas el mando del controlador. */
+.set-note.learning {
+  color: var(--accent);
+}
