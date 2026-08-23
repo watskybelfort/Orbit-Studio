@@ -6,7 +6,60 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 17-08-2026: v1.0.0
+## Estado — 23-08-2026: v2.10.0
+
+v2.10, "la toma en vivo". Orbit producía de maravilla y no se tocaba: esta
+versión cierra el agujero por el que entra el sonido de fuera. Sale de las tres
+primeras filas del roadmap, que eran las tres el mismo problema.
+
+**El controlador MIDI, en serio.** La entrada era un `for` sobre todas las
+entradas de Web MIDI, en todos los canales, con la velocidad tal cual. Ahora
+cada dispositivo se enciende y se apaga por su cuenta —y apagado es sin
+manejador, mudo del todo—, con filtro de canal, transposición por octavas y
+curva de pulsación. La lectura de los bytes vive aparte (`midi-message.ts`) y se
+prueba sin hardware: el note-on con velocidad 0 que ES un note-off, el pedal
+continuo con histéresis, el pitch bend de dos bytes de 7 bits. El pedal de
+sostenido (`sustain.ts`) va por dispositivo y resuelve los dos casos que dejan
+notas colgando: repicar una tecla con el pedal pisado y apagar el teclado sin
+levantarlo.
+
+**MIDI learn.** Clic derecho en cualquier perilla → mueves el mando → casados.
+Hizo falta la mitad que faltaba de `ParamRef`: `paramRefCommand` (core) devuelve
+el Command que ESCRIBE cualquier destino, así que un mando físico pasa por el
+bus y tiene undo y viaja a la sala. Volcado por frame y `mergeKey` por origen:
+un barrido entero es un paso de undo, no doscientos.
+
+**Grabar tocando.** El beat de una nota salía del último frame de medidores
+(hasta 46 ms de error repartido al azar); ahora sale del `timeStamp` del evento
+contra `beatAt(t)`. Rejilla elegible, sin cuantizar incluido. Y volcado al
+patrón al cerrar CADA vuelta del loop, partiendo las teclas que sigan pulsadas.
+
+**El micro entra en el kernel.** El nodo tenía `numberOfInputs: 0`. Ahora tiene
+entrada y `setLiveInput` la suma a una pista ANTES de sus inserts — el monitor
+suena con la cadena puesta, que es lo único que lo hace útil. Escuchar (medir) y
+monitorizar (oírse) son dos interruptores: ajustar la ganancia no puede
+obligarte a montar un acople.
+
+**Y la toma se graba en crudo.** `MediaRecorder` en este Electron solo sabe
+webm/opus: cada toma se comprimía con pérdida y se volvía a decodificar para
+escribirla como un WAV de 24 bits que ya no los tenía. Ahora las muestras
+vuelven del kernel tal cual.
+
+**La cuenta atrás suena.** El metrónomo del kernel solo clica rodando, así que
+grabar desde el compás 1 enseñaba el conteo sin sonar. La cuenta la lleva ahora
+el kernel, y un beat después del último clic arranca él mismo el transporte: la
+cuenta y el compás 1 comparten reloj.
+
+**Fuera, con motivo escrito**: la rueda de tono como TONO (pide reafinar voces
+vivas y de los diez instrumentos no todos saben hacerlo; a medias se notaría en
+unos sonidos sí y en otros no) y las entradas de más de dos canales (la del
+kernel es estéreo fija). 1261 tests.
+
+> El detalle de las versiones entre la v1.0 y la v2.9 está en
+> [FEATURES.md](FEATURES.md) y en el historial del README.
+
+## Estado anterior — 17-08-2026: v1.0.0
+
 
 v1.0, "el estudio completo". Cinco bloques cerrados de una tacada, con el
 trabajo repartido en agentes en paralelo sobre archivos exclusivos y los
