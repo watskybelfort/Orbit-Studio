@@ -21,13 +21,30 @@ export interface CollectedSamples {
   missing: string[];
 }
 
+/**
+ * Todos los samples que el render va a necesitar.
+ *
+ * Aparte y puro porque olvidarse de una fuente aquí no da error: da SILENCIO
+ * en el export, y el silencio de un instrumento concreto dentro de una mezcla
+ * es de lo último que se mira. Ya pasó con el multisample — el keymap tiene
+ * sus propias muestras y no están en `ch.sampleId`.
+ */
+export function neededSampleIds(compiled: CompiledProject): Set<string> {
+  const needed = new Set<string>();
+  for (const ch of compiled.channels) {
+    if (ch.sampleId) needed.add(ch.sampleId);
+    for (const zone of ch.keymap ?? []) needed.add(zone.sampleId);
+  }
+  for (const clip of compiled.audioClips) needed.add(clip.sampleId);
+  return needed;
+}
+
 export async function collectSamples(
   project: Project,
   compiled: CompiledProject,
 ): Promise<CollectedSamples> {
-  const needed = new Set<string>();
-  for (const ch of compiled.channels) if (ch.sampleId) needed.add(ch.sampleId);
-  for (const clip of compiled.audioClips) needed.add(clip.sampleId);
+  const needed = neededSampleIds(compiled);
+
 
   const samples = new Map<string, SampleData>();
   const missing: string[] = [];
