@@ -146,6 +146,25 @@ export class AudioEngine {
   }
 
   /**
+   * Cuenta atrás con el transporte parado: `beats` clics al tempo actual y, si
+   * viene `playFrom`, el transporte entra solo justo después del último — en el
+   * sample exacto, no cuando despierte un temporizador de la UI.
+   */
+  countIn(beats: number, beatsPerBar: number, playFrom?: number): void {
+    this.send({
+      type: 'countIn',
+      beats,
+      beatsPerBar,
+      ...(playFrom === undefined ? null : { playFrom }),
+    });
+  }
+
+  cancelCountIn(): void {
+    this.send({ type: 'cancelCountIn' });
+  }
+
+
+  /**
    * Activa/apaga el tap del Orbit Scope (evita copiar samples si está cerrado).
    * `trackIndex` elige la pista de mixer tapeada (default 0 = master).
    */

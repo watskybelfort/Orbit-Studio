@@ -231,6 +231,20 @@ export type ToKernel =
   | { type: 'seek'; beat: number }
   | { type: 'setLoop'; start: number; end: number; enabled: boolean }
   | { type: 'setMetronome'; enabled: boolean }
+  /**
+   * Cuenta atrÃ¡s CON EL TRANSPORTE PARADO: `beats` clics al tempo actual y, al
+   * cerrar el Ãºltimo, el transporte arranca solo en `playFrom` (si viene).
+   *
+   * Existe porque el metrÃ³nomo del kernel solo suena rodando: grabar desde el
+   * compÃ¡s 1 no tiene sitio por delante para el pre-roll, asÃ­ que la cuenta se
+   * hacÃ­a paradaâ€¦ y muda. Que la cuente el kernel y no un `setTimeout` es lo
+   * que hace que el 1 caiga en el sample exacto: la cuenta y el compÃ¡s 1
+   * comparten reloj.
+   */
+  | { type: 'countIn'; beats: number; beatsPerBar: number; playFrom?: number }
+  /** Aborta la cuenta atrÃ¡s en marcha (y con ella su arranque diferido). */
+  | { type: 'cancelCountIn' }
+
   /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
   | { type: 'setScope'; enabled: boolean; trackIndex?: number }
   /** Graba la salida post-fader de una pista: el audio viaja en los frames. */
@@ -277,6 +291,12 @@ export interface MeterFrame {
   /** Posición del playhead en beats. */
   positionBeats: number;
   playing: boolean;
+  /**
+   * Beats de cuenta atrÃ¡s que faltan para que entre el transporte, contando el
+   * que suena ahora. Ausente cuando no hay cuenta en marcha.
+   */
+  countInBeatsLeft?: number;
+
   /** Carga estimada del kernel 0..1. */
   cpu: number;
   /**

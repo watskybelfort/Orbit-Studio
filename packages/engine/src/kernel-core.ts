@@ -131,6 +131,29 @@ export class KernelCore {
   private clickEnv = 0;
   private clickFreq = 1760;
 
+  // Cuenta atrÃ¡s con el transporte PARADO (el metrÃ³nomo de arriba solo suena
+  // rodando). Va con su propia envolvente: la cuenta puede seguir sonando la
+  // cola del Ãºltimo clic cuando el transporte ya entrÃ³ y el metrÃ³nomo empieza.
+  /** Clics de cuenta que faltan por disparar. */
+  private countInLeft = 0;
+  /** Samples hasta el siguiente clic de la cuenta (0 = ya). */
+  private countInWait = 0;
+  private countInBeatsPerBar = 4;
+  /** Beat de la cuenta ya disparado (para acentuar el 1 de cada compÃ¡s). */
+  private countInBeat = 0;
+  /** Beat en el que entra el transporte al cerrar la cuenta (null = no entra). */
+  private countInPlayFrom: number | null = null;
+  private ciEnv = 0;
+  private ciPhase = 0;
+  private ciFreq = 1760;
+  /**
+   * El clic de la cuenta NO puede sumarse a la pista master: el master
+   * ESCRIBE sobre la salida (`outL[i] = ...`), no suma, y ademÃ¡s puede estar
+   * muteada o con el fader abajo. Se renderiza aparte y se vuelca al final.
+   */
+  private countInBuf = new Float32Array(MAX_BLOCK);
+
+
   // Medición
   private peaks = new Float32Array(1);
   /** Sum-of-squares por pista ((l²+r²)/2 acumulado) para el RMS del frame. */
@@ -179,7 +202,12 @@ export class KernelCore {
         this.registerPlugin(msg.pluginId, msg.code);
         break;
       case 'play':
+        // Un play a mano manda sobre la cuenta atrás en marcha: si no, la
+        // cuenta seguiría contando y al cerrar saltaría el transporte a SU
+        // beat, pisando el que acaba de pedir el usuario.
+        this.cancelCountIn();
         // Un play mientras ya sonaba (salto de posición sin stop, p. ej. seguir
+
         // un transporte remoto) deja huérfanas las notas vivas: su note-off
         // estaba en un punto del timeline que el salto se lleva por delante.
         if (this.playing) this.releaseSequencedVoices();
@@ -190,8 +218,10 @@ export class KernelCore {
         break;
       case 'stop':
         this.playing = false;
+        this.cancelCountIn();
         this.releaseAllVoices();
         break;
+
       case 'seek':
         this.posBeats = msg.beat;
         this.resyncCursor();
@@ -229,6 +259,21 @@ export class KernelCore {
       case 'setMetronome':
         this.metronome = msg.enabled;
         break;
+      case 'countIn':
+        // Solo tiene sentido parado: rodando ya hay metrÃ³nomo y arrancar el
+        // transporte "otra vez" al cerrar la cuenta serÃ­a un salto.
+        if (this.playing) break;
+        this.countInLeft = Math.max(1, Math.round(msg.beats));
+        this.countInBeatsPerBar = Math.max(1, Math.round(msg.beatsPerBar));
+        this.countInBeat = 0;
+        this.countInWait = 0; // el primer clic entra en el sample siguiente
+        this.countInPlayFrom = msg.playFrom ?? null;
+        this.ciEnv = 0;
+        break;
+      case 'cancelCountIn':
+        this.cancelCountIn();
+        break;
+
       case 'setScope': {
         // Al activar o cambiar de pista se limpia el anillo: si no, el primer
         // frame del Orbit Scope enseña 2048 muestras de la pista anterior (o de
@@ -1000,13 +1045,79 @@ export class KernelCore {
     }
   }
 
+  // ── Cuenta atrás ──────────────────────────────────────────────────────────
+
+  /** Corta la cuenta atrás y su arranque diferido (deja la cola del clic). */
+  private cancelCountIn(): void {
+    this.countInLeft = 0;
+    this.countInWait = 0;
+    this.countInPlayFrom = null;
+  }
+
+  /** Beats que faltan para que entre el transporte, contando el que suena. */
+  get countInBeatsLeft(): number {
+    return this.countInLeft + (this.countInWait > 0 ? 1 : 0);
+  }
+
+  /**
+   * Renderiza la cuenta atrás en `countInBuf` y, si se cierra dentro de este
+   * bloque, ARRANCA el transporte. Devuelve `true` si hay algo que volcar.
+   *
+   * Se llama al abrir el bloque, antes de que el transporte avance: cuando la
+   * cuenta cierra a mitad de bloque el transporte entra con hasta 128 samples
+   * (2,7 ms) de adelanto. Es la alternativa a partir el bloque en dos, y a esa
+   * escala no se oye — lo que sí se oía era el `setTimeout` de antes.
+   */
+  private renderCountIn(n: number): boolean {
+    if (this.countInLeft <= 0 && this.countInPlayFrom === null && this.ciEnv <= 0.001) {
+      return false;
+    }
+    const buf = this.countInBuf;
+    buf.fill(0, 0, n);
+    const samplesPerBeat = (60 / Math.max(1, this.tempo)) * this.sr;
+    const bpb = this.countInBeatsPerBar;
+    for (let i = 0; i < n; i++) {
+      if (this.countInWait <= 0) {
+        if (this.countInLeft > 0) {
+          this.ciEnv = 1;
+          this.ciPhase = 0;
+          this.ciFreq = this.countInBeat % bpb === 0 ? 1760 : 1175;
+          this.countInBeat++;
+          this.countInLeft--;
+          this.countInWait = samplesPerBeat;
+        } else if (this.countInPlayFrom !== null) {
+          // Un beat DESPUÉS del último clic: la cuenta de "4" entra en el 5.
+          this.posBeats = this.countInPlayFrom;
+          this.countInPlayFrom = null;
+          this.playing = true;
+          this.resyncCursor();
+          if (this.project) this.applyMaps();
+        }
+      }
+      if (this.countInWait > 0) this.countInWait--;
+      if (this.ciEnv > 0.001) {
+        this.ciPhase += this.ciFreq / this.sr;
+        if (this.ciPhase >= 1) this.ciPhase -= 1;
+        buf[i] = Math.sin(2 * Math.PI * this.ciPhase) * this.ciEnv * 0.5;
+        this.ciEnv *= Math.exp(-1 / (0.02 * this.sr));
+      }
+    }
+    return true;
+  }
+
   // ── Proceso principal ─────────────────────────────────────────────────────
 
   process(outL: Float32Array, outR: Float32Array, n: number): void {
     const p = this.project;
     outL.fill(0, 0, n);
     outR.fill(0, 0, n);
-    if (!p) return;
+    // Antes que nada: la cuenta puede ENCENDER el transporte en este bloque.
+    const countIn = this.renderCountIn(n);
+    if (!p) {
+      if (countIn) this.mixCountIn(outL, outR, n);
+      return;
+    }
+
 
     const nTracks = p.mixer.length;
     for (let t = 0; t < nTracks; t++) {
@@ -1548,9 +1659,21 @@ export class KernelCore {
         }
       }
     }
+
+    if (countIn) this.mixCountIn(outL, outR, n);
+  }
+
+  /** Vuelca el clic de la cuenta atrás sobre la salida ya montada. */
+  private mixCountIn(outL: Float32Array, outR: Float32Array, n: number): void {
+    const buf = this.countInBuf;
+    for (let i = 0; i < n; i++) {
+      outL[i]! += buf[i]!;
+      outR[i]! += buf[i]!;
+    }
   }
 
   meterFrame(cpu = 0): MeterFrame {
+
     const ms = Math.max(1, this.meterSamples);
     // RMS por pista: emitir aloca (como peaks.slice()); los acumuladores se resetean.
     const rms = new Float32Array(this.trackSumSq.length);
@@ -1566,6 +1689,9 @@ export class KernelCore {
       playing: this.playing,
       cpu,
     };
+    const countInLeft = this.countInBeatsLeft;
+    if (countInLeft > 0) frame.countInBeatsLeft = countInLeft;
+
     // Teclas que suenan. Solo las voces SIN soltar: una nota en release sigue
     // sonando un rato, pero su tecla ya no está pulsada y debe apagarse. El
     // dato viaja empaquetado (canal<<8 | key) para no alocar un objeto por voz
