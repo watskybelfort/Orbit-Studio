@@ -17,6 +17,8 @@ import { encodeWav } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
 import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store, togglePlay } from './app';
+import { currentInputStream } from './input-monitor';
+
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -47,14 +49,28 @@ export function cycleCountIn(): void {
 /** Pista donde cayó la última toma: la siguiente se apila ahí en otro carril. */
 let lastTakeTrackId: string | null = null;
 let media: MediaStream | null = null;
+/**
+ * ¿El micro lo abrió esta grabación? Si viene del monitor de entrada, es de
+ * ÉL: cerrarlo al guardar la toma dejaría al usuario sin oírse justo después
+ * de cantar, y con el monitor encendido pero mudo.
+ */
+let ownsStream = true;
 let recorder: MediaRecorder | null = null;
+
 let chunks: Blob[] = [];
 let startBeat = 0;
 
-/** Fuente del micro; inyectable para QA (fuente sintética, sin micro real). */
+/**
+ * Fuente del micro; inyectable para QA (fuente sintética, sin micro real).
+ *
+ * Sin procesado del navegador, igual que el monitor: el cancelador de eco es
+ * un algoritmo de llamada telefónica —compresión no lineal contra lo que sale
+ * por los altavoces— y con una voz CANTADA hace estragos. Se graba en crudo y
+ * la cadena la pone Orbit; para eso están los cascos.
+ */
 let streamFactory: () => Promise<MediaStream> = () =>
   navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
   });
 
 export function setRecorderStreamFactory(f: () => Promise<MediaStream>): void {
@@ -170,7 +186,6 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
     return waitCountIn(bars, beatsPerBar, target);
   }
 
-
   useUiStore.setState({ metronome: true, positionBeats: from });
   engine.setMetronome(true);
   engine.seek(from);
@@ -228,8 +243,15 @@ async function startRecording(): Promise<void> {
   starting = true;
   try {
     ensureAudioReady();
-    media = await streamFactory();
+    // Si el monitor ya tiene el micro abierto, se graba de ESE stream: abrir
+    // un segundo getUserMedia sobre el mismo aparato es pedirle al sistema dos
+    // capturas del mismo micro, y en Windows eso va de resamplear por su
+    // cuenta a directamente fallar.
+    const shared = currentInputStream();
+    ownsStream = shared === null;
+    media = shared ?? (await streamFactory());
     chunks = [];
+
     recorder = new MediaRecorder(media);
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
@@ -240,11 +262,12 @@ async function startRecording(): Promise<void> {
     if (bars > 0 && !useUiStore.getState().playing) {
       const at = await runCountIn(bars, startBeat);
       if (at === null) {
-        media?.getTracks().forEach((t) => t.stop());
+        if (ownsStream) media?.getTracks().forEach((t) => t.stop());
         media = null;
         recorder = null;
         return;
       }
+
       // Dónde entra la toma lo dice la cuenta atrás, no `currentBeat()`: ese
       // sale del último frame de medidores y puede ir por detrás del seek, que
       // colocaría el clip en el beat equivocado.
@@ -259,13 +282,14 @@ async function startRecording(): Promise<void> {
     // Con el transporte parado, arranca para grabar encima del beat.
     if (!useUiStore.getState().playing) void togglePlay();
   } catch (err) {
-    media?.getTracks().forEach((t) => t.stop());
+    if (ownsStream) media?.getTracks().forEach((t) => t.stop());
     media = null;
     recorder = null;
     useRecorderStore.setState({
       phase: 'idle',
       error: err instanceof Error ? err.message : 'No se pudo abrir el micro',
     });
+
   } finally {
     starting = false;
   }
@@ -273,10 +297,13 @@ async function startRecording(): Promise<void> {
 
 async function stopRecording(): Promise<void> {
   const rec = recorder;
-  const stream = media;
+  // El micro solo se cierra si es NUESTRO: si viene del monitor de entrada,
+  // cerrarlo aquí dejaría al usuario sin oírse justo después de cantar.
+  const stream = ownsStream ? media : null;
   recorder = null;
   media = null;
   if (!rec) return;
+
   useRecorderStore.setState({ phase: 'saving' });
 
   // El micro se cierra SÍ o SÍ (aquí abajo): si `rec.stop()` lanzaba (recorder
