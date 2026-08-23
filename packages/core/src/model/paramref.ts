@@ -10,8 +10,10 @@
  * viven una sola vez y las usan motor, editor, LFOs y grabación de perillas.
  */
 
+import type { Command } from '../commands';
 import { EFFECT_LABELS, EFFECT_PARAMS, INSTRUMENT_PARAMS, denormalizeParam, findParamSpec, normalizeParam, type ParamSpec } from './params';
 import type { ParamRef, Project } from './types';
+
 
 /** Rango del tempo cuando se automatiza (BPM). */
 export const TEMPO_MIN = 20;
@@ -211,4 +213,71 @@ export function formatParamRef(ref: ParamRef, project: Project, norm: number): s
 function formatPanValue(pan: number): string {
   if (Math.abs(pan) < 0.005) return 'C';
   return `${pan < 0 ? 'L' : 'R'}${Math.round(Math.abs(pan) * 100)}`;
+}
+
+/**
+ * Comando que ESCRIBE un destino con un valor 0..1. La mitad que faltaba:
+ * `paramRefNorm` sabía leer cualquier parámetro y no había forma de escribir
+ * uno sin saber de antemano de qué tipo era y qué comando le tocaba.
+ *
+ * Lo necesita todo lo que mueve un parámetro sin ser su perilla: un mando
+ * físico aprendido por MIDI, la paleta de comandos, un preset que se aplica.
+ * Que salga un `Command` y no una mutación es lo que mantiene la regla dura
+ * del repo — todo pasa por el bus, así que todo tiene undo y viaja a la sala.
+ *
+ * Devuelve `null` si el destino ya no existe (canal borrado, slot vacío): un
+ * mando aprendido sobrevive al efecto que apuntaba, y mover ese mando no
+ * puede reventar.
+ */
+export function paramRefCommand(ref: ParamRef, norm: number, project: Project): Command | null {
+  const value = paramRefValue(norm, ref, project);
+  switch (ref.kind) {
+    case 'channel': {
+      const ch = project.channels[ref.channelId];
+      if (!ch || ch.params[ref.param] === undefined) return null;
+      return { type: 'setChannelParam', channelId: ref.channelId, key: ref.param, value };
+    }
+    case 'channelMix': {
+      if (!project.channels[ref.channelId]) return null;
+      return {
+        type: 'patchChannel',
+        channelId: ref.channelId,
+        patch: ref.param === 'volume' ? { volume: value } : { pan: value },
+      };
+    }
+    case 'mixer': {
+      if (!project.mixer[ref.trackIndex]) return null;
+      return {
+        type: 'patchMixerTrack',
+        trackIndex: ref.trackIndex,
+        patch: { [ref.param]: value },
+      };
+    }
+    case 'effect': {
+      const slot = project.mixer[ref.trackIndex]?.slots[ref.slotIndex];
+      if (!slot || slot.params[ref.param] === undefined) return null;
+      return {
+        type: 'setEffectParam',
+        trackIndex: ref.trackIndex,
+        slotIndex: ref.slotIndex,
+        key: ref.param,
+        value,
+      };
+    }
+    case 'channelFx': {
+      const slot = channelSlot(ref, project);
+      if (!slot || slot.params[ref.param] === undefined) return null;
+      return {
+        type: 'setChannelEffectParam',
+        channelId: ref.channelId,
+        slotIndex: ref.slotIndex,
+        key: ref.param,
+        value,
+      };
+    }
+    case 'transport':
+      return ref.param === 'tempo'
+        ? { type: 'setTempo', tempo: value }
+        : { type: 'setSwing', swing: value };
+  }
 }
