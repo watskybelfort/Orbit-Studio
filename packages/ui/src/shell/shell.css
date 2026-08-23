@@ -610,3 +610,28 @@ html[data-theme='acrylic'] .iw-title {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
+
+/* Monitor de entrada: el botón lleva su propio medidor abajo, porque para
+   ajustar el micro hay que verlo sin abrir ningún panel. */
+.tbtn.mon {
+  position: relative;
+  overflow: hidden;
+}
+
+.mon-level {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 60ms linear;
+  pointer-events: none;
+}
+
+/* Pegando en el techo: el medidor se pone rojo. */
+.tbtn.mon.hot .mon-level {
+  background: var(--danger, #e6675a);
+}

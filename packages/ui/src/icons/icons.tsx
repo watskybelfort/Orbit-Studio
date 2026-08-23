@@ -470,3 +470,14 @@ export function IconMidi(props: IconProps) {
     </Icon>
   );
 }
+
+/** Monitor de entrada: cápsula de micro con su horquilla y su pie. */
+export function IconMic(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <rect x="9.5" y="3.5" width="5" height="10" rx="2.5" />
+      <path d="M6.5 11.5 A5.5 5.5 0 0 0 17.5 11.5" />
+      <path d="M12 17 V20.5" />
+    </Icon>
+  );
+}

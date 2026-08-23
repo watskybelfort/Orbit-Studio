@@ -429,3 +429,28 @@ input[type='range'] {
 .set-note.learning {
   color: var(--accent);
 }
+
+/* ── Entrada de audio ── */
+
+.in-meter {
+  flex: 1 1 auto;
+  height: 8px;
+  min-width: 80px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.in-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 60ms linear;
+}
+
+/* Pegando en el techo. */
+.in-meter-fill.hot {
+  background: var(--danger, #e6675a);
+}

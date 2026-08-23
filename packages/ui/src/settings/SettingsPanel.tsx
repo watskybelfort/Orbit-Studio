@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 import { GallerySection } from './GallerySection';
+import { InputSection } from './InputSection';
 import { MidiSection } from './MidiSection';
 
 import {
@@ -399,6 +400,8 @@ export function SettingsPanel() {
       {fileNotice && (
         <p className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
       )}
+
+      <InputSection />
 
       <MidiSection />
 

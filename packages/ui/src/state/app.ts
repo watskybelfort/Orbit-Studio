@@ -7,7 +7,9 @@
 import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
+import { setInputPeak } from './input-monitor';
 import { pushCaptureChunk } from './track-capture';
+
 import { pushMasterStreamChunk } from '../collab/master-stream';
 import { useUiStore } from './ui';
 
@@ -146,6 +148,8 @@ engine.onMeters = (frame) => {
   });
   // Teclas que suenan de verdad (secuenciador incluido) para los teclados.
   setKernelNotes(frame.notes);
+  setInputPeak(frame.inputPeak);
+
   if (frame.captureL && frame.captureR) {
     pushCaptureChunk(frame.captureL, frame.captureR);
     // Y, si se está emitiendo el master a la sala, ese mismo trozo viaja.

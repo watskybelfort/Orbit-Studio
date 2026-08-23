@@ -2,7 +2,9 @@
 
 import { useCallback, useRef, type ReactNode } from 'react';
 import { engine, pausePlayback, play, setPlayMode, stopPlayback, store } from '../state/app';
+import { toggleInputMonitor, useInputMonitorStore } from '../state/input-monitor';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
+
 import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { cycleCountIn, toggleRecording, useRecorderStore } from '../state/recorder';
 import {
@@ -15,7 +17,9 @@ import {
   IconLfo,
   IconLive,
   IconMetronome,
+  IconMic,
   IconMixer,
+
   IconPause,
   IconPianoRoll,
   IconPlay,
@@ -77,7 +81,11 @@ export function Transport() {
   const recError = useRecorderStore((s) => s.error);
   const countInBars = useRecorderStore((s) => s.countInBars);
   const countdown = useRecorderStore((s) => s.countdown);
+  const monitorOn = useInputMonitorStore((s) => s.monitor);
+  const inputPeak = useInputMonitorStore((s) => s.peak);
+  const inputTrack = useInputMonitorStore((s) => s.trackIndex);
   const midiArmed = useLiveInputStore((s) => s.armed);
+
   const midiInputs = useLiveInputStore((s) => s.midiInputs);
   const paramArmed = useParamRecord((s) => s.armed);
   const paramRecording = useParamRecord((s) => s.recording);
@@ -206,7 +214,20 @@ export function Transport() {
           {countInBars === 0 ? '—' : `${countInBars}·`}
         </button>
         <button
+          className={`tbtn mon${monitorOn ? ' active' : ''}${inputPeak >= 0.99 ? ' hot' : ''}`}
+          title={
+            monitorOn
+              ? `Monitor de entrada ENCENDIDO por la pista ${inputTrack} — con su cadena puesta. Usa cascos: por altavoces esto es un acople`
+              : 'Oír el micro en vivo con los efectos de su pista (Ajustes → Entrada para elegir micro y pista)'
+          }
+          onClick={() => void toggleInputMonitor()}
+        >
+          <IconMic size={15} />
+          <span className="mon-level" style={{ transform: `scaleX(${Math.min(1, inputPeak)})` }} />
+        </button>
+        <button
           className={`tbtn${midiArmed ? ' active' : ''}`}
+
           title={`Grabación MIDI ${midiArmed ? 'armada — lo que toques cae al patrón al parar' : 'apagada'} · toca con el teclado del PC (fila Z/Q)${midiInputs > 0 ? ` · ${midiInputs} dispositivo(s) MIDI` : ''}`}
           onClick={toggleMidiArmed}
         >
