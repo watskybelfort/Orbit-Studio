@@ -179,6 +179,16 @@ export class AudioEngine {
   }
 
   /**
+   * Guarda la entrada EN CRUDO: mientras está activo, el audio del micro llega
+   * en `inputCaptureL/R` de cada frame de medidores. Es la grabación de voz
+   * sin códec de por medio.
+   */
+  setInputCapture(enabled: boolean): void {
+    this.send({ type: 'setInputCapture', enabled });
+  }
+
+
+  /**
    * Conecta una fuente de audio a la entrada del kernel (el micro). Devuelve
    * el nodo de origen para poder desconectarlo; null si el audio no arrancó.
    */

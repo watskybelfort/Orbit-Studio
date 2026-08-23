@@ -1,9 +1,17 @@
 /**
  * Grabación de micro a la playlist (el flujo de voz sobre beat de Orbit):
- * el botón de grabar toma el micro, graba mientras suena el transporte y al
- * parar decodifica la toma, la guarda como WAV en userData/recordings
- * (esquema `recording:` en SampleRef.path), la sube al kernel y coloca el
- * clip de audio en el beat donde empezó la grabación — todo en un undo.
+ * el botón de grabar abre el micro, graba mientras suena el transporte y al
+ * parar guarda la toma como WAV en userData/recordings (esquema `recording:`
+ * en SampleRef.path), la sube al kernel y coloca el clip de audio en el beat
+ * donde empezó — todo en un undo.
+ *
+ * **La toma la captura el KERNEL, en crudo.** Antes esto lo hacía
+ * `MediaRecorder`, que en este Electron solo sabe webm/opus: cada toma se
+ * comprimía con pérdida y se volvía a decodificar para escribirla como WAV de
+ * 24 bits que ya no tenía 24 bits de información. Ahora el micro entra por la
+ * entrada del nodo del kernel y sus muestras vuelven tal cual en los frames de
+ * medidores. Además arranca en el bloque siguiente al mensaje (~3 ms) en vez
+ * de cuando el navegador tenga a bien abrir su codificador.
  */
 
 import {
@@ -17,8 +25,13 @@ import { encodeWav } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
 import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store, togglePlay } from './app';
-import { currentInputStream } from './input-monitor';
-
+import {
+  currentInputStream,
+  setInputStreamFactory,
+  startInputMonitor,
+  stopInputMonitor,
+  useInputMonitorStore,
+} from './input-monitor';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -48,33 +61,48 @@ export function cycleCountIn(): void {
 
 /** Pista donde cayó la última toma: la siguiente se apila ahí en otro carril. */
 let lastTakeTrackId: string | null = null;
-let media: MediaStream | null = null;
 /**
- * ¿El micro lo abrió esta grabación? Si viene del monitor de entrada, es de
- * ÉL: cerrarlo al guardar la toma dejaría al usuario sin oírse justo después
- * de cantar, y con el monitor encendido pero mudo.
+ * ¿El micro lo abrió esta grabación? Si ya estaba abierto es del monitor de
+ * entrada: cerrarlo al guardar la toma dejaría al usuario sin oírse justo
+ * después de cantar.
  */
-let ownsStream = true;
-let recorder: MediaRecorder | null = null;
-
-let chunks: Blob[] = [];
+let ownsInput = false;
+/** Estamos recogiendo muestras del kernel. */
+let capturing = false;
+let capL: Float32Array[] = [];
+let capR: Float32Array[] = [];
+let capTotal = 0;
 let startBeat = 0;
 
 /**
- * Fuente del micro; inyectable para QA (fuente sintética, sin micro real).
- *
- * Sin procesado del navegador, igual que el monitor: el cancelador de eco es
- * un algoritmo de llamada telefónica —compresión no lineal contra lo que sale
- * por los altavoces— y con una voz CANTADA hace estragos. Se graba en crudo y
- * la cadena la pone Orbit; para eso están los cascos.
+ * Trozo de entrada en crudo de un frame del kernel (lo llama el puente de
+ * medidores). Llegan cada ~43 ms y se pegan al final sin copiar nada: la
+ * concatenación se hace UNA vez, al cerrar la toma.
  */
-let streamFactory: () => Promise<MediaStream> = () =>
-  navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-  });
+export function pushInputChunk(left: Float32Array, right: Float32Array): void {
+  if (!capturing) return;
+  capL.push(left);
+  capR.push(right);
+  capTotal += left.length;
+}
 
+function concatChunks(parts: Float32Array[], total: number): Float32Array {
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+
+/**
+ * Fuente del micro, inyectable para QA (fuente sintética, sin micro real). Se
+ * queda como envoltorio del monitor de entrada, que es quien abre el micro
+ * ahora, para no romper el gancho que ya existía.
+ */
 export function setRecorderStreamFactory(f: () => Promise<MediaStream>): void {
-  streamFactory = f;
+  setInputStreamFactory(() => f());
 }
 
 export async function toggleRecording(): Promise<void> {
@@ -243,125 +271,99 @@ async function startRecording(): Promise<void> {
   starting = true;
   try {
     ensureAudioReady();
-    // Si el monitor ya tiene el micro abierto, se graba de ESE stream: abrir
-    // un segundo getUserMedia sobre el mismo aparato es pedirle al sistema dos
+    await engine.init();
+    // Si el monitor ya tiene el micro abierto, se graba de ESE: abrir un
+    // segundo getUserMedia sobre el mismo aparato es pedirle al sistema dos
     // capturas del mismo micro, y en Windows eso va de resamplear por su
     // cuenta a directamente fallar.
-    const shared = currentInputStream();
-    ownsStream = shared === null;
-    media = shared ?? (await streamFactory());
-    chunks = [];
-
-    recorder = new MediaRecorder(media);
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
-    startBeat = useUiStore.getState().positionBeats;
+    ownsInput = currentInputStream() === null;
+    if (ownsInput && !(await startInputMonitor())) {
+      throw new Error(useInputMonitorStore.getState().error ?? 'No se pudo abrir el micro');
+    }
+    capL = [];
+    capR = [];
+    capTotal = 0;
+    // Rodando, la posición buena es la extrapolada: la del store viene del
+    // último frame de medidores y puede ir hasta 46 ms por detrás.
+    startBeat = useUiStore.getState().playing
+      ? currentBeat()
+      : useUiStore.getState().positionBeats;
 
     const bars = useRecorderStore.getState().countInBars;
     if (bars > 0 && !useUiStore.getState().playing) {
       const at = await runCountIn(bars, startBeat);
       if (at === null) {
-        if (ownsStream) media?.getTracks().forEach((t) => t.stop());
-        media = null;
-        recorder = null;
+        releaseInput();
         return;
       }
-
       // Dónde entra la toma lo dice la cuenta atrás, no `currentBeat()`: ese
       // sale del último frame de medidores y puede ir por detrás del seek, que
       // colocaría el clip en el beat equivocado.
       startBeat = at;
-      recorder.start();
-      useRecorderStore.setState({ phase: 'recording', error: null });
+      beginCapture();
       return;
     }
 
-    recorder.start();
-    useRecorderStore.setState({ phase: 'recording', error: null });
+    beginCapture();
     // Con el transporte parado, arranca para grabar encima del beat.
     if (!useUiStore.getState().playing) void togglePlay();
   } catch (err) {
-    if (ownsStream) media?.getTracks().forEach((t) => t.stop());
-    media = null;
-    recorder = null;
+    releaseInput();
     useRecorderStore.setState({
       phase: 'idle',
       error: err instanceof Error ? err.message : 'No se pudo abrir el micro',
     });
-
   } finally {
     starting = false;
   }
 }
 
-async function stopRecording(): Promise<void> {
-  const rec = recorder;
-  // El micro solo se cierra si es NUESTRO: si viene del monitor de entrada,
-  // cerrarlo aquí dejaría al usuario sin oírse justo después de cantar.
-  const stream = ownsStream ? media : null;
-  recorder = null;
-  media = null;
-  if (!rec) return;
+/** Le dice al kernel que empiece a mandar la entrada en crudo. */
+function beginCapture(): void {
+  capturing = true;
+  engine.setInputCapture(true);
+  useRecorderStore.setState({ phase: 'recording', error: null });
+}
 
+/** Deja de capturar y cierra el micro SI era nuestro. */
+function releaseInput(): void {
+  capturing = false;
+  engine.setInputCapture(false);
+  if (ownsInput) stopInputMonitor();
+  ownsInput = false;
+}
+
+async function stopRecording(): Promise<void> {
+  if (!capturing) return;
   useRecorderStore.setState({ phase: 'saving' });
 
-  // El micro se cierra SÍ o SÍ (aquí abajo): si `rec.stop()` lanzaba (recorder
-  // inactivo, micro desenchufado) o `onstop` no llegaba nunca, la promesa se
-  // quedaba sin resolver → fase clavada en 'saving', botón Rec muerto y los
-  // tracks del stream nunca se paraban (micro abierto hasta cerrar la app).
-  let blob: Blob;
-  try {
-    blob = await new Promise<Blob>((resolve, reject) => {
-      const type = rec.mimeType || 'audio/webm';
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        resolve(new Blob(chunks, { type }));
-      };
-      rec.onstop = finish;
-      rec.onerror = () => {
-        if (!done) {
-          done = true;
-          reject(new Error('El micro falló durante la grabación'));
-        }
-      };
-      // Red de seguridad: si onstop no dispara, se resuelve con lo grabado.
-      setTimeout(finish, 4000);
-      try {
-        if (rec.state !== 'inactive') rec.stop();
-        else finish();
-      } catch {
-        finish();
-      }
-    });
-  } catch (err) {
-    stream?.getTracks().forEach((t) => t.stop());
-    chunks = [];
-    useRecorderStore.setState({
-      phase: 'idle',
-      error: err instanceof Error ? err.message : 'No se pudo cerrar la grabación',
-    });
-    return;
-  }
-  stream?.getTracks().forEach((t) => t.stop());
-  chunks = [];
+  /*
+   * El kernel acumula la entrada y la entrega en el SIGUIENTE frame de
+   * medidores (~43 ms). Cortar la captura aquí mismo tiraría ese último trozo:
+   * el final de cada toma se perdería. Se le da un par de frames de margen —
+   * lo que entra de más es cola de sala, que no molesta a nadie.
+   */
+  await new Promise((r) => setTimeout(r, 120));
+  capturing = false;
+  engine.setInputCapture(false);
+
+  const sampleRate = engine.sampleRate;
+  const left = concatChunks(capL, capTotal);
+  const right = concatChunks(capR, capTotal);
+  capL = [];
+  capR = [];
+  capTotal = 0;
+  if (ownsInput) stopInputMonitor();
+  ownsInput = false;
 
   try {
     const api = window.orbit;
     if (!api) throw new Error('Sin puente de escritorio');
-    const raw = await blob.arrayBuffer();
-    if (raw.byteLength === 0) throw new Error('La toma salió vacía');
+    if (left.length === 0) throw new Error('La toma salió vacía');
 
-    // Decodifica la toma (webm/opus) a PCM y la vuelca a WAV 24-bit.
-    const decodeCtx = new OfflineAudioContext(2, 1, 48000);
-    const decoded = await decodeCtx.decodeAudioData(raw.slice(0));
-    const left = decoded.getChannelData(0).slice();
-    const right = (
-      decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : decoded.getChannelData(0)
-    ).slice();
-    const wav = encodeWav(left, right, decoded.sampleRate, 24);
+    // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
+    const wav = encodeWav(left, right, sampleRate, 24);
+    const duration = left.length / sampleRate;
 
     const stamp = new Date();
     const two = (n: number) => String(n).padStart(2, '0');
@@ -373,7 +375,7 @@ async function stopRecording(): Promise<void> {
     await engine.loadSample(sampleId, wavBuf);
 
     const project = store.project;
-    const lengthBeats = Math.max(0.25, (decoded.duration * project.tempo) / 60);
+    const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
     const arrangementId = project.activeArrangementId;
     const tracks = Object.values(project.playlistTracks)
       .filter((t) => t.arrangementId === arrangementId)
@@ -422,7 +424,7 @@ async function stopRecording(): Promise<void> {
       name: file.replace(/\.wav$/i, ''),
       path: `recording:${file}`,
       hash: (await sha1Hex(wavBuf)) ?? sampleId,
-      duration: decoded.duration,
+      duration,
     };
     commands.push({ type: 'registerSample', sample });
 

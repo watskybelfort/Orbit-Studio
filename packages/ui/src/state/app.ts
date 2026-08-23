@@ -8,7 +8,9 @@ import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { setInputPeak } from './input-monitor';
+import { pushInputChunk } from './recorder';
 import { pushCaptureChunk } from './track-capture';
+
 
 import { pushMasterStreamChunk } from '../collab/master-stream';
 import { useUiStore } from './ui';
@@ -149,6 +151,11 @@ engine.onMeters = (frame) => {
   // Teclas que suenan de verdad (secuenciador incluido) para los teclados.
   setKernelNotes(frame.notes);
   setInputPeak(frame.inputPeak);
+  // La toma de micro, en crudo, tal cual la vio el kernel.
+  if (frame.inputCaptureL && frame.inputCaptureR) {
+    pushInputChunk(frame.inputCaptureL, frame.inputCaptureR);
+  }
+
 
   if (frame.captureL && frame.captureR) {
     pushCaptureChunk(frame.captureL, frame.captureR);

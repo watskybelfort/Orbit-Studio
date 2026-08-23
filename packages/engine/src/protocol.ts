@@ -259,6 +259,17 @@ export type ToKernel =
       trackIndex: number;
       gain: number;
     }
+  /**
+   * Guardar la entrada EN CRUDO: mientras está activo, el audio del micro
+   * viaja tal cual en `inputCaptureL/R` de cada frame de medidores.
+   *
+   * Es lo que hace que una toma no pase por un códec con pérdida. Antes la
+   * grabación la hacía `MediaRecorder`, que en este Electron solo sabe
+   * webm/opus: cada toma se comprimía y se volvía a decodificar antes de
+   * escribirse como WAV de 24 bits que ya no tenía 24 bits de información.
+   */
+  | { type: 'setInputCapture'; enabled: boolean }
+
   /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
 
   | { type: 'setScope'; enabled: boolean; trackIndex?: number }
@@ -303,6 +314,10 @@ export interface MeterFrame {
   /** Audio grabado de la pista en captura desde el frame anterior (estéreo). */
   captureL?: Float32Array;
   captureR?: Float32Array;
+  /** Entrada en vivo en crudo desde el frame anterior (grabación de micro). */
+  inputCaptureL?: Float32Array;
+  inputCaptureR?: Float32Array;
+
   /** Posición del playhead en beats. */
   positionBeats: number;
   playing: boolean;

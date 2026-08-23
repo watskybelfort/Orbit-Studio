@@ -162,6 +162,12 @@ export class KernelCore {
   private inputGain = 1;
   /** Pico del bloque, ANTES de la ganancia: un micro que satura se ve igual. */
   private inputPeak = 0;
+  /** Guardar la entrada en crudo (grabación de micro sin códec de por medio). */
+  private inputCapture = false;
+  private inputCapL = new Float32Array(CAPTURE_BUFFER);
+  private inputCapR = new Float32Array(CAPTURE_BUFFER);
+  private inputCapPos = 0;
+
 
 
 
@@ -293,6 +299,11 @@ export class KernelCore {
         // último pico se queda clavado en pantalla como si siguiera entrando.
         if (!msg.listening) this.inputPeak = 0;
         break;
+      case 'setInputCapture':
+        this.inputCapture = msg.enabled;
+        this.inputCapPos = 0;
+        break;
+
 
 
       case 'setScope': {
@@ -1183,7 +1194,16 @@ export class KernelCore {
         if (b > peak) peak = b;
       }
       this.inputPeak = peak;
+      // La toma se guarda ANTES de la ganancia de entrada y de la cadena: es
+      // la señal del micro tal cual, que es lo que hay que poder volver a
+      // mezclar mañana con otra idea.
+      if (this.inputCapture && this.inputCapPos + count <= this.inputCapL.length) {
+        this.inputCapL.set(inL.subarray(0, count), this.inputCapPos);
+        this.inputCapR.set(right.subarray(0, count), this.inputCapPos);
+        this.inputCapPos += count;
+      }
       const dl = this.bufL[this.inputTrack];
+
       const dr = this.bufR[this.inputTrack];
       if (this.inputMonitor && dl && dr) {
         const g = this.inputGain;
@@ -1788,7 +1808,13 @@ export class KernelCore {
       for (let i = 0; i < 2048; i++) scope[i] = this.scopeRing[(this.scopePos + i) & 2047]!;
       frame.scope = scope;
     }
+    if (this.inputCapture && this.inputCapPos > 0) {
+      frame.inputCaptureL = this.inputCapL.slice(0, this.inputCapPos);
+      frame.inputCaptureR = this.inputCapR.slice(0, this.inputCapPos);
+      this.inputCapPos = 0;
+    }
     if (this.captureTrack >= 0 && this.capturePos > 0) {
+
       // Lo grabado desde el frame anterior, en bruto (la UI lo concatena).
       frame.captureL = this.captureL.slice(0, this.capturePos);
       frame.captureR = this.captureR.slice(0, this.capturePos);

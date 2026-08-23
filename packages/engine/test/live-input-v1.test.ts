@@ -178,3 +178,96 @@ describe('entrada en vivo', () => {
     expect(core.meterFrame().inputPeak).toBeCloseTo(0.3, 5);
   });
 });
+
+describe('grabar la entrada en crudo', () => {
+  it('no manda nada hasta que se le pide', () => {
+    const core = kernel();
+    core.handleMessage({
+      type: 'setLiveInput',
+      listening: true,
+      monitor: false,
+      trackIndex: 1,
+      gain: 1,
+    });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    core.process(l, r, MAX_BLOCK, block(0.5), block(0.5));
+    const frame = core.meterFrame();
+    expect(frame.inputCaptureL).toBeUndefined();
+  });
+
+  it('devuelve la señal TAL CUAL: sin ganancia y sin la cadena de la pista', () => {
+    // Es lo que hay que poder volver a mezclar mañana con otra idea. Si se
+    // guardara lo que sale de la pista, la toma vendría con el reverb pegado.
+    const core = kernel();
+    core.handleMessage({
+      type: 'setLiveInput',
+      listening: true,
+      monitor: true,
+      trackIndex: 1,
+      gain: 0.1,
+    });
+    core.handleMessage({ type: 'setInputCapture', enabled: true });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    core.process(l, r, MAX_BLOCK, block(0.6), block(0.6));
+    const frame = core.meterFrame();
+    expect(frame.inputCaptureL).toHaveLength(MAX_BLOCK);
+    expect(frame.inputCaptureL![0]).toBeCloseTo(0.6, 5);
+    expect(frame.inputCaptureR![0]).toBeCloseTo(0.6, 5);
+  });
+
+  it('acumula entre frames y no repite lo ya entregado', () => {
+    const core = kernel();
+    core.handleMessage({
+      type: 'setLiveInput',
+      listening: true,
+      monitor: false,
+      trackIndex: 1,
+      gain: 1,
+    });
+    core.handleMessage({ type: 'setInputCapture', enabled: true });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    for (let i = 0; i < 3; i++) core.process(l, r, MAX_BLOCK, block(0.2), block(0.2));
+    expect(core.meterFrame().inputCaptureL).toHaveLength(3 * MAX_BLOCK);
+    // Ese trozo ya se entregó: el siguiente frame no lo repite.
+    expect(core.meterFrame().inputCaptureL).toBeUndefined();
+    core.process(l, r, MAX_BLOCK, block(0.2), block(0.2));
+    expect(core.meterFrame().inputCaptureL).toHaveLength(MAX_BLOCK);
+  });
+
+  it('graba con el transporte parado (una toma no necesita que suene nada)', () => {
+    const core = kernel();
+    core.handleMessage({
+      type: 'setLiveInput',
+      listening: true,
+      monitor: false,
+      trackIndex: 1,
+      gain: 1,
+    });
+    core.handleMessage({ type: 'setInputCapture', enabled: true });
+    expect(core.playing).toBe(false);
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    core.process(l, r, MAX_BLOCK, block(0.35), block(0.35));
+    expect(core.meterFrame().inputCaptureL?.[0]).toBeCloseTo(0.35, 5);
+  });
+
+  it('apagarla tira lo pendiente y deja de mandar', () => {
+    const core = kernel();
+    core.handleMessage({
+      type: 'setLiveInput',
+      listening: true,
+      monitor: false,
+      trackIndex: 1,
+      gain: 1,
+    });
+    core.handleMessage({ type: 'setInputCapture', enabled: true });
+    const l = new Float32Array(MAX_BLOCK);
+    const r = new Float32Array(MAX_BLOCK);
+    core.process(l, r, MAX_BLOCK, block(0.4), block(0.4));
+    core.handleMessage({ type: 'setInputCapture', enabled: false });
+    expect(core.meterFrame().inputCaptureL).toBeUndefined();
+  });
+});
