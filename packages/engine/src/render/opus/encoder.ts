@@ -88,8 +88,11 @@ export function encodeOpusPackets(
   const block = new Float64Array(frameSize * channels);
 
   for (let start = 0; start < total; start += frameSize) {
-    // La última trama se rellena con silencio: el contenedor recorta lo que sobre
-    // con el granulado, así que no se oye.
+    // La última trama se rellena con silencio hasta frameSize (Opus solo codifica
+    // tamaños fijos), pero se REPORTAN solo las muestras reales: el granulado de
+    // la última página suma esas y no el frame entero, y el decoder recorta el
+    // relleno (RFC 7845 §4.5). Antes se reportaba frameSize siempre, así que el
+    // .opus duraba hasta 20 ms de más (silencio al final).
     block.fill(0);
     const available = Math.min(frameSize, total - start);
     for (let i = 0; i < available * channels; i++) block[i] = pcm[start * channels + i]!;
@@ -98,7 +101,7 @@ export function encodeOpusPackets(
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;
     data.set(frame, 1);
-    packets.push({ data, samples: frameSize });
+    packets.push({ data, samples: available });
   }
   return packets;
 }

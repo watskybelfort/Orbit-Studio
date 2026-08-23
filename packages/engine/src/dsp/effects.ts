@@ -124,6 +124,19 @@ class LimiterUnit implements EffectUnit {
   private gainIn = 1;
   private ceilingLin = dbToLin(-0.3);
 
+  // Cola monótona creciente para el MÍNIMO de `target` sobre la ventana de
+  // lookahead. Sin ella, la ganancia se calculaba con la muestra que ENTRA pero
+  // se aplicaba a la que SALE (64 muestras después): el envolvente ya había
+  // liberado hacia 1 y el pico salía por encima del techo (un click de +12 dB
+  // clipeaba a +1.3 dBFS). Con el mínimo de la ventana, la ganancia ya está
+  // baja cuando el pico llega a la salida.
+  private static readonly DQ_CAP = LOOKAHEAD + 2;
+  private dqVal = new Float64Array(LimiterUnit.DQ_CAP);
+  private dqAt = new Int32Array(LimiterUnit.DQ_CAP);
+  private dqHead = 0;
+  private dqCount = 0;
+  private sampleIdx = 0;
+
   constructor(private sr: number) {}
 
   setParams(p: Record<string, number>): void {
@@ -133,19 +146,48 @@ class LimiterUnit implements EffectUnit {
   }
 
   process(l: Float32Array, r: Float32Array, n: number): void {
+    const cap = LimiterUnit.DQ_CAP;
+    // Rebase muy de tarde en tarde para que sampleIdx no desborde el Int32 (a
+    // 48 kHz, ~12 h de audio continuo): los índices solo importan en relativo.
+    if (this.sampleIdx >= 0x40000000) {
+      for (let k = 0; k < this.dqCount; k++) {
+        const s = (this.dqHead + k) % cap;
+        this.dqAt[s]! -= this.sampleIdx;
+      }
+      this.sampleIdx = 0;
+    }
     for (let i = 0; i < n; i++) {
       const inL = l[i]! * this.gainIn;
       const inR = r[i]! * this.gainIn;
       const peak = Math.max(Math.abs(inL), Math.abs(inR), 1e-9);
       const target = Math.min(1, this.ceilingLin / peak);
-      if (target < this.envGain) this.envGain = target; // ataque instantáneo
-      else this.envGain = target + (this.envGain - target) * this.releaseCoef;
+      // Encolar por el back manteniendo la monotonía (el mínimo queda al frente).
+      while (this.dqCount > 0) {
+        const back = (this.dqHead + this.dqCount - 1) % cap;
+        if (this.dqVal[back]! >= target) this.dqCount--;
+        else break;
+      }
+      const slot = (this.dqHead + this.dqCount) % cap;
+      this.dqVal[slot] = target;
+      this.dqAt[slot] = this.sampleIdx;
+      this.dqCount++;
+      // Desencolar por el frente lo que ya salió de la ventana de lookahead.
+      while (this.dqCount > 0 && this.dqAt[this.dqHead]! < this.sampleIdx - LOOKAHEAD) {
+        this.dqHead = (this.dqHead + 1) % cap;
+        this.dqCount--;
+      }
+      const windowMin = this.dqVal[this.dqHead]!;
+      // Ataque anticipado (el mínimo baja en cuanto el pico ENTRA en la ventana);
+      // la liberación solo actúa cuando el pico ya salió.
+      if (windowMin < this.envGain) this.envGain = windowMin;
+      else this.envGain = windowMin + (this.envGain - windowMin) * this.releaseCoef;
       const outL = this.dl.read(LOOKAHEAD);
       const outR = this.dr.read(LOOKAHEAD);
       this.dl.write(inL);
       this.dr.write(inR);
       l[i] = outL * this.envGain;
       r[i] = outR * this.envGain;
+      this.sampleIdx++;
     }
   }
 }
@@ -451,11 +493,13 @@ class DistortionUnit implements EffectUnit {
       }
       case 2: {
         const y = x * k * 0.4;
-        // Foldback: pliega la señal dentro de [-1, 1]. El % de JS conserva el
-        // signo del dividendo, así que un semiciclo negativo daría módulo
-        // negativo y rompería el plegado; normalizamos a módulo positivo para
-        // que la curva sea simétrica.
-        const m = (((y + 1) % 4) + 4) % 4;
+        // Foldback: pliega la señal dentro de [-1, 1]. Triángulo centrado en
+        // (y-1): para |y|<=1 devuelve el propio y (identidad, aún no pliega) y
+        // conserva la polaridad. Con (y+1) salía -y — la señal quedaba en
+        // contrafase y un seno por debajo del umbral se atenuaba en vez de
+        // saturar. El % de JS conserva el signo, así que se normaliza a módulo
+        // positivo para que la curva sea simétrica.
+        const m = (((y - 1) % 4) + 4) % 4;
         return Math.abs(m - 2) - 1;
       }
       default:

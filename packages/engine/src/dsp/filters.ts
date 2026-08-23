@@ -19,7 +19,7 @@ export class SVF {
     this.ic2eq = 0;
   }
 
-  /** type: 0 LP, 1 HP, 2 BP. */
+  /** type: 0 LP, 1 HP, 2 BP, 3 notch. */
   tick(x: number, type: number): number {
     const { g, k } = this;
     const v1 = (this.ic1eq + g * (x - this.ic2eq)) / (1 + g * (g + k));
@@ -29,6 +29,10 @@ export class SVF {
     switch (type | 0) {
       case 1: return x - k * v1 - v2;
       case 2: return v1;
+      // Notch = LP + HP = x - k·v1. El BP (v1) tiene ganancia Q en resonancia,
+      // así que restar v1 CRUDO amplificaba la banda en vez de vaciarla (a res
+      // alta salía un pico de +19 dB donde debía haber una muesca).
+      case 3: return x - k * v1;
       default: return v2;
     }
   }

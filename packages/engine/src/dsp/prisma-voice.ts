@@ -977,14 +977,9 @@ export class PrismaVoice extends Voice {
           this.filtL.set(target, this.resonance, sr);
           this.filtR.set(target, this.resonance, sr);
         }
-        if (this.filterType === 3) {
-          // Notch = entrada menos la banda pasante.
-          sumL -= this.filtL.tick(sumL, 2);
-          sumR -= this.filtR.tick(sumR, 2);
-        } else {
-          sumL = this.filtL.tick(sumL, this.filterType);
-          sumR = this.filtR.tick(sumR, this.filterType);
-        }
+        // 0 LP · 1 HP · 2 BP · 3 notch (el SVF hace el notch bien: x - k·BP).
+        sumL = this.filtL.tick(sumL, this.filterType);
+        sumR = this.filtR.tick(sumR, this.filterType);
       }
 
       if (this.hasDrive) {

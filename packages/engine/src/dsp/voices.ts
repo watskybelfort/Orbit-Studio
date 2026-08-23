@@ -33,6 +33,8 @@ export class Sub808Voice extends Voice {
   private punch: number;
   private releaseCoef: number;
   private releaseGain = 1;
+  /** Semitonos de afinación del canal: el slide también los tiene que aplicar. */
+  private tune: number;
 
   constructor(
     channelIndex: number,
@@ -43,8 +45,8 @@ export class Sub808Voice extends Voice {
     private sr: number,
   ) {
     super(channelIndex, key, order);
-    const tune = p['tune'] ?? 0;
-    this.freq = midiToHz(key + tune);
+    this.tune = p['tune'] ?? 0;
+    this.freq = midiToHz(key + this.tune);
     this.targetFreq = this.freq;
     this.glideCoef = Math.exp(-1 / (Math.max(0.001, p['glide'] ?? 0.06) * sr));
     this.punch = p['punch'] ?? 0.5;
@@ -57,7 +59,9 @@ export class Sub808Voice extends Voice {
 
   override glideTo(key: number, _velocity: number): void {
     this.key = key;
-    this.targetFreq = midiToHz(key);
+    // Con `tune`: sin él, un 808 afinado -12 st aterrizaba el slide una octava
+    // arriba de lo esperado.
+    this.targetFreq = midiToHz(key + this.tune);
     // Re-dispara la envolvente suavemente para sostener la cola del slide.
     this.releasing = false;
     this.releaseGain = 1;
@@ -717,6 +721,8 @@ export class VoxVoice extends Voice {
   private breath: number;
   private vibratoDepth: number;
   private vibratoPhase = 0;
+  /** Octavas de desplazamiento del canal: el slide también las aplica. */
+  private octave: number;
 
   constructor(
     channelIndex: number,
@@ -727,7 +733,8 @@ export class VoxVoice extends Voice {
     private sr: number,
   ) {
     super(channelIndex, key, order);
-    this.freq = midiToHz(key + (p['octave'] ?? 0) * 12);
+    this.octave = p['octave'] ?? 0;
+    this.freq = midiToHz(key + this.octave * 12);
     this.breath = p['breath'] ?? 0.25;
     this.vibratoDepth = (p['vibrato'] ?? 0.3) * 0.03; // hasta ~3 % de altura
     const vowel = Math.min(4, Math.max(0, Math.round(p['vowel'] ?? 0)));
@@ -748,7 +755,7 @@ export class VoxVoice extends Voice {
 
   override glideTo(key: number, _velocity: number): void {
     super.glideTo(key, _velocity);
-    this.freq = midiToHz(key);
+    this.freq = midiToHz(key + this.octave * 12);
   }
 
   render(
@@ -844,7 +851,9 @@ export class SlicerVoice extends Voice {
     for (let i = from; i < to; i++) {
       const idx = Math.floor(this.pos);
       if (idx < 0 || idx >= d.left.length - 1) return false;
-      if (this.reverse ? idx <= this.end : idx >= this.end) return false;
+      // En reversa `end` es el principio del trozo: con `<=` se cortaba justo al
+      // llegar y nunca sonaba la primera muestra; con `<` sí suena.
+      if (this.reverse ? idx < this.end : idx >= this.end) return false;
       const frac = this.pos - idx;
       const sl = d.left[idx]! * (1 - frac) + d.left[idx + 1]! * frac;
       const sr = d.right[idx]! * (1 - frac) + d.right[idx + 1]! * frac;
