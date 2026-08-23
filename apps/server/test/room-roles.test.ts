@@ -9,7 +9,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { RoomRoles, checkEntry, strictestRole, JOIN_ROLE } from '../src/room-roles';
+import {
+  RoomRoles,
+  checkEntry,
+  collectCreations,
+  collectTrackDeletions,
+  strictestRole,
+  JOIN_ROLE,
+} from '../src/room-roles';
 
 describe('reparto de roles', () => {
   it('el primero es productor y los demás entran de invitados', () => {
@@ -97,27 +104,38 @@ describe('validación de entradas del log', () => {
   it('el rol que manda es el del servidor, no el que trae la entrada', () => {
     // La entrada se firma como productor; el servidor sabe que es un oyente.
     const entry = { cmd: borrarCanal, client: 5, seq: 1, role: 'productor' };
-    expect(checkEntry(entry, 'oyente').allowed).toBe(false);
-    expect(checkEntry(entry, 'productor').allowed).toBe(true);
+    expect(checkEntry(entry, 'oyente', false).allowed).toBe(false);
+    expect(checkEntry(entry, 'productor', false).allowed).toBe(true);
   });
 
-  it('un invitado no borra canales ajenos pero sí los suyos', () => {
-    expect(checkEntry({ cmd: borrarCanal, client: 5, seq: 1 }, 'invitado').allowed).toBe(false);
+  it('un invitado no borra canales ajenos pero sí los suyos (ownCreation del servidor)', () => {
+    // ajeno: el servidor pasa ownCreation=false → denegado.
+    expect(checkEntry({ cmd: borrarCanal, client: 5, seq: 1 }, 'invitado', false).allowed).toBe(
+      false,
+    );
+    // propio: el servidor calculó que ese id lo creó este socket → permitido.
+    expect(checkEntry({ cmd: borrarCanal, client: 5, seq: 2 }, 'invitado', true).allowed).toBe(true);
+  });
+
+  it('el campo own de la entrada YA NO se cree: lo decide el servidor', () => {
+    // Aunque la entrada traiga own:true, checkEntry solo mira el tercer arg.
     expect(
-      checkEntry({ cmd: borrarCanal, client: 5, seq: 2, own: true }, 'invitado').allowed,
-    ).toBe(true);
+      checkEntry({ cmd: borrarCanal, client: 5, seq: 3, own: true }, 'invitado', false).allowed,
+    ).toBe(false);
   });
 
   it('un invitado no toca el master', () => {
     const master = { type: 'patchMixerTrack', trackIndex: 0, patch: { volume: 2 } };
-    expect(checkEntry({ cmd: master, client: 1, seq: 1 }, 'invitado').allowed).toBe(false);
-    expect(checkEntry({ cmd: master, client: 1, seq: 1 }, 'productor').allowed).toBe(true);
+    expect(checkEntry({ cmd: master, client: 1, seq: 1 }, 'invitado', false).allowed).toBe(false);
+    expect(checkEntry({ cmd: master, client: 1, seq: 1 }, 'productor', false).allowed).toBe(true);
   });
 
   it('una entrada sin comando reconocible no entra', () => {
-    expect(checkEntry({ client: 1, seq: 1 }, 'productor').allowed).toBe(false);
-    expect(checkEntry({ cmd: 'borra todo', client: 1, seq: 1 }, 'productor').allowed).toBe(false);
-    expect(checkEntry({ cmd: {}, client: 1, seq: 1 }, 'productor').allowed).toBe(false);
+    expect(checkEntry({ client: 1, seq: 1 }, 'productor', false).allowed).toBe(false);
+    expect(checkEntry({ cmd: 'borra todo', client: 1, seq: 1 }, 'productor', false).allowed).toBe(
+      false,
+    );
+    expect(checkEntry({ cmd: {}, client: 1, seq: 1 }, 'productor', false).allowed).toBe(false);
   });
 
   it('el peor de dos roles es el que manda cuando una entrada dice venir de otro', () => {
@@ -126,5 +144,42 @@ describe('validación de entradas del log', () => {
     expect(strictestRole('invitado', 'oyente')).toBe('oyente');
     expect(strictestRole('oyente', 'oyente')).toBe('oyente');
     expect(strictestRole('productor', 'productor')).toBe('productor');
+  });
+});
+
+describe('registro server-side de creaciones y borrados', () => {
+  it('collectCreations saca los ids de add/restore (recursivo en batches)', () => {
+    expect(collectCreations({ type: 'addChannel', channel: { id: 'c1' } } as never)).toEqual(['c1']);
+    expect(collectCreations({ type: 'addPattern', pattern: { id: 'p1' } } as never)).toEqual(['p1']);
+    expect(
+      collectCreations({
+        type: 'batch',
+        commands: [
+          { type: 'addChannel', channel: { id: 'c2' } },
+          { type: 'addPlaylistTrack', track: { id: 't1' } },
+          { type: 'setTempo', tempo: 120 },
+        ],
+      } as never),
+    ).toEqual(['c2', 't1']);
+    expect(collectCreations({ type: 'setTempo', tempo: 120 } as never)).toEqual([]);
+  });
+
+  it('collectTrackDeletions saca los ids que borra (recursivo en batches)', () => {
+    expect(collectTrackDeletions({ type: 'removeChannel', channelId: 'c1' } as never)).toEqual([
+      'c1',
+    ]);
+    expect(collectTrackDeletions({ type: 'removePattern', patternId: 'p1' } as never)).toEqual([
+      'p1',
+    ]);
+    expect(
+      collectTrackDeletions({
+        type: 'batch',
+        commands: [
+          { type: 'removeChannel', channelId: 'c2' },
+          { type: 'setTempo', tempo: 90 },
+          { type: 'removeArrangement', arrangementId: 'a1' },
+        ],
+      } as never),
+    ).toEqual(['c2', 'a1']);
   });
 });

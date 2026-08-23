@@ -33,6 +33,8 @@ import * as decoding from 'lib0/decoding';
 import {
   AUDIO_MAX_SAMPLES,
   INVITE_MAX_PER_ROOM,
+  MAX_ASSET_BYTES,
+  MAX_ROOM_ASSET_BYTES,
   MESSAGE_AUDIO,
   MESSAGE_CONTROL,
   authMessage,
@@ -47,10 +49,19 @@ import {
   type CollabRole,
   type RoomAuthRecord,
   type RoomInviteRecord,
+  type SampleAsset,
 } from '@orbit/collab';
 import { RoomAuthStore } from './auth-store';
 import { normalizeRoomCode } from './room-path';
-import { RoomRoles, checkEntry, strictestRole, type RawLogEntry } from './room-roles';
+import {
+  RoomRoles,
+  checkEntry,
+  collectCreations,
+  collectTrackDeletions,
+  entryCommand,
+  strictestRole,
+  type RawLogEntry,
+} from './room-roles';
 
 // Dónde escuchar (localhost, una IP concreta, todas) vive aparte y se
 // reexporta: la app de escritorio lo necesita para su desplegable.
@@ -151,6 +162,19 @@ class Room {
   private nextConnKey = 1;
   /** clientID de Yjs → socket que lo controla (para saber quién firma qué). */
   private readonly clientOwner = new Map<number, WsSocket>();
+  /**
+   * Id de entidad (canal/patrón/pista/arrangement) → connKey del socket que la
+   * CREÓ, según el servidor. Es la verdad con la que se juzga si un borrado con
+   * `own` es legítimo — nunca el campo `own` que escribe el cliente.
+   */
+  private readonly ownCreations = new Map<string, number>();
+  /**
+   * Copia autoritativa del log. Borrar entradas del log solo lo hace
+   * legítimamente el compactador (productor); si un no-productor las borra, se
+   * restauran desde aquí. Preserva el ORDEN original, que es lo que command-log
+   * usa para re-derivar el proyecto.
+   */
+  private logShadow: RawLogEntry[] = [];
 
   constructor(
     code: string,
@@ -182,6 +206,8 @@ class Room {
     // Lo que ya estaba guardado se da por bueno: se validó cuando se escribió y
     // sus emisores hace tiempo que no están. Se carga ANTES de poner el
     // observador, así que no pasa por el guardia.
+    // La copia autoritativa del log arranca con lo cargado del .bin.
+    this.logShadow = this.doc.getArray<RawLogEntry>('commands').toArray();
 
     // El log es el proyecto: cada entrada nueva se juzga con el rol que ESTE
     // servidor le da a su emisor. Y el emisor es el SOCKET por el que entra, no
@@ -202,6 +228,16 @@ class Room {
       this.enforceMeta(event, from);
     });
 
+    // Los samples viven en el Y.Map 'assets' del mismo doc. Sus topes (16 MB por
+    // sample, 64 MB por sala) eran SOLO del emisor: un cliente modificado los
+    // saltaba y el server lo guardaba en el .bin y lo replicaba a todos (memoria
+    // de cada peer + disco). Aquí se hacen cumplir server-side.
+    this.doc.getMap<SampleAsset>('assets').observe((event, transaction) => {
+      if (transaction.origin === ROLE_ENFORCER) return;
+      const from = transaction.origin instanceof WsSocket ? transaction.origin : undefined;
+      this.enforceAssets(event, from);
+    });
+
     // Cualquier update del doc (venga del socket que venga) → a todos.
     this.doc.on('update', (update: Uint8Array) => {
       const encoder = encoding.createEncoder();
@@ -220,15 +256,25 @@ class Room {
       ) => {
         const controlled = this.conns.get(origin as WsSocket);
         if (controlled) {
+          // First-writer-wins: un clientID pertenece al PRIMER socket que lo
+          // anuncia. Sin esto, un invitado mandaba awareness para el clientID
+          // del productor y el servidor lo apuntaba como suyo → roleForEntry
+          // degradaba los comandos del propio productor (y podía suplantar su
+          // presencia y, al desconectar, borrarla).
           for (const id of changes.added) {
+            const owner = this.clientOwner.get(id);
+            if (owner !== undefined && owner !== origin) continue; // ya es de otro
             controlled.add(id);
             this.clientOwner.set(id, origin as WsSocket);
           }
           for (const id of changes.updated) {
+            // Solo el dueño del clientID puede actualizarlo.
+            if (this.clientOwner.get(id) !== origin) continue;
             controlled.add(id);
-            this.clientOwner.set(id, origin as WsSocket);
           }
           for (const id of changes.removed) {
+            // Solo el dueño puede retirarlo.
+            if (this.clientOwner.get(id) !== origin) continue;
             controlled.delete(id);
             this.clientOwner.delete(id);
           }
@@ -521,7 +567,30 @@ class Room {
   private enforceRoles(event: Y.YArrayEvent<RawLogEntry>, from: WsSocket | undefined): void {
     const log = this.doc.getArray<RawLogEntry>('commands');
     const senderRole = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
+    // A quién se le atribuye lo que ENTRA por este socket (el creador real, para
+    // el registro de dueños). Se usa el socket que inserta, no el `client` que
+    // diga la entrada.
+    const entrantKey = from === undefined ? undefined : this.connKeys.get(from);
     const offenders: { index: number; reason: string; type: string }[] = [];
+
+    // Borrar entradas del log solo lo hace legítimamente el compactador
+    // (productor) al hacer snapshot. Un no-productor que borre entradas destruye
+    // trabajo comprometido (y fuerza replays en cadena): se restaura el log
+    // entero desde la copia autoritativa, que conserva el orden. Se hace ANTES de
+    // juzgar inserciones porque deja el log como estaba.
+    if (event.changes.deleted.size > 0 && senderRole !== 'productor' && from !== undefined) {
+      console.warn(`[room ${this.code}] borrado de log de un no-productor: se restaura`);
+      this.doc.transact(() => {
+        log.delete(0, log.length);
+        log.insert(0, this.logShadow.map((e) => ({ ...e })));
+      }, ROLE_ENFORCER);
+      this.sendControl(from, {
+        type: 'denied',
+        reason: 'Solo el productor puede compactar el log.',
+        command: 'delete',
+      });
+      return;
+    }
 
     // Solo se juzga lo que ENTRA en esta transacción, recorriendo el delta. Lo
     // que ya estaba no se vuelve a mirar, y esto sustituye a la lista de
@@ -538,34 +607,52 @@ class Room {
       if (part.insert === undefined) continue;
       const inserted = Array.isArray(part.insert) ? (part.insert as RawLogEntry[]) : [];
       for (const entry of inserted) {
-        const verdict = checkEntry(entry, this.roleForEntry(entry, from, senderRole));
+        const role = this.roleForEntry(entry, from, senderRole);
+        const cmd = entryCommand(entry);
+        // ownCreation lo decide el SERVIDOR: ¿los ids que borra los creó ESTE
+        // socket? Nunca se lee entry.own (lo escribe el cliente).
+        let ownCreation = false;
+        if (cmd) {
+          const dels = collectTrackDeletions(cmd);
+          ownCreation =
+            dels.length > 0 && dels.every((id) => this.ownCreations.get(id) === entrantKey);
+        }
+        const verdict = checkEntry(entry, role, ownCreation);
         if (!verdict.allowed) {
-          const cmd = entry.cmd as { type?: unknown } | undefined;
+          const raw = entry.cmd as { type?: unknown } | undefined;
           offenders.push({
             index,
             reason: verdict.reason ?? 'Tu rol no permite ese cambio.',
-            type: typeof cmd?.type === 'string' ? cmd.type : '?',
+            type: typeof raw?.type === 'string' ? raw.type : '?',
           });
+        } else if (cmd && entrantKey !== undefined) {
+          // Entrada aceptada: se apunta lo que crea bajo su autor, para poder
+          // juzgar después si un borrado suyo con `own` es legítimo.
+          for (const id of collectCreations(cmd)) this.ownCreations.set(id, entrantKey);
         }
         index++;
       }
     }
 
-    if (offenders.length === 0) return;
-    // De atrás hacia delante: borrar por índice mueve lo que viene después.
-    this.doc.transact(() => {
-      for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
-    }, ROLE_ENFORCER);
-    for (const offender of offenders) {
-      console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
-      if (from) {
-        this.sendControl(from, {
-          type: 'denied',
-          reason: offender.reason,
-          command: offender.type,
-        });
+    if (offenders.length > 0) {
+      // De atrás hacia delante: borrar por índice mueve lo que viene después.
+      this.doc.transact(() => {
+        for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
+      }, ROLE_ENFORCER);
+      for (const offender of offenders) {
+        console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
+        if (from) {
+          this.sendControl(from, {
+            type: 'denied',
+            reason: offender.reason,
+            command: offender.type,
+          });
+        }
       }
     }
+    // La copia autoritativa refleja el log ya depurado (con las inserciones
+    // aceptadas y sin las retiradas). Desde aquí se restaura si alguien borra.
+    this.logShadow = log.toArray();
   }
 
   /**
@@ -620,6 +707,55 @@ class Room {
     }
   }
 
+  /** Bytes de un asset (el contenido si está, o el tamaño declarado). */
+  private assetBytes(asset: SampleAsset | undefined): number {
+    if (!asset) return 0;
+    return asset.bytes?.byteLength ?? asset.size ?? 0;
+  }
+
+  /**
+   * Hace cumplir los topes de samples server-side: cada asset ≤ MAX_ASSET_BYTES
+   * y la suma de la sala ≤ MAX_ROOM_ASSET_BYTES. Lo que se pase se BORRA del map
+   * (no se guarda ni se replica). Los topes por-emisor no bastan: un cliente
+   * modificado los ignora.
+   */
+  private enforceAssets(event: Y.YMapEvent<SampleAsset>, from: WsSocket | undefined): void {
+    const assets = this.doc.getMap<SampleAsset>('assets');
+    const changed = [...event.changes.keys.entries()].filter(([, c]) => c.action !== 'delete');
+    if (changed.length === 0) return;
+
+    const toDelete = new Set<string>();
+    // 1) Los que de por sí pasan el tope por-sample.
+    for (const [key] of changed) {
+      if (this.assetBytes(assets.get(key)) > MAX_ASSET_BYTES) toDelete.add(key);
+    }
+    // 2) El tope de sala: si el total lo supera, se quitan los recién añadidos
+    //    (los de ESTA transacción) hasta bajar de él, sin tocar lo que ya estaba.
+    let total = 0;
+    for (const asset of assets.values()) total += this.assetBytes(asset);
+    if (total > MAX_ROOM_ASSET_BYTES) {
+      for (const [key] of changed) {
+        if (total <= MAX_ROOM_ASSET_BYTES) break;
+        if (toDelete.has(key)) continue;
+        total -= this.assetBytes(assets.get(key));
+        toDelete.add(key);
+      }
+    }
+    if (toDelete.size === 0) return;
+
+    this.doc.transact(() => {
+      for (const key of toDelete) assets.delete(key);
+    }, ROLE_ENFORCER);
+    console.warn(`[room ${this.code}] samples rechazados por tope: ${[...toDelete].join(', ')}`);
+    if (from) {
+      this.sendControl(from, {
+        type: 'denied',
+        reason: 'Ese sample supera el tope de la sala.',
+        command: 'asset',
+      });
+    }
+  }
+
   /** A todos menos al que lo mandó (el audio propio ya suena en su máquina). */
   private broadcastExcept(from: WsSocket, message: Uint8Array): void {
     for (const conn of this.conns.keys()) {
@@ -640,6 +776,26 @@ const rooms = new Map<string, Room>();
 
 /** Las contraseñas viven en disco, junto a las salas, y NUNCA en el Y.Doc. */
 const authStore = new RoomAuthStore(() => roomsDir);
+
+/**
+ * Serializa las mutaciones de invitaciones POR SALA. Consumir un token es
+ * leer→await(SHA-256)→escribir; sin candado, dos joins con el mismo token de un
+ * solo uso leían ambos `uses:1`, ambos pasaban y ambos entraban (doble gasto), y
+ * dos consumos de tokens distintos se pisaban al escribir (lost update).
+ */
+const inviteLocks = new Map<string, Promise<unknown>>();
+function withInviteLock<T>(code: string, fn: () => Promise<T>): Promise<T> {
+  const prev = inviteLocks.get(code) ?? Promise.resolve();
+  const next = prev.then(fn, fn); // corre pase lo que pase con el anterior
+  inviteLocks.set(
+    code,
+    next.then(
+      () => undefined,
+      () => undefined,
+    ),
+  );
+  return next;
+}
 
 function getRoom(code: string): Room {
   let room = rooms.get(code);
@@ -889,13 +1045,18 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
      */
     if (message.type === 'joinInvite') {
       waiting.checking = true;
-      const live = authStore.getInvites(code);
-      void consumeInvite(live, message.token, Date.now())
+      // Leer→consumir→escribir DENTRO del candado por sala: así el segundo join
+      // ve los usos ya descontados por el primero (no hay doble gasto ni pisadas).
+      void withInviteLock(code, async () => {
+        const live = authStore.getInvites(code);
+        const result = await consumeInvite(live, message.token, Date.now());
+        authStore.setInvites(code, result.next);
+        return result;
+      })
         .then((result) => {
           if (!pending.has(conn)) return;
           clearTimeout(waiting.timer);
           pending.delete(conn);
-          authStore.setInvites(code, result.next);
           if (!result.ok) {
             // El motivo se distingue en el LOG pero no en lo que se le dice a
             // quien llama: un mensaje por caso sería un oráculo de qué

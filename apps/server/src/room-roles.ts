@@ -15,8 +15,8 @@
  * probarlo entero sin levantar nada.
  */
 
-import { checkRole, type CollabRole } from '@orbit/collab';
-import type { Command } from '@orbit/core';
+import { checkRole, trackDeletionTargets, type CollabRole } from '@orbit/collab';
+import type { Command, Id } from '@orbit/core';
 
 /** Rol de quien entra en una sala que ya tiene productor. */
 export const JOIN_ROLE: CollabRole = 'invitado';
@@ -135,16 +135,58 @@ export interface EntryVerdict {
  * ¿Puede esta entrada estar en el log, con el rol que el SERVIDOR le da a su
  * emisor? Una entrada sin comando reconocible se rechaza igual: el log es el
  * proyecto, y ahí no entra lo que no se entiende.
+ *
+ * `ownCreation` lo calcula el SERVIDOR (¿los ids que borra los creó ese mismo
+ * socket?), NO se lee de `entry.own`: ese campo lo escribe el cliente y creerlo
+ * dejaba a un invitado borrar cualquier pista/patrón con solo poner `own:true`.
  */
-export function checkEntry(entry: RawLogEntry, role: CollabRole): EntryVerdict {
+export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: boolean): EntryVerdict {
   const cmd = entry.cmd;
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return { allowed: false, reason: 'Entrada sin comando válido.' };
   }
-  // `own` (borrar algo propio) es del emisor y no se puede verificar aquí sin
-  // reconstruir la sesión entera; se acepta tal cual, igual que hacen los
-  // clientes. Lo que ya no se acepta es el ROL: ese lo pone el servidor.
-  return checkRole(role, cmd as Command, { ownCreation: entry.own === true });
+  return checkRole(role, cmd as Command, { ownCreation });
+}
+
+/** Comando válido con `type` string, o null. Puro, para el registro de dueños. */
+export function entryCommand(entry: RawLogEntry): Command | null {
+  const cmd = entry.cmd;
+  if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
+    return null;
+  }
+  return cmd as Command;
+}
+
+/** Ids de pista/patrón que borra un comando (recursivo en batches). */
+export function collectTrackDeletions(cmd: Command): Id[] {
+  if (cmd.type === 'batch') return cmd.commands.flatMap(collectTrackDeletions);
+  return trackDeletionTargets(cmd);
+}
+
+/**
+ * Ids de entidades que CREA un comando (add/restore de canal/patrón/pista/
+ * arrangement), recursivo en batches. El servidor apunta cada uno bajo el socket
+ * que lo creó, para poder juzgar luego si un borrado con `own` es legítimo.
+ */
+export function collectCreations(cmd: Command): Id[] {
+  switch (cmd.type) {
+    case 'addChannel':
+    case 'restoreChannel':
+      return [cmd.channel.id];
+    case 'addPattern':
+    case 'restorePattern':
+      return [cmd.pattern.id];
+    case 'addPlaylistTrack':
+    case 'restorePlaylistTrack':
+      return [cmd.track.id];
+    case 'addArrangement':
+    case 'restoreArrangement':
+      return [cmd.arrangement.id];
+    case 'batch':
+      return cmd.commands.flatMap(collectCreations);
+    default:
+      return [];
+  }
 }
 
 /** De menos a más restringido. Sirve para quedarse con el peor de dos roles. */
