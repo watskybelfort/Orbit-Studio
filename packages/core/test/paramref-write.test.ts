@@ -29,7 +29,7 @@ function roundTrip(project: Project, ref: ParamRef, norm: number): number | null
 
 function projectWithChannel(): { project: Project; channelId: string } {
   const project = createEmptyProject();
-  const channel = createChannel('sub808', 'Bajo');
+  const channel = createChannel('sub808', 0, 'Bajo');
   applyCommand(project, { type: 'addChannel', channel });
   return { project, channelId: channel.id };
 }
