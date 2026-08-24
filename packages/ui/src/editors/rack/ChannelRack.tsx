@@ -53,7 +53,7 @@ import {
   type InstrumentKind,
   type Note,
 } from '@orbit/core';
-import { addSamplerChannel, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
+import { addSamplerChannels, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
 import { reportActivity } from '../../collab/presence';
 // Las acciones de patrón viven en un solo sitio a propósito: el guard del
 // último patrón, el realineo del patrón activo y el aviso de cuántos clips se
@@ -601,10 +601,12 @@ export function ChannelRack() {
         }
       }}
       onDrop={(e) => {
-        const entry = getDragEntry(e.dataTransfer);
-        if (!entry) return;
+        // Un arrastre puede traer varias muestras: un canal para cada una, y
+        // un solo deshacer para todas.
+        const entries = getDragEntries(e.dataTransfer);
+        if (entries.length === 0) return;
         e.preventDefault();
-        void addSamplerChannel(entry);
+        void addSamplerChannels(entries);
       }}
     >
       <div className="rack-head">

@@ -22,7 +22,7 @@ import {
   type Channel,
   type KeymapZone,
 } from '@orbit/core';
-import { addKeymapZones, getDragEntry } from '../../browser/sound-actions';
+import { addKeymapZones, describeKeymapDrop, getDragEntries } from '../../browser/sound-actions';
 import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 
@@ -66,14 +66,16 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
   const drop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDropping(false);
-    const entry = getDragEntry(e.dataTransfer);
-    if (!entry) return;
-    const { added, unreadable } = await addKeymapZones(channel.id, [entry], { octaveOffset });
-    setNotice(
-      unreadable.length > 0
-        ? `No he sabido leer la nota de: ${unreadable.join(', ')}. Ponla a mano abajo.`
-        : `${added} muestra(s) al keymap.`,
-    );
+    // Un arrastre trae lo que se seleccionó en el Browser: una muestra, o las
+    // treinta de un piano. Aquí da igual — es el mismo camino.
+    const entries = getDragEntries(e.dataTransfer);
+    if (entries.length === 0) return;
+    // Treinta muestras tardan lo suyo en leerse del disco y decodificarse: sin
+    // este aviso el editor se queda quieto y parece que el drop no ha hecho
+    // nada. Con una sola no se enseña, que sería un parpadeo.
+    if (entries.length > 1) setNotice(`Cargando ${entries.length} muestras…`);
+    const result = await addKeymapZones(channel.id, entries, { octaveOffset });
+    setNotice(describeKeymapDrop(result));
   };
 
   /** Posición 0..1 de una tecla dentro de la tira. */
@@ -99,7 +101,7 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
         }}
         onDragLeave={() => setDropping(false)}
         onDrop={(e) => void drop(e)}
-        title="Suelta aquí sonidos del Browser: entran con su nota leída del nombre"
+        title="Suelta aquí sonidos del Browser (uno, o los que tengas seleccionados): entran con su nota leída del nombre"
       >
         <div className="km-keys" aria-hidden="true">
           {Array.from({ length: VIEW_HIGH - VIEW_LOW }, (_, i) => {
@@ -133,7 +135,9 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
           </button>
         ))}
         {zones.length === 0 && (
-          <span className="km-empty">Suelta aquí las muestras del instrumento</span>
+          <span className="km-empty">
+            Suelta aquí las muestras del instrumento (todas de golpe)
+          </span>
         )}
       </div>
 

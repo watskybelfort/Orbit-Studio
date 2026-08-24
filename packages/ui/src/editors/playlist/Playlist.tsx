@@ -31,7 +31,7 @@ import {
   type PlaylistTrack,
   type Project,
 } from '@orbit/core';
-import { addAudioClip, getDragEntry, SOUND_MIME } from '../../browser/sound-actions';
+import { addAudioClips, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
 import { IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
@@ -1886,15 +1886,16 @@ export function Playlist() {
               }
             }}
             onDrop={(e) => {
-              // Soltar un sonido del browser: clip de audio en la pista/beat del cursor.
-              const entry = getDragEntry(e.dataTransfer);
-              if (!entry) return;
+              // Soltar sonidos del browser: clips de audio en la pista/beat del
+              // cursor, uno detrás de otro si vienen varios.
+              const entries = getDragEntries(e.dataTransfer);
+              if (entries.length === 0) return;
               e.preventDefault();
               const rect = e.currentTarget.getBoundingClientRect();
               const row = rowAtY(e.clientY - rect.top);
               if (!row) return;
-              void addAudioClip(
-                entry,
+              void addAudioClips(
+                entries,
                 row.track.id,
                 quant(xToBeat(e.clientX - rect.left), snapBeats, false),
               );
