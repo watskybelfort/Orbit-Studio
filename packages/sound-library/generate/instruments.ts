@@ -5,12 +5,19 @@
  * el orquestador (generate.ts) lo integra — escribe el archivo, normaliza a
  * -1 dBFS y registra la entrada del manifest con id "instrumentos/<slug>".
  *
- * Cada sample es UNA nota raíz (keyRoot 'C': C2/C3/C4/C5 según instrumento) y
- * el Orbit Sampler la repitchea por el piano roll (keytrack).
+ * Cada instrumento se graba a VARIAS alturas —su registro natural y una octava
+ * a cada lado— y el pack las reparte por el teclado con un keymap. Estirar una
+ * sola muestra no transpone un instrumento: cambia la velocidad de lectura, y
+ * con ella se mueven las formantes y el ataque. Un piano grabado en do suena a
+ * ratón dos octavas arriba, y eso es lo que esto viene a quitar.
+ *
+ * La altura entra por `render(sr, rootHz)`. Sin ella sale la del registro
+ * natural del instrumento, que es exactamente el sample de siempre.
  *
  * Determinista: cero Math.random — todos los ruidos/excitaciones salen de
- * mulberry32 sembrado con el hash FNV-1a del slug. Dos renders del mismo spec
- * a la misma sample rate son idénticos bit a bit.
+ * mulberry32 sembrado con el hash FNV-1a del slug Y de la altura. Dos renders
+ * del mismo spec a la misma altura son idénticos bit a bit; dos alturas del
+ * mismo instrumento estrenan ruido, o sonarían enganchadas al tocar juntas.
  *
  * Calidad: fade-in de 3 ms y fade-out de 40 ms en todo (sin clicks), pico
  * interno ~0.9 (el orquestador renormaliza igualmente), estéreo por
@@ -316,6 +323,42 @@ type Render = (sampleRate: number) => StereoRender;
  */
 type PorRaiz = (slug: string, f0: number) => Render;
 
+/**
+ * Cuánto hay que mover los cortes de filtro de un instrumento SINTÉTICO al
+ * grabarlo en otra altura.
+ *
+ * La regla que separa los dos casos, y que es justo lo que hace que el
+ * multisample valga la pena:
+ *
+ * - En un instrumento SINTÉTICO (pads, leads, órgano, bajos) el filtro es
+ *   parte de la voz: sigue a la nota. Dejarlo fijo haría que el pad grave
+ *   sonara brillante y el agudo apagado, y el salto se oiría justo al cruzar
+ *   el borde entre dos zonas del teclado — el defecto que el multisample viene
+ *   a quitar, no a traer.
+ * - En un instrumento ACÚSTICO el golpe del martillo, el soplo de la flauta o
+ *   el cuerpo de la guitarra son FORMANTES: no se mueven con la nota, y por
+ *   eso una muestra estirada suena a ratón. Esos se quedan donde están, que es
+ *   la razón de grabar varias alturas en vez de estirar una.
+ */
+function escalaDe(f0: number, base: number): number {
+  return f0 / base;
+}
+
+/**
+ * Índice de FM que cabe por debajo del Nyquist.
+ *
+ * La FM reparte energía hasta `f0·ratio·(I+1)` más o menos, y con un modulador
+ * 14:1 —el tine clásico de un piano eléctrico— eso se sale del muestreo en
+ * cuanto subes de registro: lo que vuelve no suena más agudo, vuelve doblado,
+ * como una campanilla metálica que no estaba en el sonido. Se acota el índice
+ * a lo que cabe, que es además lo que hace un FM de verdad al subir de octava:
+ * las notas altas salen menos brillantes que las bajas.
+ */
+function indiceQueCabe(indice: number, f0: number, ratio: number, sr: number): number {
+  const cabe = (sr * 0.45) / (f0 * ratio) - 1;
+  return Math.min(indice, Math.max(0.4, cabe));
+}
+
 // — Piano acústico (aditivo con inarmonicidad de cuerda) —
 
 interface OpcionesPiano {
@@ -406,10 +449,11 @@ interface OpcionesEP {
 function pianoElectrico(o: OpcionesEP): PorRaiz {
   return (slug, f0) => (sr) => {
     const { l, r, n } = crearCanales(sr, o.dur);
+    const indiceTine = indiceQueCabe(o.indice, f0, o.ratio, sr);
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const fase = TAU * f0 * t;
-      const iTine = o.indice * Math.exp(-t / o.caidaIndice);
+      const iTine = indiceTine * Math.exp(-t / o.caidaIndice);
       const tine = Math.sin(fase + iTine * Math.sin(o.ratio * fase)) * Math.exp(-1.5 * t);
       const iCuerpo = o.indiceCuerpo * Math.exp(-0.9 * t);
       const cuerpo = Math.sin(fase + iCuerpo * Math.sin(fase)) * Math.exp(-0.75 * t);
@@ -460,7 +504,15 @@ function vozKS(
   offsetMuestras: number,
   rng: () => number,
 ): Float32Array {
-  const N = Math.max(2, Math.round(sr / f0) + offsetMuestras);
+  // Periodo EXACTO, con parte fraccionaria. Con el retardo redondeado a
+  // muestras enteras la cuerda sale desafinada, y lo grave del asunto es que
+  // sale desafinada de FORMA DISTINTA en cada altura: media muestra son 0,7
+  // cents en C2 y 2,6 en C4, así que un instrumento hecho de tres tomas
+  // quedaba desafinado consigo mismo y el salto se oía al cruzar de zona.
+  // Se descuenta además el retardo del filtro de pérdida (media muestra por
+  // cada unidad de amortiguación), que es lo que dejaba la cuerda plana.
+  const periodo = Math.max(3, sr / f0 - amortiguacion * 0.5 + offsetMuestras);
+  const N = Math.ceil(periodo) + 1;
   const buf = new Float32Array(N);
   // Excitación: ruido blanco conformado por un paso-bajo, sin componente DC.
   const lpExc = new FiltroLP1(sr);
@@ -473,17 +525,24 @@ function vozKS(
   media /= N;
   for (let i = 0; i < N; i++) buf[i] = buf[i]! - media;
 
+  const entero = Math.floor(periodo);
+  const frac = periodo - entero;
   const out = new Float32Array(nMuestras);
   let previo = 0;
-  let pos = 0;
+  let escribe = 0;
   for (let i = 0; i < nMuestras; i++) {
-    const y = buf[pos]!;
+    // Retardo fraccionario por interpolación lineal entre las dos muestras que
+    // rodean el periodo exacto. La interpolación es en sí un paso-bajo suave,
+    // que en una cuerda pulsada es exactamente lo que ya hace el lazo.
+    const a = escribe - entero >= 0 ? escribe - entero : escribe - entero + N;
+    const b = a - 1 >= 0 ? a - 1 : a - 1 + N;
+    const y = buf[a]! * (1 - frac) + buf[b]! * frac;
     out[i] = y;
     // Filtro de pérdida: mezcla entre la muestra cruda (brillante) y el
     // promedio de dos (oscuro), todo escalado por la pérdida del lazo.
-    buf[pos] = perdida * ((1 - amortiguacion) * y + amortiguacion * 0.5 * (y + previo));
+    buf[escribe] = perdida * ((1 - amortiguacion) * y + amortiguacion * 0.5 * (y + previo));
     previo = y;
-    pos = pos + 1 === N ? 0 : pos + 1;
+    escribe = escribe + 1 === N ? 0 : escribe + 1;
   }
   return out;
 }
@@ -551,6 +610,7 @@ interface OpcionesBajoSub {
 function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
   return (slug, f0) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
+    const escala = escalaDe(f0, HZ_C2);
     const { l, r, n } = crearCanales(sr, o.dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const svf = new FiltroSVF(sr);
@@ -564,7 +624,10 @@ function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
       if (i < nClick && o.click !== undefined) {
         x += lpClick.procesar(rng() * 2 - 1, 5000) * o.click * (1 - i / nClick) * 3;
       }
-      const fc = o.fcFin + (o.fcIni - o.fcFin) * Math.exp(-t / o.tEnv);
+      // La envolvente de filtro es la articulación de la nota, no el cuerpo
+      // del bajo: sigue a la altura. Fija, un bajo grabado en C3 acababa con
+      // el corte por debajo de su propio fundamental y salía tapado.
+      const fc = (o.fcFin + (o.fcIni - o.fcFin) * Math.exp(-t / o.tEnv)) * escala;
       svf.procesar(x, fc, o.q);
       const y = svf.lp * envAtaque(t, o.ataqueSec) * envSalida(t, o.sostenido, o.rel);
       l[i] = y;
@@ -594,6 +657,7 @@ function bajoRedondo(dur: number): PorRaiz {
 /** FM 2:1 con feedback leve en el modulador y el índice "respirando" a 4.3 Hz. */
 function bajoGrowl(dur: number): PorRaiz {
   return (slug, f0) => (sr) => {
+    const escala = escalaDe(f0, HZ_C2);
     const { l, r, n } = crearCanales(sr, dur);
     const lp = new FiltroLP1(sr);
     let mPrevio = 0;
@@ -604,7 +668,7 @@ function bajoGrowl(dur: number): PorRaiz {
       mPrevio = m;
       const indice = (1.8 + 1.7 * Math.exp(-t / 0.5)) * (1 + 0.18 * Math.sin(TAU * 4.3 * t));
       let x = 0.8 * Math.sin(w + indice * m) + 0.35 * Math.sin(w);
-      x = lp.procesar(x, 2800);
+      x = lp.procesar(x, 2800 * escala);
       const env = envAtaque(t, 0.006) * envSalida(t, dur - 0.9, 0.32);
       l[i] = x * env;
       r[i] = x * env;
@@ -680,6 +744,7 @@ function organo(o: OpcionesOrgano): PorRaiz {
 function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): PorRaiz {
   return (slug, f0) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
+    const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, o.dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const DETUNES = [-12, -7, -2, 3, 8, 13];
@@ -716,8 +781,8 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
         xl += s * v.gl;
         xr += s * v.gr;
       }
-      svfL.procesar(xl, o.fcHz, 0.7);
-      svfR.procesar(xr, o.fcHz, 0.7);
+      svfL.procesar(xl, o.fcHz * escala, 0.7);
+      svfR.procesar(xr, o.fcHz * escala, 0.7);
       const env = envAtaque(t, o.ataqueSec) * envSalida(t, o.dur - 0.8, 0.45);
       l[i] = svfL.lp * env;
       r[i] = svfR.lp * env;
@@ -730,6 +795,7 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
 function padCalido(dur: number): PorRaiz {
   return (slug, f0) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
+    const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const incL = (f0 * centavos(-5)) / sr;
@@ -746,8 +812,8 @@ function padCalido(dur: number): PorRaiz {
       fR += incR;
       fC += incC;
       const pulso = leerPulso(sierra, fC, 0.3) * 0.55;
-      svfL.procesar(leerTabla(sierra, fL) + pulso, 1600, 0.6);
-      svfR.procesar(leerTabla(sierra, fR) + pulso, 1600, 0.6);
+      svfL.procesar(leerTabla(sierra, fL) + pulso, 1600 * escala, 0.6);
+      svfR.procesar(leerTabla(sierra, fR) + pulso, 1600 * escala, 0.6);
       const env = envAtaque(t, 0.045) * envSalida(t, dur - 0.8, 0.5);
       l[i] = svfL.lp * env;
       r[i] = svfR.lp * env;
@@ -771,16 +837,20 @@ function padVidrio(dur: number): PorRaiz {
       faseLfo: number;
       fase: number;
     }
-    const partes: Parcial[] = RATIOS.map((ratio, idx) => {
+    const partes: Parcial[] = [];
+    RATIOS.forEach((ratio, idx) => {
+      // Un parcial por encima del Nyquist no suena más agudo: vuelve doblado,
+      // como una nota que no está en el acorde.
+      if (f0 * ratio >= sr * 0.45) return;
       const des = (rng() - 0.5) * 3; // ±1.5 cents entre canales
-      return {
+      partes.push({
         wL: (TAU * f0 * ratio * centavos(des)) / sr,
         wR: (TAU * f0 * ratio * centavos(-des)) / sr,
         nivel: NIVELES[idx]!,
         lfoHz: 0.15 + rng() * 0.35,
         faseLfo: rng() * TAU,
         fase: rng() * TAU,
-      };
+      });
     });
     for (let i = 0; i < n; i++) {
       const t = i / sr;
@@ -825,9 +895,12 @@ function campanaFM(o: OpcionesCampana): PorRaiz {
     const wR = (TAU * f0 * centavos(-1.2)) / sr;
     const wHum = (TAU * f0 * 0.5) / sr;
     const nTick = o.tick !== undefined ? Math.min(n, Math.round(0.002 * sr)) : 0;
+    const indice = indiceQueCabe(o.indice, f0, o.ratio, sr);
+    // La octava de brillo se calla si no cabe, en vez de doblarse hacia abajo.
+    const conOctava = o.octavaArriba !== undefined && f0 * 2 < sr * 0.45;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
-      const ind = o.indice * Math.exp(-t / o.caidaIndice);
+      const ind = indice * Math.exp(-t / o.caidaIndice);
       const amp = Math.exp(-o.caidaAmp * t);
       let xl = Math.sin(wL * i + ind * Math.sin(o.ratio * wL * i)) * amp;
       let xr = Math.sin(wR * i + ind * Math.sin(o.ratio * wR * i)) * amp;
@@ -836,7 +909,7 @@ function campanaFM(o: OpcionesCampana): PorRaiz {
         xl += h;
         xr += h;
       }
-      if (o.octavaArriba !== undefined) {
+      if (conOctava && o.octavaArriba !== undefined) {
         const oct = o.octavaArriba * Math.exp(-o.caidaAmp * 2.2 * t);
         xl += oct * Math.sin(2 * wL * i);
         xr += oct * Math.sin(2 * wR * i);
@@ -868,14 +941,18 @@ function vibrafono(dur: number): PorRaiz {
       nivel: number;
       caida: number;
     }
-    const barras: Barra[] = RATIOS.map((ratio, idx) => {
+    const barras: Barra[] = [];
+    RATIOS.forEach((ratio, idx) => {
+      // El parcial 10 de un vibráfono está a 5 kHz en C5; una octava más
+      // arriba se sale del muestreo y volvería doblado.
+      if (f0 * ratio >= sr * 0.45) return;
       const des = (rng() - 0.5) * 2; // ±1 cent entre canales
-      return {
+      barras.push({
         wL: (TAU * f0 * ratio * centavos(des)) / sr,
         wR: (TAU * f0 * ratio * centavos(-des)) / sr,
         nivel: NIVELES[idx]!,
         caida: CAIDAS[idx]!,
-      };
+      });
     });
     const lpGolpe = new FiltroLP1(sr);
     const nGolpe = Math.min(n, Math.round(0.006 * sr));
@@ -908,6 +985,7 @@ function vibrafono(dur: number): PorRaiz {
 /** Pulso 42% con vibrato tardío (entra a los 0.55 s): lead clásico de synth. */
 function leadCuadrada(dur: number): PorRaiz {
   return (slug, f0) => (sr) => {
+    const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const lp = new FiltroLP1(sr);
@@ -917,7 +995,7 @@ function leadCuadrada(dur: number): PorRaiz {
       const prof = 12 * rampa(t, 0.55, 0.5);
       const f = f0 * centavos(prof * Math.sin(TAU * 5.6 * t));
       fase += f / sr;
-      const x = lp.procesar(leerPulso(sierra, fase, 0.42), 7000);
+      const x = lp.procesar(leerPulso(sierra, fase, 0.42), 7000 * escala);
       const env = envAtaque(t, 0.01) * envSalida(t, dur - 0.55, 0.22);
       l[i] = x * env;
       r[i] = x * env;
@@ -958,6 +1036,7 @@ function flauta(dur: number): PorRaiz {
 function leadSierra(dur: number): PorRaiz {
   return (slug, f0) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
+    const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const desL = centavos(-7);
@@ -975,8 +1054,8 @@ function leadSierra(dur: number): PorRaiz {
       fL += (f0 * vib * desL) / sr;
       fR += (f0 * vib * desR) / sr;
       const centro = leerTabla(sierra, fC) * 0.6;
-      const xl = lpL.procesar(centro + leerTabla(sierra, fL) * 0.55, 6500);
-      const xr = lpR.procesar(centro + leerTabla(sierra, fR) * 0.55, 6500);
+      const xl = lpL.procesar(centro + leerTabla(sierra, fL) * 0.55, 6500 * escala);
+      const xr = lpR.procesar(centro + leerTabla(sierra, fR) * 0.55, 6500 * escala);
       const env = envAtaque(t, 0.006) * envSalida(t, dur - 0.5, 0.24);
       l[i] = xl * env;
       r[i] = xr * env;
