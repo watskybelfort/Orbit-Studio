@@ -58,11 +58,17 @@ export class Sub808Voice extends Voice {
     this.releaseCoef = Math.exp(-1 / (0.05 * sr));
   }
 
-  override glideTo(key: number, _velocity: number): void {
-    this.key = key;
+  protected override retune(snap = false): void {
     // Con `tune`: sin él, un 808 afinado -12 st aterrizaba el slide una octava
     // arriba de lo esperado.
-    this.targetFreq = midiToHz(key + this.tune);
+    this.targetFreq = midiToHz(this.key + this.tune + this.bend);
+    // El portamento del 808 es su carácter: la rueda ARRASTRA la altura, no
+    // salta. Salvo al nacer, donde saltar es lo correcto.
+    if (snap) this.freq = this.targetFreq;
+  }
+
+  override glideTo(key: number, velocity: number): void {
+    super.glideTo(key, velocity);
     // Re-dispara la envolvente suavemente para sostener la cola del slide.
     this.releasing = false;
     this.releaseGain = 1;
@@ -107,6 +113,8 @@ export class SynthVoice extends Voice {
   private envAmount: number;
   private unison: number;
   private baseFreq: number;
+  /** Octavas de desplazamiento del canal: la rueda también las respeta. */
+  private octave: number;
 
   constructor(
     channelIndex: number,
@@ -123,7 +131,8 @@ export class SynthVoice extends Voice {
     this.envAmount = p['envAmount'] ?? 0.4;
     this.unison = Math.min(5, Math.max(1, Math.round(p['unison'] ?? 1)));
     const detune = p['detune'] ?? 0.1;
-    this.baseFreq = midiToHz(key + (p['octave'] ?? 0) * 12);
+    this.octave = p['octave'] ?? 0;
+    this.baseFreq = midiToHz(key + this.octave * 12);
     for (let i = 0; i < this.unison; i++) {
       this.oscs.push(new Osc(i / this.unison));
       const spread = this.unison === 1 ? 0 : (i / (this.unison - 1)) * 2 - 1;
@@ -133,6 +142,12 @@ export class SynthVoice extends Voice {
     this.filtEnv.set(p['attack'] ?? 0.005, (p['decay'] ?? 0.3) * 1.4, 0.2, p['release'] ?? 0.25, sr);
     this.ampEnv.on();
     this.filtEnv.on();
+  }
+
+  protected override retune(): void {
+    // Los detunes del unísono son razones sobre la fundamental, así que se
+    // doblan solos: basta con mover la fundamental.
+    this.baseFreq = midiToHz(this.key + this.octave * 12 + this.bend);
   }
 
   noteOff(): void {
@@ -175,6 +190,7 @@ export class SupersawVoice extends Voice {
   private blend: number;
   private width: number;
   private baseFreq: number;
+  private octave: number;
 
   constructor(
     channelIndex: number,
@@ -188,7 +204,8 @@ export class SupersawVoice extends Voice {
     const detune = p['detune'] ?? 0.4;
     this.blend = p['blend'] ?? 0.7;
     this.width = p['width'] ?? 0.8;
-    this.baseFreq = midiToHz(key + (p['octave'] ?? 0) * 12);
+    this.octave = p['octave'] ?? 0;
+    this.baseFreq = midiToHz(key + this.octave * 12);
     for (let i = 0; i < 7; i++) {
       this.oscs.push(new Osc((i * 0.618) % 1));
       this.ratios.push(Math.pow(2, (SS_DETUNE[i]! * detune * 60) / 1200));
@@ -198,6 +215,12 @@ export class SupersawVoice extends Voice {
     const cutoff = p['cutoff'] ?? 8000;
     this.svfL.set(cutoff, 0.1, sr);
     this.svfR.set(cutoff, 0.1, sr);
+  }
+
+  protected override retune(): void {
+    // Las siete razones de detune cuelgan de la fundamental: mover la
+    // fundamental dobla el supersaw entero sin deshacer su anchura.
+    this.baseFreq = midiToHz(this.key + this.octave * 12 + this.bend);
   }
 
   noteOff(): void {
@@ -234,6 +257,7 @@ export class FmVoice extends Voice {
   private freq: number;
   private ratio: number;
   private index: number;
+  private octave: number;
 
   constructor(
     channelIndex: number,
@@ -244,12 +268,19 @@ export class FmVoice extends Voice {
     private sr: number,
   ) {
     super(channelIndex, key, order);
-    this.freq = midiToHz(key + (p['octave'] ?? 0) * 12);
+    this.octave = p['octave'] ?? 0;
+    this.freq = midiToHz(key + this.octave * 12);
     this.ratio = p['ratio'] ?? 2;
     this.index = p['index'] ?? 3;
     this.idxEnv.trigger(p['indexDecay'] ?? 0.4, sr);
     this.env.set(p['attack'] ?? 0.002, p['decay'] ?? 1.2, p['sustain'] ?? 0, p['release'] ?? 0.4, sr);
     this.env.on();
+  }
+
+  protected override retune(): void {
+    // El modulador cuelga de la portadora por `ratio`, así que el timbre no se
+    // mueve al doblar: se dobla la portadora y el índice se mantiene.
+    this.freq = midiToHz(this.key + this.octave * 12 + this.bend);
   }
 
   noteOff(): void {
@@ -286,6 +317,15 @@ export class DrumVoice extends Voice {
   private noise: Noise;
   private bp = new Biquad();
   private useBp = false;
+  /**
+   * Frecuencia tonal del golpe SIN doblar, y el filtro con el que se le da
+   * cuerpo. Los dos se guardan porque la rueda de tono los mueve a la vez:
+   * una caja doblada sube entera —su seno y su cuerpo de ruido—, no solo el
+   * seno. Doblar únicamente la parte tonal dejaría el kit a medias (el tom se
+   * mueve, el hat no), que es peor que no doblar.
+   */
+  private tonalHz = 100;
+  private filt: { kind: 'hp' | 'peak'; f: number; gain: number; q: number } | null = null;
   private noiseMix = 0;
   private toneMix = 1;
   private clapBursts = 0;
@@ -303,6 +343,16 @@ export class DrumVoice extends Voice {
     super(channelIndex, key, order);
     this.piece = DRUM_MAP[key] ?? 'kick';
     this.noise = new Noise(0x9e3779b1 ^ (key * 2654435761));
+    // Los `case` de abajo declaran el filtro con estos dos ayudantes en vez de
+    // tocar el biquad a pelo: así queda guardado y la rueda puede rehacerlo.
+    const highpass = (f: number, q: number) => {
+      this.filt = { kind: 'hp', f, gain: 0, q };
+      this.useBp = true;
+    };
+    const peaking = (f: number, gain: number, q: number) => {
+      this.filt = { kind: 'peak', f, gain, q };
+      this.useBp = true;
+    };
     const tone = p['tone'] ?? 0.5;
     const decay = p['decay'] ?? 1;
     const punch = p['punch'] ?? 0.5;
@@ -310,7 +360,7 @@ export class DrumVoice extends Voice {
 
     switch (this.piece) {
       case 'kick': {
-        this.baseFreq = kit === 1 ? 60 : 48 + tone * 20;
+        this.tonalHz = kit === 1 ? 60 : 48 + tone * 20;
         this.pitchEnv = 4 + punch * 6;
         this.pitchCoef = Math.exp(-1 / (0.012 * sr));
         this.amp.trigger((kit === 1 ? 0.25 : 0.45) * decay, sr);
@@ -318,20 +368,18 @@ export class DrumVoice extends Voice {
         break;
       }
       case 'snare': {
-        this.baseFreq = 170 + tone * 60;
+        this.tonalHz = 170 + tone * 60;
         this.pitchEnv = 1.5;
         this.pitchCoef = Math.exp(-1 / (0.01 * sr));
         this.amp.trigger(0.18 * decay, sr);
-        this.useBp = true;
-        this.bp.highpass(1400, 0.9, sr);
+        highpass(1400, 0.9);
         this.noiseMix = 0.7;
         this.toneMix = 0.5;
         break;
       }
       case 'clap': {
         this.amp.trigger(0.16 * decay, sr);
-        this.useBp = true;
-        this.bp.peaking(1100, 12, 2.2, sr);
+        peaking(1100, 12, 2.2);
         this.noiseMix = 1;
         this.toneMix = 0;
         this.clapBursts = 3;
@@ -340,50 +388,45 @@ export class DrumVoice extends Voice {
       case 'hat':
       case 'openhat': {
         this.amp.trigger((this.piece === 'hat' ? 0.045 : 0.35) * decay, sr);
-        this.useBp = true;
-        this.bp.highpass(7000 + tone * 3000, 0.8, sr);
+        highpass(7000 + tone * 3000, 0.8);
         this.noiseMix = 1;
         this.toneMix = 0;
         break;
       }
       case 'tom': {
-        this.baseFreq = 100 + tone * 80;
+        this.tonalHz = 100 + tone * 80;
         this.pitchEnv = 2;
         this.pitchCoef = Math.exp(-1 / (0.03 * sr));
         this.amp.trigger(0.3 * decay, sr);
         break;
       }
       case 'conga': {
-        this.baseFreq = 180 + tone * 100;
+        this.tonalHz = 180 + tone * 100;
         this.pitchEnv = 0.8;
         this.pitchCoef = Math.exp(-1 / (0.008 * sr));
         this.amp.trigger((kit === 2 ? 0.22 : 0.15) * decay, sr);
         this.noiseMix = 0.08;
-        this.useBp = true;
-        this.bp.highpass(2000, 0.7, sr);
+        highpass(2000, 0.7);
         break;
       }
       case 'rim': {
         this.amp.trigger(0.03 * decay, sr);
-        this.useBp = true;
-        this.bp.peaking(900, 15, 4, sr);
+        peaking(900, 15, 4);
         this.noiseMix = 0.6;
-        this.baseFreq = 800;
+        this.tonalHz = 800;
         this.toneMix = 0.5;
         break;
       }
       case 'shaker': {
         this.amp.trigger(0.09 * decay, sr);
-        this.useBp = true;
-        this.bp.highpass(5500, 0.8, sr);
+        highpass(5500, 0.8);
         this.noiseMix = 1;
         this.toneMix = 0;
         break;
       }
       case 'crash': {
         this.amp.trigger(1.4 * decay, sr);
-        this.useBp = true;
-        this.bp.highpass(4500, 0.6, sr);
+        highpass(4500, 0.6);
         this.noiseMix = 1;
         this.toneMix = 0;
         break;
@@ -392,6 +435,29 @@ export class DrumVoice extends Voice {
         this.amp.trigger(0.2 * decay, sr);
       }
     }
+    // Deja el biquad puesto (y la frecuencia resuelta) con la rueda al centro.
+    this.retune();
+  }
+
+  /**
+   * La rueda mueve el golpe ENTERO: la parte tonal y el filtro que le da
+   * cuerpo. En un hat no hay seno que doblar —es ruido filtrado, no tiene
+   * altura—, pero su banda sí sube, y por eso un kit doblado suena doblado
+   * completo en vez de que se muevan tres piezas de nueve.
+   *
+   * Rehacer los coeficientes del biquad no aloca: es aritmética sobre campos
+   * que ya existen, y solo pasa cuando la rueda se mueve o nace una voz.
+   */
+  protected override retune(): void {
+    const ratio = Math.pow(2, this.bend / 12);
+    this.baseFreq = this.tonalHz * ratio;
+    const f = this.filt;
+    if (!f) return;
+    // Tope por debajo de Nyquist: doblar +2 octavas un hat de 10 kHz pediría
+    // una banda por encima del muestreo, y ahí el biquad se vuelve inestable.
+    const hz = Math.min(this.sr * 0.45, Math.max(20, f.f * ratio));
+    if (f.kind === 'hp') this.bp.highpass(hz, f.q, this.sr);
+    else this.bp.peaking(hz, f.gain, f.q, this.sr);
   }
 
   noteOff(): void {
@@ -440,6 +506,15 @@ export class DrumVoice extends Voice {
 export class SamplerVoice extends Voice {
   private pos: number;
   private rate: number;
+  /**
+   * De qué sale `rate`: la razón entre el muestreo de la fuente y el del
+   * motor, y los semitonos de transposición SIN la rueda. Guardarlos por
+   * separado es lo que deja doblar el tono sin reconstruir la voz — y sin
+   * arrastrar el error de ir multiplicando `rate` por razones sucesivas, que
+   * al soltar la rueda no vuelve exactamente al sitio.
+   */
+  private rateBase: number;
+  private semisBase: number;
   private env = new ADSR();
   private data: SampleData | null;
   private reverse: boolean;
@@ -466,9 +541,10 @@ export class SamplerVoice extends Voice {
     super(channelIndex, key, order);
     this.data = sampleId ? ctx.samples.get(sampleId) ?? null : null;
     const keytrack = (p['keytrack'] ?? 1) >= 0.5;
-    const semis = (p['pitch'] ?? 0) + (keytrack ? key - 60 : 0);
+    this.semisBase = (p['pitch'] ?? 0) + (keytrack ? key - 60 : 0);
     const srcRate = this.data?.rate ?? ctx.sr;
-    this.rate = (srcRate / ctx.sr) * Math.pow(2, semis / 12);
+    this.rateBase = srcRate / ctx.sr;
+    this.rate = this.rateBase * Math.pow(2, this.semisBase / 12);
     this.reverse = (p['reverse'] ?? 0) >= 0.5;
     this.loop = (p['loop'] ?? 0) >= 0.5;
     this.polarity = (p['polarity'] ?? 0) >= 0.5 ? -1 : 1;
@@ -497,6 +573,12 @@ export class SamplerVoice extends Voice {
 
     this.env.set(p['attack'] ?? 0.001, 1, 1, p['release'] ?? 0.05, ctx.sr);
     this.env.on();
+  }
+
+  protected override retune(): void {
+    // En un sampler doblar el tono es leer más rápido o más lento: se recalcula
+    // desde la base, nunca escalando el `rate` que ya había.
+    this.rate = this.rateBase * Math.pow(2, (this.semisBase + this.bend) / 12);
   }
 
   noteOff(): void {
@@ -633,6 +715,16 @@ export class NovaVoice extends Voice {
     for (const l of this.layers) l.voice.glideTo(key, velocity);
   }
 
+  /**
+   * Nova no tiene altura propia: la tienen sus capas. Doblar el preset es
+   * doblarlas todas por igual, y cada una lo aplica con su motor (una capa de
+   * sampler cambia el ritmo de lectura, una de sinte mueve el oscilador).
+   */
+  override setBend(semitones: number, snap = false): void {
+    super.setBend(semitones, snap);
+    for (const l of this.layers) l.voice.setBend(semitones, snap);
+  }
+
   render(
     outL: Float32Array,
     outR: Float32Array,
@@ -754,9 +846,8 @@ export class VoxVoice extends Voice {
     this.env.off();
   }
 
-  override glideTo(key: number, _velocity: number): void {
-    super.glideTo(key, _velocity);
-    this.freq = midiToHz(key + this.octave * 12);
+  protected override retune(): void {
+    this.freq = midiToHz(this.key + this.octave * 12 + this.bend);
   }
 
   render(
@@ -802,6 +893,8 @@ export class SlicerVoice extends Voice {
   private pos = 0;
   private end = 0;
   private rate: number;
+  private rateBase: number;
+  private semisBase: number;
   private env = new ADSR();
   private data: SampleData | null;
   private reverse: boolean;
@@ -829,9 +922,20 @@ export class SlicerVoice extends Voice {
     this.pos = this.reverse ? stop - 1 : start;
     this.end = this.reverse ? start : stop;
     const srcRate = this.data?.rate ?? ctx.sr;
-    this.rate = (srcRate / ctx.sr) * Math.pow(2, (p['pitch'] ?? 0) / 12);
+    this.rateBase = srcRate / ctx.sr;
+    this.semisBase = p['pitch'] ?? 0;
+    this.rate = this.rateBase * Math.pow(2, this.semisBase / 12);
     this.env.set(p['attack'] ?? 0.002, 1, 1, p['release'] ?? 0.06, ctx.sr);
     this.env.on();
+  }
+
+  /**
+   * El Slicer no reafina por tecla —la tecla elige el TROZO—, pero la rueda
+   * sí lo dobla: es un sampler, y doblar un trozo de loop es lo que se hace
+   * para encajarlo con lo de al lado.
+   */
+  protected override retune(): void {
+    this.rate = this.rateBase * Math.pow(2, (this.semisBase + this.bend) / 12);
   }
 
   noteOff(): void {
@@ -915,6 +1019,12 @@ export class MultiSamplerVoice extends Voice {
   noteOff(): void {
     this.releasing = true;
     for (const l of this.layers) l.noteOff();
+  }
+
+  /** Las capas del keymap se doblan juntas: es UNA nota, no varias. */
+  override setBend(semitones: number, snap = false): void {
+    super.setBend(semitones, snap);
+    for (const l of this.layers) l.setBend(semitones, snap);
   }
 
   override dispose(): void {

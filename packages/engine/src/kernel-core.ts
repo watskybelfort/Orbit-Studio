@@ -57,6 +57,12 @@ interface InstrumentInstance {
   setParams?(params: Record<string, number>): void;
   noteOn(key: number, velocity: number): void;
   noteOff(): void;
+  /**
+   * Rueda de tono, en semitonos. Es OPCIONAL a propósito: un instrumento JS
+   * que no la declare simplemente no dobla, y eso es mejor que fingirlo
+   * re-atacando la nota —que suena a nota nueva, no a tono doblado—.
+   */
+  setBend?(semitones: number): void;
   render(
     outL: Float32Array,
     outR: Float32Array,
@@ -105,6 +111,16 @@ export class KernelCore {
 
   private voices: ActiveVoice[] = [];
   private voiceOrder = 0;
+  /**
+   * Semitonos de rueda de tono que tiene puestos cada canal AHORA MISMO.
+   *
+   * Es lo que convierte la rueda en una rueda de verdad: sin este estado,
+   * doblar movía lo que ya sonaba pero la nota siguiente nacía sin doblar, y
+   * al tocar con la rueda sujeta salían unas notas dobladas y otras no. Vive
+   * por canal —no global— porque cada canal es un instrumento distinto y la
+   * rueda es del que estás tocando.
+   */
+  private bendByChannel = new Float32Array(0);
 
   /** Plugins JS de usuario (efectos): fábricas compiladas por pluginId. */
   private plugins = new Map<string, (sr: number) => PluginInstance>();
@@ -404,6 +420,9 @@ export class KernelCore {
       case 'previewSample':
         this.previewSamplePlay(msg.sampleId, msg.gain);
         break;
+      case 'pitchBend':
+        this.setPitchBend(msg.channelIndex, msg.semitones);
+        break;
     }
   }
 
@@ -425,6 +444,14 @@ export class KernelCore {
     // slot EXISTA (aunque esté en bypass) para reservarle sitio, si no
     // reactivar un efecto sin recompilar se quedaría sin buffer donde sonar.
     const nCh = p.channels.length;
+    // La rueda sobrevive a recompilar: mover una perilla mientras se dobla no
+    // puede soltar la rueda de golpe. Lo que sobra al encoger se pierde, que
+    // es lo correcto — ese canal ya no existe.
+    if (this.bendByChannel.length !== nCh) {
+      const prev = this.bendByChannel;
+      this.bendByChannel = new Float32Array(nCh);
+      this.bendByChannel.set(prev.subarray(0, Math.min(prev.length, nCh)));
+    }
     if (this.chBufOf.length !== nCh) this.chBufOf = new Int32Array(nCh);
     this.chBufOf.fill(-1);
     this.fxChannels.length = 0;
@@ -712,6 +739,11 @@ export class KernelCore {
         ch.sampleId, ch.nova, ch.prisma, ch.slicePoints, ch.keymap,
 
       );
+    // Con la rueda sujeta, la nota nace YA doblada (`snap`): dejarla subir sola
+    // desde la nota sin doblar durante los primeros milisegundos es un
+    // portamento que nadie pidió.
+    const bend = this.bendByChannel[channelIndex] ?? 0;
+    if (bend !== 0) voice.setBend(bend, true);
     this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey, pan });
   }
 
@@ -790,6 +822,21 @@ export class KernelCore {
         v.voice.noteOff();
         v.released = true;
       }
+    }
+  }
+
+  /**
+   * Rueda de tono de un canal: dobla lo que ya suena y se queda puesta para lo
+   * que suene después.
+   */
+  private setPitchBend(channelIndex: number, semitones: number): void {
+    if (channelIndex < 0 || channelIndex >= this.bendByChannel.length) return;
+    if (this.bendByChannel[channelIndex] === semitones) return;
+    this.bendByChannel[channelIndex] = semitones;
+    for (const v of this.voices) {
+      // Las audiciones también: doblar mientras suena una tecla del piano roll
+      // es exactamente el gesto que se hace.
+      if (v.voice.channelIndex === channelIndex) v.voice.setBend(semitones);
     }
   }
 
@@ -1886,6 +1933,19 @@ class PluginVoice extends Voice {
     if (this.broken) return;
     try {
       this.inst.noteOff();
+    } catch {
+      this.broken = true;
+    }
+  }
+
+  /**
+   * Rueda de tono: se la pasa al instrumento si la sabe llevar. Si no, la voz
+   * no se mueve — y no se disimula.
+   */
+  protected override retune(): void {
+    if (this.broken) return;
+    try {
+      this.inst.setBend?.(this.bend);
     } catch {
       this.broken = true;
     }

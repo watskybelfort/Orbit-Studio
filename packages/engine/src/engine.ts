@@ -222,6 +222,14 @@ export class AudioEngine {
   }
 
   /**
+   * Dobla el tono del canal, en semitonos. Afecta a lo que ya está sonando y
+   * a lo que suene después, hasta que se devuelva a 0.
+   */
+  pitchBend(channelIndex: number, semitones: number): void {
+    this.send({ type: 'pitchBend', channelIndex, semitones });
+  }
+
+  /**
    * Decodifica un archivo de audio y lo sube al kernel (una sola vez por id).
    * Devuelve su duración REAL, también si ya estaba subido: quien coloca un
    * clip la necesita, y devolver 0 la segunda vez obligaba a inventársela.

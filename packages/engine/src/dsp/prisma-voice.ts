@@ -858,9 +858,21 @@ export class PrismaVoice extends Voice {
    */
   override glideTo(key: number, velocity: number): void {
     super.glideTo(key, velocity);
-    this.targetFreq = midiToHz(key) * this.tuneRatio;
-    if (this.glideCoef === 0) this.freq = this.targetFreq;
     this.releasing = false;
+  }
+
+  /**
+   * Reafina la voz viva desde la tecla y la rueda. Todas las capas cuelgan de
+   * `freq` por su razón, así que mover `freq` mueve el preset entero sin
+   * deshacer el unísono ni el detune de cada capa.
+   *
+   * `bornFreq` NO se toca: es la altura con la que nació la nota y de ella
+   * cuelga el seguimiento de teclado del filtro. Doblar el tono mueve la
+   * altura, no reabre el filtro — que es lo que se espera de una rueda.
+   */
+  protected override retune(snap = false): void {
+    this.targetFreq = midiToHz(this.key + this.bend) * this.tuneRatio;
+    if (snap || this.glideCoef === 0) this.freq = this.targetFreq;
   }
 
   render(

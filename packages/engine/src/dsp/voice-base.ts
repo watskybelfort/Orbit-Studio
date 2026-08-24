@@ -30,6 +30,17 @@ export interface VoiceContext {
 export abstract class Voice {
   releasing = false;
 
+  /**
+   * Semitonos que la rueda de tono le suma a esta voz, ahora mismo.
+   *
+   * Vive en la voz y no en el canal porque doblar el tono es doblar lo que YA
+   * está sonando: la rueda no dispara nada, mueve lo que hay. El kernel se
+   * guarda además el valor por canal para que una nota nacida con la rueda
+   * doblada nazca doblada — sin eso, sostener la rueda y tocar una nota nueva
+   * daba una nota sin doblar, que es justo la incoherencia que se oye.
+   */
+  protected bend = 0;
+
   constructor(
     public readonly channelIndex: number,
     public key: number,
@@ -38,9 +49,41 @@ export abstract class Voice {
 
   abstract noteOff(): void;
 
+  /**
+   * Dobla el tono de la voz viva. `semitones` es bipolar (la rueda arriba del
+   * todo con rango 2 son +2).
+   *
+   * Se sale enseguida si el valor no cambió: la rueda manda decenas de
+   * mensajes por segundo y hay hasta 64 voces sonando, así que recalcular por
+   * gusto es trabajo tirado dentro del hilo de audio.
+   */
+  setBend(semitones: number, snap = false): void {
+    if (semitones === this.bend && !snap) return;
+    this.bend = semitones;
+    this.retune(snap);
+  }
+
+  /**
+   * Recalcula la altura desde `key + bend`. Cada instrumento la implementa
+   * porque cada uno la guarda a su manera —frecuencia, ritmo de lectura del
+   * sample, razón de los osciladores— y el cuerpo vacío por defecto es una
+   * decisión: una voz que no sabe reafinarse no debe fingir que sí.
+   *
+   * La llaman `setBend` y `glideTo`: los dos cambian la altura de una voz
+   * viva, y tenerlos apuntando al mismo sitio es lo que evita que el slide
+   * arregle una cosa y la rueda se olvide de ella.
+   *
+   * `snap` distingue los dos casos que NO suenan igual: la rueda moviéndose
+   * (el 808 y Prisma arrastran la altura con su portamento, que es su
+   * carácter) y una nota que NACE con la rueda ya doblada (tiene que salir ya
+   * ahí, no subir sola desde la nota sin doblar durante los primeros 60 ms).
+   */
+  protected retune(_snap = false): void {}
+
   /** Nota slide: la voz cambia de altura sin retrigger (808). */
   glideTo(key: number, _velocity: number): void {
     this.key = key;
+    this.retune();
   }
 
   /**

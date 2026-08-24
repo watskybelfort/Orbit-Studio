@@ -305,6 +305,15 @@ export type ToKernel =
     }
   | { type: 'loadSample'; sampleId: string; left: Float32Array; right: Float32Array; sampleRate: number }
   | { type: 'previewNote'; channelIndex: number; key: number; on: boolean }
+  /**
+   * Rueda de tono de un canal, en SEMITONOS (bipolar).
+   *
+   * Van semitonos y no la posición cruda de la rueda porque el rango es una
+   * decisión de quien toca (±2 de fábrica, ±12 para un lead) y no del motor.
+   * El kernel se lo aplica a las voces vivas de ese canal Y se lo guarda: la
+   * nota que se toque con la rueda sujeta tiene que nacer ya doblada.
+   */
+  | { type: 'pitchBend'; channelIndex: number; semitones: number }
   | { type: 'previewSample'; sampleId: string; gain: number };
 
 // ── Mensajes kernel → UI ─────────────────────────────────────────────────────
