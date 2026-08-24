@@ -32,6 +32,23 @@ const SEMITONE: Record<string, number> = {
 const NOTE_TOKEN = /(?:^|[^a-z0-9#])([a-g])(#|b|s)?(-?\d{1,2})/gi;
 
 /**
+ * El NOMBRE del archivo, sin la carpeta y sin la extensión.
+ *
+ * Quitar la carpeta es lo que impide el peor falso positivo de todos: soltar
+ * `C:\Packs\Piano C3\take01.wav`, `take02.wav`, `take03.wav`… y que las
+ * treinta muestras aterricen en el do de la tercera octava porque la nota está
+ * en el NOMBRE DE LA CARPETA. El instrumento entero se apila en una tecla y no
+ * hay nada en pantalla que lo explique. Con la carpeta fuera, esas muestras se
+ * quedan en "no he sabido leer la nota", que es la verdad.
+ *
+ * (Sí quita la extensión: `sample.a4` no es un la.)
+ */
+function baseName(fileName: string): string {
+  const cut = Math.max(fileName.lastIndexOf('/'), fileName.lastIndexOf('\\'));
+  return fileName.slice(cut + 1).replace(/\.[a-z0-9]+$/i, '');
+}
+
+/**
  * Nota MIDI que anuncia un nombre de archivo, o `null` si no anuncia ninguna.
  *
  * Con varios candidatos gana el ÚLTIMO: en `F1_Piano_C3.wav` el `F1` es el pad
@@ -39,7 +56,7 @@ const NOTE_TOKEN = /(?:^|[^a-z0-9#])([a-g])(#|b|s)?(-?\d{1,2})/gi;
  * nota detrás— es el que se repite en las librerías.
  */
 export function parseNoteFromName(fileName: string): number | null {
-  const base = fileName.replace(/\.[a-z0-9]+$/i, '');
+  const base = baseName(fileName);
   let found: number | null = null;
   NOTE_TOKEN.lastIndex = 0;
   for (let m = NOTE_TOKEN.exec(base); m !== null; m = NOTE_TOKEN.exec(base)) {
@@ -67,12 +84,14 @@ export function parseNoteFromName(fileName: string): number | null {
  * Número MIDI suelto en el nombre (`Piano_60.wav`), para las librerías que
  * numeran en vez de nombrar.
  *
- * Solo se usa cuando NINGÚN nombre del juego traía nota escrita: un número
- * suelto es casi siempre un índice (`Piano_01.wav`) y confundirlo con una nota
- * dejaría el instrumento amontonado en el sótano del teclado.
+ * Solo se usa cuando NINGÚN nombre del juego traía nota escrita, y aun así el
+ * auto-mapa le pide al conjunto que parezca un teclado antes de fiarse (ver
+ * `looksLikeNotes`): un número suelto es casi siempre un índice
+ * (`Piano_01.wav`) y confundirlo con una nota deja el instrumento amontonado
+ * en el sótano del teclado.
  */
 export function parseMidiNumberFromName(fileName: string): number | null {
-  const base = fileName.replace(/\.[a-z0-9]+$/i, '');
+  const base = baseName(fileName);
   const matches = base.match(/(?:^|[^0-9])(\d{1,3})(?![0-9])/g);
   if (!matches) return null;
   let found: number | null = null;
@@ -83,9 +102,44 @@ export function parseMidiNumberFromName(fileName: string): number | null {
   return found;
 }
 
+/**
+ * Nota más grave que se acepta de una librería NUMERADA. 21 es el la más grave
+ * de un piano en la convención científica: por debajo de ahí nadie numera
+ * muestras, pero sí empiezan ahí los contadores (`Kit_01`, `Kit_02`…).
+ */
+const MIN_NUMBERED_ROOT = 21;
+
+/**
+ * ¿Estos números sueltos parecen notas, o parecen un contador de tomas?
+ *
+ * Se les pide dos cosas, y cada una tapa un desastre distinto que se ve al
+ * soltar una carpeta entera:
+ *  - **repartirse al menos una octava**, porque `take01`, `take02`, `take03`
+ *    son tomas y no notas, y colocarlas en las teclas 1, 2 y 3 amontona el
+ *    instrumento en el sótano del teclado;
+ *  - **no empezar por abajo del todo**, porque `Kit_01`…`Kit_24` sí se
+ *    reparten dos octavas y siguen siendo un contador.
+ *
+ * Con menos de dos muestras no hay forma de distinguirlo, así que no se
+ * intenta: mejor decir que no se ha sabido leer.
+ */
+function looksLikeNotes(values: readonly number[]): boolean {
+  if (values.length < 2) return false;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of values) {
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  return lo >= MIN_NUMBERED_ROOT && hi - lo >= 12;
+}
+
 export interface AutoMapSample {
   id: Id;
-  /** Nombre del archivo (con extensión o sin ella, da igual). */
+  /**
+   * Nombre del archivo. Da igual que traiga extensión o ruta: de la ruta solo
+   * se mira el último tramo, a propósito (ver `baseName`).
+   */
   name: string;
 }
 
@@ -144,9 +198,10 @@ export function autoMapKeymap(
   let source: AutoMapResult['source'] = 'name';
   let { hits, misses } = read(parseNoteFromName);
   if (hits.length === 0) {
-    // Nadie traía nota escrita: se prueba con los números sueltos.
+    // Nadie traía nota escrita: se prueba con los números sueltos, y solo si
+    // esos números parecen notas de verdad (ver `looksLikeNotes`).
     const numeric = read(parseMidiNumberFromName);
-    if (numeric.hits.length > 0) {
+    if (numeric.hits.length > 0 && looksLikeNotes(numeric.hits.map((h) => h.root - offset))) {
       source = 'midi';
       hits = numeric.hits;
       misses = numeric.misses;

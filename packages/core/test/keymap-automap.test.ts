@@ -75,6 +75,23 @@ describe('parseNoteFromName', () => {
     expect(parseNoteFromName('loop.wav')).toBeNull();
     expect(parseNoteFromName('')).toBeNull();
   });
+
+  it('la CARPETA no cuenta: la nota va en el nombre del archivo', () => {
+    // El peor falso positivo de todos, y el que solo aparece al soltar una
+    // carpeta entera: la nota está en el nombre del directorio y las treinta
+    // muestras aterrizan en la misma tecla. El instrumento se apila en un do y
+    // nada en pantalla lo explica.
+    expect(parseNoteFromName('C:\\Packs\\Piano C3\\take01.wav')).toBeNull();
+    expect(parseNoteFromName('/home/yo/Piano C3/take01.wav')).toBeNull();
+    expect(parseNoteFromName('Piano C3/take01.wav')).toBeNull();
+    expect(parseMidiNumberFromName('C:\\Packs\\Kit 48\\golpe.wav')).toBeNull();
+  });
+
+  it('pero la nota del archivo sigue leyéndose dentro de una ruta', () => {
+    expect(parseNoteFromName('C:\\Packs\\Lo que sea\\Piano_C3.wav')).toBe(noteToMidi('C3'));
+    expect(parseNoteFromName('instrumentos/piano/Piano_A4.wav')).toBe(noteToMidi('A4'));
+    expect(parseMidiNumberFromName('C:\\Packs\\Kit 48\\golpe_60.wav')).toBe(60);
+  });
 });
 
 describe('parseMidiNumberFromName', () => {
@@ -171,6 +188,35 @@ describe('autoMapKeymap', () => {
     expect(mixto.unreadable).toEqual(['Harp_02.wav']);
   });
 
+  it('un contador de tomas NO es una escala', () => {
+    // `take01/02/03` se repartían por las teclas 1, 2 y 3: el instrumento
+    // entero amontonado en el sótano del teclado, sonando cinco octavas por
+    // debajo de donde debía y sin nada que lo explicara.
+    const tomas = autoMapKeymap([
+      { id: 'a', name: 'take01.wav' },
+      { id: 'b', name: 'take02.wav' },
+      { id: 'c', name: 'take03.wav' },
+    ]);
+    expect(tomas.source).toBe('none');
+    expect(tomas.unreadable).toHaveLength(3);
+
+    // Y uno que se reparte dos octavas pero empieza en 1 sigue siendo un
+    // contador, no un teclado.
+    const kit = autoMapKeymap([
+      { id: 'a', name: 'Kit_01.wav' },
+      { id: 'b', name: 'Kit_24.wav' },
+    ]);
+    expect(kit.source).toBe('none');
+  });
+
+  it('con una sola muestra numerada no se adivina', () => {
+    // Con un número suelto no hay forma de saber si es la nota 60 o el archivo
+    // número 60, y colocarlo mal transpone el instrumento entero.
+    const r = autoMapKeymap([{ id: 'a', name: 'Harp_60.wav' }]);
+    expect(r.source).toBe('none');
+    expect(r.unreadable).toEqual(['Harp_60.wav']);
+  });
+
   it('sin nada legible devuelve mapa vacío y lo dice', () => {
     const r = autoMapKeymap([{ id: 'a', name: 'loop.wav' }, { id: 'b', name: 'perc.wav' }]);
     expect(r.source).toBe('none');
@@ -182,6 +228,32 @@ describe('autoMapKeymap', () => {
     const r = autoMapKeymap([]);
     expect(r.zones).toEqual([]);
     expect(r.source).toBe('none');
+  });
+
+  it('una carpeta entera con la nota SOLO en la carpeta no se coloca', () => {
+    // El caso completo del fallo, tal como llega al soltar un directorio.
+    const r = autoMapKeymap([
+      { id: 'a', name: 'C:\\Packs\\Piano C3\\take01.wav' },
+      { id: 'b', name: 'C:\\Packs\\Piano C3\\take02.wav' },
+      { id: 'c', name: 'C:\\Packs\\Piano C3\\take03.wav' },
+    ]);
+    expect(r.source).toBe('none');
+    expect(r.zones).toEqual([]);
+    expect(r.unreadable).toHaveLength(3);
+  });
+
+  it('y una carpeta bien nombrada se coloca entera', () => {
+    const r = autoMapKeymap([
+      { id: 'a', name: 'C:\\Packs\\Mi Piano\\Piano_C3.wav' },
+      { id: 'b', name: 'C:\\Packs\\Mi Piano\\Piano_C4.wav' },
+      { id: 'c', name: 'C:\\Packs\\Mi Piano\\Piano_C5.wav' },
+    ]);
+    expect(r.unreadable).toEqual([]);
+    expect(r.zones.map((z) => z.keyRoot).sort((a, b) => a - b)).toEqual([
+      noteToMidi('C3'),
+      noteToMidi('C4'),
+      noteToMidi('C5'),
+    ]);
   });
 });
 
