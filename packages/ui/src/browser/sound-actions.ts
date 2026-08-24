@@ -8,6 +8,8 @@
 import {
   autoMapKeymap,
   createChannel,
+  createKeymapZone,
+  midiToNote,
   newId,
   normalizeKeymap,
   spreadKeymapRanges,
@@ -16,10 +18,11 @@ import {
   type Clip,
   type Command,
   type Id,
+  type KeymapZone,
   type SampleRef,
 } from '@orbit/core';
 
-import type { SoundEntry } from '@orbit/sound-library';
+import { entrySamples, sampleIdFor, type SoundEntry, type SoundSample } from '@orbit/sound-library';
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
 
@@ -121,16 +124,29 @@ export async function sha1Hex(data: ArrayBuffer): Promise<string | null> {
   }
 }
 
-/** Lee los bytes de un sonido (pack de fábrica, pack generado o carpeta del
- *  usuario) y los sube al kernel bajo el id de la entrada. */
-export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
+/**
+ * Lee de disco un archivo de una entrada. El esquema lo decide el id de la
+ * entrada (pack de fábrica, pack generado o carpeta del usuario); el archivo
+ * se pasa aparte porque un instrumento multisample tiene varios.
+ */
+async function readEntryFile(entry: SoundEntry, file: string): Promise<ArrayBuffer> {
   const api = window.orbit;
   if (!api) throw new Error('Librería no disponible fuera de Electron');
-  const bytes = entry.id.startsWith('user:')
-    ? await api.folder.read(entry.file)
-    : entry.id.startsWith('pack:')
-      ? await api.pack.read(entry.file)
-      : await api.library.read(entry.file);
+  if (entry.id.startsWith('user:')) return api.folder.read(file);
+  if (entry.id.startsWith('pack:')) return api.pack.read(file);
+  return api.library.read(file);
+}
+
+/** La ruta con esquema que se guarda en el proyecto (y con la que rehidrata). */
+function pathOf(entry: SoundEntry, file: string): string {
+  if (entry.id.startsWith('user:')) return `user:${file}`;
+  if (entry.id.startsWith('pack:')) return `pack:${file}`;
+  return `factory:${file}`;
+}
+
+/** Lee los bytes de la grabación PRINCIPAL de un sonido y la sube al kernel. */
+export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
+  const bytes = await readEntryFile(entry, entry.file);
   await engine.loadSample(entry.id, bytes);
   return bytes;
 }
@@ -144,28 +160,70 @@ export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
  * segundos sonaban 125 ms. El motor acaba de decodificarlo aquí al lado, así
  * que la duración de verdad la tiene él.
  */
-async function realDuration(entry: SoundEntry, bytes: ArrayBuffer): Promise<number> {
-  if (entry.durationSec > 0) return entry.durationSec;
+async function realDuration(
+  declared: number,
+  sampleId: string,
+  bytes: ArrayBuffer,
+): Promise<number> {
+  if (declared > 0) return declared;
   try {
-    const { duration } = await engine.loadSample(entry.id, bytes);
+    const { duration } = await engine.loadSample(sampleId, bytes);
     return duration;
   } catch {
-    return entry.durationSec;
+    return declared;
   }
 }
 
-/** Un sonido ya leído de disco, listo para registrar. */
-interface LoadedSound {
-  entry: SoundEntry;
+/** Una grabación concreta, ya leída y subida al kernel. */
+interface LoadedPart {
+  /** La grabación tal como la declara el manifest. */
+  sample: SoundSample;
+  /** Id con el que vive en el kernel y en el proyecto. */
+  id: string;
   bytes: ArrayBuffer;
 }
 
-/** Sube al kernel un grupo de sonidos, de cuatro en cuatro y en orden. */
+/** Un sonido ya leído de disco, con TODAS sus grabaciones. */
+interface LoadedSound {
+  entry: SoundEntry;
+  parts: LoadedPart[];
+}
+
+/**
+ * La grabación principal: la que se escucha, la que se coloca en la playlist y
+ * la que se queda en `sampleId` cuando el canal es multisample (quitar el
+ * keymap devuelve el canal a un sonido, no a nada).
+ */
+function mainPart(loaded: LoadedSound): LoadedPart {
+  return loaded.parts.find((p) => p.sample.file === loaded.entry.file) ?? loaded.parts[0]!;
+}
+
+/**
+ * Sube al kernel un grupo de sonidos con todas sus grabaciones, de cuatro en
+ * cuatro y en orden.
+ *
+ * Se aplana antes de repartir el trabajo para que el límite cuente lecturas de
+ * VERDAD: un instrumento de tres grabaciones son tres viajes al disco, no uno,
+ * y contarlo como uno dejaba doce lecturas en vuelo cuando el límite decía
+ * cuatro.
+ */
 async function loadAll(entries: readonly SoundEntry[]): Promise<LoadedSound[]> {
-  return mapLimited(entries, LOAD_LIMIT, async (entry) => ({
-    entry,
-    bytes: await loadIntoEngine(entry),
-  }));
+  const jobs: { at: number; sample: SoundSample }[] = [];
+  entries.forEach((entry, at) => {
+    for (const sample of entrySamples(entry)) jobs.push({ at, sample });
+  });
+  const out: LoadedSound[] = entries.map((entry) => ({ entry, parts: [] }));
+  const done = await mapLimited(jobs, LOAD_LIMIT, async ({ at, sample }) => {
+    const entry = entries[at]!;
+    const id = sampleIdFor(entry, sample.file);
+    const bytes = await readEntryFile(entry, sample.file);
+    await engine.loadSample(id, bytes);
+    return { at, part: { sample, id, bytes } };
+  });
+  // `mapLimited` conserva el orden, así que las grabaciones de cada
+  // instrumento vuelven en el orden en que las declara el manifest.
+  for (const { at, part } of done) out[at]!.parts.push(part);
+  return out;
 }
 
 /**
@@ -178,31 +236,48 @@ async function loadAll(entries: readonly SoundEntry[]): Promise<LoadedSound[]> {
 async function registerCommands(loaded: readonly LoadedSound[]): Promise<Command[]> {
   const seen = new Set<string>();
   const out: Command[] = [];
-  for (const { entry, bytes } of loaded) {
-    if (seen.has(entry.id)) continue;
-    seen.add(entry.id);
-    out.push(...(await registerIfNew(entry, bytes)));
+  for (const sound of loaded) {
+    for (const part of sound.parts) {
+      if (seen.has(part.id)) continue;
+      seen.add(part.id);
+      out.push(...(await registerPart(sound.entry, part)));
+    }
   }
   return out;
 }
 
-/** registerSample si el proyecto aún no conoce este sonido. */
-async function registerIfNew(entry: SoundEntry, bytes: ArrayBuffer): Promise<Command[]> {
-  if (store.project.samples[entry.id] !== undefined) return [];
+/** registerSample si el proyecto aún no conoce esta grabación. */
+async function registerPart(entry: SoundEntry, part: LoadedPart): Promise<Command[]> {
+  if (store.project.samples[part.id] !== undefined) return [];
   const sample: SampleRef = {
-    id: entry.id,
-    name: entry.name,
-    path: entry.id.startsWith('user:')
-      ? `user:${entry.file}`
-      : entry.id.startsWith('pack:')
-        ? `pack:${entry.file}`
-        : `factory:${entry.file}`,
-    hash: (await sha1Hex(bytes)) ?? entry.id,
+    id: part.id,
+    // El nombre lleva la nota cuando el instrumento tiene varias: en la lista
+    // de zonas del editor, tres filas que pongan "Piano Suave" no dicen nada.
+    name:
+      part.id === entry.id ? entry.name : `${entry.name} ${midiToNote(part.sample.rootMidi)}`,
+    path: pathOf(entry, part.sample.file),
+    hash: (await sha1Hex(part.bytes)) ?? part.id,
     // La de verdad, no la que traiga la entrada: lo de "Tus carpetas" llega con
     // 0 hasta que la cola de análisis pasa por ahí.
-    duration: await realDuration(entry, bytes),
+    duration: await realDuration(part.sample.durationSec, part.id, part.bytes),
   };
   return [{ type: 'registerSample', sample }];
+}
+
+/**
+ * El keymap de un instrumento con varias grabaciones, o `undefined` si trae
+ * una sola (y entonces el canal es el sampler de un sample de siempre).
+ *
+ * Las raíces salen del manifest, no del nombre del archivo: el pack SABE a qué
+ * nota se grabó cada toma y adivinarlo leyendo el nombre sería tirar un dato
+ * cierto para sustituirlo por uno probable.
+ */
+function keymapOf(sound: LoadedSound): KeymapZone[] | undefined {
+  if (sound.parts.length < 2) return undefined;
+  const zones = sound.parts.map((p) =>
+    createKeymapZone(p.id, { keyRoot: p.sample.rootMidi }),
+  );
+  return normalizeKeymap(spreadKeymapRanges(zones));
 }
 
 /** Doble clic o drop en el rack: canal sampler nuevo por el bus de comandos. */
@@ -224,11 +299,17 @@ export async function addSamplerChannels(entries: readonly SoundEntry[]): Promis
 
   let index = store.project.channelOrder.length;
   let lastId: Id | null = null;
-  for (const { entry } of loaded) {
+  for (const sound of loaded) {
+    const { entry } = sound;
     const channel = createChannel('sampler', index++, entry.name);
     // El kernel resuelve el sample de la voz por Channel.sampleId → debe ser
     // el mismo id con el que engine.loadSample lo subió (el del manifest).
-    channel.sampleId = entry.id;
+    channel.sampleId = mainPart(sound).id;
+    // Un instrumento con varias grabaciones entra YA montado como multisample:
+    // es la diferencia entre un piano y una muestra de piano estirada por todo
+    // el teclado. Con una sola, el canal es el sampler de siempre.
+    const keymap = keymapOf(sound);
+    if (keymap) channel.keymap = keymap;
     if (entry.gainSuggestion !== undefined) {
       channel.volume = Math.min(2, entry.gainSuggestion);
     }
@@ -267,13 +348,30 @@ export async function addKeymapZones(
   const loaded = await loadAll(entries);
   const commands: Command[] = await registerCommands(loaded);
 
-  // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota; el
-  // de la entrada puede venir ya bonito y sin ella. De una ruta, el auto-mapa
-  // solo mira el último tramo — la nota no está en el nombre de la carpeta.
-  const { zones, unreadable } = autoMapKeymap(
-    entries.map((e) => ({ id: e.id, name: e.file || e.name })),
-    options,
-  );
+  // Lo que el pack YA SABE no se adivina. Un instrumento del manifest trae la
+  // nota de cada grabación escrita; leerla del nombre del archivo sería
+  // cambiar un dato cierto por uno probable, y el desplazamiento de octavas
+  // —que existe para arreglar librerías con otra convención— lo movería de su
+  // sitio. Lo que no la trae sí pasa por el auto-mapa.
+  const sabidas: KeymapZone[] = [];
+  const adivinar: { id: Id; name: string }[] = [];
+  for (const sound of loaded) {
+    if (sound.entry.samples && sound.entry.samples.length > 0) {
+      for (const part of sound.parts) {
+        sabidas.push(createKeymapZone(part.id, { keyRoot: part.sample.rootMidi }));
+      }
+    } else {
+      // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota;
+      // el de la entrada puede venir ya bonito y sin ella. De una ruta solo
+      // mira el último tramo — la nota no está en el nombre de la carpeta.
+      adivinar.push({ id: mainPart(sound).id, name: sound.entry.file || sound.entry.name });
+    }
+  }
+  const { zones: adivinadas, unreadable } =
+    adivinar.length > 0
+      ? autoMapKeymap(adivinar, options)
+      : { zones: [] as KeymapZone[], unreadable: [] as string[] };
+  const zones = [...sabidas, ...adivinadas];
   if (zones.length === 0) return { added: 0, unreadable, dropped: 0 };
 
   // El tope se aplica ANTES de repartir, no después. Repartir y luego recortar
@@ -368,8 +466,11 @@ export async function addAudioClips(
 
   const clips: Clip[] = [];
   let at = startBeat;
-  for (const { entry, bytes } of loaded) {
-    const durationSec = await realDuration(entry, bytes);
+  for (const sound of loaded) {
+    // En la playlist va la grabación PRINCIPAL: un clip de audio es un trozo
+    // de sonido, no un instrumento. El keymap es cosa del canal.
+    const part = mainPart(sound);
+    const durationSec = await realDuration(part.sample.durationSec, part.id, part.bytes);
     const lengthBeats = Math.max(0.25, (durationSec * store.project.tempo) / 60);
     clips.push({
       id: newId(),
@@ -378,9 +479,9 @@ export async function addAudioClips(
       start: at,
       length: lengthBeats,
       muted: false,
-      sampleId: entry.id,
+      sampleId: part.id,
       audioOffset: 0,
-      audioGain: Math.min(2, entry.gainSuggestion ?? 1),
+      audioGain: Math.min(2, sound.entry.gainSuggestion ?? 1),
     });
     at += lengthBeats;
   }

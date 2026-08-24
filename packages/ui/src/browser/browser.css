@@ -399,6 +399,14 @@
   white-space: nowrap;
 }
 
+/* Instrumento multisample: la insignia dice cuántas grabaciones trae. Se pinta
+   distinta de las de tonalidad y BPM porque no describe cómo suena, describe
+   de qué está hecho. */
+.browser-badge.multi {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 .browser-entry-dur {
   flex: none;
   min-width: 34px;

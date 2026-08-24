@@ -49,8 +49,33 @@ export interface InstrumentSpec {
   rootHz: number;
   /** Ganancia sugerida al cargar (0.5..1). */
   gainSuggestion: number;
-  /** Sintetiza el sample: estéreo a la sample rate dada. */
-  render(sampleRate: number): StereoRender;
+  /**
+   * Sintetiza el sample: estéreo a la sample rate dada.
+   *
+   * `rootHz` es la altura a la que se graba esta toma. Sin él sale la del
+   * registro natural del instrumento (`spec.rootHz`), que es exactamente el
+   * sample de siempre — el pack multisample pide las otras alturas a mano.
+   */
+  render(sampleRate: number, rootHz?: number): StereoRender;
+}
+
+/**
+ * Las alturas a las que se graba un instrumento: su registro natural y una
+ * octava a cada lado.
+ *
+ * Tres y no una porque estirar una muestra no transpone un instrumento: cambia
+ * la velocidad de lectura, y con ella se mueven las formantes y el ataque. Tres
+ * y no diez porque cada zona cubre así media octava a cada lado de su raíz, que
+ * es donde el estiramiento todavía no se oye — y porque cada altura más son
+ * veinticuatro archivos más en el instalador.
+ */
+export function rootsFor(spec: InstrumentSpec): number[] {
+  return [spec.rootHz / 2, spec.rootHz, spec.rootHz * 2];
+}
+
+/** Nota MIDI de una frecuencia (la 440 = 69). */
+export function midiDeHz(hz: number): number {
+  return Math.round(69 + 12 * Math.log2(hz / 440));
 }
 
 // ── Constantes de afinación ──────────────────────────────────────────────────
@@ -76,6 +101,20 @@ function hashSlug(slug: string): number {
     h = Math.imul(h, 0x01000193);
   }
   return h >>> 0;
+}
+
+/**
+ * Semilla de UNA toma concreta: el instrumento y la altura a la que se graba.
+ *
+ * La altura entra en la semilla a propósito. Las tres tomas de un pad comparten
+ * slug, y con la semilla vieja compartían también las desafinaciones, las fases
+ * de arranque y las frecuencias de la deriva lenta: al sonar juntas en el
+ * teclado no sonaban a sección, sonaban a una sola fuente doblada, porque su
+ * "respiración" iba enganchada. Se redondea a centésimas de Hz para que la
+ * semilla no dependa del ruido del punto flotante.
+ */
+function semillaDe(slug: string, f0: number): number {
+  return hashSlug(`${slug}@${Math.round(f0 * 100)}`);
 }
 
 /** mulberry32: PRNG rápido y determinista; devuelve [0, 1). */
@@ -127,11 +166,17 @@ function tablaSierra(parciales: number): Float32Array {
 }
 
 /**
- * Nº de parciales para una raíz: banda limitada a ~12 kHz (deja margen para
- * que el sampler repitchee hacia arriba sin alias grosero) y al Nyquist.
+ * Nº de parciales para una raíz: banda limitada y al Nyquist.
+ *
+ * El tope sube de 12 a 14 kHz con el pack multisample, y es la mejora que
+ * viene gratis: el margen existía para que el sampler pudiera repitchear hacia
+ * arriba sin alias grosero, y con una raíz por octava el estiramiento hacia
+ * arriba es de media octava (×1,41) en vez de tres octavas. 14 kHz × 1,41 son
+ * 19,8 kHz, todavía por debajo del Nyquist de 44,1. Y el tamaño del archivo no
+ * cambia: en PCM depende de la duración, no del ancho de banda.
  */
 function parcialesPara(f0: number, sr: number): number {
-  const tope = Math.min(12000, sr * 0.42);
+  const tope = Math.min(14000, sr * 0.42);
   return Math.max(8, Math.min(120, Math.floor(tope / f0)));
 }
 
@@ -260,8 +305,16 @@ function terminar(slug: string, l: Float32Array, r: Float32Array, sr: number): S
 // ── Familias de síntesis ─────────────────────────────────────────────────────
 
 type Render = (sampleRate: number) => StereoRender;
-/** Las fábricas reciben el slug al montar el catálogo (semilla del PRNG). */
-type PorSlug = (slug: string) => Render;
+/**
+ * Una fábrica de instrumento: recibe el slug (semilla del PRNG) y la ALTURA
+ * a la que hay que grabar esta toma, en Hz.
+ *
+ * La altura es un parámetro y no una constante desde que el pack es
+ * multisample. Antes `rootHz` era solo metadato del manifest y la altura de
+ * verdad vivía dentro de cada síntesis: los dos podían dejar de coincidir sin
+ * que nada lo notara.
+ */
+type PorRaiz = (slug: string, f0: number) => Render;
 
 // — Piano acústico (aditivo con inarmonicidad de cuerda) —
 
@@ -279,9 +332,9 @@ interface OpcionesPiano {
   martillo: number;
 }
 
-function piano(o: OpcionesPiano): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function piano(o: OpcionesPiano): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
     interface Parcial {
       ampl: number;
@@ -292,7 +345,7 @@ function piano(o: OpcionesPiano): PorSlug {
     }
     const parciales: Parcial[] = [];
     for (let k = 1; k <= o.parciales; k++) {
-      const fk = HZ_C4 * k * Math.sqrt(1 + o.inarmonicidad * k * k);
+      const fk = f0 * k * Math.sqrt(1 + o.inarmonicidad * k * k);
       if (fk > sr * 0.45) break;
       // ±0.6 cent opuesto por canal: batido de cuerdas y ancho suave mono-compatible.
       const des = (rng() - 0.5) * 1.2;
@@ -350,12 +403,12 @@ interface OpcionesEP {
   saturacion?: number;
 }
 
-function pianoElectrico(o: OpcionesEP): PorSlug {
-  return (slug) => (sr) => {
+function pianoElectrico(o: OpcionesEP): PorRaiz {
+  return (slug, f0) => (sr) => {
     const { l, r, n } = crearCanales(sr, o.dur);
     for (let i = 0; i < n; i++) {
       const t = i / sr;
-      const fase = TAU * HZ_C4 * t;
+      const fase = TAU * f0 * t;
       const iTine = o.indice * Math.exp(-t / o.caidaIndice);
       const tine = Math.sin(fase + iTine * Math.sin(o.ratio * fase)) * Math.exp(-1.5 * t);
       const iCuerpo = o.indiceCuerpo * Math.exp(-0.9 * t);
@@ -435,13 +488,13 @@ function vozKS(
   return out;
 }
 
-function guitarra(o: OpcionesCuerda): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function guitarra(o: OpcionesCuerda): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
     for (const voz of o.voces) {
       const cuerda = vozKS(
-        sr, n, HZ_C3, o.perdida, o.amortiguacion, o.brilloExcHz, voz.offsetMuestras, rng,
+        sr, n, f0, o.perdida, o.amortiguacion, o.brilloExcHz, voz.offsetMuestras, rng,
       );
       const ang = ((voz.pan + 1) * Math.PI) / 4;
       const gl = Math.cos(ang) * voz.nivel;
@@ -495,11 +548,11 @@ interface OpcionesBajoSub {
   click?: number;
 }
 
-function bajoSustractivo(o: OpcionesBajoSub): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
-    const sierra = tablaSierra(parcialesPara(HZ_C2, sr));
+    const sierra = tablaSierra(parcialesPara(f0, sr));
     const svf = new FiltroSVF(sr);
     const lpClick = new FiltroLP1(sr);
     const nClick = o.click !== undefined ? Math.min(n, Math.round(0.004 * sr)) : 0;
@@ -507,7 +560,7 @@ function bajoSustractivo(o: OpcionesBajoSub): PorSlug {
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       let x = leerTabla(sierra, fase);
-      fase += HZ_C2 / sr;
+      fase += f0 / sr;
       if (i < nClick && o.click !== undefined) {
         x += lpClick.procesar(rng() * 2 - 1, 5000) * o.click * (1 - i / nClick) * 3;
       }
@@ -522,12 +575,12 @@ function bajoSustractivo(o: OpcionesBajoSub): PorSlug {
 }
 
 /** Seno + octava con drive suave: sub redondo que se sienta sin ocupar medios. */
-function bajoRedondo(dur: number): PorSlug {
-  return (slug) => (sr) => {
+function bajoRedondo(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
     const { l, r, n } = crearCanales(sr, dur);
     for (let i = 0; i < n; i++) {
       const t = i / sr;
-      const w = TAU * HZ_C2 * t;
+      const w = TAU * f0 * t;
       let x = Math.sin(w) + 0.35 * Math.sin(2 * w + 0.4);
       x = Math.tanh(x * 1.7) / Math.tanh(1.7);
       const env = envAtaque(t, 0.008) * envSalida(t, dur - 0.9, 0.3);
@@ -539,14 +592,14 @@ function bajoRedondo(dur: number): PorSlug {
 }
 
 /** FM 2:1 con feedback leve en el modulador y el índice "respirando" a 4.3 Hz. */
-function bajoGrowl(dur: number): PorSlug {
-  return (slug) => (sr) => {
+function bajoGrowl(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
     const { l, r, n } = crearCanales(sr, dur);
     const lp = new FiltroLP1(sr);
     let mPrevio = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
-      const w = TAU * HZ_C2 * t;
+      const w = TAU * f0 * t;
       const m = Math.sin(2 * w + 0.35 * mPrevio);
       mPrevio = m;
       const indice = (1.8 + 1.7 * Math.exp(-t / 0.5)) * (1 + 0.18 * Math.sin(TAU * 4.3 * t));
@@ -575,9 +628,9 @@ interface OpcionesOrgano {
   coroCents: number;
 }
 
-function organo(o: OpcionesOrgano): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function organo(o: OpcionesOrgano): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
     const fasesL = new Float64Array(o.barras.length);
     const fasesR = new Float64Array(o.barras.length);
@@ -596,14 +649,14 @@ function organo(o: OpcionesOrgano): PorSlug {
       let xr = 0;
       for (let b = 0; b < o.barras.length; b++) {
         const [ratio, nivel] = o.barras[b]!;
-        const f = HZ_C4 * ratio * vib;
+        const f = f0 * ratio * vib;
         fasesL[b] = fasesL[b]! + (TAU * f * desL) / sr;
         fasesR[b] = fasesR[b]! + (TAU * f * desR) / sr;
         xl += nivel * Math.sin(fasesL[b]!);
         xr += nivel * Math.sin(fasesR[b]!);
       }
       if (o.percusion !== undefined) {
-        fasePerc += (TAU * HZ_C4 * o.percusion.ratio) / sr;
+        fasePerc += (TAU * f0 * o.percusion.ratio) / sr;
         const p = o.percusion.nivel * Math.exp(-t / o.percusion.caida) * Math.sin(fasePerc);
         xl += p;
         xr += p;
@@ -624,11 +677,11 @@ function organo(o: OpcionesOrgano): PorSlug {
 // — Pads (ataque ≤ 60 ms: en Orbit los pads lentos suenan tarde) —
 
 /** Ensemble de 6 sierras desafinadas con deriva lenta propia + LPF por canal. */
-function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
-    const sierra = tablaSierra(parcialesPara(HZ_C4, sr));
+    const sierra = tablaSierra(parcialesPara(f0, sr));
     const DETUNES = [-12, -7, -2, 3, 8, 13];
     const PANS = [-0.8, 0.5, -0.25, 0.25, -0.5, 0.8];
     interface Voz {
@@ -657,7 +710,7 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
       let xl = 0;
       let xr = 0;
       for (const v of voces) {
-        const f = HZ_C4 * centavos(v.detune + 2.5 * Math.sin(TAU * v.driftHz * t + v.faseLfo));
+        const f = f0 * centavos(v.detune + 2.5 * Math.sin(TAU * v.driftHz * t + v.faseLfo));
         v.fase += f / sr;
         const s = leerTabla(sierra, v.fase);
         xl += s * v.gl;
@@ -674,14 +727,14 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
 }
 
 /** Sierra ±5 cents (una por canal) + pulso 30% al centro, todo bajo LPF cálido. */
-function padCalido(dur: number): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function padCalido(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
-    const sierra = tablaSierra(parcialesPara(HZ_C4, sr));
-    const incL = (HZ_C4 * centavos(-5)) / sr;
-    const incR = (HZ_C4 * centavos(5)) / sr;
-    const incC = HZ_C4 / sr;
+    const sierra = tablaSierra(parcialesPara(f0, sr));
+    const incL = (f0 * centavos(-5)) / sr;
+    const incR = (f0 * centavos(5)) / sr;
+    const incC = f0 / sr;
     let fL = rng();
     let fR = rng();
     let fC = rng();
@@ -704,9 +757,9 @@ function padCalido(dur: number): PorSlug {
 }
 
 /** Parciales pares con "respiración" lenta e independiente: vidrio/aire. */
-function padVidrio(dur: number): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function padVidrio(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const RATIOS = [1, 2, 4, 6, 8];
     const NIVELES = [0.55, 1, 0.55, 0.4, 0.28];
@@ -721,8 +774,8 @@ function padVidrio(dur: number): PorSlug {
     const partes: Parcial[] = RATIOS.map((ratio, idx) => {
       const des = (rng() - 0.5) * 3; // ±1.5 cents entre canales
       return {
-        wL: (TAU * HZ_C4 * ratio * centavos(des)) / sr,
-        wR: (TAU * HZ_C4 * ratio * centavos(-des)) / sr,
+        wL: (TAU * f0 * ratio * centavos(des)) / sr,
+        wR: (TAU * f0 * ratio * centavos(-des)) / sr,
         nivel: NIVELES[idx]!,
         lfoHz: 0.15 + rng() * 0.35,
         faseLfo: rng() * TAU,
@@ -764,13 +817,13 @@ interface OpcionesCampana {
   tick?: number;
 }
 
-function campanaFM(o: OpcionesCampana): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function campanaFM(o: OpcionesCampana): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
-    const wL = (TAU * HZ_C5 * centavos(1.2)) / sr;
-    const wR = (TAU * HZ_C5 * centavos(-1.2)) / sr;
-    const wHum = (TAU * HZ_C5 * 0.5) / sr;
+    const wL = (TAU * f0 * centavos(1.2)) / sr;
+    const wR = (TAU * f0 * centavos(-1.2)) / sr;
+    const wHum = (TAU * f0 * 0.5) / sr;
     const nTick = o.tick !== undefined ? Math.min(n, Math.round(0.002 * sr)) : 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
@@ -802,9 +855,9 @@ function campanaFM(o: OpcionesCampana): PorSlug {
 }
 
 /** Aditivo 1:4:10 (afinación de barras de vibráfono) + trémolo de motor. */
-function vibrafono(dur: number): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function vibrafono(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const RATIOS = [1, 4, 10];
     const NIVELES = [1, 0.32, 0.1];
@@ -818,8 +871,8 @@ function vibrafono(dur: number): PorSlug {
     const barras: Barra[] = RATIOS.map((ratio, idx) => {
       const des = (rng() - 0.5) * 2; // ±1 cent entre canales
       return {
-        wL: (TAU * HZ_C5 * ratio * centavos(des)) / sr,
-        wR: (TAU * HZ_C5 * ratio * centavos(-des)) / sr,
+        wL: (TAU * f0 * ratio * centavos(des)) / sr,
+        wR: (TAU * f0 * ratio * centavos(-des)) / sr,
         nivel: NIVELES[idx]!,
         caida: CAIDAS[idx]!,
       };
@@ -853,16 +906,16 @@ function vibrafono(dur: number): PorSlug {
 // — Leads y viento (C4) —
 
 /** Pulso 42% con vibrato tardío (entra a los 0.55 s): lead clásico de synth. */
-function leadCuadrada(dur: number): PorSlug {
-  return (slug) => (sr) => {
+function leadCuadrada(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
     const { l, r, n } = crearCanales(sr, dur);
-    const sierra = tablaSierra(parcialesPara(HZ_C4, sr));
+    const sierra = tablaSierra(parcialesPara(f0, sr));
     const lp = new FiltroLP1(sr);
     let fase = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const prof = 12 * rampa(t, 0.55, 0.5);
-      const f = HZ_C4 * centavos(prof * Math.sin(TAU * 5.6 * t));
+      const f = f0 * centavos(prof * Math.sin(TAU * 5.6 * t));
       fase += f / sr;
       const x = lp.procesar(leerPulso(sierra, fase, 0.42), 7000);
       const env = envAtaque(t, 0.01) * envSalida(t, dur - 0.55, 0.22);
@@ -874,9 +927,9 @@ function leadCuadrada(dur: number): PorSlug {
 }
 
 /** Seno + armónicos suaves + soplo band-pass (chiff al ataque) + vibrato tardío. */
-function flauta(dur: number): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function flauta(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const bpL = new FiltroSVF(sr);
     const bpR = new FiltroSVF(sr);
@@ -884,7 +937,7 @@ function flauta(dur: number): PorSlug {
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const vib = Math.sin(TAU * 5.1 * t) * rampa(t, 0.45, 0.5);
-      const f = HZ_C4 * centavos(9 * vib);
+      const f = f0 * centavos(9 * vib);
       fase += (TAU * f) / sr;
       const tono =
         (Math.sin(fase) + 0.18 * Math.sin(2 * fase) + 0.06 * Math.sin(3 * fase)) *
@@ -902,11 +955,11 @@ function flauta(dur: number): PorSlug {
 }
 
 /** Sierra con unison de 3 voces (±7 cents a los lados) y vibrato sutil tardío. */
-function leadSierra(dur: number): PorSlug {
-  return (slug) => (sr) => {
-    const rng = mulberry32(hashSlug(slug));
+function leadSierra(dur: number): PorRaiz {
+  return (slug, f0) => (sr) => {
+    const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
-    const sierra = tablaSierra(parcialesPara(HZ_C4, sr));
+    const sierra = tablaSierra(parcialesPara(f0, sr));
     const desL = centavos(-7);
     const desR = centavos(7);
     let fC = rng();
@@ -918,9 +971,9 @@ function leadSierra(dur: number): PorSlug {
       const t = i / sr;
       const prof = 6 * rampa(t, 0.7, 0.5);
       const vib = centavos(prof * Math.sin(TAU * 5.4 * t));
-      fC += (HZ_C4 * vib) / sr;
-      fL += (HZ_C4 * vib * desL) / sr;
-      fR += (HZ_C4 * vib * desR) / sr;
+      fC += (f0 * vib) / sr;
+      fL += (f0 * vib * desL) / sr;
+      fR += (f0 * vib * desR) / sr;
       const centro = leerTabla(sierra, fC) * 0.6;
       const xl = lpL.procesar(centro + leerTabla(sierra, fL) * 0.55, 6500);
       const xr = lpR.procesar(centro + leerTabla(sierra, fR) * 0.55, 6500);
@@ -941,9 +994,20 @@ function spec(
   tags: string[],
   rootHz: number,
   gainSuggestion: number,
-  crear: PorSlug,
+  crear: PorRaiz,
 ): InstrumentSpec {
-  return { slug, name, subcategory, tags, keyRoot: 'C', rootHz, gainSuggestion, render: crear(slug) };
+  return {
+    slug,
+    name,
+    subcategory,
+    tags,
+    keyRoot: 'C',
+    rootHz,
+    gainSuggestion,
+    // Sin altura, la suya: `render(sr)` sigue dando exactamente el sample de
+    // siempre y quien no sepa de multisample no se entera de nada.
+    render: (sr, hz = rootHz) => crear(slug, hz)(sr),
+  };
 }
 
 export const INSTRUMENTS: InstrumentSpec[] = [

@@ -620,6 +620,14 @@ export function Browser() {
       >
         <span className="browser-entry-dot" aria-hidden="true" />
         <span className="browser-entry-name">{entry.name}</span>
+        {entry.samples !== undefined && entry.samples.length > 1 && (
+          <span
+            className="browser-badge multi"
+            title={`Instrumento con ${entry.samples.length} grabaciones: entra ya repartido por el teclado, no estirado`}
+          >
+            ×{entry.samples.length}
+          </span>
+        )}
         {entry.keyRoot !== undefined && (
           <span className="browser-badge" title={`Tonalidad ${entry.keyRoot}`}>
             {entry.keyRoot}
