@@ -48,8 +48,28 @@ const SR = 44100;
 
 const hayPack = fs.existsSync(MANIFEST);
 
+type Wav = { left: Float32Array; right: Float32Array; rate: number };
+
+/**
+ * Los WAV decodificados, cacheados.
+ *
+ * No es una optimización por gusto: sin ella este archivo decodifica los mismos
+ * 72 archivos cientos de veces —una por nota tocada— y el conjunto se pone a
+ * rozar el tiempo máximo de un test. Un test que a veces tarda de más es peor
+ * que uno lento: falla cuando la máquina está ocupada y no cuando hay un fallo.
+ */
+const cache = new Map<string, Wav>();
+
+function leerWav(file: string): Wav {
+  const guardado = cache.get(file);
+  if (guardado) return guardado;
+  const wav = decodificarWav(file);
+  cache.set(file, wav);
+  return wav;
+}
+
 /** Lector mínimo de WAV PCM 16 bits (lo que escribe el generador). */
-function leerWav(file: string): { left: Float32Array; right: Float32Array; rate: number } {
+function decodificarWav(file: string): Wav {
   const buf = fs.readFileSync(path.join(PACK, file));
   const ascii = (off: number, n: number) => buf.toString('ascii', off, off + n);
   if (ascii(0, 4) !== 'RIFF' || ascii(8, 4) !== 'WAVE') throw new Error(`${file}: no es un WAV`);
