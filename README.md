@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.1.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-1335%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.2.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-1544%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -57,16 +57,17 @@ guardables con nombre).
    Export offline a WAV 16/24/32, FLAC, MP3, stems por pista y normalización a
    -14 LUFS.
 3. **Se toca y se graba** — controladores MIDI de verdad (cada dispositivo
-   aparte, canal, octava, curva de pulsación, pedal de sostenido y **MIDI
-   learn** sobre cualquier perilla), grabación al patrón con el tiempo del
-   evento y overdub por vuelta, **monitor de micro con la cadena del canal
-   puesta** y tomas grabadas **en crudo por el kernel**, sin códec de por medio.
-
-4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos**
-
-   generados por síntesis propia) con categorías, tags de género/tonalidad/BPM,
-   detección automática de BPM y tonalidad, búsqueda instantánea y preview
-   renderizado por el propio kernel.
+   aparte, canal, octava, curva de pulsación, pedal de sostenido, **rueda de
+   tono que reafina la voz viva** en los diez instrumentos y **MIDI learn**
+   sobre cualquier perilla), grabación al patrón con el tiempo del evento y
+   overdub por vuelta, **monitor de micro con la cadena del canal puesta** y
+   tomas grabadas **en crudo por el kernel**, sin códec de por medio.
+4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos
+   en 132 grabaciones**, generados por síntesis propia, con los **24
+   instrumentos en multisample**: tres alturas cada uno, repartidas por el
+   teclado) con categorías, tags de género/tonalidad/BPM, detección automática
+   de BPM y tonalidad, búsqueda instantánea, **selección múltiple y arrastre
+   por grupos**, y preview renderizado por el propio kernel.
 5. **Colaboración en tiempo real** — el proyecto es un log de comandos sobre
 
    CRDT (Yjs): salas por código de 6 letras **con contraseña opcional que nunca
@@ -83,7 +84,58 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.1.0 — "el instrumento entero".** Un canal de sampler tenía UN sample y lo
+**v3.2.0 — "el pack suena a instrumentos".** Tres entregas que van juntas
+porque las tres arreglan la misma cosa: que Orbit sonara a *muestras* y no a
+*instrumentos*.
+
+**El pack de fábrica, en multisample.** Los 24 instrumentos eran una muestra
+estirada por cinco octavas — justo lo que la v3.1 vino a arreglar y que el pack
+todavía no usaba. Ahora cada uno se graba en su registro natural y una octava a
+cada lado, y entra en el rack ya repartido por el teclado. Que la altura fuera
+un parámetro y no una constante sacó cuatro cosas que solo se ven al grabar el
+mismo instrumento en dos octavas: las tres tomas de un pad compartían las fases
+y la deriva del ruido (sonaban a una fuente doblada, no a una sección); los
+filtros de los sintéticos no seguían a la nota (el pad grave brillante, el
+agudo apagado, y el escalón justo al cruzar de zona); la cuerda pulsada iba
+desafinada consigo misma porque su retardo estaba redondeado a muestras
+enteras; y el tine 14:1 del piano eléctrico doblaba por encima del muestreo en
+el registro alto. **Y el bajo del pack ahora suena donde dice el piano roll** —
+antes, grabado en C2 y colocado en la tecla 60, sonaba dos octavas más abajo
+que lo que enseñaba la pantalla.
+
+De regalo, el techo de banda sube de 12 a 14 kHz: existía para dejar sitio al
+estiramiento, y ahora el estiramiento es la sexta parte. En PCM el tamaño
+depende de la duración, no del ancho de banda, así que son 2 kHz de aire
+gratis. El pack pasa de 22 a 41 MB.
+
+**La rueda de tono dobla el tono.** Entraba como un mando más: doblaba lo que
+le hubieras asignado, o nada. Ahora reafina la voz VIVA, en los diez
+instrumentos — cada uno con su moneda: frecuencia los sintes, ritmo de lectura
+el sampler, la fundamental de la que cuelgan las capas en Nova y Prisma, y en
+el kit la parte tonal *y* el filtro, porque un hat es ruido y no tiene altura
+que doblar pero su banda sí se mueve. La otra mitad del trabajo es que el
+kernel se guarda los semitonos por canal: una nota tocada con la rueda sujeta
+**nace ya doblada**, en vez de trepar sola durante el ataque. Rango elegible
+(±1 a ±24) y zona muerta en el centro, porque una rueda con muelle no vuelve
+nunca al 8192 exacto.
+
+**Muestras al keymap en bloque.** Montar un piano de treinta muestras eran
+treinta arrastres y treinta deshaceres. Ahora el Browser tiene selección
+múltiple (Ctrl y Mayús) y las cabeceras arrastran su grupo entero — una
+categoría, una carpeta tuya, un pack generado — y el drop cae en un solo
+deshacer, reparta zonas de keymap, canales del rack o clips de la playlist.
+Por el camino salieron dos falsos positivos del auto-mapa que soltar una
+carpeta habría vuelto lo normal: la nota se buscaba en la RUTA entera (una
+carpeta llamada «Piano C3» colocaba las treinta muestras en el mismo do) y
+`take01/02/03` se leían como las teclas 1, 2 y 3.
+
+Y un tercero que no era de esta entrega: **el generador del pack llevaba roto**
+y nadie podía verlo, porque `packages/*/generate` no estaba en el typecheck.
+
+<details>
+<summary><b>v3.1.0 — "el instrumento entero"</b></summary>
+
+Un canal de sampler tenía UN sample y lo
 estiraba por todo el teclado con keytrack: un piano grabado en do sonaba a
 chipmunk dos octavas arriba y a monstruo dos abajo, porque cambiar la
 velocidad de lectura mueve las formantes y el tiempo del ataque con el tono.
@@ -105,6 +157,8 @@ De regalo, un fallo que habría salido mudo: el recolector de samples del
 **export** miraba solo el sample del canal, así que un instrumento multisample
 se habría renderizado en silencio. Ahora esa decisión es una función pura con
 sus pruebas.
+
+</details>
 
 <details>
 <summary><b>v3.0.0 — "la toma en vivo"</b></summary>
@@ -166,9 +220,9 @@ de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **El pack de fábrica, en multisample** | Los 24 instrumentos del pack son una muestra estirada por todo el teclado, que es justo lo que la v3.1 vino a arreglar. Generarlos con tres o cuatro raíces cada uno y su keymap montado es lo que haría que el pack sonara como suena un instrumento de verdad — y toca el generador, el manifest y el tamaño del instalador, así que es su propia entrega |
-| **Muestras al keymap en bloque** | Hoy se sueltan de una en una: el Browser arrastra una entrada. Soltar una carpeta entera —o una selección múltiple— es lo que pide un piano de treinta muestras |
-| **Rueda de tono que doble el tono** | Hoy la rueda entra como un mando más y mueve el parámetro que le asignes. Doblar una voz VIVA pide reafinar por voz en el kernel, y de los diez instrumentos no todos saben: `glideTo` existe pero la mitad ignora el cambio después de nacer. Hacerlo a medias sería peor que no hacerlo — se notaría en unos sonidos sí y en otros no |
+| **Capas de velocidad en el pack de fábrica** | Los instrumentos ya se graban a tres alturas, pero una sola pulsación: un piano golpeado flojo suena igual que uno golpeado fuerte, solo más bajito. Dos o tres capas por altura son otras 48 grabaciones y otros 20 MB de instalador, así que es su propia decisión |
+| **Archivos sueltos del Explorador al keymap** | Se pueden soltar carpetas registradas y selecciones del Browser, pero un arrastre desde el Explorador de Windows no hace nada. El proceso principal desconfía a propósito de las rutas que le pasa el renderer —las carpetas solo entran por el diálogo nativo—, así que abrir esa puerta es una decisión de seguridad, no un handler más |
+| **La rueda, grabada** | La rueda dobla la voz viva, pero lo que dobló no queda en el patrón: grabar tocando guarda las notas y no el gesto. Pide una curva de automatización por canal y decidir qué pasa al editarla a mano |
 | **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
 

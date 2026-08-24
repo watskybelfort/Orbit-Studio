@@ -6,7 +6,63 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 23-08-2026: v3.1.0
+## Estado — 23-08-2026: v3.2.0
+
+v3.2, "el pack suena a instrumentos". Tres entregas del roadmap de la v3.1, y
+van juntas porque las tres arreglan lo mismo: que Orbit sonara a muestras y no
+a instrumentos.
+
+**El pack de fábrica, en multisample.** `rootHz` era mentira: estaba en el
+catálogo como metadato del manifest, pero la altura de verdad la ponía una
+constante de módulo leída dentro de cada síntesis, así que los dos podían
+dejar de coincidir sin que nada se enterase. Ahora es un parámetro
+(`render(sr, rootHz)`) y cada instrumento se graba a tres alturas.
+
+Threading la altura salieron cuatro cosas que solo se ven al grabar el mismo
+instrumento en dos octavas, y las cuatro se oyen:
+
+- La semilla del PRNG lleva la altura. Con la vieja —solo el slug— las tres
+  tomas de un pad compartían desafinaciones, fases y frecuencias de deriva:
+  juntas no sonaban a sección, sonaban a una fuente doblada.
+- Los filtros de los instrumentos SINTÉTICOS siguen a la nota; los de los
+  ACÚSTICOS no. El martillo del piano y el soplo de la flauta son formantes —
+  no se mueven con la nota, y esa es exactamente la razón de grabar varias
+  alturas en vez de estirar una.
+- La cuerda pulsada se afina con retardo fraccionario. Media muestra de
+  redondeo son 0,7 cents abajo y 2,6 arriba: la guitarra salía desafinada
+  consigo misma y el escalón caía al cruzar de zona.
+- Guardas de Nyquist donde el FM se sale (el tine 14:1 del piano eléctrico).
+
+Y el bajo del pack ahora suena donde dice el piano roll: grabado en C2 y
+colocado en la tecla 60, sonaba dos octavas más abajo que la pantalla.
+
+El pack pasa de 22 a 41 MB, y el techo de banda de 12 a 14 kHz (existía para
+dejar sitio al estiramiento, y el estiramiento es ahora la sexta parte; en PCM
+el tamaño no depende del ancho de banda).
+
+**La rueda de tono dobla el tono.** `Voice.retune()` es ahora el único sitio
+donde una voz se reafina, y de él cuelgan el slide y la rueda: lo que arregle
+uno no se le puede olvidar al otro. Cada instrumento lo implementa con su
+moneda. El kernel guarda los semitonos POR CANAL, que es la otra mitad: una
+nota tocada con la rueda sujeta nace ya doblada (`snap`) en vez de trepar sola.
+
+**Muestras al keymap en bloque.** Payload de arrastre plural (manteniendo el
+MIME de siempre, que es lo que consultan los `dragover` de todos los destinos),
+selección múltiple en el Browser con su lógica aparte y probada, y cabeceras
+que arrastran su grupo. Los tres destinos reparten en un solo deshacer.
+
+**Tres fallos que estaban ahí antes**: el auto-mapa leía la nota de la RUTA
+(una carpeta «Piano C3» apilaba treinta muestras en un do) y `take01/02/03` se
+tomaban por las teclas 1, 2 y 3; y el generador del pack llevaba roto —le
+faltaban campos que el kernel dio por obligatorios— sin que nadie pudiera
+verlo, porque `packages/*/generate` no estaba en el typecheck.
+
+**Fuera, con motivo escrito**: capas de velocidad en el pack (otras 48
+grabaciones y 20 MB), soltar archivos del Explorador (el proceso principal
+desconfía a propósito de las rutas del renderer: es una decisión de seguridad)
+y grabar el gesto de la rueda como automatización. 1544 tests.
+
+## Estado anterior — 23-08-2026: v3.1.0
 
 v3.1, "el instrumento entero". Multisample: un canal de sampler con varias
 muestras repartidas por teclas y por velocidad, en vez de una estirada por todo
@@ -45,7 +101,7 @@ muestras que ya tiene el proyecto.
 generador, el manifest y el tamaño del instalador: su propia entrega) y soltar
 muestras en bloque (el Browser arrastra una entrada cada vez). 1335 tests.
 
-## Estado anterior — 23-08-2026: v3.0.0
+## Estado de la v3.0.0 — 23-08-2026
 
 
 v3.0, "la toma en vivo". Orbit producía de maravilla y no se tocaba: esta
