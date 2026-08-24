@@ -88,6 +88,10 @@ function proyecto(o: ProyectoOpts): CompiledProject {
     volume: 1,
     pan: 0,
     stereoWidth: 1,
+    // EQ del strip plana: el pack se genera sin tocar nada del máster.
+    eqLow: 0,
+    eqMid: 0,
+    eqHigh: 0,
     audible: true,
     slots: o.masterSlots ?? [],
     routeTo: null,
@@ -100,6 +104,7 @@ function proyecto(o: ProyectoOpts): CompiledProject {
     events: [...o.events].sort((a, b) => a.start - b.start),
     audioClips: [],
     automation: o.automation ?? [],
+    lfos: [],
     mixer: [master],
     mixerOrder: [0],
   };

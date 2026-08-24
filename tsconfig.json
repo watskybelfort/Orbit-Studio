@@ -33,6 +33,7 @@
     "apps/server/src",
     "apps/*/test",
     "packages/*/src",
-    "packages/*/test"
+    "packages/*/test",
+    "packages/*/generate"
   ]
 }
