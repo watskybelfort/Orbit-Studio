@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { describeParamRef } from '@orbit/core';
 import {
   MIDI_QUANTIZE,
+  setMidiBendRange,
   setMidiChannel,
   setMidiDeviceEnabled,
   setMidiOctave,
@@ -24,7 +25,7 @@ import {
   removeMidiMapping,
   useMidiLearnStore,
 } from '../state/midi-learn';
-import { VELOCITY_CURVES } from '../state/midi-message';
+import { BEND_RANGES, VELOCITY_CURVES } from '../state/midi-message';
 import { useProject } from '../state/useProject';
 
 /** Cuánto se queda encendido el LED tras el último mensaje. */
@@ -37,6 +38,8 @@ export function MidiSection() {
   const octave = useLiveInputStore((s) => s.octave);
   const curve = useLiveInputStore((s) => s.velocityCurve);
   const quantize = useLiveInputStore((s) => s.quantize);
+  const bendRange = useLiveInputStore((s) => s.bendRange);
+  const bend = useLiveInputStore((s) => s.bendSemitones);
 
   const heldKeys = useLiveInputStore((s) => s.heldKeys);
   const sustainedKeys = useLiveInputStore((s) => s.sustainedKeys);
@@ -129,6 +132,32 @@ export function MidiSection() {
         >
           0
         </button>
+      </div>
+
+      <div className="set-row">
+        <span className="set-label">Rueda de tono</span>
+        <select
+          className="set-select"
+          value={bendRange}
+          onChange={(e) => setMidiBendRange(Number(e.target.value))}
+          title="Cuánto dobla la rueda arriba del todo"
+        >
+          {BEND_RANGES.map((r) => (
+            <option key={r} value={r}>
+              &plusmn;{r} {r === 1 ? 'semitono' : 'semitonos'}
+            </option>
+          ))}
+        </select>
+        <span className="set-value">
+          {/* El valor vivo es la mitad de lo que sirve esto: con la rueda del
+              teclado en la mano, es lo único que dice si sus mensajes llegan
+              y si el rango es el que se esperaba. */}
+          {bend === 0
+            ? bendRange === 12
+              ? 'Una octava entera'
+              : 'Centrada'
+            : `Doblando ${bend > 0 ? '+' : ''}${bend.toFixed(2)} st`}
+        </span>
       </div>
 
       <div className="set-row">

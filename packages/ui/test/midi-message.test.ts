@@ -8,10 +8,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyVelocityCurve,
+  bendSemitones,
   channelMatches,
-  CC_SUSTAIN,
+  isBendRange,
   parseMidiMessage,
   transposeKey,
+  BEND_DEADZONE,
+  BEND_RANGE_DEFAULT,
+  BEND_RANGES,
+  CC_SUSTAIN,
 } from '../src/state/midi-message';
 
 describe('parseMidiMessage', () => {
@@ -122,5 +127,57 @@ describe('filtro de canal y transposición', () => {
     expect(transposeKey(127, 0)).toBe(127);
     expect(transposeKey(120, 1)).toBeNull();
     expect(transposeKey(5, -1)).toBeNull();
+  });
+});
+
+describe('rueda de tono', () => {
+  it('arriba del todo dobla el rango entero, abajo lo mismo al revés', () => {
+    expect(bendSemitones(1, 2)).toBe(2);
+    expect(bendSemitones(-1, 2)).toBe(-2);
+    expect(bendSemitones(1, 12)).toBe(12);
+    expect(bendSemitones(0.5, 12)).toBe(6);
+  });
+
+  it('centrada no dobla nada', () => {
+    expect(bendSemitones(0, 2)).toBe(0);
+    expect(bendSemitones(0, 24)).toBe(0);
+  });
+
+  it('la zona muerta se traga el muelle que no vuelve al centro exacto', () => {
+    // Es el caso real: una rueda física se queda en 8191 o en 8193 y manda un
+    // valor minúsculo para siempre. Sin zona muerta, el canal se quedaba
+    // marcado como doblado y el motor reafinando cada nota que nacía.
+    expect(bendSemitones(BEND_DEADZONE / 2, 2)).toBe(0);
+    expect(bendSemitones(-BEND_DEADZONE / 2, 2)).toBe(0);
+    // Pero justo por encima ya dobla: la zona muerta es del centro, no un
+    // redondeo que se coma los movimientos pequeños de verdad.
+    expect(bendSemitones(BEND_DEADZONE * 2, 12)).not.toBe(0);
+  });
+
+  it('una rueda que manda de más se acota, no se dispara', () => {
+    expect(bendSemitones(5, 2)).toBe(2);
+    expect(bendSemitones(-5, 2)).toBe(-2);
+  });
+
+  it('el rango de fábrica es el que trae cualquier teclado', () => {
+    expect(BEND_RANGE_DEFAULT).toBe(2);
+    expect(isBendRange(BEND_RANGE_DEFAULT)).toBe(true);
+    expect(BEND_RANGES).toContain(12);
+    expect(isBendRange(3.5)).toBe(false);
+    expect(isBendRange('2')).toBe(false);
+    expect(isBendRange(999)).toBe(false);
+  });
+
+  it('lo que sale del parser encaja con lo que espera el doblez', () => {
+    // La rueda arriba del todo son 16383 y el centro 8192: el parser da +1 y
+    // 0, y de ahí salen el rango entero y nada. Si estos dos dejaran de
+    // cuadrar, la rueda doblaría la mitad de lo que dice el ajuste.
+    const arriba = parseMidiMessage([0xe0, 0x7f, 0x7f]);
+    expect(arriba).toEqual({ kind: 'pitchBend', channel: 1, value: (16383 - 8192) / 8192 });
+    expect(bendSemitones((arriba as { value: number }).value, 12)).toBeCloseTo(12, 1);
+
+    const centro = parseMidiMessage([0xe0, 0x00, 0x40]);
+    expect(centro).toEqual({ kind: 'pitchBend', channel: 1, value: 0 });
+    expect(bendSemitones((centro as { value: number }).value, 12)).toBe(0);
   });
 });

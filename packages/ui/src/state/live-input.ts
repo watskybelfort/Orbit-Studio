@@ -15,18 +15,27 @@
 
 import { newId, type Note } from '@orbit/core';
 import { create } from 'zustand';
-import { beatAt, ensureAudioReady, store } from './app';
+import { beatAt, engine, ensureAudioReady, store } from './app';
 
 import { previewNote } from './active-notes';
 import {
   applyVelocityCurve,
+  bendSemitones,
   channelMatches,
+  isBendRange,
   isVelocityCurve,
   parseMidiMessage,
   transposeKey,
+  BEND_RANGE_DEFAULT,
   type VelocityCurve,
 } from './midi-message';
-import { ccSource, loadMidiMappings, onMidiControl, SOURCE_BEND } from './midi-learn';
+import {
+  ccSource,
+  handlesMidiSource,
+  loadMidiMappings,
+  onMidiControl,
+  SOURCE_BEND,
+} from './midi-learn';
 import { SustainPedal } from './sustain';
 
 import { useUiStore } from './ui';
@@ -80,6 +89,10 @@ export const useLiveInputStore = create<{
   velocityCurve: VelocityCurve;
   /** Rejilla a la que se cuadran los inicios grabados (id de MIDI_QUANTIZE). */
   quantize: string;
+  /** Semitonos que dobla la rueda de tono arriba del todo. */
+  bendRange: number;
+  /** Lo que dobla la rueda AHORA MISMO (indicador de Ajustes). */
+  bendSemitones: number;
 }>(() => ({
 
   midiInputs: 0,
@@ -93,6 +106,8 @@ export const useLiveInputStore = create<{
   octave: 0,
   velocityCurve: 'linear',
   quantize: '1/16',
+  bendRange: BEND_RANGE_DEFAULT,
+  bendSemitones: 0,
 }));
 
 /** Nota MIDI por tecla del PC (fila Z = C4=60, fila Q = C5=72). */
@@ -173,8 +188,42 @@ function push(h: HeldNote, endBeat: number): void {
   });
 }
 
+/**
+ * Canal que tiene la rueda doblada ahora mismo, si hay alguno.
+ *
+ * Hace falta acordarse: al cambiar de canal con la rueda sujeta —o al soltar
+ * todo— hay que RECENTRAR el que se deja atrás. Si no, ese canal se queda
+ * desafinado a la espera, y la próxima vez que se toque sonará movido sin que
+ * nada en pantalla lo explique.
+ */
+let bentChannel: number | null = null;
+
+/** Devuelve al centro el canal que estuviera doblado. */
+function recenterBend(): void {
+  if (bentChannel === null) return;
+  engine.pitchBend(bentChannel, 0);
+  bentChannel = null;
+  useLiveInputStore.setState({ bendSemitones: 0 });
+}
+
+/** La rueda de tono se movió: dobla el canal que se está tocando. */
+function applyPitchBend(value: number): void {
+  const ch = targetChannel();
+  const semitones = bendSemitones(value, useLiveInputStore.getState().bendRange);
+  if (bentChannel !== null && bentChannel !== ch?.index) recenterBend();
+  if (!ch) return;
+  if (semitones === 0 && bentChannel === null) return;
+  ensureAudioReady();
+  engine.pitchBend(ch.index, semitones);
+  bentChannel = semitones === 0 ? null : ch.index;
+  useLiveInputStore.setState({ bendSemitones: semitones });
+}
+
 /** Suelta lo que esté pulsado (todo, o solo lo de un prefijo de fuente). */
 function releaseAll(prefix = ''): void {
+  // Un panic recentra también la rueda: soltarlo todo y dejar el canal
+  // desafinado no es soltarlo todo.
+  if (prefix === '') recenterBend();
   // El pedal se olvida ANTES: si no, sus notas retenidas se saltarían el
   // note-off de abajo y se quedarían sonando sin nadie que las suelte.
   if (prefix === '') pedal.clear();
@@ -235,6 +284,7 @@ const SETTINGS_OCTAVE = 'midiInputOctave';
 const SETTINGS_CURVE = 'midiInputVelocityCurve';
 const SETTINGS_DISABLED = 'midiInputDisabled';
 const SETTINGS_QUANTIZE = 'midiRecordQuantize';
+const SETTINGS_BEND_RANGE = 'midiBendRange';
 
 /** Ids de dispositivo que el usuario apagó (se recuerdan entre sesiones). */
 let disabledIds = new Set<string>();
@@ -274,6 +324,17 @@ export function setMidiQuantize(id: string): void {
   persist({ [SETTINGS_QUANTIZE]: id });
 }
 
+/** Semitonos que dobla la rueda de tono arriba del todo. */
+export function setMidiBendRange(semitones: number): void {
+  if (!isBendRange(semitones)) return;
+  // Cambiar el rango con la rueda sujeta dejaría el canal doblado la cantidad
+  // vieja hasta el mensaje siguiente: se recentra y que la rueda lo diga otra
+  // vez con el rango nuevo.
+  recenterBend();
+  useLiveInputStore.setState({ bendRange: semitones });
+  persist({ [SETTINGS_BEND_RANGE]: semitones });
+}
+
 /** Prefijo de fuente de un dispositivo (para soltar solo lo suyo). */
 function sourcePrefix(deviceId: string): string {
   return 'midi:' + deviceId + ':';
@@ -303,6 +364,7 @@ async function loadSettings(): Promise<void> {
     octave: number;
     velocityCurve: VelocityCurve;
     quantize: string;
+    bendRange: number;
   }> = {};
 
   const channel = raw[SETTINGS_CHANNEL];
@@ -315,6 +377,9 @@ async function loadSettings(): Promise<void> {
   if (typeof quantize === 'string' && MIDI_QUANTIZE.some((q) => q.id === quantize)) {
     patch.quantize = quantize;
   }
+
+  const bendRange = raw[SETTINGS_BEND_RANGE];
+  if (isBendRange(bendRange)) patch.bendRange = bendRange;
 
   const disabled = raw[SETTINGS_DISABLED];
   if (Array.isArray(disabled)) {
@@ -482,10 +547,12 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       onMidiControl(ccSource(msg.controller), msg.value);
       break;
     case 'pitchBend':
-      // La rueda de tono entra como un mando más (bipolar → 0..1). Doblar el
-      // tono de una voz VIVA es otra cosa: pediría reafinar por voz en el
-      // kernel, y no todos los instrumentos saben.
-      onMidiControl(SOURCE_BEND, (msg.value + 1) / 2);
+      // La rueda dobla el TONO del canal que se está tocando. Salvo que
+      // alguien la haya atado a un destino con MIDI learn: entonces manda el
+      // destino, porque atarla ahí fue una decisión. Hacer las dos cosas sería
+      // un mando que mueve algo y además desafina.
+      if (handlesMidiSource(SOURCE_BEND)) onMidiControl(SOURCE_BEND, (msg.value + 1) / 2);
+      else applyPitchBend(msg.value);
       break;
     default:
       break;

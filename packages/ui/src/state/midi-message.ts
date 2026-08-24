@@ -75,6 +75,44 @@ export function parseMidiMessage(data: Uint8Array | readonly number[]): MidiEven
   }
 }
 
+// ── Rueda de tono ────────────────────────────────────────────────────────────
+
+/**
+ * Rangos de rueda que ofrece Orbit, en semitonos hacia cada lado. Son los que
+ * usa el hardware: 2 de fábrica (lo que espera cualquier teclado), 12 para
+ * doblar una octava entera con un lead, 24 para los que doblan dos.
+ */
+export const BEND_RANGES = [1, 2, 3, 4, 5, 7, 12, 24] as const;
+
+/** Rango de fábrica: el que traen puesto todos los teclados del mundo. */
+export const BEND_RANGE_DEFAULT = 2;
+
+/**
+ * Zona muerta del centro, en fracción del recorrido.
+ *
+ * No es un capricho: una rueda física con muelle casi nunca vuelve al 8192
+ * exacto —se queda en 8191 o en 8193—, y sin zona muerta el canal se quedaría
+ * marcado como doblado para siempre. Eso no se oye (a rango 2 son dos
+ * centésimas de semitono) pero deja al motor reafinando cada nota que nace y
+ * al canal sin volver nunca a su sitio de verdad. Con ella, soltar la rueda es
+ * soltarla.
+ */
+export const BEND_DEADZONE = 0.01;
+
+export function isBendRange(v: unknown): v is number {
+  return typeof v === 'number' && (BEND_RANGES as readonly number[]).includes(v);
+}
+
+/**
+ * Semitonos que dobla la rueda en la posición `value` (bipolar: -1 abajo del
+ * todo, +1 arriba) con el rango dado.
+ */
+export function bendSemitones(value: number, rangeSemitones: number): number {
+  const v = Math.min(1, Math.max(-1, value));
+  if (!Number.isFinite(v)) return 0;
+  return Math.abs(v) < BEND_DEADZONE ? 0 : v * rangeSemitones;
+}
+
 /** Curvas de pulsación. `fixed` ignora la dinámica del teclado. */
 export type VelocityCurve = 'soft' | 'linear' | 'hard' | 'fixed';
 

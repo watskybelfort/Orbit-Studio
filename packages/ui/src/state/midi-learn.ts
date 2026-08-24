@@ -149,6 +149,19 @@ export function isLearning(ref: ParamRef, learning: ParamRef | null): boolean {
   return learning !== null && paramRefKey(learning) === paramRefKey(ref);
 }
 
+/**
+ * ¿Se va a comer `onMidiControl` los mensajes de este mando?
+ *
+ * Lo pregunta la rueda de tono, que tiene dos vidas: de fábrica dobla el tono
+ * del canal, pero si alguien la ATÓ a un destino con MIDI learn manda el
+ * destino — atarla ahí fue una decisión, y hacer las dos cosas a la vez sería
+ * un mando que mueve algo y además desafina.
+ */
+export function handlesMidiSource(source: string): boolean {
+  const { learning, mappings } = useMidiLearnStore.getState();
+  return learning !== null || mappings[source] !== undefined;
+}
+
 
 export function cancelMidiLearn(): void {
   useMidiLearnStore.setState({ learning: null });
