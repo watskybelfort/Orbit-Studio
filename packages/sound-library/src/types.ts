@@ -16,6 +16,31 @@ export const SOUND_CATEGORIES = [
 
 export type SoundCategory = (typeof SOUND_CATEGORIES)[number];
 
+/**
+ * Una grabación concreta de un instrumento multisample.
+ *
+ * Un instrumento de verdad no es una muestra estirada por todo el teclado:
+ * estirar cambia la velocidad de lectura, y con ella se mueven las formantes y
+ * el ataque. Un piano grabado en do suena a ratón dos octavas arriba. Por eso
+ * cada instrumento del pack trae varias grabaciones, cada una con la nota a la
+ * que suena SIN transponer, y el keymap las reparte.
+ */
+export interface SoundSample {
+  /** Ruta del WAV relativa a la raíz del pack. */
+  file: string;
+  /**
+   * Nota MIDI a la que esta grabación suena sin transponer.
+   *
+   * Número, no nombre: `keyRoot` de la entrada dice "C" y eso no basta para
+   * colocar nada — un bajo grabado en do y una campana grabada en do están a
+   * tres octavas la una de la otra, y el sampler necesita saber cuál es cuál.
+   * La convención es la de la casa: C5 = 60, la que enseña el piano roll.
+   */
+  rootMidi: number;
+  /** Duración real del archivo en segundos. */
+  durationSec: number;
+}
+
 export interface SoundEntry {
   /** Id estable y único dentro del pack, ej. "drums/trap/kick-01". */
   id: string;
@@ -24,8 +49,20 @@ export interface SoundEntry {
   category: SoundCategory;
   /** Subgrupo dentro de la categoría (ej. "trap", "boombap"). */
   subcategory?: string;
-  /** Ruta del WAV relativa a la raíz del pack. */
+  /**
+   * Ruta del WAV relativa a la raíz del pack.
+   *
+   * En un instrumento multisample es la grabación PRINCIPAL: la que suena al
+   * escucharlo en el browser y la que se coloca si lo sueltas en la playlist.
+   * Las demás van en `samples`.
+   */
   file: string;
+  /**
+   * Las grabaciones de un instrumento multisample, con su nota. Incluye la de
+   * `file`. Si no está —o trae una sola—, la entrada es lo de siempre: un
+   * sonido, un archivo.
+   */
+  samples?: SoundSample[];
   /** Tags libres: género, pieza, carácter ("punchy", "dark", "long"...). */
   tags: string[];
   /** Nota raíz cuando aplica (808s y loops), ej. "F". */
@@ -70,7 +107,10 @@ export function loadManifest(json: string): SoundManifest {
   } catch {
     throw new Error('Manifest inválido: no es JSON parseable');
   }
-  if (typeof raw !== 'object' || raw === null) {
+  // Un array también es `typeof 'object'`: sin descartarlo, un manifest que
+  // fuera solo la lista de entradas fallaba más adelante con "falta version",
+  // que manda a mirar donde no es.
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     throw new Error('Manifest inválido: la raíz debe ser un objeto');
   }
   const m = raw as Record<string, unknown>;
@@ -118,6 +158,34 @@ export function loadManifest(json: string): SoundManifest {
     ) {
       fail(i, '"gainSuggestion" debe ser un número > 0');
     }
+    // Un `samples` mal formado NO se ignora en silencio: media entrada válida
+    // deja un instrumento con agujeros en el teclado y eso solo se descubre
+    // tocándolo. Mejor que el manifest no cargue y se sepa por qué.
+    let samples: SoundSample[] | undefined;
+    if (r['samples'] !== undefined) {
+      if (!Array.isArray(r['samples']) || r['samples'].length === 0) {
+        fail(i, '"samples" debe ser un array no vacío');
+      }
+      samples = (r['samples'] as unknown[]).map((s, j) => {
+        if (typeof s !== 'object' || s === null) fail(i, `"samples[${j}]" no es un objeto`);
+        const q = s as Record<string, unknown>;
+        if (typeof q['file'] !== 'string' || q['file'].length === 0) {
+          fail(i, `"samples[${j}].file" falta`);
+        }
+        if (
+          typeof q['rootMidi'] !== 'number' ||
+          !Number.isFinite(q['rootMidi']) ||
+          q['rootMidi'] < 0 ||
+          q['rootMidi'] > 127
+        ) {
+          fail(i, `"samples[${j}].rootMidi" debe ser una nota MIDI (0..127)`);
+        }
+        if (typeof q['durationSec'] !== 'number' || !(q['durationSec'] > 0)) {
+          fail(i, `"samples[${j}].durationSec" debe ser un número > 0`);
+        }
+        return { file: q['file'], rootMidi: q['rootMidi'], durationSec: q['durationSec'] };
+      });
+    }
     const entry: SoundEntry = {
       id: r['id'],
       name: r['name'],
@@ -126,6 +194,7 @@ export function loadManifest(json: string): SoundManifest {
       tags: r['tags'] as string[],
       durationSec: r['durationSec'],
     };
+    if (samples !== undefined) entry.samples = samples;
     if (r['subcategory'] !== undefined) entry.subcategory = r['subcategory'];
     if (r['keyRoot'] !== undefined) entry.keyRoot = r['keyRoot'];
     if (r['bpm'] !== undefined) entry.bpm = r['bpm'];
