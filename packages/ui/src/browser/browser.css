@@ -338,6 +338,30 @@
   outline-offset: -1px;
 }
 
+/* Marcada para arrastrar en grupo. Se distingue del hover (que es un color de
+   fondo suelto) con una barra en el borde: hay que poder ver de un vistazo
+   cuáles van en el arrastre aunque el ratón esté encima de otra. */
+.browser-entry.picked {
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.browser-entry.picked .browser-entry-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Una cabecera arrastrable se agarra: el cursor lo dice antes de tirar. */
+.browser-cat-head[draggable='true'],
+.browser-sub-name[draggable='true'] {
+  cursor: grab;
+}
+
+.browser-cat-head[draggable='true']:active,
+.browser-sub-name[draggable='true']:active {
+  cursor: grabbing;
+}
+
 /* Punto de estado: invisible en reposo, acento cuando suena. */
 .browser-entry-dot {
   flex: none;

@@ -34,7 +34,15 @@ import {
 } from '@orbit/sound-library';
 import { engine, ensureAudioReady } from '../state/app';
 import { Knob } from '../widgets/Knob';
-import { addSamplerChannel, loadIntoEngine, setDragEntry } from './sound-actions';
+import { addSamplerChannel, loadIntoEngine, setDragEntries } from './sound-actions';
+import {
+  dragSetFor,
+  pruneSelection,
+  selectOne,
+  selectRange,
+  toggleOne,
+  EMPTY_SELECTION,
+} from './selection';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
 import { generatePack, onPacksChanged, packEntries } from './pack-generator';
 import {
@@ -122,6 +130,12 @@ function buildTree(entries: readonly SoundEntry[]): CatGroup[] {
 }
 
 
+/** El nombre visible de una carpeta: su último tramo, sin la ruta de delante. */
+function folderLabel(dir: string): string {
+  const cut = Math.max(dir.lastIndexOf('/'), dir.lastIndexOf('\\'));
+  return dir.slice(cut + 1) || dir;
+}
+
 /** Nombres visibles del generador de packs. */
 const PACK_FAMILY_LABELS: Record<PackFamily, string> = {
   kicks: 'Kicks',
@@ -159,6 +173,8 @@ export function Browser() {
   const [closed, setClosed] = useState<ReadonlySet<SoundCategory>>(new Set());
   /** Id de la entrada sonando (indicador visual del preview). */
   const [playingId, setPlayingId] = useState<string | null>(null);
+  /** Sonidos marcados: se arrastran juntos (Ctrl/Cmd y Mayús, ver selection.ts). */
+  const [selection, setSelection] = useState(EMPTY_SELECTION);
   /** Texto de estado discreto en el pie ("Cargando…" / error). */
   const [status, setStatus] = useState<string | null>(null);
   /** Entrada cuyo menú de colecciones está abierto. */
@@ -417,6 +433,81 @@ export function Browser() {
 
   const tree = useMemo(() => buildTree(filteredFactory), [filteredFactory]);
 
+  /**
+   * Los sonidos que se están viendo, EN EL ORDEN EN QUE SE VEN.
+   *
+   * De aquí salen las dos cosas que necesita la selección: el tramo de un
+   * Mayús+clic y el orden en que sale un grupo arrastrado. Tiene que seguir al
+   * pie de la letra lo que pinta el cuerpo de abajo —categorías cerradas
+   * incluidas—, porque una entrada que no se ve no se puede seleccionar con el
+   * ratón y tampoco debería colarse en un tramo.
+   */
+  const visibleEntries = useMemo(() => {
+    const out: SoundEntry[] = [];
+    if (flatView) {
+      out.push(...filteredFactory, ...packVisible, ...userVisible);
+      return out;
+    }
+    for (const cat of tree) {
+      if (!filtering && closed.has(cat.category)) continue;
+      for (const group of cat.groups) out.push(...group.entries);
+    }
+    for (const pack of packs) out.push(...(filteredPacks[pack.slug] ?? []));
+    for (const dir of folders) out.push(...(filteredUser[dir] ?? []).slice(0, 200));
+    return out;
+  }, [
+    flatView,
+    filteredFactory,
+    packVisible,
+    userVisible,
+    tree,
+    filtering,
+    closed,
+    packs,
+    filteredPacks,
+    folders,
+    filteredUser,
+  ]);
+
+  const visibleIds = useMemo(() => visibleEntries.map((e) => e.id), [visibleEntries]);
+  const entryById = useMemo(
+    () => new Map(visibleEntries.map((e) => [e.id, e] as const)),
+    [visibleEntries],
+  );
+
+  // Filtrar, plegar una categoría o quitar una carpeta esconde sonidos: los
+  // que se vayan salen de la selección. Si no, el contador diría diez con dos
+  // en pantalla, y el arrastre se llevaría los diez.
+  const pruned = pruneSelection(selection, visibleIds);
+  if (pruned !== selection) setSelection(pruned);
+
+  /** Los sonidos que se lleva un arrastre que empieza en `entry`. */
+  const dragEntriesFor = (entry: SoundEntry): SoundEntry[] => {
+    const ids = dragSetFor(pruned, visibleIds, entry.id);
+    const found = ids.map((id) => entryById.get(id)).filter((e): e is SoundEntry => e !== undefined);
+    return found.length > 0 ? found : [entry];
+  };
+
+  /**
+   * Convierte una cabecera —una categoría, una subcarpeta, una carpeta tuya—
+   * en el tirador de todo su grupo.
+   *
+   * Es la otra mitad de "muestras al keymap en bloque": marcar treinta a mano
+   * con Ctrl tampoco lo hace nadie. Si el grupo es la carpeta del piano, se
+   * agarra de su nombre y ya está.
+   */
+  const groupDrag = (entries: readonly SoundEntry[], what: string) => {
+    if (entries.length === 0) return {};
+    return {
+      draggable: true,
+      onDragStart: (e: React.DragEvent) => {
+        e.stopPropagation();
+        setDragEntries(e.dataTransfer, entries);
+      },
+      title: `Arrastra ${what} (${entries.length}) al keymap, al rack o a la playlist`,
+    };
+  };
+
   // Indexado perezoso de lo que se ve (solo archivos sin metadatos aún).
   useEffect(() => {
     const files = userVisible.slice(0, 200).map((e) => e.file);
@@ -487,15 +578,36 @@ export function Browser() {
   const renderEntry = (entry: SoundEntry, opts: { showDuration?: boolean } = {}) => {
     const playing = playingId === entry.id;
     const fav = favorites.has(entry.id);
+    const picked = pruned.ids.has(entry.id);
     return (
       <div
         key={entry.id}
-        className={playing ? 'browser-entry playing' : 'browser-entry'}
+        className={`browser-entry${playing ? ' playing' : ''}${picked ? ' picked' : ''}`}
         role="button"
         tabIndex={0}
+        aria-selected={picked}
         draggable
-        onDragStart={(e) => setDragEntry(e.dataTransfer, entry)}
-        onClick={() => void preview(entry)}
+        onDragStart={(e) => {
+          // Tirar de una que no estaba marcada la marca a ella sola: arrastrar
+          // una cosa mientras otras cinco siguen pintadas de seleccionadas es
+          // un gesto que no dice lo que va a pasar.
+          if (!picked) setSelection(selectOne(entry.id));
+          setDragEntries(e.dataTransfer, picked ? dragEntriesFor(entry) : [entry]);
+        }}
+        onClick={(e) => {
+          // Mayús y Ctrl SOLO seleccionan: escuchar veinte sonidos a la vez
+          // mientras montas la selección no lo quiere nadie.
+          if (e.shiftKey) {
+            setSelection(selectRange(pruned, visibleIds, entry.id));
+            return;
+          }
+          if (e.ctrlKey || e.metaKey) {
+            setSelection(toggleOne(pruned, entry.id));
+            return;
+          }
+          setSelection(selectOne(entry.id));
+          void preview(entry);
+        }}
         onDoubleClick={() => void addToProject(entry)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') void addToProject(entry);
@@ -504,7 +616,7 @@ export function Browser() {
             void preview(entry);
           }
         }}
-        title={`${entry.name} — clic: escuchar · doble clic: añadir · arrastra al rack o a la playlist`}
+        title={`${entry.name} — clic: escuchar · doble clic: añadir · Ctrl/Mayús: marcar varias · arrastra al rack, a la playlist o al keymap`}
       >
         <span className="browser-entry-dot" aria-hidden="true" />
         <span className="browser-entry-name">{entry.name}</span>
@@ -594,6 +706,7 @@ export function Browser() {
   } else {
     body = tree.map(({ category, total, groups }) => {
       const isClosed = !filtering && closed.has(category);
+      const all = groups.flatMap((g) => g.entries);
       return (
         <section key={category} className="browser-cat">
           <button
@@ -601,6 +714,7 @@ export function Browser() {
             className="browser-cat-head"
             onClick={() => toggleCategory(category)}
             aria-expanded={!isClosed}
+            {...groupDrag(all, `los ${CATEGORY_LABELS[category]}`)}
           >
             <span className="browser-caret">{isClosed ? '▸' : '▾'}</span>
             <span className="browser-cat-name">{CATEGORY_LABELS[category]}</span>
@@ -609,7 +723,11 @@ export function Browser() {
           {!isClosed &&
             groups.map((group) => (
               <div key={group.name || '·'} className="browser-sub">
-                {group.name !== '' && <div className="browser-sub-name">{subLabel(group.name)}</div>}
+                {group.name !== '' && (
+                  <div className="browser-sub-name" {...groupDrag(group.entries, subLabel(group.name))}>
+                    {subLabel(group.name)}
+                  </div>
+                )}
                 {group.entries.map((entry) => renderEntry(entry))}
               </div>
             ))}
@@ -686,7 +804,7 @@ export function Browser() {
         const files = filteredPacks[pack.slug] ?? [];
         return (
           <div key={pack.slug} className="browser-sub">
-            <div className="browser-sub-name user-folder">
+            <div className="browser-sub-name user-folder" {...groupDrag(files, pack.manifest.pack)}>
               <span className="user-folder-name" title={pack.manifest.generatedWith}>
                 {pack.manifest.pack}
               </span>
@@ -738,9 +856,13 @@ export function Browser() {
       )}
       {folders.map((dir) => {
         const files = filteredUser[dir] ?? [];
+        const shown = files.slice(0, 200);
         return (
           <div key={dir} className="browser-sub">
-            <div className="browser-sub-name user-folder">
+            <div
+              className="browser-sub-name user-folder"
+              {...groupDrag(shown, folderLabel(dir))}
+            >
               <span className="user-folder-name" title={dir}>
                 {dir.split(/[\\/]/).pop()}
               </span>
@@ -753,7 +875,7 @@ export function Browser() {
                 ✕
               </button>
             </div>
-            {files.slice(0, 200).map((entry) => renderEntry(entry, { showDuration: false }))}
+            {shown.map((entry) => renderEntry(entry, { showDuration: false }))}
           </div>
         );
       })}
@@ -944,6 +1066,22 @@ export function Browser() {
               deleteCollection(filters.collection!);
               patchFilters({ collection: null });
             }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {pruned.ids.size > 1 && (
+        <div className="browser-status browser-collection-bar">
+          <span>
+            {pruned.ids.size} marcados — arrástralos juntos al keymap, al rack o a la playlist
+          </span>
+          <button
+            type="button"
+            className="user-folder-del"
+            title="Quitar la marca"
+            onClick={() => setSelection(EMPTY_SELECTION)}
           >
             ✕
           </button>
