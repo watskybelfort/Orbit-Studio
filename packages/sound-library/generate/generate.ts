@@ -18,7 +18,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INSTRUMENTS } from './instruments';
+import { INSTRUMENTS, midiDeHz, rootsFor } from './instruments';
 
 // Imports relativos a la fuente del engine: el index del paquete arrastra
 // engine.ts (worklet de Vite) que Node no puede resolver fuera del bundler.
@@ -33,7 +33,13 @@ import type {
   CompiledProject,
 } from '../../engine/src/protocol';
 import type { EffectKind, InstrumentKind } from '@orbit/core';
-import { loadManifest, type SoundCategory, type SoundEntry, type SoundManifest } from '../src/types';
+import {
+  loadManifest,
+  type SoundCategory,
+  type SoundEntry,
+  type SoundManifest,
+  type SoundSample,
+} from '../src/types';
 
 const SR = 44100;
 const PACK_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'factory');
@@ -704,40 +710,73 @@ function main(): void {
     );
   });
 
-  // ── Instrumentos con altura (tocables por nota vía sampler + keytrack) ─────
+  // ── Instrumentos con altura (multisample: varias tomas por instrumento) ────
+  //
+  // Cada instrumento se graba en su registro natural y una octava a cada lado,
+  // y el manifest las lleva juntas en UNA entrada. En el browser sigue siendo
+  // un sonido —un piano, no tres archivos sueltos— y al soltarlo en el rack
+  // entra ya repartido por el teclado.
+  //
+  // La toma del registro natural conserva el nombre de archivo de siempre
+  // (`instrumentos/<slug>.wav`) y las otras llevan su nota MIDI detrás. No es
+  // capricho: un proyecto guardado apunta a esa ruta, y renombrarla habría
+  // dejado mudos los canales de quien ya tuviera el pack.
   INSTRUMENTS.forEach((spec, i) => {
-    const rendered = spec.render(SR);
-    let l = rendered.left;
-    let rr = rendered.right;
-    normalizar(l, rr, -1);
-    [l, rr] = recortarCola(l, rr, -60, 0.05);
-    fadeOut(l, rr, 5);
+    const raices = rootsFor(spec);
+    const base = midiDeHz(spec.rootHz);
+    const samples: SoundSample[] = [];
+    let bytesInstrumento = 0;
 
-    const mono = esMono(l, rr);
-    const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
-    const file = `instrumentos/${spec.slug}.wav`;
-    const ruta = path.join(PACK_DIR, file);
-    fs.mkdirSync(path.dirname(ruta), { recursive: true });
-    fs.writeFileSync(ruta, wav);
-    totalBytes += wav.length;
+    for (const hz of raices) {
+      const midi = midiDeHz(hz);
+      const rendered = spec.render(SR, hz);
+      let l = rendered.left;
+      let rr = rendered.right;
+      normalizar(l, rr, -1);
+      [l, rr] = recortarCola(l, rr, -60, 0.05);
+      fadeOut(l, rr, 5);
+
+      const mono = esMono(l, rr);
+      const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
+      const file =
+        midi === base
+          ? `instrumentos/${spec.slug}.wav`
+          : `instrumentos/${spec.slug}-${midi}.wav`;
+      const ruta = path.join(PACK_DIR, file);
+      fs.mkdirSync(path.dirname(ruta), { recursive: true });
+      fs.writeFileSync(ruta, wav);
+      totalBytes += wav.length;
+      bytesInstrumento += wav.length;
+
+      samples.push({
+        file,
+        rootMidi: midi,
+        durationSec: Math.round((l.length / SR) * 1000) / 1000,
+      });
+    }
+
     porCategoria.set('instrumentos', (porCategoria.get('instrumentos') ?? 0) + 1);
+    // La principal es la del registro natural: la que se escucha en el browser
+    // y la que se coloca si sueltas el instrumento en la playlist.
+    const principal = samples.find((s) => s.rootMidi === base)!;
 
-    const durationSec = Math.round((l.length / SR) * 1000) / 1000;
     entries.push({
       id: `instrumentos/${spec.slug}`,
       name: spec.name,
       category: 'instrumentos',
       subcategory: spec.subcategory,
-      file,
+      file: principal.file,
+      samples,
       tags: spec.tags,
       keyRoot: spec.keyRoot,
-      durationSec,
+      durationSec: principal.durationSec,
       gainSuggestion: spec.gainSuggestion,
     });
 
     console.log(
-      `[inst ${String(i + 1).padStart(2)}/${INSTRUMENTS.length}] ${file.padEnd(40)} ` +
-      `${durationSec.toFixed(2)}s ${(wav.length / 1024).toFixed(0).padStart(5)} KB ${mono ? 'mono' : 'stereo'}`,
+      `[inst ${String(i + 1).padStart(2)}/${INSTRUMENTS.length}] ${spec.slug.padEnd(30)} ` +
+      `${samples.length} tomas (MIDI ${samples.map((s) => s.rootMidi).join('/')}) ` +
+      `${(bytesInstrumento / 1024).toFixed(0).padStart(5)} KB`,
     );
   });
 
@@ -754,11 +793,22 @@ function main(): void {
   // Verificación: manifest parseable + ficheros presentes + pico > -20 dBFS.
   const cargado = loadManifest(fs.readFileSync(path.join(PACK_DIR, 'manifest.json'), 'utf8'));
   const picoPorCategoria = new Map<SoundCategory, number>();
+  let archivos = 0;
   for (const e of cargado.entries) {
-    const ruta = path.join(PACK_DIR, e.file);
-    if (!fs.existsSync(ruta)) throw new Error(`Falta el fichero ${e.file}`);
-    const db = picoDeWavDb(fs.readFileSync(ruta));
-    picoPorCategoria.set(e.category, Math.max(picoPorCategoria.get(e.category) ?? -Infinity, db));
+    // TODAS las tomas, no solo la principal: un instrumento al que le falte una
+    // grabación no da error, da un agujero en el teclado — y eso se descubre
+    // tocándolo.
+    const ficheros = e.samples && e.samples.length > 0 ? e.samples.map((s) => s.file) : [e.file];
+    if (e.samples && !e.samples.some((s) => s.file === e.file)) {
+      throw new Error(`"${e.id}": la toma principal no está entre sus samples`);
+    }
+    for (const file of ficheros) {
+      const ruta = path.join(PACK_DIR, file);
+      if (!fs.existsSync(ruta)) throw new Error(`Falta el fichero ${file}`);
+      archivos++;
+      const db = picoDeWavDb(fs.readFileSync(ruta));
+      picoPorCategoria.set(e.category, Math.max(picoPorCategoria.get(e.category) ?? -Infinity, db));
+    }
   }
 
   console.log('\nResumen por categoría:');
@@ -767,10 +817,17 @@ function main(): void {
     console.log(`  ${cat.padEnd(18)} ${String(n).padStart(2)} sonidos · pico máx ${db.toFixed(1)} dBFS`);
     if (db <= -20) throw new Error(`Categoría ${cat}: ningún WAV supera -20 dBFS`);
   }
-  console.log(`\nTotal: ${cargado.entries.length} sonidos · ${(totalBytes / 1024 / 1024).toFixed(2)} MB`);
-  // Subido de 15 a 24 MB al entrar los instrumentos con altura (v0.5).
-  if (totalBytes > 24 * 1024 * 1024) {
-    throw new Error('El pack supera los 24 MB: recorta colas o duraciones');
+  console.log(
+    `\nTotal: ${cargado.entries.length} sonidos · ${archivos} archivos · ` +
+    `${(totalBytes / 1024 / 1024).toFixed(2)} MB`,
+  );
+  // 15 → 24 MB al entrar los instrumentos con altura (v0.5); 24 → 48 al pasar
+  // el pack a multisample (v0.6), que son tres tomas por instrumento en vez de
+  // una. El tope existe porque este pack viaja DENTRO del instalador: no es un
+  // límite técnico, es la promesa de que descargarse Orbit sigue siendo rápido.
+  // Subirlo otra vez es una decisión, no un trámite.
+  if (totalBytes > 48 * 1024 * 1024) {
+    throw new Error('El pack supera los 48 MB: recorta colas o duraciones');
   }
   console.log('Pack generado y verificado.');
 }
