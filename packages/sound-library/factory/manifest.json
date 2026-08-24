@@ -887,6 +887,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/piano-suave.wav",
+      "samples": [
+        {
+          "file": "instrumentos/piano-suave-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3.2
+        },
+        {
+          "file": "instrumentos/piano-suave.wav",
+          "rootMidi": 60,
+          "durationSec": 3.2
+        },
+        {
+          "file": "instrumentos/piano-suave-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3.2
+        }
+      ],
       "tags": [
         "piano",
         "keys",
@@ -903,6 +920,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/piano-brillante.wav",
+      "samples": [
+        {
+          "file": "instrumentos/piano-brillante-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3
+        },
+        {
+          "file": "instrumentos/piano-brillante.wav",
+          "rootMidi": 60,
+          "durationSec": 3
+        },
+        {
+          "file": "instrumentos/piano-brillante-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3
+        }
+      ],
       "tags": [
         "piano",
         "keys",
@@ -919,6 +953,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/ep-rhodes.wav",
+      "samples": [
+        {
+          "file": "instrumentos/ep-rhodes-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3
+        },
+        {
+          "file": "instrumentos/ep-rhodes.wav",
+          "rootMidi": 60,
+          "durationSec": 3
+        },
+        {
+          "file": "instrumentos/ep-rhodes-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3
+        }
+      ],
       "tags": [
         "ep",
         "rhodes",
@@ -936,6 +987,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/ep-sucio.wav",
+      "samples": [
+        {
+          "file": "instrumentos/ep-sucio-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.8
+        },
+        {
+          "file": "instrumentos/ep-sucio.wav",
+          "rootMidi": 60,
+          "durationSec": 2.8
+        },
+        {
+          "file": "instrumentos/ep-sucio-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.8
+        }
+      ],
       "tags": [
         "ep",
         "keys",
@@ -953,6 +1021,23 @@
       "category": "instrumentos",
       "subcategory": "cuerdas",
       "file": "instrumentos/guitarra-nylon.wav",
+      "samples": [
+        {
+          "file": "instrumentos/guitarra-nylon-36.wav",
+          "rootMidi": 36,
+          "durationSec": 3
+        },
+        {
+          "file": "instrumentos/guitarra-nylon.wav",
+          "rootMidi": 48,
+          "durationSec": 2.801
+        },
+        {
+          "file": "instrumentos/guitarra-nylon-60.wav",
+          "rootMidi": 60,
+          "durationSec": 1.478
+        }
+      ],
       "tags": [
         "guitarra",
         "nylon",
@@ -960,7 +1045,7 @@
         "calida"
       ],
       "keyRoot": "C",
-      "durationSec": 2.794,
+      "durationSec": 2.801,
       "gainSuggestion": 0.85
     },
     {
@@ -969,6 +1054,23 @@
       "category": "instrumentos",
       "subcategory": "cuerdas",
       "file": "instrumentos/guitarra-electrica-limpia.wav",
+      "samples": [
+        {
+          "file": "instrumentos/guitarra-electrica-limpia-36.wav",
+          "rootMidi": 36,
+          "durationSec": 3.4
+        },
+        {
+          "file": "instrumentos/guitarra-electrica-limpia.wav",
+          "rootMidi": 48,
+          "durationSec": 3.236
+        },
+        {
+          "file": "instrumentos/guitarra-electrica-limpia-60.wav",
+          "rootMidi": 60,
+          "durationSec": 2.004
+        }
+      ],
       "tags": [
         "guitarra",
         "electrica",
@@ -976,7 +1078,7 @@
         "chorus"
       ],
       "keyRoot": "C",
-      "durationSec": 3.309,
+      "durationSec": 3.236,
       "gainSuggestion": 0.8
     },
     {
@@ -985,6 +1087,23 @@
       "category": "instrumentos",
       "subcategory": "cuerdas",
       "file": "instrumentos/guitarra-muted.wav",
+      "samples": [
+        {
+          "file": "instrumentos/guitarra-muted-36.wav",
+          "rootMidi": 36,
+          "durationSec": 1.426
+        },
+        {
+          "file": "instrumentos/guitarra-muted.wav",
+          "rootMidi": 48,
+          "durationSec": 0.831
+        },
+        {
+          "file": "instrumentos/guitarra-muted-60.wav",
+          "rootMidi": 60,
+          "durationSec": 0.431
+        }
+      ],
       "tags": [
         "guitarra",
         "muted",
@@ -992,7 +1111,7 @@
         "corta"
       ],
       "keyRoot": "C",
-      "durationSec": 0.819,
+      "durationSec": 0.831,
       "gainSuggestion": 0.85
     },
     {
@@ -1001,6 +1120,23 @@
       "category": "instrumentos",
       "subcategory": "cuerdas",
       "file": "instrumentos/guitarra-acustica-brillante.wav",
+      "samples": [
+        {
+          "file": "instrumentos/guitarra-acustica-brillante-36.wav",
+          "rootMidi": 36,
+          "durationSec": 3.5
+        },
+        {
+          "file": "instrumentos/guitarra-acustica-brillante.wav",
+          "rootMidi": 48,
+          "durationSec": 3.305
+        },
+        {
+          "file": "instrumentos/guitarra-acustica-brillante-60.wav",
+          "rootMidi": 60,
+          "durationSec": 1.721
+        }
+      ],
       "tags": [
         "guitarra",
         "acustica",
@@ -1008,7 +1144,7 @@
         "folk"
       ],
       "keyRoot": "C",
-      "durationSec": 3.274,
+      "durationSec": 3.305,
       "gainSuggestion": 0.8
     },
     {
@@ -1017,6 +1153,23 @@
       "category": "instrumentos",
       "subcategory": "bajos",
       "file": "instrumentos/bajo-fingered.wav",
+      "samples": [
+        {
+          "file": "instrumentos/bajo-fingered-24.wav",
+          "rootMidi": 24,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/bajo-fingered.wav",
+          "rootMidi": 36,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/bajo-fingered-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4
+        }
+      ],
       "tags": [
         "bajo",
         "fingered",
@@ -1033,6 +1186,23 @@
       "category": "instrumentos",
       "subcategory": "bajos",
       "file": "instrumentos/bajo-pick.wav",
+      "samples": [
+        {
+          "file": "instrumentos/bajo-pick-24.wav",
+          "rootMidi": 24,
+          "durationSec": 2.2
+        },
+        {
+          "file": "instrumentos/bajo-pick.wav",
+          "rootMidi": 36,
+          "durationSec": 2.2
+        },
+        {
+          "file": "instrumentos/bajo-pick-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.2
+        }
+      ],
       "tags": [
         "bajo",
         "pick",
@@ -1049,6 +1219,23 @@
       "category": "instrumentos",
       "subcategory": "bajos",
       "file": "instrumentos/bajo-redondo.wav",
+      "samples": [
+        {
+          "file": "instrumentos/bajo-redondo-24.wav",
+          "rootMidi": 24,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/bajo-redondo.wav",
+          "rootMidi": 36,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/bajo-redondo-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4
+        }
+      ],
       "tags": [
         "bajo",
         "sub",
@@ -1065,6 +1252,23 @@
       "category": "instrumentos",
       "subcategory": "bajos",
       "file": "instrumentos/bajo-growl.wav",
+      "samples": [
+        {
+          "file": "instrumentos/bajo-growl-24.wav",
+          "rootMidi": 24,
+          "durationSec": 2.6
+        },
+        {
+          "file": "instrumentos/bajo-growl.wav",
+          "rootMidi": 36,
+          "durationSec": 2.6
+        },
+        {
+          "file": "instrumentos/bajo-growl-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.6
+        }
+      ],
       "tags": [
         "bajo",
         "growl",
@@ -1081,6 +1285,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/organo-suave.wav",
+      "samples": [
+        {
+          "file": "instrumentos/organo-suave-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/organo-suave.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/organo-suave-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4
+        }
+      ],
       "tags": [
         "organo",
         "keys",
@@ -1097,6 +1318,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/organo-full.wav",
+      "samples": [
+        {
+          "file": "instrumentos/organo-full-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.6
+        },
+        {
+          "file": "instrumentos/organo-full.wav",
+          "rootMidi": 60,
+          "durationSec": 2.6
+        },
+        {
+          "file": "instrumentos/organo-full-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.6
+        }
+      ],
       "tags": [
         "organo",
         "keys",
@@ -1113,6 +1351,23 @@
       "category": "instrumentos",
       "subcategory": "teclas",
       "file": "instrumentos/organo-percusivo.wav",
+      "samples": [
+        {
+          "file": "instrumentos/organo-percusivo-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.2
+        },
+        {
+          "file": "instrumentos/organo-percusivo.wav",
+          "rootMidi": 60,
+          "durationSec": 2.2
+        },
+        {
+          "file": "instrumentos/organo-percusivo-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.2
+        }
+      ],
       "tags": [
         "organo",
         "keys",
@@ -1129,6 +1384,23 @@
       "category": "instrumentos",
       "subcategory": "pads",
       "file": "instrumentos/strings-ensemble.wav",
+      "samples": [
+        {
+          "file": "instrumentos/strings-ensemble-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/strings-ensemble.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/strings-ensemble-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6
+        }
+      ],
       "tags": [
         "strings",
         "pad",
@@ -1145,6 +1417,23 @@
       "category": "instrumentos",
       "subcategory": "pads",
       "file": "instrumentos/pad-calido.wav",
+      "samples": [
+        {
+          "file": "instrumentos/pad-calido-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3.4
+        },
+        {
+          "file": "instrumentos/pad-calido.wav",
+          "rootMidi": 60,
+          "durationSec": 3.4
+        },
+        {
+          "file": "instrumentos/pad-calido-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3.4
+        }
+      ],
       "tags": [
         "pad",
         "calido",
@@ -1161,6 +1450,23 @@
       "category": "instrumentos",
       "subcategory": "pads",
       "file": "instrumentos/pad-vidrio.wav",
+      "samples": [
+        {
+          "file": "instrumentos/pad-vidrio-48.wav",
+          "rootMidi": 48,
+          "durationSec": 3.4
+        },
+        {
+          "file": "instrumentos/pad-vidrio.wav",
+          "rootMidi": 60,
+          "durationSec": 3.4
+        },
+        {
+          "file": "instrumentos/pad-vidrio-72.wav",
+          "rootMidi": 72,
+          "durationSec": 3.4
+        }
+      ],
       "tags": [
         "pad",
         "vidrio",
@@ -1177,6 +1483,23 @@
       "category": "instrumentos",
       "subcategory": "campanas",
       "file": "instrumentos/campana-pura.wav",
+      "samples": [
+        {
+          "file": "instrumentos/campana-pura-60.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/campana-pura.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/campana-pura-84.wav",
+          "rootMidi": 84,
+          "durationSec": 3.6
+        }
+      ],
       "tags": [
         "campana",
         "bell",
@@ -1193,6 +1516,23 @@
       "category": "instrumentos",
       "subcategory": "campanas",
       "file": "instrumentos/campanita-musica.wav",
+      "samples": [
+        {
+          "file": "instrumentos/campanita-musica-60.wav",
+          "rootMidi": 60,
+          "durationSec": 2.148
+        },
+        {
+          "file": "instrumentos/campanita-musica.wav",
+          "rootMidi": 72,
+          "durationSec": 2.148
+        },
+        {
+          "file": "instrumentos/campanita-musica-84.wav",
+          "rootMidi": 84,
+          "durationSec": 2.149
+        }
+      ],
       "tags": [
         "campana",
         "musicbox",
@@ -1209,6 +1549,23 @@
       "category": "instrumentos",
       "subcategory": "campanas",
       "file": "instrumentos/vibrafono.wav",
+      "samples": [
+        {
+          "file": "instrumentos/vibrafono-60.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/vibrafono.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6
+        },
+        {
+          "file": "instrumentos/vibrafono-84.wav",
+          "rootMidi": 84,
+          "durationSec": 3.6
+        }
+      ],
       "tags": [
         "vibrafono",
         "mallet",
@@ -1225,6 +1582,23 @@
       "category": "instrumentos",
       "subcategory": "leads",
       "file": "instrumentos/lead-cuadrada.wav",
+      "samples": [
+        {
+          "file": "instrumentos/lead-cuadrada-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/lead-cuadrada.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/lead-cuadrada-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4
+        }
+      ],
       "tags": [
         "lead",
         "pulso",
@@ -1241,6 +1615,23 @@
       "category": "instrumentos",
       "subcategory": "leads",
       "file": "instrumentos/flauta.wav",
+      "samples": [
+        {
+          "file": "instrumentos/flauta-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.7
+        },
+        {
+          "file": "instrumentos/flauta.wav",
+          "rootMidi": 60,
+          "durationSec": 2.7
+        },
+        {
+          "file": "instrumentos/flauta-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.7
+        }
+      ],
       "tags": [
         "flauta",
         "viento",
@@ -1257,6 +1648,23 @@
       "category": "instrumentos",
       "subcategory": "leads",
       "file": "instrumentos/lead-saw.wav",
+      "samples": [
+        {
+          "file": "instrumentos/lead-saw-48.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/lead-saw.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4
+        },
+        {
+          "file": "instrumentos/lead-saw-72.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4
+        }
+      ],
       "tags": [
         "lead",
         "saw",
