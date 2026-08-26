@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.3.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-1621%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.4.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-1661%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -84,7 +84,76 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.3.0 — "el piano responde a los dedos".** Los 24 instrumentos del pack se
+**v3.4.0 — "lo de fuera entra, y el gesto se queda".** Tres filas del roadmap
+que no se parecen en nada entre sí, y a las tres les pasó algo que no estaba
+previsto.
+
+**Archivos sueltos del Explorador.** Soltar un WAV desde el Explorador de Windows no hacía nada, ni en el keymap, ni
+en el rack, ni en la playlist. La fila venía marcada como decisión de seguridad
+y con razón: el proceso principal desconfía a propósito de las rutas que le
+pasa el renderer —ahí corren los plugins JS del usuario, así que un "lee este
+archivo, te paso la ruta" convertiría un plugin de trémolo en un lector del
+disco entero.
+
+**Y resultó que esa puerta no había que abrirla.** Un arrastre de verdad trae
+objetos `File`, que son `Blob`: los bytes se leen en el renderer porque
+Chromium los concede al haber un gesto físico del usuario sobre la ventana. El
+proceso principal no ve una ruta, no lee nada y no se entera. Cero superficie
+nueva donde más caro cuesta.
+
+Lo que sí había que resolver era el día siguiente: un `File` se acaba al cerrar
+la app y un proyecto que apuntara a él saldría MUDO al reabrirlo. Así que lo
+soltado se importa a la carpeta de la app —con las tomas y los bounces— y desde
+ahí es un sample más: rehidrata, viaja por hash a una sala y sale en el export.
+Se guarda con el nombre de su contenido (`importado-<sha1>.wav`), porque dos
+`kick.wav` distintos se cruzan todos los días y por nombre el segundo pisaría
+al primero. Una carpeta soltada no se rechaza: se dice por dónde entra.
+
+**La rueda, grabada.** Desde la v3.2 la rueda dobla la voz viva en los diez instrumentos, pero lo que
+dobló no quedaba en ninguna parte: grabar tocando guardaba las notas y no el
+gesto. El motivo era que la rueda no era un parámetro, era un mensaje suelto al
+motor, y la automatización solo sabe escribir parámetros.
+
+Ahora `Channel.bend` existe, en semitonos, y con eso llegan de golpe la curva
+—dibujable a mano, con sus puntos con signo—, el LFO (un vibrato sobre la rueda
+sale gratis), el undo, el viaje a la sala y la grabación al mover la rueda
+tocando. **La rueda va por dos caminos a la vez**: al motor directa en cada
+mensaje, porque es un gesto y entre moverla y oírla no puede haber ni un frame;
+y al proyecto una vez por frame con `mergeKey`, que es lo que la convierte en
+algo que queda sin dejar sesenta pasos de undo por segundo.
+
+La decisión que pedía el roadmap —qué pasa cuando conviven el gesto y la
+curva— acabó estando en cómo se lee la AUSENCIA: un canal que no declara `bend`
+significa "no tengo opinión", no "la rueda está centrada". Si significara
+centro, mover una perilla mientras doblas recompilaría el proyecto y soltaría
+la rueda de golpe en mitad del gesto.
+
+**El encoder Opus, un poco más fino.** Aquí lo primero fue construir con qué medir, porque afinar sin medir es cambiar
+cosas: `tools/qa/opus-quality.ts` codifica la misma señal con Orbit y con
+libopus al mismo bitrate, decodifica las dos con ffmpeg y las compara con el
+original.
+
+Con eso a la vista, la `alloc_trim` —la pendiente con la que el asignador
+reparte bits entre bandas— llevaba fija en neutro desde que el encoder existe.
+Un acorde, con toda su energía abajo, recibía el mismo esfuerzo en las bandas
+vacías que en las que llevaban la música. Ahora sale del espectro, y la
+distancia media a libopus pasa de **−2,06 a −1,21 dB**.
+
+**Y una decisión que no entró**: la dispersión adaptativa está portada de la
+referencia y funcionaba, pero la medida salió neutra —la SNR no ve lo que hace
+la dispersión, que reparte el error dentro de la banda en vez de reducirlo— y
+sin poder demostrar la mejora no se sube. Queda escrito para el que lo intente
+después: hace falta una medida perceptual, no una de error.
+
+De regalo, un test que fallaba una de cada tres pasadas de la suite entera y no
+por lo que parecía: no era una aserción, era el límite de 5 s de vitest contra
+un render de cuatro minutos de audio. Y `tools/` entra en el typecheck, que no
+estaba — el mismo agujero por el que el generador del pack llevaba meses roto.
+
+<details>
+<summary><b>v3.3.0 — "el piano responde a los dedos"</b></summary>
+
+Los 24 instrumentos del pack se
 grababan a tres alturas y con UNA pulsación: un piano golpeado flojo salía
 igual que uno golpeado fuerte, solo más bajito. Ahora cada altura trae dos
 grabaciones, y el instrumento entra en el rack repartido por el teclado *y* por
@@ -119,6 +188,8 @@ El pack pasa de 42 a 70 MB y de 132 a 204 archivos. Y esto se mide, no se
 opina: la capa floja es más oscura en los 24 instrumentos y en las tres
 alturas, y tocada por el kernel —con el canal y el máster puestos— la misma
 tecla a velocidad 0,25 sale entre un 6 % y un 46 % menos brillante que a 0,9.
+
+</details>
 
 <details>
 <summary><b>v3.2.0 — "el pack suena a instrumentos"</b></summary>
@@ -255,14 +326,8 @@ saca cuando toca, en el mismo orden en que estorba no tenerlo. Las tres filas de
 entrada en vivo que abrían este roadmap —controlador MIDI, monitor del micro y
 clic de la cuenta— salieron en la **v3.0**; el multisample, en la **v3.1**; el
 pack de fábrica en multisample, en la **v3.2**; y sus capas de fuerza, en la
-**v3.3**. Lo de abajo es lo que dejaron detrás.
-
-> **Ya en `main`, pendiente de release**: soltar archivos sueltos del
-> Explorador al keymap, al rack y a la playlist —resultó no necesitar la
-> decisión de seguridad que lo tenía parado, porque un arrastre de verdad trae
-> los bytes y el proceso principal no ve ninguna ruta nueva— y **la rueda de
-> tono grabada**, que ahora es un parámetro del canal con su curva de
-> automatización.
+**v3.3**; y los archivos del Explorador, la rueda grabada y la primera decisión
+fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 
 ### Siguiente
@@ -367,7 +432,7 @@ no entró: no se pudo demostrar que mejorase.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 1621 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 1661 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```

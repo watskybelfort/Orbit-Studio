@@ -6,7 +6,7 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## En curso — hacia la v3.4 (en `main`, sin release)
+## Estado — 26-08-2026: v3.4.0
 
 **El encoder Opus, un poco más fino.** La `alloc_trim` —la pendiente con la que
 el asignador reparte bits entre bandas— llevaba fija en neutro desde que el
@@ -121,7 +121,7 @@ Lo que hay que saber para tocarlo:
 
 1661 tests.
 
-## Estado — 26-08-2026: v3.3.0
+## Estado anterior — 26-08-2026: v3.3.0
 
 v3.3, "el piano responde a los dedos". La primera fila del roadmap de la v3.2,
 que era la que esa versión dejó fuera con el motivo escrito: los instrumentos
@@ -175,7 +175,7 @@ y 28 MB, y el salto que se gana de dos a tres es menor que el que se ganó de un
 a dos) y hornear la diferencia de nivel en el archivo (la aplicaría dos veces: el
 sampler ya multiplica por la velocidad).
 
-## Estado anterior — 23-08-2026: v3.2.0
+## Estado de la v3.2.0 — 23-08-2026
 
 v3.2, "el pack suena a instrumentos". Tres entregas del roadmap de la v3.1, y
 van juntas porque las tres arreglan lo mismo: que Orbit sonara a muestras y no
