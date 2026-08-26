@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { getFft, hannWindow } from '../src/fft';
-import { INSTRUMENTS, midiDeHz, rootsFor, type InstrumentSpec } from './instruments';
+import { DYNAMICS, INSTRUMENTS, midiDeHz, rootsFor, type InstrumentSpec } from './instruments';
 
 const SR = 44100;
 /** Ventana de análisis: 0,74 s. Larga para que el bin salga fino (1,3 Hz). */
@@ -104,41 +104,52 @@ const INARMONICOS = new Set(['campanas']);
 /** Cuerdas pulsadas: se miden más fino (ver abajo). */
 const CUERDAS = new Set(['cuerdas']);
 
-describe('cada altura suena donde dice', () => {
+describe('cada altura suena donde dice, y a las dos pulsaciones', () => {
+  // Las capas de fuerza se miden por separado, y no por completismo: una
+  // síntesis que al bajar la pulsación se lleve por delante la altura deja el
+  // instrumento desafinado CONSIGO MISMO según lo fuerte que toques, que es el
+  // peor de los dos mundos — se oye, y no se ve en ningún sitio. Y hay dos
+  // sitios por donde eso pasaría de verdad: el índice de FM de una campana
+  // mueve cuál es su parcial dominante, y el filtro de un bajo puede acabar
+  // por debajo de su propio fundamental.
   for (const spec of INSTRUMENTS) {
     it(`${spec.slug}`, () => {
-      const raices = rootsFor(spec);
-      const razones = raices.map((hz) => parcialDominante(spec.render(SR, hz).left) / hz);
+      for (const dyn of DYNAMICS) {
+        const raices = rootsFor(spec);
+        const razones = raices.map(
+          (hz) => parcialDominante(spec.render(SR, hz, dyn).left) / hz,
+        );
 
-      if (INARMONICOS.has(spec.subcategory)) {
-        // En una campana el espectro entero tiene que subir la octava, que es
-        // la promesa: la misma campana, más aguda. Se mide con el centroide,
-        // no con la parcial que manda — hay dos casi iguales de fuertes y cuál
-        // gana depende de la ventana.
-        const centros = raices.map((hz) => centroide(spec.render(SR, hz).left));
-        for (let i = 1; i < centros.length; i++) {
-          expect(
-            Math.abs(cents(centros[i]!, centros[i - 1]!) - 1200),
-            `${spec.slug}: el espectro no sube la octava entre tomas`,
-          ).toBeLessThan(35);
+        if (INARMONICOS.has(spec.subcategory)) {
+          // En una campana el espectro entero tiene que subir la octava, que es
+          // la promesa: la misma campana, más aguda. Se mide con el centroide,
+          // no con la parcial que manda — hay dos casi iguales de fuertes y cuál
+          // gana depende de la ventana.
+          const centros = raices.map((hz) => centroide(spec.render(SR, hz, dyn).left));
+          for (let i = 1; i < centros.length; i++) {
+            expect(
+              Math.abs(cents(centros[i]!, centros[i - 1]!) - 1200),
+              `${spec.slug} (dyn ${dyn}): el espectro no sube la octava entre tomas`,
+            ).toBeLessThan(35);
+          }
+          continue;
         }
-        return;
-      }
 
-      raices.forEach((hz, i) => {
-        const razon = razones[i]!;
-        const armonica = Math.max(1, Math.round(razon));
-        // 15 cents. No se puede apretar más por el ensemble de cuerdas, que son
-        // seis sierras repartidas entre -12 y +13 cents a propósito: cuál manda
-        // depende de la deriva, y eso mueve la medida unos cents. Para lo que
-        // se busca sobra — un fallo de afinación entre zonas empieza en medio
-        // semitono, y uno de "esta síntesis no hace caso a la altura" es una
-        // octava entera.
-        expect(
-          Math.abs(cents(razon, armonica)),
-          `${spec.slug} @ ${hz.toFixed(1)} Hz (parcial x${armonica})`,
-        ).toBeLessThan(15);
-      });
+        raices.forEach((hz, i) => {
+          const razon = razones[i]!;
+          const armonica = Math.max(1, Math.round(razon));
+          // 15 cents. No se puede apretar más por el ensemble de cuerdas, que son
+          // seis sierras repartidas entre -12 y +13 cents a propósito: cuál manda
+          // depende de la deriva, y eso mueve la medida unos cents. Para lo que
+          // se busca sobra — un fallo de afinación entre zonas empieza en medio
+          // semitono, y uno de "esta síntesis no hace caso a la altura" es una
+          // octava entera.
+          expect(
+            Math.abs(cents(razon, armonica)),
+            `${spec.slug} @ ${hz.toFixed(1)} Hz, dyn ${dyn} (parcial x${armonica})`,
+          ).toBeLessThan(15);
+        });
+      }
     });
   }
 });
@@ -150,36 +161,45 @@ describe('las cuerdas pulsadas quedan afinadas entre ellas', () => {
   // guitarra salía desafinada CONSIGO MISMA y el escalón caía justo al cruzar
   // de zona. Una cuerda pulsada tiene el espectro limpio, así que se puede
   // medir fino y exigir en consecuencia.
+  //
+  // Y es también donde se prueba que la pulsación NO toca la amortiguación del
+  // lazo: la amortiguación entra en el largo del retardo, así que moverla con
+  // la fuerza dejaría la capa floja desafinada respecto de la fuerte — en la
+  // misma nota, cambiando según cómo la pulses.
   for (const spec of INSTRUMENTS.filter((s) => CUERDAS.has(s.subcategory))) {
     it(`${spec.slug}`, () => {
-      for (const hz of rootsFor(spec)) {
-        const razon = parcialDominante(spec.render(SR, hz).left) / hz;
-        const armonica = Math.max(1, Math.round(razon));
-        expect(
-          Math.abs(cents(razon, armonica)),
-          `${spec.slug} @ ${hz.toFixed(1)} Hz (parcial x${armonica})`,
-        ).toBeLessThan(10);
+      for (const dyn of DYNAMICS) {
+        for (const hz of rootsFor(spec)) {
+          const razon = parcialDominante(spec.render(SR, hz, dyn).left) / hz;
+          const armonica = Math.max(1, Math.round(razon));
+          expect(
+            Math.abs(cents(razon, armonica)),
+            `${spec.slug} @ ${hz.toFixed(1)} Hz, dyn ${dyn} (parcial x${armonica})`,
+          ).toBeLessThan(10);
+        }
       }
     });
   }
 });
 
-describe('ninguna altura rompe la síntesis', () => {
+describe('ninguna altura ni pulsación rompe la síntesis', () => {
   for (const spec of INSTRUMENTS) {
     it(`${spec.slug}`, () => {
-      for (const hz of rootsFor(spec)) {
-        const { left, right } = spec.render(SR, hz);
-        const donde = `${spec.slug} @ ${hz.toFixed(1)} Hz`;
-        expect(left.length, donde).toBe(right.length);
-        expect(left.some((v) => !Number.isFinite(v)), donde).toBe(false);
-        expect(right.some((v) => !Number.isFinite(v)), donde).toBe(false);
-        // Ni mudo ni saturado: el post normaliza a 0.9, así que cualquier cosa
-        // fuera de ahí es que la síntesis se fue.
-        expect(pico(left), donde).toBeGreaterThan(0.2);
-        expect(pico(left), donde).toBeLessThanOrEqual(1);
-        // Bordes a cero: un click al empezar o al acabar se oye en CADA nota.
-        expect(Math.abs(left[0]!), donde).toBeLessThan(0.02);
-        expect(Math.abs(left[left.length - 1]!), donde).toBeLessThan(0.02);
+      for (const dyn of DYNAMICS) {
+        for (const hz of rootsFor(spec)) {
+          const { left, right } = spec.render(SR, hz, dyn);
+          const donde = `${spec.slug} @ ${hz.toFixed(1)} Hz, dyn ${dyn}`;
+          expect(left.length, donde).toBe(right.length);
+          expect(left.some((v) => !Number.isFinite(v)), donde).toBe(false);
+          expect(right.some((v) => !Number.isFinite(v)), donde).toBe(false);
+          // Ni mudo ni saturado: el post normaliza a 0.9, así que cualquier cosa
+          // fuera de ahí es que la síntesis se fue.
+          expect(pico(left), donde).toBeGreaterThan(0.2);
+          expect(pico(left), donde).toBeLessThanOrEqual(1);
+          // Bordes a cero: un click al empezar o al acabar se oye en CADA nota.
+          expect(Math.abs(left[0]!), donde).toBeLessThan(0.02);
+          expect(Math.abs(left[left.length - 1]!), donde).toBeLessThan(0.02);
+        }
       }
     });
   }

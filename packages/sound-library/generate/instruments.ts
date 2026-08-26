@@ -11,13 +11,33 @@
  * con ella se mueven las formantes y el ataque. Un piano grabado en do suena a
  * ratón dos octavas arriba, y eso es lo que esto viene a quitar.
  *
- * La altura entra por `render(sr, rootHz)`. Sin ella sale la del registro
- * natural del instrumento, que es exactamente el sample de siempre.
+ * Y cada altura se graba con VARIAS pulsaciones, porque un instrumento tampoco
+ * cambia solo con la nota: cambia con la fuerza. Pegarle flojo a un piano no
+ * da el mismo piano más bajito — da uno más oscuro, con menos martillo y con
+ * la entrada más lenta, porque el martillo llega con menos energía y excita
+ * menos los parciales de arriba. Bajarle el volumen a la toma fuerte imita el
+ * nivel y no imita nada de eso.
+ *
+ * La altura y la pulsación entran por `render(sr, rootHz, dyn)`. Sin ellas
+ * salen las del registro natural y el golpe entero, que es exactamente el
+ * sample de siempre.
  *
  * Determinista: cero Math.random — todos los ruidos/excitaciones salen de
  * mulberry32 sembrado con el hash FNV-1a del slug Y de la altura. Dos renders
  * del mismo spec a la misma altura son idénticos bit a bit; dos alturas del
  * mismo instrumento estrenan ruido, o sonarían enganchadas al tocar juntas.
+ *
+ * La pulsación NO entra en la semilla, y es a propósito: dos capas de la misma
+ * nota son la misma cuerda golpeada con más o menos fuerza, no dos
+ * instrumentos. Compartiendo semilla comparten desafinación, fases y deriva, y
+ * cruzar el borde de velocidad suena a pegar más fuerte en vez de a cambiar de
+ * piano. Con las alturas es al revés porque esas SÍ suenan juntas —un acorde—
+ * y ahí la aleatoriedad compartida las funde en una sola fuente.
+ *
+ * De ahí sale la regla al tocar cualquier síntesis de aquí: la pulsación
+ * cambia amplitudes, índices y cortes, NUNCA la estructura de los bucles. En
+ * cuanto `dyn` cambie cuántos números pide el PRNG, las dos capas dejan de ser
+ * la misma cuerda.
  *
  * Calidad: fade-in de 3 ms y fade-out de 40 ms en todo (sin clicks), pico
  * interno ~0.9 (el orquestador renormaliza igualmente), estéreo por
@@ -59,11 +79,13 @@ export interface InstrumentSpec {
   /**
    * Sintetiza el sample: estéreo a la sample rate dada.
    *
-   * `rootHz` es la altura a la que se graba esta toma. Sin él sale la del
-   * registro natural del instrumento (`spec.rootHz`), que es exactamente el
-   * sample de siempre — el pack multisample pide las otras alturas a mano.
+   * `rootHz` es la altura a la que se graba esta toma y `dyn` la fuerza del
+   * golpe (0 = lo más flojo que da el instrumento, 1 = el golpe entero). Sin
+   * ellos salen la altura del registro natural (`spec.rootHz`) y la pulsación
+   * entera, que es exactamente el sample de siempre — el pack multisample pide
+   * las otras tomas a mano.
    */
-  render(sampleRate: number, rootHz?: number): StereoRender;
+  render(sampleRate: number, rootHz?: number, dyn?: number): StereoRender;
 }
 
 /**
@@ -79,6 +101,25 @@ export interface InstrumentSpec {
 export function rootsFor(spec: InstrumentSpec): number[] {
   return [spec.rootHz / 2, spec.rootHz, spec.rootHz * 2];
 }
+
+/**
+ * Las pulsaciones a las que se graba cada altura: floja y entera.
+ *
+ * Dos y no una porque un instrumento cambia de TIMBRE con la fuerza, y bajar
+ * el fader no cambia el timbre. Dos y no cinco porque cada capa más multiplica
+ * el pack ENTERO —otras setenta y dos grabaciones— y el salto que se gana de
+ * dos a tres es ya más pequeño que el que se gana de una a dos.
+ *
+ * El 1 es el sonido de SIEMPRE, bit a bit: la capa fuerte de este pack es la
+ * grabación única del pack anterior. Por eso un proyecto guardado ayer suena
+ * hoy exactamente igual, y por eso el generador puede comprobarlo — si algún
+ * WAV de la capa fuerte cambia al regenerar, algo se ha movido donde no debía.
+ *
+ * El 0,35 no es el centro de la franja floja (0,25) sino algo por encima: a
+ * 0,25 el piano sale ya con el martillo casi apagado y una nota de relleno se
+ * pierde en la mezcla.
+ */
+export const DYNAMICS = [0.35, 1] as const;
 
 /** Nota MIDI de una frecuencia (la 440 = 69). */
 export function midiDeHz(hz: number): number {
@@ -313,15 +354,16 @@ function terminar(slug: string, l: Float32Array, r: Float32Array, sr: number): S
 
 type Render = (sampleRate: number) => StereoRender;
 /**
- * Una fábrica de instrumento: recibe el slug (semilla del PRNG) y la ALTURA
- * a la que hay que grabar esta toma, en Hz.
+ * Una fábrica de instrumento: recibe el slug (semilla del PRNG), la ALTURA a
+ * la que hay que grabar esta toma en Hz, y la FUERZA del golpe (0..1).
  *
  * La altura es un parámetro y no una constante desde que el pack es
  * multisample. Antes `rootHz` era solo metadato del manifest y la altura de
  * verdad vivía dentro de cada síntesis: los dos podían dejar de coincidir sin
- * que nada lo notara.
+ * que nada lo notara. La fuerza entró después, por el mismo motivo: era una
+ * constante implícita —el golpe entero— en las quince familias a la vez.
  */
-type PorRaiz = (slug: string, f0: number) => Render;
+type PorRaiz = (slug: string, f0: number, dyn: number) => Render;
 
 /**
  * Cuánto hay que mover los cortes de filtro de un instrumento SINTÉTICO al
@@ -342,6 +384,31 @@ type PorRaiz = (slug: string, f0: number) => Render;
  */
 function escalaDe(f0: number, base: number): number {
   return f0 / base;
+}
+
+/**
+ * Cuánto se abre un parámetro al pegar más fuerte: `minimo` con `dyn` = 0, su
+ * valor entero con `dyn` = 1.
+ *
+ * Es la forma de casi todas las respuestas a la pulsación —cortes de filtro,
+ * índices de FM, niveles de los parciales de arriba—: no caen a cero al tocar
+ * flojo, caen a un suelo, porque un piano tocado bajito sigue teniendo cuerpo.
+ */
+function conPulsacion(dyn: number, minimo: number): number {
+  return minimo + (1 - minimo) * dyn;
+}
+
+/**
+ * Lo mismo para lo que SÍ se apaga casi del todo: martillos, púas, ticks y
+ * clicks de tecla.
+ *
+ * El transitorio de ataque es la parte que más depende de la fuerza —es
+ * literalmente la energía del golpe—, y esa curva por encima de 1 es lo que
+ * hace que tocar flojo suene a acariciar el instrumento y no a pegarle igual
+ * pero más bajito.
+ */
+function golpeDe(dyn: number, exponente = 1.5): number {
+  return Math.pow(dyn, exponente);
 }
 
 /**
@@ -376,7 +443,7 @@ interface OpcionesPiano {
 }
 
 function piano(o: OpcionesPiano): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
     interface Parcial {
@@ -386,6 +453,14 @@ function piano(o: OpcionesPiano): PorRaiz {
       wR: number;
       fase: number;
     }
+    // Pegar flojo no le quita parciales a una cuerda: se los INCLINA. El
+    // martillo llega con menos energía y excita menos los de arriba, así que
+    // la caída espectral se empina y además los agudos se apagan antes. El
+    // número de parciales —y con él lo que se le pide al PRNG— no se mueve:
+    // las dos capas tienen que ser la misma cuerda.
+    const brillo = o.brillo + (1 - dyn) * 1.1;
+    const caidaAgudos = 0.16 * (1 + (1 - dyn) * 0.9);
+    const ataque = o.ataqueSec * (1 + (1 - dyn) * 1.6);
     const parciales: Parcial[] = [];
     for (let k = 1; k <= o.parciales; k++) {
       const fk = f0 * k * Math.sqrt(1 + o.inarmonicidad * k * k);
@@ -393,8 +468,8 @@ function piano(o: OpcionesPiano): PorRaiz {
       // ±0.6 cent opuesto por canal: batido de cuerdas y ancho suave mono-compatible.
       const des = (rng() - 0.5) * 1.2;
       parciales.push({
-        ampl: 1 / Math.pow(k, o.brillo),
-        tasa: o.caida * (1 + 0.16 * (k - 1)),
+        ampl: 1 / Math.pow(k, brillo),
+        tasa: o.caida * (1 + caidaAgudos * (k - 1)),
         wL: (TAU * fk * centavos(des)) / sr,
         wR: (TAU * fk * centavos(-des)) / sr,
         fase: rng() * TAU,
@@ -412,12 +487,15 @@ function piano(o: OpcionesPiano): PorRaiz {
         xr += e * Math.sin(p.fase + p.wR * i);
       }
       if (i < nMartillo) {
+        // El martillo ES el golpe: se va casi del todo al tocar flojo, y lo
+        // poco que queda entra más oscuro — fieltro que roza, no que percute.
         const golpe =
-          lpMartillo.procesar(rng() * 2 - 1, 3200) * o.martillo * Math.exp(-t / 0.004) * 4;
+          lpMartillo.procesar(rng() * 2 - 1, 3200 * conPulsacion(dyn, 0.4)) *
+          o.martillo * golpeDe(dyn, 1.7) * Math.exp(-t / 0.004) * 4;
         xl += golpe;
         xr += golpe;
       }
-      const env = envAtaque(t, o.ataqueSec) * envSalida(t, o.dur - 0.35, 0.12);
+      const env = envAtaque(t, ataque) * envSalida(t, o.dur - 0.35, 0.12);
       l[i] = xl * env;
       r[i] = xr * env;
     }
@@ -447,19 +525,30 @@ interface OpcionesEP {
 }
 
 function pianoElectrico(o: OpcionesEP): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const { l, r, n } = crearCanales(sr, o.dur);
-    const indiceTine = indiceQueCabe(o.indice, f0, o.ratio, sr);
+    // En un piano eléctrico la pulsación ES el índice de FM: así funciona el
+    // instrumento de verdad —el martillo golpea más cerca del tine— y así lo
+    // hace cualquier teclado FM. Tocar flojo no le baja el volumen al diente,
+    // le quita las bandas laterales: desaparece el "tine" y queda la campana
+    // redonda de debajo. Eso no lo imita ningún fader.
+    const indiceTine = indiceQueCabe(o.indice * golpeDe(dyn, 1.3), f0, o.ratio, sr);
+    const nivelTine = o.nivelTine * conPulsacion(dyn, 0.35);
+    const indiceCuerpoBase = o.indiceCuerpo * conPulsacion(dyn, 0.55);
+    // Menos golpe también es menos previo saturado.
+    const saturacion =
+      o.saturacion !== undefined ? o.saturacion * conPulsacion(dyn, 0.45) : undefined;
+    const ataque = 0.003 * (1 + (1 - dyn) * 1.4);
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const fase = TAU * f0 * t;
       const iTine = indiceTine * Math.exp(-t / o.caidaIndice);
       const tine = Math.sin(fase + iTine * Math.sin(o.ratio * fase)) * Math.exp(-1.5 * t);
-      const iCuerpo = o.indiceCuerpo * Math.exp(-0.9 * t);
+      const iCuerpo = indiceCuerpoBase * Math.exp(-0.9 * t);
       const cuerpo = Math.sin(fase + iCuerpo * Math.sin(fase)) * Math.exp(-0.75 * t);
-      let x = o.nivelTine * tine + o.nivelCuerpo * cuerpo;
-      x *= envAtaque(t, 0.003) * envSalida(t, o.dur - 0.35, 0.12);
-      if (o.saturacion !== undefined) x = Math.tanh(x * o.saturacion) / Math.tanh(o.saturacion);
+      let x = nivelTine * tine + o.nivelCuerpo * cuerpo;
+      x *= envAtaque(t, ataque) * envSalida(t, o.dur - 0.35, 0.12);
+      if (saturacion !== undefined) x = Math.tanh(x * saturacion) / Math.tanh(saturacion);
       const lfo = o.tremoloProf * Math.sin(TAU * o.tremoloHz * t);
       l[i] = x * Math.SQRT1_2 * (1 + lfo);
       r[i] = x * Math.SQRT1_2 * (1 - lfo);
@@ -548,12 +637,23 @@ function vozKS(
 }
 
 function guitarra(o: OpcionesCuerda): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
+    // En una cuerda pulsada la fuerza está en la EXCITACIÓN: pulsar flojo con
+    // la yema mete un impulso más romo que pulsar fuerte con la uña, y el lazo
+    // se limita a repetir lo que le metan.
+    //
+    // La amortiguación NO se toca, aunque sería lo natural: entra en el largo
+    // del retardo —y con él en la afinación— y mueve cuántas muestras pide el
+    // PRNG. Las dos capas dejarían de ser la misma cuerda y encima cada una
+    // caería en un redondeo distinto del periodo.
+    const brilloExc = o.brilloExcHz * conPulsacion(dyn, 0.3);
+    const lpSalida =
+      o.lpSalidaHz !== undefined ? o.lpSalidaHz * conPulsacion(dyn, 0.55) : undefined;
     for (const voz of o.voces) {
       const cuerda = vozKS(
-        sr, n, f0, o.perdida, o.amortiguacion, o.brilloExcHz, voz.offsetMuestras, rng,
+        sr, n, f0, o.perdida, o.amortiguacion, brilloExc, voz.offsetMuestras, rng,
       );
       const ang = ((voz.pan + 1) * Math.PI) / 4;
       const gl = Math.cos(ang) * voz.nivel;
@@ -566,13 +666,13 @@ function guitarra(o: OpcionesCuerda): PorRaiz {
     if (o.click !== undefined) {
       const nClick = Math.min(n, Math.round(0.002 * sr));
       for (let i = 0; i < nClick; i++) {
-        const c = (rng() * 2 - 1) * o.click * (1 - i / nClick);
+        const c = (rng() * 2 - 1) * o.click * golpeDe(dyn) * (1 - i / nClick);
         l[i] = l[i]! + c;
         r[i] = r[i]! + c;
       }
     }
     // Cierre de la cola + cuerpo cálido opcional.
-    const fcSalida = o.lpSalidaHz;
+    const fcSalida = lpSalida;
     const lpL = new FiltroLP1(sr);
     const lpR = new FiltroLP1(sr);
     for (let i = 0; i < n; i++) {
@@ -608,7 +708,7 @@ interface OpcionesBajoSub {
 }
 
 function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const escala = escalaDe(f0, HZ_C2);
     const { l, r, n } = crearCanales(sr, o.dur);
@@ -616,20 +716,28 @@ function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
     const svf = new FiltroSVF(sr);
     const lpClick = new FiltroLP1(sr);
     const nClick = o.click !== undefined ? Math.min(n, Math.round(0.004 * sr)) : 0;
+    // En un bajo la fuerza es la ENVOLVENTE DE FILTRO: tocar flojo no abre el
+    // corte y el "tak" del ataque se queda dentro de la nota. El corte de
+    // reposo no se toca — ese es el cuerpo del bajo, y bajarlo también dejaría
+    // tapada la parte que sí tiene que sonar igual.
+    const fcIni = o.fcFin + (o.fcIni - o.fcFin) * conPulsacion(dyn, 0.18);
+    const ataque = o.ataqueSec * (1 + (1 - dyn) * 1.5);
     let fase = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       let x = leerTabla(sierra, fase);
       fase += f0 / sr;
       if (i < nClick && o.click !== undefined) {
-        x += lpClick.procesar(rng() * 2 - 1, 5000) * o.click * (1 - i / nClick) * 3;
+        x +=
+          lpClick.procesar(rng() * 2 - 1, 5000 * conPulsacion(dyn, 0.5)) *
+          o.click * golpeDe(dyn) * (1 - i / nClick) * 3;
       }
       // La envolvente de filtro es la articulación de la nota, no el cuerpo
       // del bajo: sigue a la altura. Fija, un bajo grabado en C3 acababa con
       // el corte por debajo de su propio fundamental y salía tapado.
-      const fc = (o.fcFin + (o.fcIni - o.fcFin) * Math.exp(-t / o.tEnv)) * escala;
+      const fc = (o.fcFin + (fcIni - o.fcFin) * Math.exp(-t / o.tEnv)) * escala;
       svf.procesar(x, fc, o.q);
-      const y = svf.lp * envAtaque(t, o.ataqueSec) * envSalida(t, o.sostenido, o.rel);
+      const y = svf.lp * envAtaque(t, ataque) * envSalida(t, o.sostenido, o.rel);
       l[i] = y;
       r[i] = y;
     }
@@ -639,14 +747,20 @@ function bajoSustractivo(o: OpcionesBajoSub): PorRaiz {
 
 /** Seno + octava con drive suave: sub redondo que se sienta sin ocupar medios. */
 function bajoRedondo(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const { l, r, n } = crearCanales(sr, dur);
+    // Un sub tocado flojo es más seno y menos drive: la octava y la saturación
+    // son justo lo que la fuerza añade por encima del fundamental, y el
+    // fundamental es lo único que tiene que quedarse igual.
+    const octava = 0.35 * conPulsacion(dyn, 0.35);
+    const drive = 1.7 * conPulsacion(dyn, 0.5);
+    const ataque = 0.008 * (1 + (1 - dyn) * 1.2);
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const w = TAU * f0 * t;
-      let x = Math.sin(w) + 0.35 * Math.sin(2 * w + 0.4);
-      x = Math.tanh(x * 1.7) / Math.tanh(1.7);
-      const env = envAtaque(t, 0.008) * envSalida(t, dur - 0.9, 0.3);
+      let x = Math.sin(w) + octava * Math.sin(2 * w + 0.4);
+      x = Math.tanh(x * drive) / Math.tanh(drive);
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.9, 0.3);
       l[i] = x * env;
       r[i] = x * env;
     }
@@ -656,20 +770,27 @@ function bajoRedondo(dur: number): PorRaiz {
 
 /** FM 2:1 con feedback leve en el modulador y el índice "respirando" a 4.3 Hz. */
 function bajoGrowl(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const escala = escalaDe(f0, HZ_C2);
     const { l, r, n } = crearCanales(sr, dur);
     const lp = new FiltroLP1(sr);
+    // El growl ES el índice: por debajo de cierta fuerza el bajo deja de
+    // gruñir y se sienta en su fundamental, que es lo que hace un bajista al
+    // tocar suave y lo que un fader no sabe hacer.
+    const fuerza = conPulsacion(dyn, 0.35);
+    const fcLp = 2800 * escala * conPulsacion(dyn, 0.45);
+    const ataque = 0.006 * (1 + (1 - dyn) * 1.3);
     let mPrevio = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const w = TAU * f0 * t;
       const m = Math.sin(2 * w + 0.35 * mPrevio);
       mPrevio = m;
-      const indice = (1.8 + 1.7 * Math.exp(-t / 0.5)) * (1 + 0.18 * Math.sin(TAU * 4.3 * t));
+      const indice =
+        (1.8 + 1.7 * Math.exp(-t / 0.5)) * fuerza * (1 + 0.18 * Math.sin(TAU * 4.3 * t));
       let x = 0.8 * Math.sin(w + indice * m) + 0.35 * Math.sin(w);
-      x = lp.procesar(x, 2800 * escala);
-      const env = envAtaque(t, 0.006) * envSalida(t, dur - 0.9, 0.32);
+      x = lp.procesar(x, fcLp);
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.9, 0.32);
       l[i] = x * env;
       r[i] = x * env;
     }
@@ -693,9 +814,22 @@ interface OpcionesOrgano {
 }
 
 function organo(o: OpcionesOrgano): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
+    // Un Hammond de verdad NO responde a la pulsación: los contactos abren y
+    // cierran igual le pegues como le pegues, y por eso los organistas tocan
+    // los matices con el pedal de expresión. Lo que sí cambia con el golpe es
+    // todo lo que no son los drawbars —el click de los contactos y la
+    // percusión—, y eso se respeta tal cual.
+    //
+    // Que los drawbars de arriba cedan un poco es una DECISIÓN, no una
+    // imitación: un instrumento del pack que ignore del todo la velocidad se
+    // siente roto bajo los dedos, y el registro que un organista baja al tocar
+    // suave es exactamente ese.
+    const cede = conPulsacion(dyn, 0.6);
+    const niveles = o.barras.map(([ratio, nivel]) => (ratio >= 2 ? nivel * cede : nivel));
+    const nivelPerc = conPulsacion(dyn, 0.3);
     const fasesL = new Float64Array(o.barras.length);
     const fasesR = new Float64Array(o.barras.length);
     const desL = centavos(o.coroCents);
@@ -712,7 +846,8 @@ function organo(o: OpcionesOrgano): PorRaiz {
       let xl = 0;
       let xr = 0;
       for (let b = 0; b < o.barras.length; b++) {
-        const [ratio, nivel] = o.barras[b]!;
+        const [ratio] = o.barras[b]!;
+        const nivel = niveles[b]!;
         const f = f0 * ratio * vib;
         fasesL[b] = fasesL[b]! + (TAU * f * desL) / sr;
         fasesR[b] = fasesR[b]! + (TAU * f * desR) / sr;
@@ -721,12 +856,15 @@ function organo(o: OpcionesOrgano): PorRaiz {
       }
       if (o.percusion !== undefined) {
         fasePerc += (TAU * f0 * o.percusion.ratio) / sr;
-        const p = o.percusion.nivel * Math.exp(-t / o.percusion.caida) * Math.sin(fasePerc);
+        const p =
+          o.percusion.nivel * nivelPerc * Math.exp(-t / o.percusion.caida) * Math.sin(fasePerc);
         xl += p;
         xr += p;
       }
       if (o.click !== undefined && i < nClick) {
-        const c = lpClick.procesar(rng() * 2 - 1, 4000) * o.click * (1 - i / nClick) * 4;
+        const c =
+          lpClick.procesar(rng() * 2 - 1, 4000 * conPulsacion(dyn, 0.55)) *
+          o.click * golpeDe(dyn) * (1 - i / nClick) * 4;
         xl += c;
         xr += c;
       }
@@ -742,11 +880,17 @@ function organo(o: OpcionesOrgano): PorRaiz {
 
 /** Ensemble de 6 sierras desafinadas con deriva lenta propia + LPF por canal. */
 function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, o.dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
+    // Menos presión de arco: menos brillo y una entrada algo más lenta. Es lo
+    // que separa un pianissimo de sección de un tutti, y no se consigue con el
+    // fader. El ataque se alarga con MUCHO tiento porque manda la regla de la
+    // casa: un pad por encima de 60 ms suena tarde contra la rejilla.
+    const fcArco = o.fcHz * escala * conPulsacion(dyn, 0.42);
+    const ataque = o.ataqueSec * (1 + (1 - dyn) * 0.1);
     const DETUNES = [-12, -7, -2, 3, 8, 13];
     const PANS = [-0.8, 0.5, -0.25, 0.25, -0.5, 0.8];
     interface Voz {
@@ -781,9 +925,9 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
         xl += s * v.gl;
         xr += s * v.gr;
       }
-      svfL.procesar(xl, o.fcHz * escala, 0.7);
-      svfR.procesar(xr, o.fcHz * escala, 0.7);
-      const env = envAtaque(t, o.ataqueSec) * envSalida(t, o.dur - 0.8, 0.45);
+      svfL.procesar(xl, fcArco, 0.7);
+      svfR.procesar(xr, fcArco, 0.7);
+      const env = envAtaque(t, ataque) * envSalida(t, o.dur - 0.8, 0.45);
       l[i] = svfL.lp * env;
       r[i] = svfR.lp * env;
     }
@@ -793,7 +937,7 @@ function ensembleCuerdas(o: { dur: number; fcHz: number; ataqueSec: number }): P
 
 /** Sierra ±5 cents (una por canal) + pulso 30% al centro, todo bajo LPF cálido. */
 function padCalido(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
@@ -801,6 +945,9 @@ function padCalido(dur: number): PorRaiz {
     const incL = (f0 * centavos(-5)) / sr;
     const incR = (f0 * centavos(5)) / sr;
     const incC = f0 / sr;
+    // Lo mismo que el ensemble, y con el mismo tope de 60 ms en el ataque.
+    const fcPad = 1600 * escala * conPulsacion(dyn, 0.4);
+    const ataque = 0.045 * (1 + (1 - dyn) * 0.4);
     let fL = rng();
     let fR = rng();
     let fC = rng();
@@ -812,9 +959,9 @@ function padCalido(dur: number): PorRaiz {
       fR += incR;
       fC += incC;
       const pulso = leerPulso(sierra, fC, 0.3) * 0.55;
-      svfL.procesar(leerTabla(sierra, fL) + pulso, 1600 * escala, 0.6);
-      svfR.procesar(leerTabla(sierra, fR) + pulso, 1600 * escala, 0.6);
-      const env = envAtaque(t, 0.045) * envSalida(t, dur - 0.8, 0.5);
+      svfL.procesar(leerTabla(sierra, fL) + pulso, fcPad, 0.6);
+      svfR.procesar(leerTabla(sierra, fR) + pulso, fcPad, 0.6);
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.8, 0.5);
       l[i] = svfL.lp * env;
       r[i] = svfR.lp * env;
     }
@@ -824,7 +971,7 @@ function padCalido(dur: number): PorRaiz {
 
 /** Parciales pares con "respiración" lenta e independiente: vidrio/aire. */
 function padVidrio(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const RATIOS = [1, 2, 4, 6, 8];
@@ -846,7 +993,12 @@ function padVidrio(dur: number): PorRaiz {
       partes.push({
         wL: (TAU * f0 * ratio * centavos(des)) / sr,
         wR: (TAU * f0 * ratio * centavos(-des)) / sr,
-        nivel: NIVELES[idx]!,
+        // Sin filtro que cerrar, la pulsación entra por donde entra de verdad
+        // en un aditivo: inclinando los parciales. El fundamental no se mueve
+        // (idx 0 elevado a cero es 1 exacto) y los de arriba se van bajando
+        // cada vez más, que es lo que hace que el pad flojo suene a vidrio
+        // lejano y no a vidrio bajito.
+        nivel: NIVELES[idx]! * Math.pow(dyn, idx * 0.45),
         lfoHz: 0.15 + rng() * 0.35,
         faseLfo: rng() * TAU,
         fase: rng() * TAU,
@@ -861,7 +1013,7 @@ function padVidrio(dur: number): PorRaiz {
         xl += brillo * Math.sin(p.fase + p.wL * i);
         xr += brillo * Math.sin(p.fase + p.wR * i);
       }
-      const env = envAtaque(t, 0.05) * envSalida(t, dur - 0.8, 0.5);
+      const env = envAtaque(t, 0.05 * (1 + (1 - dyn) * 0.15)) * envSalida(t, dur - 0.8, 0.5);
       l[i] = xl * env;
       r[i] = xr * env;
     }
@@ -888,14 +1040,18 @@ interface OpcionesCampana {
 }
 
 function campanaFM(o: OpcionesCampana): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, o.dur);
     const wL = (TAU * f0 * centavos(1.2)) / sr;
     const wR = (TAU * f0 * centavos(-1.2)) / sr;
     const wHum = (TAU * f0 * 0.5) / sr;
     const nTick = o.tick !== undefined ? Math.min(n, Math.round(0.002 * sr)) : 0;
-    const indice = indiceQueCabe(o.indice, f0, o.ratio, sr);
+    // Una campana rozada no es una campana más baja: el índice de FM es el
+    // badajo. Con poco índice quedan la fundamental y el hum, que es
+    // exactamente el bronce tocado con el mazo blando.
+    const indice = indiceQueCabe(o.indice * golpeDe(dyn, 1.2), f0, o.ratio, sr);
+    const brilloOctava = conPulsacion(dyn, 0.3);
     // La octava de brillo se calla si no cabe, en vez de doblarse hacia abajo.
     const conOctava = o.octavaArriba !== undefined && f0 * 2 < sr * 0.45;
     for (let i = 0; i < n; i++) {
@@ -910,12 +1066,12 @@ function campanaFM(o: OpcionesCampana): PorRaiz {
         xr += h;
       }
       if (conOctava && o.octavaArriba !== undefined) {
-        const oct = o.octavaArriba * Math.exp(-o.caidaAmp * 2.2 * t);
+        const oct = o.octavaArriba * brilloOctava * Math.exp(-o.caidaAmp * 2.2 * t);
         xl += oct * Math.sin(2 * wL * i);
         xr += oct * Math.sin(2 * wR * i);
       }
       if (i < nTick && o.tick !== undefined) {
-        const c = (rng() * 2 - 1) * o.tick * (1 - i / nTick);
+        const c = (rng() * 2 - 1) * o.tick * golpeDe(dyn) * (1 - i / nTick);
         xl += c;
         xr += c;
       }
@@ -929,7 +1085,7 @@ function campanaFM(o: OpcionesCampana): PorRaiz {
 
 /** Aditivo 1:4:10 (afinación de barras de vibráfono) + trémolo de motor. */
 function vibrafono(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const RATIOS = [1, 4, 10];
@@ -950,7 +1106,10 @@ function vibrafono(dur: number): PorRaiz {
       barras.push({
         wL: (TAU * f0 * ratio * centavos(des)) / sr,
         wR: (TAU * f0 * ratio * centavos(-des)) / sr,
-        nivel: NIVELES[idx]!,
+        // La dureza del mazo: uno blando saca la barra y poco más, uno duro
+        // saca los parciales 4 y 10 que son los que suenan a metal. La caída
+        // por parcial no se toca — eso es la barra, no el mazo.
+        nivel: NIVELES[idx]! * Math.pow(dyn, idx * 0.8),
         caida: CAIDAS[idx]!,
       });
     });
@@ -968,7 +1127,9 @@ function vibrafono(dur: number): PorRaiz {
         xr += e * Math.sin(b.wR * i);
       }
       if (i < nGolpe) {
-        const g = lpGolpe.procesar(rng() * 2 - 1, 2500) * 0.4 * (1 - i / nGolpe);
+        const g =
+          lpGolpe.procesar(rng() * 2 - 1, 2500 * conPulsacion(dyn, 0.5)) *
+          0.4 * golpeDe(dyn) * (1 - i / nGolpe);
         xl += g;
         xr += g;
       }
@@ -984,19 +1145,23 @@ function vibrafono(dur: number): PorRaiz {
 
 /** Pulso 42% con vibrato tardío (entra a los 0.55 s): lead clásico de synth. */
 function leadCuadrada(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const lp = new FiltroLP1(sr);
+    // Un lead de synth no tiene martillo: su dinámica es el filtro, que es
+    // como se toca de verdad un mono con la rueda de modulación o el aftertouch.
+    const fcLead = 7000 * escala * conPulsacion(dyn, 0.35);
+    const ataque = 0.01 * (1 + (1 - dyn) * 1.2);
     let fase = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
       const prof = 12 * rampa(t, 0.55, 0.5);
       const f = f0 * centavos(prof * Math.sin(TAU * 5.6 * t));
       fase += f / sr;
-      const x = lp.procesar(leerPulso(sierra, fase, 0.42), 7000 * escala);
-      const env = envAtaque(t, 0.01) * envSalida(t, dur - 0.55, 0.22);
+      const x = lp.procesar(leerPulso(sierra, fase, 0.42), fcLead);
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.55, 0.22);
       l[i] = x * env;
       r[i] = x * env;
     }
@@ -1006,11 +1171,21 @@ function leadCuadrada(dur: number): PorRaiz {
 
 /** Seno + armónicos suaves + soplo band-pass (chiff al ataque) + vibrato tardío. */
 function flauta(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const { l, r, n } = crearCanales(sr, dur);
     const bpL = new FiltroSVF(sr);
     const bpR = new FiltroSVF(sr);
+    // En un instrumento de viento la fuerza es el AIRE: soplar flojo da menos
+    // chiff en la entrada, menos ruido de soplo sostenido y menos armónicos
+    // encima del seno. Lo que no cambia es la fundamental — un flautista que
+    // sopla más fuerte y no corrige, además, sube de afinación, y eso aquí no
+    // se imita a propósito: dejaría las dos capas desafinadas entre sí.
+    const chiffMax = 2.2 * golpeDe(dyn, 1.3);
+    const soplo = 0.16 * conPulsacion(dyn, 0.5);
+    const arm2 = 0.18 * conPulsacion(dyn, 0.45);
+    const arm3 = 0.06 * conPulsacion(dyn, 0.3);
+    const ataque = 0.045 * (1 + (1 - dyn) * 0.6);
     let fase = 0;
     for (let i = 0; i < n; i++) {
       const t = i / sr;
@@ -1018,15 +1193,15 @@ function flauta(dur: number): PorRaiz {
       const f = f0 * centavos(9 * vib);
       fase += (TAU * f) / sr;
       const tono =
-        (Math.sin(fase) + 0.18 * Math.sin(2 * fase) + 0.06 * Math.sin(3 * fase)) *
+        (Math.sin(fase) + arm2 * Math.sin(2 * fase) + arm3 * Math.sin(3 * fase)) *
         (1 + 0.035 * vib);
       // Soplo: ruido distinto por canal (aire real), band-pass alrededor de 2.1 kHz.
-      const chiff = 1 + 2.2 * Math.exp(-t / 0.06);
+      const chiff = 1 + chiffMax * Math.exp(-t / 0.06);
       bpL.procesar(rng() * 2 - 1, 2100, 2.5);
       bpR.procesar(rng() * 2 - 1, 2100, 2.5);
-      const env = envAtaque(t, 0.045) * envSalida(t, dur - 0.6, 0.28);
-      l[i] = (tono + bpL.bp * 0.16 * chiff) * env;
-      r[i] = (tono + bpR.bp * 0.16 * chiff) * env;
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.6, 0.28);
+      l[i] = (tono + bpL.bp * soplo * chiff) * env;
+      r[i] = (tono + bpR.bp * soplo * chiff) * env;
     }
     return terminar(slug, l, r, sr);
   };
@@ -1034,13 +1209,16 @@ function flauta(dur: number): PorRaiz {
 
 /** Sierra con unison de 3 voces (±7 cents a los lados) y vibrato sutil tardío. */
 function leadSierra(dur: number): PorRaiz {
-  return (slug, f0) => (sr) => {
+  return (slug, f0, dyn) => (sr) => {
     const rng = mulberry32(semillaDe(slug, f0));
     const escala = escalaDe(f0, HZ_C4);
     const { l, r, n } = crearCanales(sr, dur);
     const sierra = tablaSierra(parcialesPara(f0, sr));
     const desL = centavos(-7);
     const desR = centavos(7);
+    // Como la cuadrada: en un synth la dinámica vive en el filtro.
+    const fcLead = 6500 * escala * conPulsacion(dyn, 0.35);
+    const ataque = 0.006 * (1 + (1 - dyn) * 1.5);
     let fC = rng();
     let fL = rng();
     let fR = rng();
@@ -1054,9 +1232,9 @@ function leadSierra(dur: number): PorRaiz {
       fL += (f0 * vib * desL) / sr;
       fR += (f0 * vib * desR) / sr;
       const centro = leerTabla(sierra, fC) * 0.6;
-      const xl = lpL.procesar(centro + leerTabla(sierra, fL) * 0.55, 6500 * escala);
-      const xr = lpR.procesar(centro + leerTabla(sierra, fR) * 0.55, 6500 * escala);
-      const env = envAtaque(t, 0.006) * envSalida(t, dur - 0.5, 0.24);
+      const xl = lpL.procesar(centro + leerTabla(sierra, fL) * 0.55, fcLead);
+      const xr = lpR.procesar(centro + leerTabla(sierra, fR) * 0.55, fcLead);
+      const env = envAtaque(t, ataque) * envSalida(t, dur - 0.5, 0.24);
       l[i] = xl * env;
       r[i] = xr * env;
     }
@@ -1083,9 +1261,10 @@ function spec(
     keyRoot: 'C',
     rootHz,
     gainSuggestion,
-    // Sin altura, la suya: `render(sr)` sigue dando exactamente el sample de
-    // siempre y quien no sepa de multisample no se entera de nada.
-    render: (sr, hz = rootHz) => crear(slug, hz)(sr),
+    // Sin altura y sin pulsación, las suyas: `render(sr)` sigue dando
+    // exactamente el sample de siempre, y quien no sepa de multisample ni de
+    // capas no se entera de nada.
+    render: (sr, hz = rootHz, dyn = 1) => crear(slug, hz, dyn)(sr),
   };
 }
 
