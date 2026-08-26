@@ -34,6 +34,7 @@
     "apps/*/test",
     "packages/*/src",
     "packages/*/test",
-    "packages/*/generate"
+    "packages/*/generate",
+    "tools/**/*.ts"
   ]
 }
