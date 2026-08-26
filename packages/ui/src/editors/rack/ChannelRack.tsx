@@ -53,7 +53,9 @@ import {
   type InstrumentKind,
   type Note,
 } from '@orbit/core';
+import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
 import { addSamplerChannels, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
+import { notifyBanner } from '../../state/bounce';
 import { reportActivity } from '../../collab/presence';
 // Las acciones de patrón viven en un solo sitio a propósito: el guard del
 // último patrón, el realineo del patrón activo y el aviso de cuántos clips se
@@ -595,12 +597,28 @@ export function ChannelRack() {
       className="rack"
       onPointerDown={() => reportActivity('Channel Rack')}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes(SOUND_MIME)) {
+        if (e.dataTransfer.types.includes(SOUND_MIME) || hasSystemFiles(e.dataTransfer)) {
           e.preventDefault();
           e.dataTransfer.dropEffect = 'copy';
         }
       }}
       onDrop={(e) => {
+        // Del Explorador del sistema: el reparto es SÍNCRONO y va antes de
+        // cualquier await (ver dropped-audio.ts), así que se hace aquí mismo.
+        if (hasSystemFiles(e.dataTransfer)) {
+          e.preventDefault();
+          const triage = triageDrop(e.dataTransfer);
+          if (triage.accepted.length > 0) {
+            notifyBanner(`Importando ${triage.accepted.length} archivo(s)…`);
+          }
+          void importTriaged(triage).then(async ({ entries, avisos }) => {
+            if (entries.length > 0) await addSamplerChannels(entries);
+            const hecho = entries.length > 0 ? `${entries.length} canal(es) nuevos` : '';
+            const dicho = [hecho, ...avisos].filter(Boolean).join(' · ');
+            if (dicho) notifyBanner(dicho);
+          });
+          return;
+        }
         // Un arrastre puede traer varias muestras: un canal para cada una, y
         // un solo deshacer para todas.
         const entries = getDragEntries(e.dataTransfer);

@@ -31,7 +31,9 @@ import {
   type PlaylistTrack,
   type Project,
 } from '@orbit/core';
+import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
 import { addAudioClips, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
+import { notifyBanner } from '../../state/bounce';
 import { IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
@@ -1880,12 +1882,34 @@ export function Playlist() {
             ref={canvasRef}
             className="pl-canvas"
             onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(SOUND_MIME)) {
+              if (e.dataTransfer.types.includes(SOUND_MIME) || hasSystemFiles(e.dataTransfer)) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
               }
             }}
             onDrop={(e) => {
+              // Del Explorador del sistema. TODO lo que depende del evento se
+              // lee aquí arriba, antes del primer await: el reparto del
+              // arrastre (`dataTransfer` se vacía) y el sitio donde se soltó
+              // (`currentTarget` se queda en null en cuanto se cede el turno).
+              if (hasSystemFiles(e.dataTransfer)) {
+                e.preventDefault();
+                const rect = e.currentTarget.getBoundingClientRect();
+                const row = rowAtY(e.clientY - rect.top);
+                const beat = quant(xToBeat(e.clientX - rect.left), snapBeats, false);
+                const triage = triageDrop(e.dataTransfer);
+                if (!row) return;
+                if (triage.accepted.length > 0) {
+                  notifyBanner(`Importando ${triage.accepted.length} archivo(s)…`);
+                }
+                void importTriaged(triage).then(async ({ entries, avisos }) => {
+                  if (entries.length > 0) await addAudioClips(entries, row.track.id, beat);
+                  const hecho = entries.length > 0 ? `${entries.length} clip(s) colocados` : '';
+                  const dicho = [hecho, ...avisos].filter(Boolean).join(' · ');
+                  if (dicho) notifyBanner(dicho);
+                });
+                return;
+              }
               // Soltar sonidos del browser: clips de audio en la pista/beat del
               // cursor, uno detrás de otro si vienen varios.
               const entries = getDragEntries(e.dataTransfer);

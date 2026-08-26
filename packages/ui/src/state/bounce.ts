@@ -46,6 +46,18 @@ function notify(notice: string): void {
   noticeTimer = setTimeout(() => useBounceStore.setState({ notice: null }), 5000);
 }
 
+/**
+ * El aviso de una línea de la app (la tira `app-notice` de `App.tsx`).
+ *
+ * Vive aquí por dónde nació —consolidar a audio—, pero el banner es UNO solo y
+ * ya lo comparten el editor de automatización y el import de archivos. Mejor un
+ * `notify` con el dueño raro que tres copias del mismo temporizador, que es
+ * como estaba a punto de quedarse.
+ */
+export function notifyBanner(text: string): void {
+  notify(text);
+}
+
 /** Clips consolidables de una pista (los de automatización se quedan). */
 export function bounceableClipsOfTrack(trackId: string): Clip[] {
   return Object.values(store.project.clips).filter(
