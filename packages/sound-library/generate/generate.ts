@@ -18,7 +18,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { INSTRUMENTS, midiDeHz, rootsFor } from './instruments';
+import { DYNAMICS, INSTRUMENTS, midiDeHz, rootsFor } from './instruments';
 
 // Imports relativos a la fuente del engine: el index del paquete arrastra
 // engine.ts (worklet de Vite) que Node no puede resolver fuera del bundler.
@@ -43,6 +43,33 @@ import {
 
 const SR = 44100;
 const PACK_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'factory');
+
+/**
+ * Cómo se apellida el archivo de cada capa de fuerza, en el orden de
+ * `DYNAMICS`.
+ *
+ * La capa MÁS FUERTE no lleva apellido, y ese hueco es el que mantiene vivos
+ * los proyectos guardados: `instrumentos/piano-suave.wav` sigue siendo el
+ * mismo archivo con el mismo contenido que antes de que existieran las capas.
+ * Las demás llevan su marca de dinámica de toda la vida. Si algún día entra
+ * una tercera capa, aquí van tres: `['-pp', '-p', '']` o lo que toque, y el
+ * generador se planta si las cuentas no cuadran.
+ */
+const SUFIJO_CAPA = ['-p', ''];
+
+/**
+ * La franja de fuerza que le toca a la capa `i` de `n`: se reparte el 0..1 a
+ * partes iguales, en el mismo orden que `DYNAMICS`.
+ *
+ * El pelo de más en el borde de abajo no sobra: `zonesForNote` compara con los
+ * dos extremos incluidos, así que una velocidad que cayera justo en la
+ * frontera dispararía las dos capas y esa nota sonaría el doble de fuerte. Es
+ * la misma convención que usa `spreadKeymapVelocities` en core para las
+ * muestras que llegan sin franja declarada.
+ */
+function franjaDeCapa(i: number, n: number): { velLow: number; velHigh: number } {
+  return { velLow: i === 0 ? 0 : i / n + 1e-6, velHigh: (i + 1) / n };
+}
 
 /** Contador global: única fuente de "variación" (ids estables por orden). */
 let contador = 0;
@@ -713,52 +740,69 @@ function main(): void {
   // ── Instrumentos con altura (multisample: varias tomas por instrumento) ────
   //
   // Cada instrumento se graba en su registro natural y una octava a cada lado,
-  // y el manifest las lleva juntas en UNA entrada. En el browser sigue siendo
-  // un sonido —un piano, no tres archivos sueltos— y al soltarlo en el rack
-  // entra ya repartido por el teclado.
+  // y cada una de esas alturas con dos pulsaciones. El manifest las lleva
+  // todas juntas en UNA entrada: en el browser sigue siendo un sonido —un
+  // piano, no seis archivos sueltos— y al soltarlo en el rack entra ya
+  // repartido por el teclado y por la fuerza.
   //
-  // La toma del registro natural conserva el nombre de archivo de siempre
-  // (`instrumentos/<slug>.wav`) y las otras llevan su nota MIDI detrás. No es
-  // capricho: un proyecto guardado apunta a esa ruta, y renombrarla habría
-  // dejado mudos los canales de quien ya tuviera el pack.
+  // La toma del registro natural con el golpe entero conserva el nombre de
+  // archivo de siempre (`instrumentos/<slug>.wav`); las demás llevan detrás su
+  // nota MIDI y, la capa floja, su marca de dinámica. No es capricho: un
+  // proyecto guardado apunta a esa ruta, y renombrarla habría dejado mudos los
+  // canales de quien ya tuviera el pack.
+  //
+  // Las dos capas van normalizadas a -1 dBFS, como todo el pack, y eso NO deja
+  // la floja sonando igual de fuerte: el sampler ya multiplica por la
+  // velocidad de la nota, así que el nivel lo pone el teclado y la grabación
+  // pone el timbre. Hornear además la diferencia de nivel en el archivo la
+  // aplicaría dos veces y una nota floja se caería de la mezcla.
+  if (SUFIJO_CAPA.length !== DYNAMICS.length) {
+    throw new Error('Cada pulsación necesita su sufijo de archivo');
+  }
   INSTRUMENTS.forEach((spec, i) => {
     const raices = rootsFor(spec);
     const base = midiDeHz(spec.rootHz);
     const samples: SoundSample[] = [];
     let bytesInstrumento = 0;
+    let principal: SoundSample | undefined;
 
     for (const hz of raices) {
       const midi = midiDeHz(hz);
-      const rendered = spec.render(SR, hz);
-      let l = rendered.left;
-      let rr = rendered.right;
-      normalizar(l, rr, -1);
-      [l, rr] = recortarCola(l, rr, -60, 0.05);
-      fadeOut(l, rr, 5);
+      DYNAMICS.forEach((dyn, capa) => {
+        const rendered = spec.render(SR, hz, dyn);
+        let l = rendered.left;
+        let rr = rendered.right;
+        normalizar(l, rr, -1);
+        [l, rr] = recortarCola(l, rr, -60, 0.05);
+        fadeOut(l, rr, 5);
 
-      const mono = esMono(l, rr);
-      const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
-      const file =
-        midi === base
-          ? `instrumentos/${spec.slug}.wav`
-          : `instrumentos/${spec.slug}-${midi}.wav`;
-      const ruta = path.join(PACK_DIR, file);
-      fs.mkdirSync(path.dirname(ruta), { recursive: true });
-      fs.writeFileSync(ruta, wav);
-      totalBytes += wav.length;
-      bytesInstrumento += wav.length;
+        const mono = esMono(l, rr);
+        const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
+        const file =
+          `instrumentos/${spec.slug}` +
+          `${midi === base ? '' : `-${midi}`}${SUFIJO_CAPA[capa]!}.wav`;
+        const ruta = path.join(PACK_DIR, file);
+        fs.mkdirSync(path.dirname(ruta), { recursive: true });
+        fs.writeFileSync(ruta, wav);
+        totalBytes += wav.length;
+        bytesInstrumento += wav.length;
 
-      samples.push({
-        file,
-        rootMidi: midi,
-        durationSec: Math.round((l.length / SR) * 1000) / 1000,
+        const muestra: SoundSample = {
+          file,
+          rootMidi: midi,
+          durationSec: Math.round((l.length / SR) * 1000) / 1000,
+          ...franjaDeCapa(capa, DYNAMICS.length),
+        };
+        samples.push(muestra);
+        // La principal es la del registro natural con el golpe entero: la que
+        // se escucha en el browser y la que se coloca si sueltas el
+        // instrumento en la playlist.
+        if (midi === base && capa === DYNAMICS.length - 1) principal = muestra;
       });
     }
 
     porCategoria.set('instrumentos', (porCategoria.get('instrumentos') ?? 0) + 1);
-    // La principal es la del registro natural: la que se escucha en el browser
-    // y la que se coloca si sueltas el instrumento en la playlist.
-    const principal = samples.find((s) => s.rootMidi === base)!;
+    if (principal === undefined) throw new Error(`"${spec.slug}": sin toma principal`);
 
     entries.push({
       id: `instrumentos/${spec.slug}`,
@@ -775,7 +819,8 @@ function main(): void {
 
     console.log(
       `[inst ${String(i + 1).padStart(2)}/${INSTRUMENTS.length}] ${spec.slug.padEnd(30)} ` +
-      `${samples.length} tomas (MIDI ${samples.map((s) => s.rootMidi).join('/')}) ` +
+      `${samples.length} tomas (${raices.length} alturas × ${DYNAMICS.length} capas, ` +
+      `MIDI ${[...new Set(samples.map((s) => s.rootMidi))].join('/')}) ` +
       `${(bytesInstrumento / 1024).toFixed(0).padStart(5)} KB`,
     );
   });
@@ -802,6 +847,30 @@ function main(): void {
     if (e.samples && !e.samples.some((s) => s.file === e.file)) {
       throw new Error(`"${e.id}": la toma principal no está entre sus samples`);
     }
+    // Las capas de cada altura tienen que tapar el 0..1 entero y sin pisarse.
+    // Un hueco es una nota muda a esa fuerza y un solape es una nota que suena
+    // el doble: las dos cosas se descubren TOCANDO, y ninguna da error.
+    if (e.samples) {
+      const porNota = new Map<number, { velLow: number; velHigh: number }[]>();
+      for (const s of e.samples) {
+        const lista = porNota.get(s.rootMidi) ?? [];
+        lista.push({ velLow: s.velLow ?? 0, velHigh: s.velHigh ?? 1 });
+        porNota.set(s.rootMidi, lista);
+      }
+      for (const [nota, capas] of porNota) {
+        capas.sort((a, b) => a.velLow - b.velLow);
+        const donde = `"${e.id}" en la nota ${nota}`;
+        if (capas[0]!.velLow !== 0) throw new Error(`${donde}: nadie cubre la velocidad 0`);
+        if (capas[capas.length - 1]!.velHigh !== 1) {
+          throw new Error(`${donde}: nadie cubre la velocidad máxima`);
+        }
+        for (let k = 1; k < capas.length; k++) {
+          const hueco = capas[k]!.velLow - capas[k - 1]!.velHigh;
+          if (hueco <= 0) throw new Error(`${donde}: dos capas se pisan`);
+          if (hueco > 0.01) throw new Error(`${donde}: hueco entre capas`);
+        }
+      }
+    }
     for (const file of ficheros) {
       const ruta = path.join(PACK_DIR, file);
       if (!fs.existsSync(ruta)) throw new Error(`Falta el fichero ${file}`);
@@ -823,11 +892,13 @@ function main(): void {
   );
   // 15 → 24 MB al entrar los instrumentos con altura (v0.5); 24 → 48 al pasar
   // el pack a multisample (v0.6), que son tres tomas por instrumento en vez de
-  // una. El tope existe porque este pack viaja DENTRO del instalador: no es un
-  // límite técnico, es la promesa de que descargarse Orbit sigue siendo rápido.
-  // Subirlo otra vez es una decisión, no un trámite.
-  if (totalBytes > 48 * 1024 * 1024) {
-    throw new Error('El pack supera los 48 MB: recorta colas o duraciones');
+  // una; y 48 → 80 al entrar las capas de fuerza, que vuelven a doblar los
+  // instrumentos: 72 grabaciones pasan a 144. El tope existe porque este pack
+  // viaja DENTRO del instalador: no es un límite técnico, es la promesa de que
+  // descargarse Orbit sigue siendo rápido. Subirlo otra vez es una decisión, no
+  // un trámite — y la de esta vez la tomó el usuario sabiendo lo que costaba.
+  if (totalBytes > 80 * 1024 * 1024) {
+    throw new Error('El pack supera los 80 MB: recorta colas o duraciones');
   }
   console.log('Pack generado y verificado.');
 }
