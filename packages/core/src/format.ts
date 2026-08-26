@@ -3,6 +3,7 @@
 import type { Project } from './model/types';
 import { FORMAT_VERSION } from './model/types';
 import { normalizeKeymap } from './model/keymap';
+import { BEND_MAX } from './model/paramref';
 import { normalizeSlicePoints } from './model/slices';
 
 
@@ -75,6 +76,17 @@ export function parseProject(json: string): Project {
     const known = zones?.filter((z) => p.samples?.[z.sampleId] !== undefined);
     if (known && known.length > 0) channel.keymap = known;
     else delete channel.keymap;
+
+    // Rueda de tono (v3.4): un número que llega del disco y va DIRECTO a la
+    // altura de cada nota del canal. Un NaN o un 400 aquí no es un canal raro,
+    // es un canal mudo —la voz nace a una frecuencia imposible— así que se
+    // acota, y el 0 se borra en vez de guardarse: sin doblar es la ausencia
+    // del campo, igual que en los .orbit de antes de que existiera.
+    if (channel.bend === undefined || !Number.isFinite(channel.bend) || channel.bend === 0) {
+      delete channel.bend;
+    } else {
+      channel.bend = Math.min(BEND_MAX, Math.max(-BEND_MAX, channel.bend));
+    }
 
     // Carpeta que ya no existe: el canal se queda suelto en vez de
     // desaparecer del rack (se pinta por carpeta, y esa no se pinta).

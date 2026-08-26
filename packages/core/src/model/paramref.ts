@@ -23,6 +23,16 @@ export const TEMPO_MAX = 999;
 export const EQ_MIN = -18;
 export const EQ_MAX = 18;
 
+/**
+ * Cuánto puede doblar la curva de la rueda, en semitonos hacia cada lado.
+ *
+ * 24 y no 2 porque este número no es el rango de NINGUNA rueda: es el del
+ * parámetro, y tiene que dar cabida al rango más ancho que ofrece el teclado
+ * (que son 24). El rango de la rueda física decide cuánto dobla un gesto; la
+ * curva, una vez grabada, ya no sabe de ruedas — guarda semitonos.
+ */
+export const BEND_MAX = 24;
+
 function isEqParam(param: string): boolean {
   return param === 'eqLow' || param === 'eqMid' || param === 'eqHigh';
 }
@@ -82,6 +92,7 @@ export function describeParamRef(ref: ParamRef, project: Project): string {
     }
     case 'channelMix': {
       const ch = project.channels[ref.channelId];
+      if (ref.param === 'bend') return `Canal ${ch?.name ?? '?'} · rueda de tono`;
       return `Canal ${ch?.name ?? '?'} · ${ref.param} (mezcla)`;
     }
     case 'mixer': {
@@ -120,7 +131,12 @@ export function paramRefValue(norm: number, ref: ParamRef, project: Project): nu
       return spec ? denormalizeParam(spec, t) : t;
     }
     case 'channelMix':
-      return ref.param === 'volume' ? t * 2 : t * 2 - 1;
+      if (ref.param === 'volume') return t * 2;
+      // La rueda es bipolar como el pan, pero en semitonos: el centro (0.5) es
+      // sin doblar, y es EXACTAMENTE el centro — un parámetro de altura que se
+      // quede a medio cent del centro se oye en cada nota.
+      if (ref.param === 'bend') return (t * 2 - 1) * BEND_MAX;
+      return t * 2 - 1;
     case 'mixer':
       if (ref.param === 'pan') return t * 2 - 1;
       if (isEqParam(ref.param)) return EQ_MIN + t * (EQ_MAX - EQ_MIN);
@@ -145,7 +161,9 @@ export function paramValueNorm(value: number, ref: ParamRef, project: Project): 
       return spec ? normalizeParam(spec, value) : clamp01(value);
     }
     case 'channelMix':
-      return ref.param === 'volume' ? clamp01(value / 2) : clamp01((value + 1) / 2);
+      if (ref.param === 'volume') return clamp01(value / 2);
+      if (ref.param === 'bend') return clamp01(value / BEND_MAX / 2 + 0.5);
+      return clamp01((value + 1) / 2);
     case 'mixer':
       if (ref.param === 'pan') return clamp01((value + 1) / 2);
       if (isEqParam(ref.param)) return clamp01((value - EQ_MIN) / (EQ_MAX - EQ_MIN));
@@ -168,7 +186,11 @@ export function paramRefNorm(ref: ParamRef, project: Project): number | null {
     case 'channelMix': {
       const ch = project.channels[ref.channelId];
       if (!ch) return null;
-      return paramValueNorm(ref.param === 'volume' ? ch.volume : ch.pan, ref, project);
+      // La rueda ausente es la rueda en el centro: un canal de un .orbit viejo
+      // no está doblado, está sin doblar.
+      const actual =
+        ref.param === 'volume' ? ch.volume : ref.param === 'bend' ? (ch.bend ?? 0) : ch.pan;
+      return paramValueNorm(actual, ref, project);
     }
     case 'mixer': {
       const t = project.mixer[ref.trackIndex];
@@ -196,6 +218,11 @@ export function formatParamRef(ref: ParamRef, project: Project, norm: number): s
     const real = paramRefValue(norm, ref, project);
     if (ref.kind === 'transport' && ref.param === 'tempo') return `${real.toFixed(1)} BPM`;
     if (ref.kind === 'mixer' && isEqParam(ref.param)) return `${real.toFixed(1)} dB`;
+    if (ref.kind === 'channelMix' && ref.param === 'bend') {
+      // Con signo siempre: "0.00 st" y "+0.00 st" dicen lo mismo, pero en una
+      // lista de puntos de curva el signo es lo que se lee de un vistazo.
+      return `${real >= 0 ? '+' : ''}${real.toFixed(2)} st`;
+    }
     if (ref.kind === 'mixer' || ref.kind === 'channelMix') {
       return ref.param === 'pan' ? formatPanValue(real) : real.toFixed(2);
     }
@@ -239,11 +266,9 @@ export function paramRefCommand(ref: ParamRef, norm: number, project: Project): 
     }
     case 'channelMix': {
       if (!project.channels[ref.channelId]) return null;
-      return {
-        type: 'patchChannel',
-        channelId: ref.channelId,
-        patch: ref.param === 'volume' ? { volume: value } : { pan: value },
-      };
+      const patch =
+        ref.param === 'volume' ? { volume: value } : ref.param === 'bend' ? { bend: value } : { pan: value };
+      return { type: 'patchChannel', channelId: ref.channelId, patch };
     }
     case 'mixer': {
       if (!project.mixer[ref.trackIndex]) return null;

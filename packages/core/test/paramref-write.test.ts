@@ -12,7 +12,12 @@ import {
   applyCommand,
   createChannel,
   createEmptyProject,
+  BEND_MAX,
+  describeParamRef,
+  formatParamRef,
   paramRefCommand,
+  paramRefValue,
+  paramValueNorm,
   paramRefNorm,
   type EffectSlot,
   type ParamRef,
@@ -132,5 +137,62 @@ describe('paramRefCommand', () => {
     const project = createEmptyProject();
     const cmd = paramRefCommand({ kind: 'mixer', trackIndex: 1, param: 'pan' }, 0.25, project);
     expect(JSON.parse(JSON.stringify(cmd))).toEqual(cmd);
+  });
+});
+
+describe('la rueda de tono como parámetro del canal', () => {
+  const refDe = (channelId: string): ParamRef =>
+    ({ kind: 'channelMix', channelId, param: 'bend' });
+
+  it('el centro es EXACTAMENTE cero, no casi', () => {
+    // Esto no es pedantería de coma flotante: la rueda va directa a la altura
+    // de cada nota del canal, así que medio cent de resto se oye en todas.
+    const { project, channelId } = projectWithChannel();
+    const ref = refDe(channelId);
+    expect(paramRefValue(0.5, ref, project)).toBe(0);
+    expect(paramValueNorm(0, ref, project)).toBe(0.5);
+  });
+
+  it('escribir y leer es la vuelta exacta, en todo el recorrido', () => {
+    const { project, channelId } = projectWithChannel();
+    const ref = refDe(channelId);
+    for (const norm of [0, 0.25, 0.5, 0.75, 1]) {
+      expect(roundTrip(project, ref, norm), `norm ${norm}`).toBeCloseTo(norm, 10);
+    }
+  });
+
+  it('los extremos son los 24 semitonos de la rueda más ancha', () => {
+    // 24 no es el rango de ninguna rueda concreta: es el del PARÁMETRO, y
+    // tiene que dar cabida al rango más ancho que ofrece el teclado.
+    const { project, channelId } = projectWithChannel();
+    const ref = refDe(channelId);
+    expect(paramRefValue(1, ref, project)).toBe(BEND_MAX);
+    expect(paramRefValue(0, ref, project)).toBe(-BEND_MAX);
+  });
+
+  it('un canal que nunca la tocó se lee centrado, no vacío', () => {
+    // Ausente es sin doblar. Devolver null aquí dejaría a la curva y al LFO
+    // sin base sobre la que partir, que es donde están casi siempre.
+    const { project, channelId } = projectWithChannel();
+    expect(project.channels[channelId]!.bend).toBeUndefined();
+    expect(paramRefNorm(refDe(channelId), project)).toBe(0.5);
+  });
+
+  it('se enseña con signo y en semitonos', () => {
+    const { project, channelId } = projectWithChannel();
+    const ref = refDe(channelId);
+    expect(formatParamRef(ref, project, 0.5)).toBe('+0.00 st');
+    expect(formatParamRef(ref, project, 1)).toBe('+24.00 st');
+    expect(formatParamRef(ref, project, 0)).toBe('-24.00 st');
+  });
+
+  it('el destino se llama por lo que es, no por su clave', () => {
+    const { project, channelId } = projectWithChannel();
+    expect(describeParamRef(refDe(channelId), project)).toMatch(/rueda de tono/);
+  });
+
+  it('el canal borrado no revienta al escribirlo', () => {
+    const { project } = projectWithChannel();
+    expect(paramRefCommand(refDe('no-existe'), 0.7, project)).toBeNull();
   });
 });

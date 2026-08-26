@@ -122,6 +122,16 @@ export interface Channel {
   volume: number;
   /** -1..1 */
   pan: number;
+  /**
+   * Rueda de tono del canal, en semitonos (v3.4). Ausente = 0, que es donde
+   * estuvo siempre: un `.orbit` de antes de esto suena exactamente igual.
+   *
+   * Es un parámetro del PROYECTO y no un mensaje suelto al motor, y esa es la
+   * diferencia entera: como parámetro tiene curva de automatización, se graba
+   * al mover la rueda tocando, viaja a la sala y tiene undo. Antes la rueda
+   * doblaba la voz viva y lo que dobló no quedaba en ninguna parte.
+   */
+  bend?: number;
   mute: boolean;
   solo: boolean;
   /** Índice de pista de mixer (0 = Master, 1..N = inserts). */
@@ -214,7 +224,7 @@ export interface AutomationPoint {
 /** Referencia a un parámetro automatizable de cualquier parte del proyecto. */
 export type ParamRef =
   | { kind: 'channel'; channelId: Id; param: string }
-  | { kind: 'channelMix'; channelId: Id; param: 'volume' | 'pan' }
+  | { kind: 'channelMix'; channelId: Id; param: 'volume' | 'pan' | 'bend' }
   | {
       kind: 'mixer';
       trackIndex: number;
