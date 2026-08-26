@@ -132,6 +132,7 @@ function compileParamTarget(
     case 'channelMix': {
       const idx = channelIndexOf.get(ref.channelId);
       if (idx === undefined) return null;
+      // volume, pan y bend: los tres los aplica el kernel en applyAutomation.
       return { scope: 'channelMix', channelIndex: idx, key: ref.param };
     }
     case 'mixer':
@@ -236,6 +237,10 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       audible: anyChannelSolo ? ch.solo : !ch.mute,
       mixerTrack: ch.mixerTrack,
       sampleId: ch.sampleId,
+      // Rueda de tono: solo viaja si está doblada. Mandar un 0 explícito
+      // costaría lo mismo, pero deja el canal compilado distinto del de un
+      // .orbit anterior y eso se nota en los golden tests del render.
+      ...(ch.bend ? { bend: ch.bend } : null),
       // Cortes propios del Slicer: con ellos el motor trocea por ahí en vez de
       // repartir a partes iguales. Un solo punto no es un troceado.
       ...(ch.slicePoints && ch.slicePoints.length > 1

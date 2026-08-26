@@ -452,6 +452,21 @@ export class KernelCore {
       this.bendByChannel = new Float32Array(nCh);
       this.bendByChannel.set(prev.subarray(0, Math.min(prev.length, nCh)));
     }
+    // Y desde que la rueda es un parámetro del proyecto (v3.4), el canal que
+    // DICE algo de ella manda: abrir un .orbit con la rueda guardada deja el
+    // canal doblado donde toca sin que nadie mueva nada.
+    //
+    // El que no dice nada se respeta, y ahí está la diferencia que importa:
+    // ausente NO significa "la rueda está en el centro", significa "este canal
+    // no tiene opinión". Si significara centro, cualquier recompilación
+    // —mover una perilla mientras se dobla— soltaría la rueda de golpe en
+    // mitad del gesto, que es justo lo que el gesto en vivo no puede permitir.
+    // Recentrar lo hace el mensaje de la rueda al soltarla, que es quien sabe
+    // que se ha soltado.
+    for (let i = 0; i < nCh; i++) {
+      const declarado = p.channels[i]!.bend;
+      if (declarado !== undefined) this.setPitchBend(i, declarado);
+    }
     if (this.chBufOf.length !== nCh) this.chBufOf = new Int32Array(nCh);
     this.chBufOf.fill(-1);
     this.fxChannels.length = 0;
@@ -826,6 +841,21 @@ export class KernelCore {
   }
 
   /**
+   * La rueda de un canal escrita DESDE EL MODELO (curva de automatización o
+   * LFO): deja el valor en el proyecto compilado y reafina lo que suena.
+   *
+   * Las dos mitades van juntas y no por gusto. Solo el valor, y las voces
+   * vivas no se enteran: la curva no se oiría hasta la nota siguiente. Solo
+   * las voces, y el valor se pierde en la próxima recompilación —que ahora
+   * adopta el del canal— así que el canal volvería al centro solo.
+   */
+  private setChannelBend(channelIndex: number, semitones: number): void {
+    const ch = this.project?.channels[channelIndex];
+    if (ch) ch.bend = semitones;
+    this.setPitchBend(channelIndex, semitones);
+  }
+
+  /**
    * Rueda de tono de un canal: dobla lo que ya suena y se queda puesta para lo
    * que suene después.
    */
@@ -939,6 +969,7 @@ export class KernelCore {
           const ch = p.channels[t.channelIndex];
           if (ch) {
             if (t.key === 'volume') ch.volume = value;
+            else if (t.key === 'bend') this.setChannelBend(t.channelIndex, value);
             else ch.pan = value;
           }
           break;
@@ -1043,7 +1074,11 @@ export class KernelCore {
       case 'channelMix': {
         const ch = p.channels[t.channelIndex];
         if (!ch) return null;
-        return t.key === 'volume' ? ch.volume : ch.pan;
+        if (t.key === 'volume') return ch.volume;
+        // Sin doblar es 0, no "no hay valor": un LFO sobre la rueda tiene que
+        // poder oscilar sobre el centro, que es donde está casi siempre.
+        if (t.key === 'bend') return ch.bend ?? 0;
+        return ch.pan;
       }
       case 'mixer': {
         const track = p.mixer[t.trackIndex];
@@ -1074,6 +1109,7 @@ export class KernelCore {
         const ch = p.channels[t.channelIndex];
         if (ch) {
           if (t.key === 'volume') ch.volume = value;
+          else if (t.key === 'bend') this.setChannelBend(t.channelIndex, value);
           else ch.pan = value;
         }
         break;

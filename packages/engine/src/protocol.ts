@@ -31,6 +31,15 @@ export interface CompiledChannel {
   pan: number;
   audible: boolean; // mute/solo ya resueltos
   mixerTrack: number;
+  /**
+   * Rueda de tono del canal, en semitonos. Ausente = 0 (sin doblar).
+   *
+   * Va en el canal COMPILADO porque es un parámetro automatizable como el
+   * volumen, y el kernel tiene que poder recibirlo por la curva y por el
+   * gesto. Lo que hace con él no es escribirlo en una variable: reafina las
+   * voces vivas de ese canal y se queda puesto para las que nazcan después.
+   */
+  bend?: number;
   sampleId?: string;
   /**
    * kind === 'slicer': cortes propios del canal (0..1, ordenados, el primero
@@ -147,7 +156,7 @@ export const LFO_LUT_STEPS = 64;
 
 export type CompiledParamTarget =
   | { scope: 'channelParam'; channelIndex: number; key: string }
-  | { scope: 'channelMix'; channelIndex: number; key: 'volume' | 'pan' }
+  | { scope: 'channelMix'; channelIndex: number; key: 'volume' | 'pan' | 'bend' }
   | {
       scope: 'mixer';
       trackIndex: number;
