@@ -219,6 +219,25 @@ export async function importDroppedAudio(files: readonly File[]): Promise<Import
   return { entries, failed };
 }
 
+/**
+ * El resto del camino después del triaje: importa lo aceptado y deja los
+ * avisos ya juntos, los del triaje y los de la copia.
+ *
+ * Va aparte de `triageDrop` porque el reparto tiene que ser SÍNCRONO —dentro
+ * del manejador del drop, antes del primer await— y esto no. Partirlo en dos
+ * es lo que deja esa regla a la vista en cada destino, en vez de escondida
+ * dentro de una función que parece que se puede llamar cuando sea.
+ */
+export async function importTriaged(
+  triage: DropTriage,
+): Promise<{ entries: SoundEntry[]; avisos: string[] }> {
+  if (triage.accepted.length === 0) {
+    return { entries: [], avisos: describeTriage(triage, []) };
+  }
+  const { entries, failed } = await importDroppedAudio(triage.accepted);
+  return { entries, avisos: describeTriage(triage, failed) };
+}
+
 /** Lo que hay que contarle al usuario de un arrastre que no entró entero. */
 export function describeTriage(triage: DropTriage, failed: readonly RejectedFile[]): string[] {
   const avisos: string[] = [];

@@ -22,6 +22,13 @@ import {
   type Channel,
   type KeymapZone,
 } from '@orbit/core';
+import type { SoundEntry } from '@orbit/sound-library';
+import {
+  describeTriage,
+  hasSystemFiles,
+  importTriaged,
+  triageDrop,
+} from '../../browser/dropped-audio';
 import { addKeymapZones, describeKeymapDrop, getDragEntries } from '../../browser/sound-actions';
 import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
@@ -63,19 +70,46 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
       label,
     );
 
+  /** Coloca las entradas en el keymap y cuenta lo que pasó. */
+  const colocar = async (entries: SoundEntry[], avisos: string[]) => {
+    const result = await addKeymapZones(channel.id, entries, { octaveOffset });
+    setNotice([describeKeymapDrop(result), ...avisos].join(' · '));
+  };
+
   const drop = async (e: React.DragEvent) => {
     e.preventDefault();
     setDropping(false);
-    // Un arrastre trae lo que se seleccionó en el Browser: una muestra, o las
-    // treinta de un piano. Aquí da igual — es el mismo camino.
+
+    // Del Explorador del sistema. El reparto va AQUÍ, síncrono y antes del
+    // primer await: `webkitGetAsEntry` es lo único que distingue una carpeta de
+    // un archivo y deja de responder en cuanto se cede el turno.
+    if (hasSystemFiles(e.dataTransfer)) {
+      const triage = triageDrop(e.dataTransfer);
+      if (triage.accepted.length === 0) {
+        setNotice(describeTriage(triage, []).join(' · ') || 'Ahí no venía audio');
+        return;
+      }
+      // Copiar a disco unos cuantos WAV tarda, y sin este aviso el editor se
+      // queda quieto y parece que el arrastre no ha hecho nada.
+      setNotice(`Importando ${triage.accepted.length} archivo(s)…`);
+      const { entries, avisos } = await importTriaged(triage);
+      if (entries.length === 0) {
+        setNotice(avisos.join(' · ') || 'No se pudo importar nada');
+        return;
+      }
+      await colocar(entries, avisos);
+      return;
+    }
+
+    // Del Browser: una muestra, o las treinta de un piano. Aquí da igual — es
+    // el mismo camino, y estas ya están en disco.
     const entries = getDragEntries(e.dataTransfer);
     if (entries.length === 0) return;
     // Treinta muestras tardan lo suyo en leerse del disco y decodificarse: sin
     // este aviso el editor se queda quieto y parece que el drop no ha hecho
     // nada. Con una sola no se enseña, que sería un parpadeo.
     if (entries.length > 1) setNotice(`Cargando ${entries.length} muestras…`);
-    const result = await addKeymapZones(channel.id, entries, { octaveOffset });
-    setNotice(describeKeymapDrop(result));
+    await colocar(entries, []);
   };
 
   /** Posición 0..1 de una tecla dentro de la tira. */
@@ -101,7 +135,7 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
         }}
         onDragLeave={() => setDropping(false)}
         onDrop={(e) => void drop(e)}
-        title="Suelta aquí sonidos del Browser (uno, o los que tengas seleccionados): entran con su nota leída del nombre"
+        title="Suelta aquí sonidos del Browser (uno, o los que tengas seleccionados) o archivos de audio del Explorador: entran con su nota leída del nombre"
       >
         <div className="km-keys" aria-hidden="true">
           {Array.from({ length: VIEW_HIGH - VIEW_LOW }, (_, i) => {
