@@ -19,9 +19,10 @@
  *
  * - **Sintaxis**: qué elementos van y en qué orden. Eso es el formato, y está
  *   todo aquí, completo.
- * - **Decisiones**: qué valor darle a cada uno. Eso es del codificador, y aquí
- *   se toman las conservadoras — sin postfiltro, sin transitorios, dispersión
- *   normal, sin dynalloc, inclinación neutra.
+ * - **Decisiones**: qué valor darle a cada uno. Eso es del codificador. Están
+ *   tomadas el dynalloc, la elección intra/inter de la energía y la
+ *   inclinación del reparto (que sale de la pendiente del espectro); siguen
+ *   conservadoras el postfiltro, los transitorios y la dispersión.
  *
  * El resultado es un archivo **válido y decodificable** que suena algo peor que
  * el de libopus, no uno roto. Afinar las decisiones es trabajo posterior y no

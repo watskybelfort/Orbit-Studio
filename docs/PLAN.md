@@ -8,6 +8,42 @@ se saca al final, cuando el conjunto está pulido.
 
 ## En curso — hacia la v3.4 (en `main`, sin release)
 
+**El encoder Opus, un poco más fino.** La `alloc_trim` —la pendiente con la que
+el asignador reparte bits entre bandas— llevaba fija en neutro desde que el
+encoder existe. Con el 5 fijo, un acorde (toda su energía abajo, casi nada
+arriba) recibía el mismo esfuerzo en las bandas vacías que en las que llevaban
+la música; los bits no se pierden en el aire, se los quita a donde se oyen.
+Ahora sale del momento de primer orden del espectro.
+
+Antes de tocar nada se construyó con qué medirlo (`tools/qa/opus-quality.ts`):
+la misma señal por Orbit y por libopus al mismo bitrate, las dos decodificadas
+por ffmpeg y comparadas con el original. La distancia media pasó de **−2,06 a
+−1,21 dB** y la peor de −9,62 a −7,86.
+
+Lo que hay que saber para seguir:
+
+- **El agujero que queda es lo TONAL** (−7,9 dB en el peor caso, y peor en
+  estéreo). Ahí lo que ayuda es el postfiltro, que es la pieza cara: pide
+  correr el decodificador dentro del encoder para no perder la sincronía del
+  estado.
+- **En ruido y en mezcla salimos POR DELANTE de libopus**, y eso no es una
+  buena noticia: quiere decir que gastamos bits donde libopus ya sabe que no
+  hacen falta.
+- **La dispersión adaptativa se implementó y NO entró.** Portada de la
+  referencia, funcionaba, y la medida salió neutra (−0,02 dB, que es ruido)
+  porque la SNR no ve lo que hace la dispersión — reparte el error dentro de la
+  banda, no lo reduce. Sin poder demostrar la mejora no se sube. Para decidirla
+  hace falta una medida perceptual, no una de error.
+- **La trampa del formato, dos veces**: tanto la inclinación como la dispersión
+  solo se transmiten SI CABEN, y cuando no caben el decodificador da por hecho
+  el valor por defecto. Así que la decisión hay que tomarla DENTRO de la rama
+  que la escribe. Tomarla fuera y escribirla dentro no da error: los dos lados
+  reparten distinto, el paquete se descoloca entero y sale ruido.
+
+Y `tools/` entra en el typecheck, que no estaba — el mismo agujero por el que
+el generador del pack llevaba meses roto sin que nadie pudiera verlo.
+
+
 **La rueda de tono, grabada.** Desde la v3.2 la rueda dobla la voz viva en los
 diez instrumentos, pero lo que dobló no quedaba en ninguna parte: grabar
 tocando guardaba las notas y no el gesto. El motivo era que la rueda no era un
@@ -83,7 +119,7 @@ Lo que hay que saber para tocarlo:
   dice por dónde entra de verdad (registrarla, que la indexa entera y no la
   copia).
 
-1655 tests.
+1661 tests.
 
 ## Estado — 26-08-2026: v3.3.0
 

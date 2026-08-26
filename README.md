@@ -269,7 +269,7 @@ pack de fábrica en multisample, en la **v3.2**; y sus capas de fuerza, en la
 
 | Qué | Por qué |
 |---|---|
-| **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
+| **Seguir afinando el encoder Opus** | La inclinación del reparto ya sale del espectro y con eso la distancia media a libopus bajó de −2,06 a −1,21 dB (ver `tools/qa/opus-quality.ts`). Queda el agujero tonal, −7,9 dB en el peor caso, y ahí lo que ayuda es el **postfiltro** — un predictor de tono que pide correr el decodificador dentro del encoder para no perder la sincronía del estado. Detrás van los transitorios, la intensidad estéreo y el VBR por trama. La dispersión adaptativa se implementó y NO entró: la SNR no ve lo que hace, salió neutra y sin poder demostrar la mejora no se sube — para decidirla hace falta una medida perceptual, no una de error. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
 
 ### Más adelante
@@ -325,13 +325,41 @@ ffmpeg.**
 
 ### Lo que todavía no hace
 
-El encoder toma las decisiones conservadoras: sin postfiltro, sin detección de
-transitorios y con dispersión fija. Eso son **decisiones**, no sintaxis — dan un
-archivo válido que suena algo peor que el de libopus a igualdad de bits, no uno
-roto. Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus
-vecinas, sin el cual un tono puro suena sucio a bitrate medio) y la elección
-intra/inter de la energía, que se decide **codificando las dos y quedándose con
-la que menos recorta**.
+Le faltan tres decisiones: **postfiltro**, **detección de transitorios** y
+**dispersión adaptativa**. Eso son *decisiones*, no sintaxis — dan un archivo
+válido que suena algo peor que el de libopus a igualdad de bits, no uno roto.
+
+Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus vecinas,
+sin el cual un tono puro suena sucio a bitrate medio), la elección intra/inter
+de la energía —que se decide **codificando las dos y quedándose con la que
+menos recorta**— y la **inclinación del reparto**, que sale de la pendiente del
+espectro en vez de estar fija en neutro.
+
+### Cuánto se pierde por bit
+
+```bash
+npx tsx tools/qa/opus-quality.ts
+```
+
+La misma señal codificada con Orbit y con libopus al mismo bitrate, las dos
+decodificadas con ffmpeg y comparadas con el original. Cuatro señales elegidas
+por lo que ponen a prueba, cinco combinaciones de canales y bitrate. Hoy:
+
+| | Orbit | libopus | distancia |
+|---|---|---|---|
+| Media de las 20 medidas | 15,53 dB | 16,74 dB | **−1,21 dB** |
+| La peor (tonal, estéreo 96k) | 26,05 dB | 33,91 dB | −7,86 dB |
+
+Lo tonal es el agujero que queda, y es donde ayudaría el postfiltro. En ruido y
+en mezcla salimos por delante, y eso **no** es buena noticia: quiere decir que
+gastamos bits donde libopus ya sabe que no hacen falta.
+
+Y por eso el banco lleva escrito que la SNR es un apaño. Opus es perceptual: un
+archivo con menos SNR puede sonar mejor. Vale para comparar dos versiones del
+mismo encoder y para ver si la distancia se acorta, no como nota de calidad.
+Cuando se probó la dispersión adaptativa, la medida salió neutra (−0,02 dB, que
+es ruido) porque la SNR no ve lo que hace la dispersión — así que esa decisión
+no entró: no se pudo demostrar que mejorase.
 
 ## Arranque rápido (desarrollo)
 
