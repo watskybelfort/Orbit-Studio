@@ -13,11 +13,19 @@
  * `midi-message.ts`. Las dos piezas se prueban sin hardware.
  */
 
-import { newId, type Note } from '@orbit/core';
+import {
+  describeParamRef,
+  newId,
+  paramRefCommand,
+  paramValueNorm,
+  type Note,
+  type ParamRef,
+} from '@orbit/core';
 import { create } from 'zustand';
 import { beatAt, engine, ensureAudioReady, store } from './app';
 
 import { previewNote } from './active-notes';
+import { touchParam } from './param-touch';
 import {
   applyVelocityCurve,
   bendSemitones,
@@ -197,12 +205,69 @@ function push(h: HeldNote, endBeat: number): void {
  * nada en pantalla lo explique.
  */
 let bentChannel: number | null = null;
+/** Id del canal doblado (el índice no basta para nombrar un destino). */
+let bentChannelId: string | null = null;
+
+// ── Volcado de la rueda al proyecto ─────────────────────────────────────────
+//
+// La rueda va por DOS caminos a la vez, y no es duplicar por gusto:
+//
+// - Al motor, directo y en cada mensaje. Es un gesto: entre mover la rueda y
+//   oír el doblez no puede haber un frame, ni un despacho, ni un re-render.
+// - Al proyecto, una vez por frame. Es lo que convierte el gesto en algo que
+//   queda: la grabación de perillas lo recoge como un carril más y al parar
+//   cae como curva. Antes de esto, grabar tocando guardaba las notas y no la
+//   rueda.
+//
+// Sesenta despachos por segundo son sesenta pasos de undo si se dejan sueltos,
+// así que van con `mergeKey`: un barrido entero de la rueda es UN paso.
+
+let bendFlushHandle: number | null = null;
+let bendPendiente: { channelId: string; semitones: number } | null = null;
+
+function flushBend(): void {
+  bendFlushHandle = null;
+  const pendiente = bendPendiente;
+  bendPendiente = null;
+  if (!pendiente) return;
+  const ref: ParamRef = { kind: 'channelMix', channelId: pendiente.channelId, param: 'bend' };
+  const norm = paramValueNorm(pendiente.semitones, ref, store.project);
+  const command = paramRefCommand(ref, norm, store.project);
+  // null = el canal ya no existe (borrado con la rueda sujeta). El gesto se
+  // queda sin destino; lo que no puede es reventar.
+  if (!command) return;
+  store.dispatch(command, {
+    label: describeParamRef(ref, store.project),
+    mergeKey: `bend:${pendiente.channelId}`,
+  });
+  // Después del despacho: el valor ya está en el proyecto y quien escuche
+  // —la grabación de perillas— lo lee de ahí.
+  touchParam(ref);
+}
+
+function scheduleBendFlush(): void {
+  if (bendFlushHandle !== null) return;
+  bendFlushHandle =
+    typeof requestAnimationFrame === 'function'
+      ? requestAnimationFrame(flushBend)
+      : (setTimeout(flushBend, 16) as unknown as number);
+}
+
+/** Apunta la rueda para el próximo frame. */
+function dumpBend(channelId: string, semitones: number): void {
+  bendPendiente = { channelId, semitones };
+  scheduleBendFlush();
+}
 
 /** Devuelve al centro el canal que estuviera doblado. */
 function recenterBend(): void {
   if (bentChannel === null) return;
   engine.pitchBend(bentChannel, 0);
+  // Soltar la rueda también se graba: sin esto, la curva quedaría colgada
+  // arriba y la nota siguiente nacería doblada al reproducir.
+  if (bentChannelId !== null) dumpBend(bentChannelId, 0);
   bentChannel = null;
+  bentChannelId = null;
   useLiveInputStore.setState({ bendSemitones: 0 });
 }
 
@@ -215,7 +280,9 @@ function applyPitchBend(value: number): void {
   if (semitones === 0 && bentChannel === null) return;
   ensureAudioReady();
   engine.pitchBend(ch.index, semitones);
+  dumpBend(ch.id, semitones);
   bentChannel = semitones === 0 ? null : ch.index;
+  bentChannelId = semitones === 0 ? null : ch.id;
   useLiveInputStore.setState({ bendSemitones: semitones });
 }
 

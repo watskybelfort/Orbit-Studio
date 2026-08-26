@@ -148,7 +148,7 @@ function NewClipForm({ project }: NewClipFormProps) {
   const [mixerIdx, setMixerIdx] = useState(0);
   const [mixerParam, setMixerParam] = useState<(typeof MIXER_PARAMS)[number]>('volume');
   const [chanId, setChanId] = useState('');
-  /** 'p:<key>' = parámetro del instrumento · 'm:volume'/'m:pan' = channelMix. */
+  /** 'p:<key>' = parámetro del instrumento · 'm:<algo>' = channelMix. */
   const [chanParam, setChanParam] = useState('');
   const [fxTrack, setFxTrack] = useState(-1);
   const [fxSlot, setFxSlot] = useState(-1);
@@ -167,6 +167,7 @@ function NewClipForm({ project }: NewClipFormProps) {
         ...INSTRUMENT_PARAMS[channel.kind].map((s) => ({ value: `p:${s.key}`, label: s.label })),
         { value: 'm:volume', label: 'Volumen (mezcla)' },
         { value: 'm:pan', label: 'Pan (mezcla)' },
+        { value: 'm:bend', label: 'Rueda de tono' },
       ]
     : [];
   const chanSel = chanOptions.some((o) => o.value === chanParam)
@@ -214,6 +215,7 @@ function NewClipForm({ project }: NewClipFormProps) {
         if (!channelId || !chanSel) return null;
         if (chanSel === 'm:volume') return { kind: 'channelMix', channelId, param: 'volume' };
         if (chanSel === 'm:pan') return { kind: 'channelMix', channelId, param: 'pan' };
+        if (chanSel === 'm:bend') return { kind: 'channelMix', channelId, param: 'bend' };
         return { kind: 'channel', channelId, param: chanSel.slice(2) };
       }
       case 'effect':
