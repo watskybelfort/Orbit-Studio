@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.2.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-1544%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.3.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-1621%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -84,7 +84,46 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.2.0 — "el pack suena a instrumentos".** Tres entregas que van juntas
+**v3.3.0 — "el piano responde a los dedos".** Los 24 instrumentos del pack se
+grababan a tres alturas y con UNA pulsación: un piano golpeado flojo salía
+igual que uno golpeado fuerte, solo más bajito. Ahora cada altura trae dos
+grabaciones, y el instrumento entra en el rack repartido por el teclado *y* por
+la fuerza.
+
+**Bajar el fader no es tocar flojo.** En un instrumento de verdad la fuerza
+cambia el TIMBRE, y cada familia con su moneda: en un piano acústico se empina
+la caída espectral y se apaga el martillo (menos energía en el golpe, menos
+parciales de arriba excitados); en uno eléctrico la pulsación **es** el índice
+de FM, así que al tocar flojo desaparece el diente y queda la campana redonda
+de debajo; en una cuerda pulsada es lo romo de la excitación —la yema contra la
+uña—; en un bajo, cuánto se abre la envolvente de filtro; en una campana, el
+badajo. Y en un órgano casi nada, que es la respuesta correcta: un Hammond no
+responde a la pulsación, así que solo ceden el click de los contactos, la
+percusión y los drawbars de arriba.
+
+**Lo que no cambió es lo que más importa.** La capa fuerte es la síntesis de
+siempre, y no de boquilla: al regenerar el pack, de los 133 archivos que ya
+estaban el único que cambió es `manifest.json`. Los 132 WAV salen byte a byte
+idénticos, así que ningún proyecto guardado suena hoy distinto que ayer.
+
+**Las dos capas son la misma cuerda.** La pulsación no entra en la semilla del
+ruido, y es justo lo contrario de lo que se hizo con la altura: dos alturas
+suenan JUNTAS —un acorde— y compartiendo aleatoriedad se funden en una sola
+fuente, mientras que dos capas de la misma nota no suenan nunca a la vez y
+comparten desafinación, fases y deriva para que cruzar el borde de velocidad
+suene a pegar más fuerte y no a cambiar de piano. De ahí sale la regla al tocar
+cualquier síntesis del pack: la pulsación cambia amplitudes, índices y cortes,
+nunca la estructura de los bucles.
+
+El pack pasa de 42 a 70 MB y de 132 a 204 archivos. Y esto se mide, no se
+opina: la capa floja es más oscura en los 24 instrumentos y en las tres
+alturas, y tocada por el kernel —con el canal y el máster puestos— la misma
+tecla a velocidad 0,25 sale entre un 6 % y un 46 % menos brillante que a 0,9.
+
+<details>
+<summary><b>v3.2.0 — "el pack suena a instrumentos"</b></summary>
+
+Tres entregas que van juntas
 porque las tres arreglan la misma cosa: que Orbit sonara a *muestras* y no a
 *instrumentos*.
 
@@ -131,6 +170,8 @@ carpeta llamada «Piano C3» colocaba las treinta muestras en el mismo do) y
 
 Y un tercero que no era de esta entrega: **el generador del pack llevaba roto**
 y nadie podía verlo, porque `packages/*/generate` no estaba en el typecheck.
+
+</details>
 
 <details>
 <summary><b>v3.1.0 — "el instrumento entero"</b></summary>
@@ -212,15 +253,15 @@ mismo: la cuenta y el compás 1 comparten reloj.
 Lo que hay pensado a continuación. Nada de esto está prometido con fecha: se
 saca cuando toca, en el mismo orden en que estorba no tenerlo. Las tres filas de
 entrada en vivo que abrían este roadmap —controlador MIDI, monitor del micro y
-clic de la cuenta— salieron en la **v3.0**, y el multisample en la **v3.1**; lo
-de abajo es lo que dejaron detrás.
+clic de la cuenta— salieron en la **v3.0**; el multisample, en la **v3.1**; el
+pack de fábrica en multisample, en la **v3.2**; y sus capas de fuerza, en la
+**v3.3**. Lo de abajo es lo que dejaron detrás.
 
 
 ### Siguiente
 
 | Qué | Por qué |
 |---|---|
-| **Capas de velocidad en el pack de fábrica** | Los instrumentos ya se graban a tres alturas, pero una sola pulsación: un piano golpeado flojo suena igual que uno golpeado fuerte, solo más bajito. Dos o tres capas por altura son otras 48 grabaciones y otros 20 MB de instalador, así que es su propia decisión |
 | **Archivos sueltos del Explorador al keymap** | Se pueden soltar carpetas registradas y selecciones del Browser, pero un arrastre desde el Explorador de Windows no hace nada. El proceso principal desconfía a propósito de las rutas que le pasa el renderer —las carpetas solo entran por el diálogo nativo—, así que abrir esa puerta es una decisión de seguridad, no un handler más |
 | **La rueda, grabada** | La rueda dobla la voz viva, pero lo que dobló no queda en el patrón: grabar tocando guarda las notas y no el gesto. Pide una curva de automatización por canal y decidir qué pasa al editarla a mano |
 | **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
@@ -230,6 +271,7 @@ de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
+| **Una tercera capa de fuerza en el pack** | Con dos, el salto de flojo a fuerte cae en un sitio y se puede oír si buscas: una capa de en medio lo repartiría en dos escalones más pequeños. Son otras 72 grabaciones y otros 28 MB de instalador, y el salto que se gana de dos a tres es más pequeño que el que se ganó de una a dos — por eso está aquí y no arriba |
 | **Buses y grupos de mezcla de verdad** | Carpetas del rack que sumen a un bus con su propia cadena, además del enrutado por cables que ya hay |
 | **Analizador de espectro por pista y medidor de LUFS integrado** | Ver el espectro y la sonoridad de cada strip, y normalizar el export a un objetivo (−14 LUFS y compañía) sin salir de la app |
 | **Historial en árbol y biblioteca de plantillas** | Deshacer que no pierda ramas al divergir, y arrancar proyectos desde plantillas con nombre |
@@ -292,7 +334,7 @@ la que menos recorta**.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 1335 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 1621 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```

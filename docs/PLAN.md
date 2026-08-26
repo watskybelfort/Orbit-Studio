@@ -6,7 +6,61 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 23-08-2026: v3.2.0
+## Estado — 26-08-2026: v3.3.0
+
+v3.3, "el piano responde a los dedos". La primera fila del roadmap de la v3.2,
+que era la que esa versión dejó fuera con el motivo escrito: los instrumentos
+ya se grababan a tres alturas, pero con una sola pulsación.
+
+**Bajar el fader no es tocar flojo.** En un instrumento de verdad la fuerza
+cambia el timbre, no el volumen — el volumen ya lo pone el sampler multiplicando
+por la velocidad de la nota. Así que cada altura se graba dos veces y cada
+familia responde con su moneda:
+
+- El piano acústico empina la caída espectral y apaga el martillo. El martillo
+  además entra más oscuro: fieltro que roza, no que percute.
+- El eléctrico baja el índice de FM, que es literalmente lo que hace un piano
+  eléctrico de verdad al golpear más lejos del tine. Flojo, desaparece el
+  diente y queda la campana redonda de debajo.
+- La cuerda pulsada cambia lo romo de la excitación —la yema contra la uña—, y
+  NO la amortiguación del lazo, aunque sería lo natural: la amortiguación entra
+  en el largo del retardo y con él en la afinación, así que moverla dejaría la
+  capa floja desafinada respecto de la fuerte en la misma nota.
+- El bajo abre menos la envolvente de filtro; el corte de reposo no se toca,
+  que es el cuerpo de la nota.
+- La campana baja el índice: el badajo. El vibráfono, la dureza del mazo.
+- El órgano, casi nada, y esa es la respuesta correcta: un Hammond no responde
+  a la pulsación. Ceden el click de los contactos, la percusión y —esto sí por
+  decisión, no por imitación— los drawbars de arriba, porque un instrumento del
+  pack que ignore del todo la velocidad se siente roto bajo los dedos.
+
+**La capa fuerte es el sonido de siempre, bit a bit.** `dyn` = 1 reproduce la
+síntesis anterior exactamente, comprobado toma a toma (72 de 72) antes de
+regenerar nada. Al regenerar el pack, de los 133 archivos que ya estaban el
+único modificado es `manifest.json`: ningún proyecto guardado cambia de sonido.
+
+**La pulsación NO entra en la semilla del PRNG**, y es lo contrario de lo que se
+decidió con la altura en la v3.2. Dos alturas suenan JUNTAS —un acorde— y
+compartiendo aleatoriedad se funden en una sola fuente; dos capas de la misma
+nota no suenan nunca a la vez y tienen que ser la MISMA cuerda golpeada
+distinto, o cruzar el borde de velocidad sonaría a cambiar de instrumento. De
+ahí la regla al tocar cualquier síntesis del pack: la pulsación cambia
+amplitudes, índices y cortes, nunca la estructura de los bucles — en cuanto
+`dyn` cambie cuántos números pide el PRNG, las dos capas se separan.
+
+En la UI, el instrumento entra ya repartido por teclado y por fuerza, con las
+franjas leídas del manifest (no repartidas por el orden de llegada), y las zonas
+se nombran con su capa: "Piano Suave C4 p" y "Piano Suave C4 f".
+
+El pack pasa de 42 a 70 MB y de 132 a 204 archivos; el tope escrito sube de 48 a
+80 MB, en el generador y en su test. 1621 tests.
+
+**Fuera, con motivo escrito**: una tercera capa de fuerza (otras 72 grabaciones
+y 28 MB, y el salto que se gana de dos a tres es menor que el que se ganó de una
+a dos) y hornear la diferencia de nivel en el archivo (la aplicaría dos veces: el
+sampler ya multiplica por la velocidad).
+
+## Estado anterior — 23-08-2026: v3.2.0
 
 v3.2, "el pack suena a instrumentos". Tres entregas del roadmap de la v3.1, y
 van juntas porque las tres arreglan lo mismo: que Orbit sonara a muestras y no
@@ -62,7 +116,7 @@ grabaciones y 20 MB), soltar archivos del Explorador (el proceso principal
 desconfía a propósito de las rutas del renderer: es una decisión de seguridad)
 y grabar el gesto de la rueda como automatización. 1544 tests.
 
-## Estado anterior — 23-08-2026: v3.1.0
+## Estado de la v3.1.0 — 23-08-2026
 
 v3.1, "el instrumento entero". Multisample: un canal de sampler con varias
 muestras repartidas por teclas y por velocidad, en vez de una estirada por todo
