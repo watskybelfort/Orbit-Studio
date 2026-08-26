@@ -140,6 +140,9 @@ async function readEntryFile(entry: SoundEntry, file: string): Promise<ArrayBuff
   if (!api) throw new Error('Librería no disponible fuera de Electron');
   if (entry.id.startsWith('user:')) return api.folder.read(file);
   if (entry.id.startsWith('pack:')) return api.pack.read(file);
+  // Lo importado del Explorador vive en la carpeta de la app, con las tomas y
+  // los bounces: ya es un sample nuestro y se lee por donde se leen esos.
+  if (entry.id.startsWith('recording:')) return api.recording.read(file);
   return api.library.read(file);
 }
 
@@ -147,7 +150,24 @@ async function readEntryFile(entry: SoundEntry, file: string): Promise<ArrayBuff
 function pathOf(entry: SoundEntry, file: string): string {
   if (entry.id.startsWith('user:')) return `user:${file}`;
   if (entry.id.startsWith('pack:')) return `pack:${file}`;
+  if (entry.id.startsWith('recording:')) return `recording:${file}`;
   return `factory:${file}`;
+}
+
+/**
+ * El nombre del que el auto-mapa saca la nota.
+ *
+ * Normalmente el del ARCHIVO: el de la entrada puede venir ya bonito y sin la
+ * nota (`Piano Suave` contra `Piano_C3.wav`). Con lo importado del Explorador
+ * es al revés — el archivo se guarda con un nombre de contenido
+ * (`importado-<hash>.wav`) para que dos `kick.wav` distintos no se pisen, y ese
+ * nombre no solo no dice la nota: engaña, porque un hash en hexadecimal está
+ * lleno de letras que son notas y de números que parecen octavas. El nombre que
+ * traía el archivo viaja en `name`.
+ */
+export function autoMapNameOf(entry: SoundEntry): string {
+  if (entry.id.startsWith('recording:')) return entry.name;
+  return entry.file || entry.name;
 }
 
 /** Lee los bytes de la grabación PRINCIPAL de un sonido y la sube al kernel. */
@@ -400,7 +420,7 @@ export async function addKeymapZones(
       // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota;
       // el de la entrada puede venir ya bonito y sin ella. De una ruta solo
       // mira el último tramo — la nota no está en el nombre de la carpeta.
-      adivinar.push({ id: mainPart(sound).id, name: sound.entry.file || sound.entry.name });
+      adivinar.push({ id: mainPart(sound).id, name: autoMapNameOf(sound.entry) });
     }
   }
   const { zones: adivinadas, unreadable } =
