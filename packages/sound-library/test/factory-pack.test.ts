@@ -28,7 +28,7 @@ const MANIFEST = path.join(PACK, 'manifest.json');
  * rápido. Subirlo es una decisión, y por eso está aquí escrito y no solo en el
  * generador — tocarlo obliga a tocar un test.
  */
-const TOPE_MB = 48;
+const TOPE_MB = 80;
 
 const hayPack = fs.existsSync(MANIFEST);
 
@@ -112,14 +112,17 @@ describe.skipIf(!hayPack)('los instrumentos son multisample de verdad', () => {
   it('hay veinticuatro y todos traen varias tomas', () => {
     expect(instrumentos.length).toBe(24);
     for (const entry of instrumentos) {
-      expect(entry.samples?.length ?? 0, entry.id).toBeGreaterThanOrEqual(3);
+      expect(entry.samples?.length ?? 0, entry.id).toBeGreaterThanOrEqual(6);
     }
   });
 
   it('cada instrumento cubre su registro con notas distintas y en octavas', () => {
     for (const entry of instrumentos) {
-      const roots = entry.samples!.map((s) => s.rootMidi).sort((a, b) => a - b);
-      expect(new Set(roots).size, entry.id).toBe(roots.length);
+      // Las notas SIN REPETIR: cada altura trae ahora una toma por capa de
+      // fuerza, y las dos declaran la misma nota. Que se repita la nota es lo
+      // normal aquí; lo que no puede repetirse es la pareja (nota, capa), y de
+      // eso se ocupa la prueba de abajo.
+      const roots = [...new Set(entry.samples!.map((s) => s.rootMidi))].sort((a, b) => a - b);
       for (let i = 1; i < roots.length; i++) {
         expect(roots[i]! - roots[i - 1]!, entry.id).toBe(12);
       }
@@ -128,6 +131,47 @@ describe.skipIf(!hayPack)('los instrumentos son multisample de verdad', () => {
       // justo lo que esto vino a quitar.
       expect(roots[0]!, entry.id).toBeGreaterThanOrEqual(12);
       expect(roots[roots.length - 1]!, entry.id).toBeLessThanOrEqual(108);
+    }
+  });
+
+  it('cada nota trae sus capas de fuerza, y tapan el 0..1 sin huecos', () => {
+    // Un hueco en la franja es una nota MUDA a esa fuerza y un solape es una
+    // nota que suena el doble. Las dos cosas se descubren tocando y ninguna da
+    // error por su cuenta: es de las pocas que hay que dejar escritas.
+    for (const entry of instrumentos) {
+      const porNota = new Map<number, { velLow: number; velHigh: number }[]>();
+      for (const s of entry.samples!) {
+        const lista = porNota.get(s.rootMidi) ?? [];
+        lista.push({ velLow: s.velLow ?? 0, velHigh: s.velHigh ?? 1 });
+        porNota.set(s.rootMidi, lista);
+      }
+      for (const [nota, capas] of porNota) {
+        const donde = `${entry.id} en la nota ${nota}`;
+        expect(capas.length, donde).toBeGreaterThanOrEqual(2);
+        capas.sort((a, b) => a.velLow - b.velLow);
+        expect(capas[0]!.velLow, `${donde}: nadie cubre la velocidad 0`).toBe(0);
+        expect(
+          capas[capas.length - 1]!.velHigh,
+          `${donde}: nadie cubre la velocidad máxima`,
+        ).toBe(1);
+        for (let i = 1; i < capas.length; i++) {
+          const hueco = capas[i]!.velLow - capas[i - 1]!.velHigh;
+          expect(hueco, `${donde}: las capas se pisan`).toBeGreaterThan(0);
+          expect(hueco, `${donde}: hueco entre capas`).toBeLessThan(0.01);
+        }
+      }
+    }
+  });
+
+  it('la toma principal es la del registro natural con el golpe entero', () => {
+    // No es cualquiera de las seis: es la que conserva el nombre de archivo de
+    // siempre, la que se escucha en el browser y la que cae en la playlist. Y
+    // es la de arriba de la franja porque el pack de una sola capa —al que
+    // apunta todo proyecto guardado— era exactamente esa grabación.
+    for (const entry of instrumentos) {
+      const principal = entry.samples!.find((s) => s.file === entry.file)!;
+      expect(principal.velHigh, entry.id).toBe(1);
+      expect(principal.file, entry.id).toBe(`${entry.id}.wav`);
     }
   });
 

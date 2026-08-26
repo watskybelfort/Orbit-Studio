@@ -40,7 +40,13 @@ import {
 import { compileProject } from '../../engine/src/compile';
 import { KernelCore, MAX_BLOCK } from '../../engine/src/kernel-core';
 import { INSTRUMENTS, midiDeHz, rootsFor } from '../generate/instruments';
-import { entrySamples, loadManifest, sampleIdFor, type SoundEntry } from '../src/index';
+import {
+  entrySamples,
+  loadManifest,
+  sampleIdFor,
+  type SoundEntry,
+  type SoundSample,
+} from '../src/index';
 
 const PACK = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'factory');
 const MANIFEST = path.join(PACK, 'manifest.json');
@@ -54,7 +60,7 @@ type Wav = { left: Float32Array; right: Float32Array; rate: number };
  * Los WAV decodificados, cacheados.
  *
  * No es una optimización por gusto: sin ella este archivo decodifica los mismos
- * 72 archivos cientos de veces —una por nota tocada— y el conjunto se pone a
+ * 144 archivos cientos de veces —una por nota tocada— y el conjunto se pone a
  * rozar el tiempo máximo de un test. Un test que a veces tarda de más es peor
  * que uno lento: falla cuando la máquina está ocupada y no cuando hay un fallo.
  */
@@ -168,14 +174,23 @@ function rms(xs: Float32Array): number {
  * Monta el canal tal como lo monta la app al soltar el instrumento en el rack
  * —mismas zonas, mismo reparto— y toca una tecla.
  */
-function tocar(entry: SoundEntry, key: number, bloques = 120): Float32Array {
+function tocar(entry: SoundEntry, key: number, velocity = 0.9, bloques = 120): Float32Array {
   const project = createEmptyProject();
   const channel = createChannel('sampler', 0, entry.name);
   const tomas = entrySamples(entry);
   channel.sampleId = sampleIdFor(entry, entry.file);
+  // El mismo keymap que monta la app: las franjas de fuerza salen del
+  // manifest igual que las raíces. El pack SABE con qué pulsación grabó cada
+  // toma, y adivinarlo sería tirar un dato cierto.
   channel.keymap = normalizeKeymap(
     spreadKeymapRanges(
-      tomas.map((s) => createKeymapZone(sampleIdFor(entry, s.file), { keyRoot: s.rootMidi })),
+      tomas.map((s) =>
+        createKeymapZone(sampleIdFor(entry, s.file), {
+          keyRoot: s.rootMidi,
+          velLow: s.velLow ?? 0,
+          velHigh: s.velHigh ?? 1,
+        }),
+      ),
     ),
   );
   applyCommand(project, { type: 'addChannel', channel });
@@ -187,7 +202,7 @@ function tocar(entry: SoundEntry, key: number, bloques = 120): Float32Array {
     });
   }
   const patternId = project.patternOrder[0]!;
-  const note: Note = { id: newId(), start: 0, duration: 4, key, velocity: 0.9, pan: 0, slide: false };
+  const note: Note = { id: newId(), start: 0, duration: 4, key, velocity, pan: 0, slide: false };
   applyCommand(project, { type: 'addNotes', patternId, channelId: channel.id, notes: [note] });
 
   const core = new KernelCore(SR);
@@ -217,6 +232,17 @@ function tocar(entry: SoundEntry, key: number, bloques = 120): Float32Array {
   return out;
 }
 
+/**
+ * Una velocidad que caiga DENTRO de la franja de una toma: el centro.
+ *
+ * Sin esto, todas las pruebas de aquí tocarían a 0,9 y estarían midiendo
+ * siempre la capa fuerte: la floja existiría en el manifest, en el disco y en
+ * el instalador sin que ningún test la llegara a tocar nunca.
+ */
+function velocidadDe(toma: SoundSample): number {
+  return ((toma.velLow ?? 0) + (toma.velHigh ?? 1)) / 2;
+}
+
 describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
   const manifest = loadManifest(fs.readFileSync(MANIFEST, 'utf8'));
   const instrumentos = manifest.entries.filter((e) => e.category === 'instrumentos');
@@ -233,7 +259,11 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
         const entry = manifest.entries.find((e) => e.id === `instrumentos/${spec.slug}`);
         expect(entry, `${spec.slug} no está en el manifest`).toBeDefined();
         const raices = rootsFor(spec);
-        expect(entry!.samples?.map((s) => s.rootMidi)).toEqual(raices.map(midiDeHz));
+        // Las notas sin repetir: cada altura trae ahora una toma por capa de
+        // fuerza, y las dos declaran la misma nota.
+        expect([...new Set(entry!.samples?.map((s) => s.rootMidi))]).toEqual(
+          raices.map(midiDeHz),
+        );
         for (const hz of raices) {
           const midi = midiDeHz(hz);
           expect(
@@ -250,23 +280,26 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
       it(`${entry.id}`, () => {
         for (const toma of entry.samples!) {
           const grabacion = leerWav(toma.file).left;
+          // Tocada con una fuerza de SU franja: es lo que la trae al aire.
+          const vel = velocidadDe(toma);
+          const donde = `${entry.id} @ MIDI ${toma.rootMidi} vel ${vel}`;
 
           // 1. En la RAÍZ de su zona, la grabación suena TAL CUAL. Si el
           //    `rootMidi` del manifest no estuviera en la convención del piano
           //    roll, aquí saldría leída a otra velocidad y la correlación se
           //    hundiría — que es el fallo que se busca.
-          const enRaiz = tocar(entry, toma.rootMidi);
-          expect(rms(enRaiz), `${entry.id} @ ${toma.rootMidi} mudo`).toBeGreaterThan(1e-4);
+          const enRaiz = tocar(entry, toma.rootMidi, vel);
+          expect(rms(enRaiz), `${donde}: mudo`).toBeGreaterThan(1e-4);
           expect(
             mejorCorrelacion(enRaiz, grabacion, 0),
-            `${entry.id} @ MIDI ${toma.rootMidi}: no suena su grabación sin transponer`,
+            `${donde}: no suena su grabación sin transponer`,
           ).toBeGreaterThan(0.9);
 
           // 2. Cinco semitonos arriba es la MISMA grabación leída más rápido.
-          const arriba = tocar(entry, toma.rootMidi + 5);
+          const arriba = tocar(entry, toma.rootMidi + 5, vel);
           expect(
             mejorCorrelacion(arriba, remuestrear(grabacion, Math.pow(2, 5 / 12), 20000), 0),
-            `${entry.id} @ MIDI ${toma.rootMidi}+5: la transposición no cuadra`,
+            `${donde}+5: la transposición no cuadra`,
           ).toBeGreaterThan(0.85);
         }
       });
@@ -280,10 +313,18 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
     for (const entry of instrumentos) {
       const tomas = entry.samples!;
       for (const toma of tomas) {
-        const salida = tocar(entry, toma.rootMidi);
+        const vel = velocidadDe(toma);
+        const salida = tocar(entry, toma.rootMidi, vel);
         const suya = mejorCorrelacion(salida, leerWav(toma.file).left, 0);
         for (const otra of tomas) {
           if (otra.file === toma.file) continue;
+          // Solo contra las tomas de su MISMA capa de fuerza. Las de la otra
+          // capa ni siquiera están sonando, y la de la misma nota se le parece
+          // mucho a propósito —es la misma cuerda golpeada distinto—, así que
+          // meterlas aquí no diría nada de lo que esta prueba busca, que es la
+          // elección de RAÍZ. Que flojo y fuerte suenen distinto se prueba
+          // aparte, y midiendo el timbre.
+          if (velocidadDe(otra) !== vel) continue;
           const razon = Math.pow(2, (toma.rootMidi - otra.rootMidi) / 12);
           const ajena = mejorCorrelacion(
             salida,
@@ -304,9 +345,14 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
     // hacia arriba, así que no puede quedar ni una tecla muda entre medias.
     for (const entry of instrumentos) {
       for (const key of [0, 24, 40, 55, 60, 70, 88, 110, 127]) {
-        const out = tocar(entry, key, 40);
-        expect(rms(out), `${entry.id} @ ${key}`).toBeGreaterThan(1e-5);
-        expect(out.some((v) => !Number.isFinite(v)), `${entry.id} @ ${key}`).toBe(false);
+        // Y a las dos fuerzas: un hueco en la franja deja la tecla muda solo a
+        // una de las dos capas, y tocando siempre a 0,9 eso no se ve nunca.
+        for (const vel of [0.2, 0.9]) {
+          const out = tocar(entry, key, vel, 40);
+          const donde = `${entry.id} @ ${key} vel ${vel}`;
+          expect(rms(out), donde).toBeGreaterThan(1e-5);
+          expect(out.some((v) => !Number.isFinite(v)), donde).toBe(false);
+        }
       }
     }
   });
