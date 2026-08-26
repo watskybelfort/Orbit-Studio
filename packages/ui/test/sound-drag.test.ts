@@ -10,15 +10,18 @@
 
 import { describe, expect, it } from 'vitest';
 import type { SoundEntry } from '@orbit/sound-library';
+import { zonesForNote } from '@orbit/core';
 import {
   describeKeymapDrop,
   getDragEntries,
   getDragEntry,
+  keymapOf,
   mapLimited,
   setDragEntries,
   setDragEntry,
   SOUND_MIME,
   SOUNDS_MIME,
+  type LoadedPart,
 } from '../src/browser/sound-actions';
 
 /** DataTransfer de mentira: lo justo que usa el arrastre. */
@@ -173,5 +176,82 @@ describe('lo que se le cuenta a quien acaba de soltar treinta muestras', () => {
     expect(describeKeymapDrop({ added: 0, unreadable: [], dropped: 0 })).toBe(
       'No ha entrado ninguna muestra.',
     );
+  });
+});
+
+describe('un instrumento del pack cae repartido por tecla Y por fuerza', () => {
+  /** Una grabación del manifest, con su nota y su franja. */
+  const toma = (
+    file: string,
+    rootMidi: number,
+    vel?: { velLow: number; velHigh: number },
+  ): LoadedPart => ({
+    sample: { file, rootMidi, durationSec: 3, ...(vel ?? {}) },
+    id: file.replace(/\.wav$/, ''),
+    bytes: new ArrayBuffer(0),
+  });
+
+  const entrada = { id: 'instrumentos/piano', name: 'Piano' } as SoundEntry;
+  const P = { velLow: 0, velHigh: 0.5 };
+  const F = { velLow: 0.500001, velHigh: 1 };
+
+  it('las dos capas de una nota comparten teclas y se separan por velocidad', () => {
+    const zones = keymapOf({
+      entry: entrada,
+      parts: [
+        toma('a-48-p.wav', 48, P), toma('a-48.wav', 48, F),
+        toma('a-60-p.wav', 60, P), toma('a-60.wav', 60, F),
+      ],
+    })!;
+    expect(zones).toHaveLength(4);
+    const de = (root: number) => zones.filter((z) => z.keyRoot === root);
+    for (const root of [48, 60]) {
+      const [suave, fuerte] = de(root).sort((a, b) => a.velLow - b.velLow);
+      // Mismo trozo de teclado: son la misma nota grabada dos veces, no dos
+      // notas. Repartir por ZONA en vez de por raíz las dejaba peleándose el
+      // punto medio y con el rango del revés.
+      expect(suave!.keyLow).toBe(fuerte!.keyLow);
+      expect(suave!.keyHigh).toBe(fuerte!.keyHigh);
+      // Y la fuerza las separa sin dejar hueco ni solape.
+      expect(suave!.velLow).toBe(0);
+      expect(fuerte!.velHigh).toBe(1);
+      expect(fuerte!.velLow).toBeGreaterThan(suave!.velHigh);
+      expect(fuerte!.velLow - suave!.velHigh).toBeLessThan(0.01);
+    }
+  });
+
+  it('ninguna tecla y ninguna fuerza se quedan sin zona', () => {
+    const zones = keymapOf({
+      entry: entrada,
+      parts: [
+        toma('a-48-p.wav', 48, P), toma('a-48.wav', 48, F),
+        toma('a-60-p.wav', 60, P), toma('a-60.wav', 60, F),
+        toma('a-72-p.wav', 72, P), toma('a-72.wav', 72, F),
+      ],
+    })!;
+    for (const key of [0, 30, 53, 54, 60, 66, 67, 90, 127]) {
+      for (const vel of [0, 0.3, 0.5, 0.500001, 0.7, 1]) {
+        const suenan = zonesForNote(zones, key, vel);
+        expect(suenan.length, `tecla ${key} a velocidad ${vel}`).toBe(1);
+      }
+    }
+  });
+
+  it('un pack sin capas declaradas se reparte solo por teclas, como siempre', () => {
+    // Los packs del usuario y cualquier pack anterior a las capas: la zona
+    // coge la fuerza entera y no cambia nada de lo que ya funcionaba.
+    const zones = keymapOf({
+      entry: entrada,
+      parts: [toma('a-48.wav', 48), toma('a-60.wav', 60)],
+    })!;
+    expect(zones).toHaveLength(2);
+    for (const z of zones) {
+      expect(z.velLow).toBe(0);
+      expect(z.velHigh).toBe(1);
+    }
+  });
+
+  it('un sonido de una sola grabación no lleva keymap', () => {
+    expect(keymapOf({ entry: entrada, parts: [toma('a.wav', 60)] })).toBeUndefined();
   });
 });

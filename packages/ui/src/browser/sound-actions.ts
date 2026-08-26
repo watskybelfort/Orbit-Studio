@@ -22,7 +22,13 @@ import {
   type SampleRef,
 } from '@orbit/core';
 
-import { entrySamples, sampleIdFor, type SoundEntry, type SoundSample } from '@orbit/sound-library';
+import {
+  dynamicLabel,
+  entrySamples,
+  sampleIdFor,
+  type SoundEntry,
+  type SoundSample,
+} from '@orbit/sound-library';
 import { engine, store } from '../state/app';
 import { useUiStore } from '../state/ui';
 
@@ -175,7 +181,7 @@ async function realDuration(
 }
 
 /** Una grabación concreta, ya leída y subida al kernel. */
-interface LoadedPart {
+export interface LoadedPart {
   /** La grabación tal como la declara el manifest. */
   sample: SoundSample;
   /** Id con el que vive en el kernel y en el proyecto. */
@@ -184,7 +190,7 @@ interface LoadedPart {
 }
 
 /** Un sonido ya leído de disco, con TODAS sus grabaciones. */
-interface LoadedSound {
+export interface LoadedSound {
   entry: SoundEntry;
   parts: LoadedPart[];
 }
@@ -251,10 +257,7 @@ async function registerPart(entry: SoundEntry, part: LoadedPart): Promise<Comman
   if (store.project.samples[part.id] !== undefined) return [];
   const sample: SampleRef = {
     id: part.id,
-    // El nombre lleva la nota cuando el instrumento tiene varias: en la lista
-    // de zonas del editor, tres filas que pongan "Piano Suave" no dicen nada.
-    name:
-      part.id === entry.id ? entry.name : `${entry.name} ${midiToNote(part.sample.rootMidi)}`,
+    name: nombreDeToma(entry, part),
     path: pathOf(entry, part.sample.file),
     hash: (await sha1Hex(part.bytes)) ?? part.id,
     // La de verdad, no la que traiga la entrada: lo de "Tus carpetas" llega con
@@ -265,19 +268,54 @@ async function registerPart(entry: SoundEntry, part: LoadedPart): Promise<Comman
 }
 
 /**
+ * Cómo se llama una grabación en la lista de zonas del editor.
+ *
+ * La principal conserva el nombre del sonido a secas. Las demás llevan su nota
+ * y, si el instrumento trae capas de fuerza, su marca de dinámica: seis filas
+ * que pusieran "Piano Suave" no dicen nada, y seis que pusieran "Piano Suave
+ * C4" dicen la mitad, porque hay dos por nota.
+ */
+function nombreDeToma(entry: SoundEntry, part: LoadedPart): string {
+  if (part.id === entry.id) return entry.name;
+  const nota = midiToNote(part.sample.rootMidi);
+  const capa = dynamicLabel(part.sample);
+  return capa === undefined ? `${entry.name} ${nota}` : `${entry.name} ${nota} ${capa}`;
+}
+
+/**
+ * Las zonas de una grabación del pack: su tecla y su franja de fuerza.
+ *
+ * Las dos salen del manifest y ninguna se adivina. El pack SABE a qué nota y
+ * con qué pulsación se grabó cada toma; leer la nota del nombre del archivo
+ * sería tirar un dato cierto por uno probable, y repartir las franjas a partes
+ * iguales por el ORDEN en que llegan daría lo mismo hoy y dependería de ese
+ * orden mañana.
+ *
+ * Sin franja declarada —los packs del usuario, y cualquier pack anterior a las
+ * capas— la zona coge la fuerza entera y el instrumento se reparte solo por
+ * teclas, exactamente como antes.
+ */
+function zonaDeToma(part: LoadedPart): KeymapZone {
+  return createKeymapZone(part.id, {
+    keyRoot: part.sample.rootMidi,
+    velLow: part.sample.velLow ?? 0,
+    velHigh: part.sample.velHigh ?? 1,
+  });
+}
+
+/**
  * El keymap de un instrumento con varias grabaciones, o `undefined` si trae
  * una sola (y entonces el canal es el sampler de un sample de siempre).
  *
- * Las raíces salen del manifest, no del nombre del archivo: el pack SABE a qué
- * nota se grabó cada toma y adivinarlo leyendo el nombre sería tirar un dato
- * cierto para sustituirlo por uno probable.
+ * Se exporta porque es puro y porque es LA decisión de esta ruta: cómo cae en
+ * el teclado el instrumento que sueltas. Todo lo que lo rodea habla con el
+ * kernel y con el store, así que esto es lo único que se puede mirar de cerca.
  */
-function keymapOf(sound: LoadedSound): KeymapZone[] | undefined {
+export function keymapOf(sound: LoadedSound): KeymapZone[] | undefined {
   if (sound.parts.length < 2) return undefined;
-  const zones = sound.parts.map((p) =>
-    createKeymapZone(p.id, { keyRoot: p.sample.rootMidi }),
-  );
-  return normalizeKeymap(spreadKeymapRanges(zones));
+  // `spreadKeymapRanges` reparte por RAÍCES distintas, no por zonas: las dos
+  // capas de una nota comparten su trozo de teclado y se separan por fuerza.
+  return normalizeKeymap(spreadKeymapRanges(sound.parts.map(zonaDeToma)));
 }
 
 /** Doble clic o drop en el rack: canal sampler nuevo por el bus de comandos. */
@@ -357,9 +395,7 @@ export async function addKeymapZones(
   const adivinar: { id: Id; name: string }[] = [];
   for (const sound of loaded) {
     if (sound.entry.samples && sound.entry.samples.length > 0) {
-      for (const part of sound.parts) {
-        sabidas.push(createKeymapZone(part.id, { keyRoot: part.sample.rootMidi }));
-      }
+      for (const part of sound.parts) sabidas.push(zonaDeToma(part));
     } else {
       // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota;
       // el de la entrada puede venir ya bonito y sin ella. De una ruta solo

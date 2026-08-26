@@ -623,7 +623,11 @@ export function Browser() {
         {entry.samples !== undefined && entry.samples.length > 1 && (
           <span
             className="browser-badge multi"
-            title={`Instrumento con ${entry.samples.length} grabaciones: entra ya repartido por el teclado, no estirado`}
+            title={`Instrumento con ${entry.samples.length} grabaciones: entra ya repartido por el teclado${
+              entry.samples.some((s) => s.velHigh !== undefined && s.velHigh < 1)
+                ? ' y por la fuerza'
+                : ''
+            }, no estirado`}
           >
             ×{entry.samples.length}
           </span>
