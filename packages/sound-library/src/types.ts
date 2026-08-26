@@ -39,6 +39,21 @@ export interface SoundSample {
   rootMidi: number;
   /** Duración real del archivo en segundos. */
   durationSec: number;
+  /**
+   * Franja de fuerza que dispara esta grabación (0..1, inclusive), cuando el
+   * instrumento se grabó a varias pulsaciones.
+   *
+   * Un instrumento no cambia solo con la altura: cambia con la FUERZA. Un
+   * piano tocado flojo no es el mismo piano más bajito — es más oscuro, lleva
+   * menos martillo y entra más lento. Por eso cada altura trae más de una
+   * grabación, y esto dice a cuál le toca cada pulsación.
+   *
+   * Ausentes = la grabación cubre la fuerza entera, que es lo de siempre: un
+   * pack de una sola capa se sigue leyendo exactamente igual que antes.
+   */
+  velLow?: number;
+  /** El borde de arriba de la franja (ver `velLow`). */
+  velHigh?: number;
 }
 
 export interface SoundEntry {
@@ -183,7 +198,30 @@ export function loadManifest(json: string): SoundManifest {
         if (typeof q['durationSec'] !== 'number' || !(q['durationSec'] > 0)) {
           fail(i, `"samples[${j}].durationSec" debe ser un número > 0`);
         }
-        return { file: q['file'], rootMidi: q['rootMidi'], durationSec: q['durationSec'] };
+        // La franja de fuerza, si viene. Media capa válida no es medio
+        // instrumento: es un instrumento con un agujero en la dinámica —
+        // pegas fuerte y no suena NADA— y eso solo se descubre tocándolo.
+        const franja = (k: 'velLow' | 'velHigh'): number | undefined => {
+          const v = q[k];
+          if (v === undefined) return undefined;
+          if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 1) {
+            fail(i, `"samples[${j}].${k}" debe estar entre 0 y 1`);
+          }
+          return v as number;
+        };
+        const velLow = franja('velLow');
+        const velHigh = franja('velHigh');
+        if (velLow !== undefined && velHigh !== undefined && velLow > velHigh) {
+          fail(i, `"samples[${j}]" trae la franja de fuerza del revés`);
+        }
+        const muestra: SoundSample = {
+          file: q['file'],
+          rootMidi: q['rootMidi'],
+          durationSec: q['durationSec'],
+        };
+        if (velLow !== undefined) muestra.velLow = velLow;
+        if (velHigh !== undefined) muestra.velHigh = velHigh;
+        return muestra;
       });
     }
     const entry: SoundEntry = {

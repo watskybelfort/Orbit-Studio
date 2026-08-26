@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  dynamicLabel,
   entrySamples,
   loadManifest,
   sampleIdFor,
@@ -148,5 +149,63 @@ describe('sampleIdFor', () => {
     const files = ['instrumentos/piano-c3.wav', 'instrumentos/piano-c5.wav', UNA.file];
     const ids = files.map((f) => sampleIdFor(UNA as SoundEntry, f));
     expect(new Set(ids).size).toBe(3);
+  });
+});
+
+describe('las capas de fuerza del manifest', () => {
+  const conCapas = (velLow: unknown, velHigh: unknown): string =>
+    manifest([
+      {
+        ...UNA,
+        samples: [{ file: 'a.wav', rootMidi: 60, durationSec: 3, velLow, velHigh }],
+      },
+    ]);
+
+  it('lee la franja cuando viene', () => {
+    const m = loadManifest(conCapas(0, 0.5));
+    expect(m.entries[0]!.samples![0]).toMatchObject({ velLow: 0, velHigh: 0.5 });
+  });
+
+  it('sin franja, la grabación cubre la fuerza entera (packs de una capa)', () => {
+    const m = loadManifest(
+      manifest([{ ...UNA, samples: [{ file: 'a.wav', rootMidi: 60, durationSec: 3 }] }]),
+    );
+    const s = m.entries[0]!.samples![0]!;
+    expect(s.velLow).toBeUndefined();
+    expect(s.velHigh).toBeUndefined();
+    expect(dynamicLabel(s)).toBeUndefined();
+  });
+
+  it('rechaza una franja fuera de 0..1 o que no es número', () => {
+    expect(() => loadManifest(conCapas(-0.1, 0.5))).toThrow(/velLow/);
+    expect(() => loadManifest(conCapas(0, 1.5))).toThrow(/velHigh/);
+    expect(() => loadManifest(conCapas(0, 'medio'))).toThrow(/velHigh/);
+    expect(() => loadManifest(conCapas(0, Number.NaN))).toThrow(/velHigh/);
+  });
+
+  it('rechaza la franja del revés', () => {
+    // Del revés no es "casi bien": es una capa que no dispara NUNCA, y eso en
+    // el teclado es un instrumento mudo a esa fuerza.
+    expect(() => loadManifest(conCapas(0.8, 0.2))).toThrow(/del revés/);
+  });
+});
+
+describe('dynamicLabel', () => {
+  it('nombra la capa por el centro de su franja', () => {
+    expect(dynamicLabel({ file: 'a', rootMidi: 60, durationSec: 1, velLow: 0, velHigh: 0.5 }))
+      .toBe('p');
+    expect(dynamicLabel({ file: 'a', rootMidi: 60, durationSec: 1, velLow: 0.5, velHigh: 1 }))
+      .toBe('f');
+  });
+
+  it('con tres capas sale la de en medio, sin tocar nada', () => {
+    // La notación por centro es justo lo que hace que esto siga valiendo si el
+    // pack pasa de dos capas a tres.
+    const tres = [
+      { velLow: 0, velHigh: 1 / 3 },
+      { velLow: 1 / 3, velHigh: 2 / 3 },
+      { velLow: 2 / 3, velHigh: 1 },
+    ].map((v) => dynamicLabel({ file: 'a', rootMidi: 60, durationSec: 1, ...v }));
+    expect(tres).toEqual(['p', 'mf', 'f']);
   });
 });

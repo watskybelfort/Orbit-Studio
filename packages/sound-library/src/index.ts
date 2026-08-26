@@ -73,6 +73,27 @@ export function sampleIdFor(entry: SoundEntry, file: string): string {
     : stem;
 }
 
+/**
+ * Cómo se llama la capa de fuerza de una grabación: `p`, `mf` o `f`.
+ *
+ * En la lista de zonas del editor, seis filas que pongan "Piano Suave C4" no
+ * dicen nada: hay dos por altura y hay que poder separarlas. Se nombra por el
+ * CENTRO de la franja y con la notación de siempre, que la sabe leer
+ * cualquiera que haya tocado un instrumento — y que sigue valiendo el día que
+ * las capas sean tres y no dos.
+ *
+ * `undefined` cuando la grabación cubre la fuerza entera: entonces no es una
+ * capa de nada y ponerle apellido solo estorbaría.
+ */
+export function dynamicLabel(sample: SoundSample): string | undefined {
+  const bajo = sample.velLow ?? 0;
+  const alto = sample.velHigh ?? 1;
+  if (bajo <= 0 && alto >= 1) return undefined;
+  const centro = (bajo + alto) / 2;
+  if (centro < 1 / 3) return 'p';
+  return centro < 2 / 3 ? 'mf' : 'f';
+}
+
 /** Etiquetas visibles (español) de las categorías del browser. */
 export const CATEGORY_LABELS: Record<SoundCategory, string> = {
   drums: 'Drums',
