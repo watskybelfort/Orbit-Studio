@@ -8,6 +8,43 @@ se saca al final, cuando el conjunto está pulido.
 
 ## En curso — hacia la v3.4 (en `main`, sin release)
 
+**La rueda de tono, grabada.** Desde la v3.2 la rueda dobla la voz viva en los
+diez instrumentos, pero lo que dobló no quedaba en ninguna parte: grabar
+tocando guardaba las notas y no el gesto. El motivo era que la rueda no era un
+parámetro — era un mensaje suelto al motor, y la automatización solo sabe
+escribir parámetros.
+
+Ahora `Channel.bend` existe, en semitonos, y con eso llegan de golpe la curva
+de automatización, el LFO (un vibrato sobre la rueda sale gratis), el undo, el
+viaje a la sala y la grabación al mover la rueda tocando. Sin comando nuevo:
+viaja por `patchChannel`, igual que el keymap y los cortes del Slicer.
+
+Lo que hay que saber para tocarlo:
+
+- **La rueda va por DOS caminos a la vez.** Al motor, directo y en cada
+  mensaje, porque es un gesto y entre moverla y oírla no puede haber ni un
+  frame. Y al proyecto, una vez por frame y con `mergeKey`, que es lo que la
+  convierte en algo que queda sin dejar sesenta pasos de undo por segundo.
+- **Ausente NO es centrada.** Un canal que no declara `bend` significa "no
+  tengo opinión" y el kernel le respeta lo que tenga puesto; si significara
+  centro, cualquier recompilación —mover una perilla mientras se dobla—
+  soltaría la rueda de golpe en mitad del gesto. Recentrar lo hace el mensaje
+  de la rueda al soltarla, que es quien sabe que se ha soltado. Es la decisión
+  que el roadmap pedía tomar, y el test que protege la regla desde la v3.2
+  sigue en verde.
+- **Soltar la rueda también se vuelca.** Sin eso la curva quedaría colgada
+  arriba y la nota siguiente nacería doblada al reproducir.
+- **±24 semitonos** es el rango del PARÁMETRO, no el de ninguna rueda: tiene
+  que dar cabida al más ancho que ofrece el teclado. Una curva grabada ya no
+  sabe de ruedas, guarda semitonos.
+- `setChannelBend` en el kernel junta las dos mitades que no pueden separarse:
+  el valor en el canal compilado y la reafinación de las voces vivas.
+
+De paso, un test que fallaba una de cada tres pasadas de la suite entera y no
+por lo que parecía: no era una aserción, era el límite de 5 s de vitest contra
+un render de cuatro minutos de audio.
+
+
 **Archivos sueltos del Explorador**, al keymap, al rack y a la playlist. La
 fila venía marcada en el roadmap como decisión de seguridad y no como un
 handler más, y el motivo era bueno: el proceso principal desconfía a propósito
@@ -46,7 +83,7 @@ Lo que hay que saber para tocarlo:
   dice por dónde entra de verdad (registrarla, que la indexa entera y no la
   copia).
 
-1633 tests.
+1655 tests.
 
 ## Estado — 26-08-2026: v3.3.0
 
