@@ -171,6 +171,27 @@ function rms(xs: Float32Array): number {
 }
 
 /**
+ * Cómo de brillante es una señal, sin FFT: la frecuencia cuadrática media.
+ *
+ * Para un seno de f hercios, la energía de la diferencia entre muestras
+ * consecutivas dividida por la de la señal vale 2·(1−cos(2πf/sr)) — o sea que
+ * sube con la frecuencia y no depende del volumen. No hace falta más para
+ * decir cuál de dos tomas es la oscura, y sale de mirar la señal como está,
+ * que es justo lo que aquí interesa: lo que le llega al altavoz después del
+ * sampler, del canal y del máster.
+ */
+function brilloRms(xs: Float32Array): number {
+  let dif = 0;
+  let total = 0;
+  for (let i = Math.round(0.01 * SR) + 1; i < xs.length; i++) {
+    const d = xs[i]! - xs[i - 1]!;
+    dif += d * d;
+    total += xs[i]! * xs[i]!;
+  }
+  return total > 0 ? Math.sqrt(dif / total) : 0;
+}
+
+/**
  * Monta el canal tal como lo monta la app al soltar el instrumento en el rack
  * —mismas zonas, mismo reparto— y toca una tecla.
  */
@@ -302,6 +323,48 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
             `${donde}+5: la transposición no cuadra`,
           ).toBeGreaterThan(0.85);
         }
+      });
+    }
+  });
+
+  describe('la misma tecla, floja y fuerte, no suena igual', () => {
+    // Esta es la prueba de las capas de velocidad del lado de quien toca: la
+    // misma nota, el mismo canal, y lo único que cambia es cuánto aprietas.
+    //
+    // Los dos fallos que caza no dan error por su cuenta. Si el keymap no
+    // separase las capas, sonarían las DOS a la vez —el timbre flojo y el
+    // fuerte sumados, la nota al doble de volumen—. Y si la síntesis hubiera
+    // grabado dos veces lo mismo, saldrían dos señales de idéntico timbre y
+    // distinto volumen: el manifest perfecto, el instalador 28 MB más gordo y
+    // en el teclado nada.
+    for (const entry of instrumentos) {
+      it(`${entry.id}`, () => {
+        const tomas = entry.samples!;
+        const nota = tomas.find((s) => s.file === entry.file)!.rootMidi;
+        const floja = tomas.find((s) => s.rootMidi === nota && velocidadDe(s) < 0.5)!;
+        const fuerte = tomas.find((s) => s.rootMidi === nota && velocidadDe(s) > 0.5)!;
+
+        const salidaFloja = tocar(entry, nota, 0.25);
+        const salidaFuerte = tocar(entry, nota, 0.9);
+
+        // 1. Cada pulsación trae SU grabación, no la de al lado.
+        expect(
+          mejorCorrelacion(salidaFloja, leerWav(floja.file).left, 0),
+          `${entry.id}: pulsando flojo no suena la capa floja`,
+        ).toBeGreaterThan(0.9);
+        expect(
+          mejorCorrelacion(salidaFuerte, leerWav(fuerte.file).left, 0),
+          `${entry.id}: pulsando fuerte no suena la capa fuerte`,
+        ).toBeGreaterThan(0.9);
+
+        // 2. Y lo que sale por el máster es MÁS OSCURO, que es el motivo de
+        //    haber grabado dos veces cada altura.
+        const oscura = brilloRms(salidaFloja);
+        const clara = brilloRms(salidaFuerte);
+        expect(
+          oscura / clara,
+          `${entry.id}: pulsar flojo no oscurece, solo baja el volumen`,
+        ).toBeLessThan(0.98);
       });
     }
   });
