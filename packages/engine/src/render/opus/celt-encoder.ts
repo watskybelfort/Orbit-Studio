@@ -314,12 +314,21 @@ export function celtEncodeFrame(
   const { offsets, totalBoost } = encodeDynalloc(enc, wanted, caps, lm, channels, totalBits);
 
   // ── Inclinación del reparto ───────────────────────────────────────────────
-  const allocTrim = 5;
+  //
   // El `− totalBoost` NO es un detalle: el decodificador calcula el mismo
   // refuerzo total y aplica esta misma condición para saber si tiene que leer la
   // inclinación. Si aquí sobra o falta, uno escribe un símbolo que el otro no
   // espera y todo lo que viene detrás se lee corrido.
+  //
+  // Y el 5 de partida tampoco: la inclinación se ANALIZA solo dentro de la
+  // rama que la escribe. Analizarla fuera y escribirla dentro sería el fallo
+  // más caro posible — en las tramas donde no cabe el símbolo, nosotros
+  // repartiríamos con la inclinación calculada y el decodificador con el 5 por
+  // defecto, así que los dos leerían un número de pulsos distinto por banda y
+  // el paquete se descolocaría entero. No da error: da ruido.
+  let allocTrim = 5;
   if (enc.tellFrac() + (6 << BITRES) <= (totalBits << BITRES) - totalBoost) {
+    allocTrim = allocTrimAnalysis(bandLogE, NB_BANDS, channels);
     enc.icdf(allocTrim, TRIM_ICDF, 7);
   }
 
@@ -452,6 +461,54 @@ function encodeTf(
   for (let i = 0; i < NB_BANDS; i++) {
     tfRes[i] = row[4 * isTransient + 2 * tfSelect + tfRes[i]!]!;
   }
+}
+
+/**
+ * Inclinación del reparto de bits (`alloc_trim`), del 0 al 10, sacada de la
+ * PENDIENTE del espectro.
+ *
+ * El asignador reparte bits entre bandas con una recta cuya inclinación es este
+ * número: por debajo de 5 favorece a los graves, por encima a los agudos. Con
+ * el 5 fijo, un acorde —que tiene toda su energía abajo y casi nada arriba—
+ * recibía el mismo esfuerzo en las bandas vacías que en las que llevaban la
+ * música. Los bits no se pierden en el aire: se los quita a donde se oyen.
+ *
+ * La medida es el momento de primer orden del espectro: cada banda pesa por lo
+ * lejos que está del centro (`2 + 2i − end` va de negativo abajo a positivo
+ * arriba), así que la suma sale negativa cuando la energía cae hacia los
+ * agudos y positiva cuando sube. Eso se acota a ±2 sobre el 5 neutro, porque
+ * más que eso deja de ser inclinar el reparto y pasa a ser vaciar un extremo.
+ *
+ * Port de `alloc_trim_analysis` de `celt/celt_encoder.c` (rama de coma
+ * flotante, donde los `QCONST16`/`SHR32` son la identidad). Se porta el término
+ * de la pendiente; los otros tres de la referencia piden cosas que este encoder
+ * todavía no tiene —el ancho estéreo medido, la estimación de resolución
+ * temporal y el trim de sonido envolvente— y sumar un término a medias movería
+ * la inclinación con un número que no significa lo que dice.
+ */
+export function allocTrimAnalysis(
+  bandLogE: Float64Array,
+  end: number,
+  channels: number,
+): number {
+  let diff = 0;
+  for (let c = 0; c < channels; c++) {
+    for (let i = 0; i < end - 1; i++) {
+      diff += bandLogE[i + c * NB_BANDS]! * (2 + 2 * i - end);
+    }
+  }
+  diff /= channels * (end - 1);
+  const trim = 5 - Math.max(-2, Math.min(2, (diff + 1) / 6));
+  // Un no-número aquí no sonaría peor: `enc.icdf` escribiría un símbolo que no
+  // existe en el alfabeto y el archivo dejaría de ABRIRSE. No puede pasar con
+  // un `bandLogE` bien formado —los infinitos los recoge el acotado de arriba—
+  // pero el precio de asegurarlo es una comparación y el de no hacerlo es un
+  // export ilegible.
+  if (!Number.isFinite(trim)) return 5;
+  // Truncado y no redondeado: en la referencia esto es una asignación de float
+  // a int, y aquí se copia el comportamiento en vez de mejorarlo — la gracia de
+  // portar es que las dos implementaciones tomen la MISMA decisión.
+  return Math.max(0, Math.min(10, Math.trunc(trim)));
 }
 
 /**
