@@ -139,13 +139,20 @@ describe('el render no se corta cuando el tempo baja a mitad de canción', () =>
     return { ...compiled, lengthBeats: 128 };
   }
 
+  // El tiempo de sobra no es un capricho: esta prueba renderiza CUATRO MINUTOS
+  // de audio, y con el límite de 5 s de fábrica tardaba 2,8 s en una máquina
+  // ociosa. Menos del doble de margen, así que en cuanto la suite entera corría
+  // en paralelo se pasaba y fallaba una de cada tres veces — y fallaba por
+  // timeout, que en el resumen se lee igual que un fallo de verdad. Un test que
+  // a veces tarda de más es peor que uno lento: falla cuando la máquina está
+  // ocupada y no cuando hay un fallo.
   it('el tope de duración lo pone el tempo MÁS LENTO, no el del beat 0', () => {
     const compiled = quarterTime();
     const out = renderProject(compiled, { tailSeconds: 0 });
     // 4 beats a 120 (2 s) + 124 beats a 30 (248 s) = 250 s de música. Con el
     // tope calculado sobre 120 BPM el render se cortaba en 208 s.
     expect(out.left.length / out.sampleRate).toBeGreaterThan(240);
-  });
+  }, 30_000);
 
   it('sin marcadores de tempo el tope sale exactamente igual que antes', () => {
     const p = createEmptyProject('Normal');
