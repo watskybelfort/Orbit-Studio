@@ -6,6 +6,48 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## En curso — hacia la v3.4 (en `main`, sin release)
+
+**Archivos sueltos del Explorador**, al keymap, al rack y a la playlist. La
+fila venía marcada en el roadmap como decisión de seguridad y no como un
+handler más, y el motivo era bueno: el proceso principal desconfía a propósito
+de las rutas que le pasa el renderer —las carpetas de sonidos solo entran por
+el diálogo nativo, `folder:read` no sirve nada de fuera de ellas y
+`settings:set` no puede tocar esa lista blanca— porque en ese renderer corre
+código que no es nuestro, los plugins JS del usuario.
+
+**Y resultó que la puerta no había que abrirla.** Un arrastre de verdad trae
+objetos `File`, que son `Blob`: los bytes se leen en el renderer porque
+Chromium los concede al haber un gesto físico del usuario sobre la ventana. El
+main no ve una ruta, no lee nada y no se entera. Cero superficie nueva en el
+proceso privilegiado.
+
+Lo que sí había que resolver era el día siguiente: un `File` soltado se acaba
+al cerrar la app, y un proyecto que apuntara a él saldría MUDO al reabrirlo.
+Así que lo soltado se IMPORTA — los bytes se copian a la carpeta de la app,
+donde ya viven las tomas y los bounces— y desde ahí es un sample más: rehidrata
+al reabrir, viaja por hash a una sala de colaboración y sale en el export.
+
+Lo que hay que saber para tocarlo:
+
+- **Se guarda con el nombre de su CONTENIDO** (`importado-<sha1>.wav`). Por
+  nombre, dos `kick.wav` distintos se pisan y el proyecto de la semana pasada
+  suena con otro bombo sin avisar; por contenido, además, el mismo archivo
+  soltado dos veces cae en el mismo id y no se duplica.
+- **Por eso el nombre original viaja en `name`, y de ahí saca la nota el
+  auto-mapa.** Un `Piano_C3-ab12cd.wav` le daría a leer un hash hexadecimal
+  lleno de letras que son notas y números que parecen octavas.
+- **El reparto del arrastre es SÍNCRONO y va antes del primer `await`.**
+  `webkitGetAsEntry` —lo único que distingue una carpeta de un archivo— deja de
+  responder en cuanto se cede el turno, y `dataTransfer` se vacía. En la
+  playlist se lleva por delante también la pista y el beat: `currentTarget` se
+  queda en null igual. Por eso `triageDrop` está partido de `importTriaged`.
+- Una carpeta soltada no se rechaza como archivo malo: se cuenta aparte y se
+  dice por dónde entra de verdad (registrarla, que la indexa entera y no la
+  copia).
+
+1633 tests.
+
 ## Estado — 26-08-2026: v3.3.0
 
 v3.3, "el piano responde a los dedos". La primera fila del roadmap de la v3.2,

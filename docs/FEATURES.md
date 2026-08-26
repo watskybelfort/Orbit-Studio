@@ -262,9 +262,10 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Volumen de preview ajustable (persistente) | v1.0 |
 | Doble clic = añade canal sampler con el sonido | v0.1 |
 | Drag & drop: al Channel Rack (canal sampler) o a la Playlist (clip de audio) | v0.2 |
-| Contenido de fábrica generado por síntesis propia (pack Orbit Essentials: 84 sonidos en 132 grabaciones, 41 MB) | v0.1 |
+| Contenido de fábrica generado por síntesis propia (pack Orbit Essentials: 84 sonidos en 204 grabaciones, 70 MB) | v0.1 |
 | **Selección múltiple** (Ctrl/Cmd y Mayús) y **cabeceras que arrastran su grupo entero** —una categoría, una subcarpeta, un pack generado, una carpeta tuya—. La selección no sobrevive al filtro: lo que el buscador esconde sale de ella, o el arrastre se llevaría lo que no se ve | v3.2 |
 | **Drop en bloque**: N muestras al keymap de un canal, N canales al rack o N clips seguidos en la playlist, en UN solo deshacer. Las lecturas de disco van de cuatro en cuatro; el keymap dice lo que entró, lo que no traía nota legible y lo que no cupo bajo el tope de 128 zonas | v3.2 |
+| **Archivos sueltos del Explorador** al keymap, al rack o a la playlist. No hizo falta abrir la puerta que lo tenía parado: un arrastre de verdad trae objetos `File`, así que los bytes se leen en el renderer —Chromium los concede por el gesto del usuario— y el proceso principal no ve una ruta ni lee nada. Lo soltado se IMPORTA a la carpeta de la app, con las tomas y los bounces, porque un `File` se acaba al cerrar y un proyecto que apuntara a él saldría mudo al reabrirlo; se guarda con el nombre de su contenido (`importado-<sha1>.wav`) para que dos `kick.wav` distintos no se pisen y el mismo archivo soltado dos veces no se duplique. Una carpeta soltada no se rechaza: se dice que se registra | v3.4 |
 | Carpetas del usuario (elige carpetas propias; se escanean y funcionan igual) | v0.5 |
 | **Favoritos y colecciones** con nombre, guardados en los ajustes | v1.0 |
 | **Detección automática de BPM y tonalidad** al indexar (141/141 tempos sintéticos ±2 BPM; 39/40 tonalidades del pack) | v1.0 |

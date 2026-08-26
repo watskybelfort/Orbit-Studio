@@ -257,12 +257,16 @@ clic de la cuenta— salieron en la **v3.0**; el multisample, en la **v3.1**; el
 pack de fábrica en multisample, en la **v3.2**; y sus capas de fuerza, en la
 **v3.3**. Lo de abajo es lo que dejaron detrás.
 
+> **Ya en `main`, pendiente de release**: soltar archivos sueltos del
+> Explorador al keymap, al rack y a la playlist. Resultó no necesitar la
+> decisión de seguridad que lo tenía parado — un arrastre de verdad trae los
+> bytes, así que el proceso principal no ve ninguna ruta nueva.
+
 
 ### Siguiente
 
 | Qué | Por qué |
 |---|---|
-| **Archivos sueltos del Explorador al keymap** | Se pueden soltar carpetas registradas y selecciones del Browser, pero un arrastre desde el Explorador de Windows no hace nada. El proceso principal desconfía a propósito de las rutas que le pasa el renderer —las carpetas solo entran por el diálogo nativo—, así que abrir esa puerta es una decisión de seguridad, no un handler más |
 | **La rueda, grabada** | La rueda dobla la voz viva, pero lo que dobló no queda en el patrón: grabar tocando guarda las notas y no el gesto. Pide una curva de automatización por canal y decidir qué pasa al editarla a mano |
 | **Afinar el encoder Opus** | Ya produce archivos que abre cualquiera a correlación ~1,0; le faltan las decisiones finas —postfiltro, transitorios, dispersión e intensidad estéreo adaptativas, VBR por trama— que lo acercarían a libopus en calidad por bit. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
