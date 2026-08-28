@@ -20,6 +20,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { parseProject } from '@orbit/core';
 import {
   CATEGORY_LABELS,
   loadManifest,
@@ -32,7 +33,15 @@ import {
   type SoundEntry,
   type SoundManifest,
 } from '@orbit/sound-library';
-import { engine, ensureAudioReady } from '../state/app';
+import { engine, ensureAudioReady, store } from '../state/app';
+import { newProjectFromStoredTemplate, saveProjectAsTemplate } from '../state/project-file';
+import {
+  allTemplates,
+  deleteUserTemplate,
+  loadUserTemplates,
+  useTemplates,
+  type StoredTemplate,
+} from '../state/project-templates';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, loadIntoEngine, setDragEntries } from './sound-actions';
 import {
@@ -53,6 +62,7 @@ import {
   EMPTY_FILTERS,
   filterEntries,
   hasActiveFilters,
+  normalize,
   type BrowserFilters,
   type MatchContext,
 } from './filters';
@@ -190,13 +200,18 @@ export function Browser() {
     count: 8,
   });
   const [packBusy, setPackBusy] = useState<string | null>(null);
+  /** Plantilla cuya ficha (descripción, qué trae) está desplegada. */
+  const [templateDetail, setTemplateDetail] = useState<string | null>(null);
   const previewTimer = useRef<number | null>(null);
 
   const { favorites, collections, previewGain, analysis } = usePrefs();
+  /** Suscripción a las plantillas del usuario (las de fábrica no cambian en toda la sesión). */
+  const userTemplates = useTemplates((s) => s.userTemplates);
 
   // Carga del manifest y de las preferencias al montar.
   useEffect(() => {
     void loadPrefs();
+    void loadUserTemplates();
     let cancelled = false;
     const api = window.orbit;
     if (!api) {
@@ -899,6 +914,158 @@ export function Browser() {
     <div className="browser-sub">{userVisible.map((e) => renderEntry(e, { showDuration: false }))}</div>
   );
 
+  // ── Sección de plantillas de proyecto ─────────────────────────────────────
+  //
+  // No son "sonidos": arrancan un proyecto ENTERO (rack montado, mixer
+  // enrutado, tempo del género), no un canal. Por eso van aparte de la
+  // librería y no por `filterEntries` — pero SÍ comparten el cuadro de
+  // búsqueda de arriba, que es donde "con búsqueda y preview" pide que estén.
+  // Van siempre visibles (no dependen de que el pack de fábrica esté
+  // generado: las de fábrica son síntesis pura, sin ni un sample).
+
+  const templateQuery = normalize(filters.query.trim());
+  const filteredTemplates = useMemo(() => {
+    const all = allTemplates();
+    if (templateQuery === '') return all;
+    return all.filter(
+      (t) => normalize(t.name).includes(templateQuery) || normalize(t.description).includes(templateQuery),
+    );
+    // `userTemplates` no se lee dentro (allTemplates() ya vuelve a leer el
+    // store), pero SÍ tiene que estar en las deps: es la señal de que hay que
+    // recalcular tras guardar o borrar una plantilla propia.
+  }, [templateQuery, userTemplates]);
+
+  /** Nombres de los canales que trae, para la ficha (nunca se guarda, se lee al abrir). */
+  const templateChannels = (t: StoredTemplate): string[] => {
+    try {
+      const project = parseProject(t.json);
+      return project.channelOrder
+        .map((id) => project.channels[id]?.name)
+        .filter((n): n is string => n !== undefined);
+    } catch {
+      return [];
+    }
+  };
+
+  const saveCurrentAsTemplate = () => {
+    const suggested = store.project.meta.title || 'Mi plantilla';
+    const name = window.prompt('Nombre de la plantilla', suggested);
+    if (name === null) return; // cancelado
+    if (name.trim() === '') {
+      setStatus('La plantilla necesita un nombre.');
+      return;
+    }
+    saveProjectAsTemplate(name);
+  };
+
+  const renderTemplate = (t: StoredTemplate) => {
+    const open = templateDetail === t.id;
+    const channels = open ? templateChannels(t) : [];
+    return (
+      <div key={t.id} className="browser-sub">
+        <div
+          className={`browser-entry${open ? ' picked' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-expanded={open}
+          onClick={() => setTemplateDetail(open ? null : t.id)}
+          onDoubleClick={() => void newProjectFromStoredTemplate(t.id)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void newProjectFromStoredTemplate(t.id);
+            else if (e.key === ' ') {
+              e.preventDefault();
+              setTemplateDetail(open ? null : t.id);
+            }
+          }}
+          title={`${t.name} — clic: qué trae · doble clic: nuevo proyecto desde esta plantilla`}
+        >
+          <span className="browser-entry-dot" aria-hidden="true" />
+          <span className="browser-entry-name">{t.name}</span>
+          {t.factory && (
+            <span className="browser-badge" title="Viene con Orbit, no se puede borrar">
+              fábrica
+            </span>
+          )}
+          <span className="browser-badge" title={`Tempo de la plantilla: ${t.tempo} BPM`}>
+            {t.tempo}
+          </span>
+          {!t.factory && (
+            <button
+              type="button"
+              className="user-folder-del"
+              title="Borrar esta plantilla"
+              onClick={(e) => {
+                e.stopPropagation();
+                deleteUserTemplate(t.id);
+                if (open) setTemplateDetail(null);
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        {open && (
+          <div className="browser-status">
+            <div>{t.description || 'Sin descripción.'}</div>
+            {channels.length > 0 && <div className="browser-sub-name">Trae: {channels.join(', ')}</div>}
+            <button
+              type="button"
+              className="pack-gen-go"
+              onClick={() => void newProjectFromStoredTemplate(t.id)}
+            >
+              Usar esta plantilla
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // De fábrica (PROJECT_TEMPLATES de core, no se pueden borrar) y propias
+  // (guardadas por el usuario, se pueden borrar) van en dos grupos con su
+  // propia cabecera — la distinción visual que pide poder borrar solo unas.
+  const factoryTemplatesVisible = filteredTemplates.filter((t) => t.factory);
+  const userTemplatesVisible = filteredTemplates.filter((t) => !t.factory);
+
+  const templatesSection = (
+    <section className="browser-cat">
+      <div className="browser-cat-head user-head">
+        <span className="browser-cat-name">Plantillas</span>
+        <span className="browser-cat-count">{filteredTemplates.length}</span>
+        <button
+          type="button"
+          className="user-folder-add"
+          title="Guardar el proyecto actual como plantilla"
+          onClick={saveCurrentAsTemplate}
+        >
+          +
+        </button>
+      </div>
+      {filteredTemplates.length === 0 ? (
+        <div className="browser-sub-name">Ninguna plantilla coincide con la búsqueda.</div>
+      ) : (
+        <>
+          {factoryTemplatesVisible.length > 0 && (
+            <div className="browser-sub">
+              <div className="browser-sub-name">De fábrica</div>
+              {factoryTemplatesVisible.map(renderTemplate)}
+            </div>
+          )}
+          {(userTemplatesVisible.length > 0 || templateQuery === '') && (
+            <div className="browser-sub">
+              <div className="browser-sub-name">Tuyas</div>
+              {userTemplatesVisible.length > 0 ? (
+                userTemplatesVisible.map(renderTemplate)
+              ) : (
+                <div className="browser-status">Guarda el proyecto actual con el botón + de arriba.</div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+
   // ── Cabecera ──────────────────────────────────────────────────────────────
 
   const viewValue = filters.onlyFavorites
@@ -1060,6 +1227,7 @@ export function Browser() {
       </div>
 
       <div className="browser-body">
+        {templatesSection}
         {body}
         {packSection}
         {packFlat}

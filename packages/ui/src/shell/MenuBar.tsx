@@ -30,7 +30,6 @@ import {
   IconGraph,
   IconWave,
 } from '../icons';
-import { PROJECT_TEMPLATES } from '@orbit/core';
 import { repeatLastExport } from '../export';
 import { store } from '../state/app';
 import { clipboardKind } from '../state/clipboard';
@@ -48,12 +47,14 @@ import {
   clearRecents,
   importMidi,
   newProject,
-  newProjectFromTemplate,
+  newProjectFromStoredTemplate,
   openProject,
   openRecentProject,
   saveProject,
+  saveProjectAsTemplate,
   useRecentProjects,
 } from '../state/project-file';
+import { allTemplates, loadUserTemplates } from '../state/project-templates';
 import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
 import { usePaletteStore } from '../palette';
 import { useUiStore } from '../state/ui';
@@ -327,6 +328,14 @@ export function MenuBar() {
   const ref = useRef<HTMLDivElement>(null);
   const toggleWindow = useUiStore((s) => s.toggleWindow);
 
+  // El submenú "Nuevo desde plantilla" necesita las guardadas por el usuario
+  // ANTES del primer clic en Archivo — no se puede esperar a que el Browser
+  // las cargue (el panel se puede tener cerrado). `loadUserTemplates` es
+  // idempotente, así que da igual si el Browser también las pide.
+  useEffect(() => {
+    void loadUserTemplates();
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
@@ -393,6 +402,9 @@ export function MenuBar() {
   const canRemove = canRemovePattern();
   const ui = useUiStore.getState();
   const recents = useRecentProjects.getState().list;
+  // Mismo origen que la rama "Plantillas" del Browser (`allTemplates()`, ver
+  // `state/project-templates.ts`): de fábrica primero, luego las guardadas.
+  const templates = allTemplates();
   const edit = activeEditActions();
   const undoLabel = nextUndoLabel();
   const redoLabel = nextRedoLabel();
@@ -417,12 +429,39 @@ export function MenuBar() {
       {
         // Las plantillas eran una entrada suelta CADA UNA en el primer nivel:
         // el menú Archivo medía catorce líneas y "Abrir" quedaba enterrado.
+        //
+        // Mismo mecanismo que la rama "Plantillas" del Browser — de fábrica
+        // (`PROJECT_TEMPLATES` de core, vía `allTemplates()`) y las que haya
+        // guardado el usuario, agrupadas con una cabecera porque las de
+        // fábrica no se pueden borrar y las propias sí.
         label: 'Nuevo desde plantilla',
         icon: <IconNew />,
-        submenu: PROJECT_TEMPLATES.map((t) => ({
-          label: t.name,
-          action: () => newProjectFromTemplate(t.id),
-        })),
+        submenu: [
+          { label: 'De fábrica', heading: true },
+          ...templates
+            .filter((t) => t.factory)
+            .map((t) => ({ label: t.name, action: () => void newProjectFromStoredTemplate(t.id) })),
+          ...(templates.some((t) => !t.factory)
+            ? [
+                { label: '', separator: true },
+                { label: 'Tuyas', heading: true },
+                ...templates
+                  .filter((t) => !t.factory)
+                  .map((t) => ({
+                    label: t.name,
+                    action: () => void newProjectFromStoredTemplate(t.id),
+                  })),
+              ]
+            : []),
+        ],
+      },
+      {
+        label: 'Guardar el proyecto actual como plantilla…',
+        action: () => {
+          const name = window.prompt('Nombre de la plantilla', store.project.meta.title || 'Mi plantilla');
+          if (name === null) return; // cancelado
+          saveProjectAsTemplate(name);
+        },
       },
       { label: 'Abrir…', icon: <IconOpen />, shortcut: 'Ctrl+O', action: () => void openProject() },
       {

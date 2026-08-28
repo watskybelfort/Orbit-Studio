@@ -568,7 +568,10 @@ export async function readSampleBytes(path: string): Promise<ArrayBuffer | null>
  * Sube al kernel todos los samples que el proyecto referencia (tras abrir un
  * .orbit o recuperar un autosave, el kernel arranca vacío y los samplers y
  * clips de audio no sonarían): pack de fábrica y grabaciones. Mejor esfuerzo:
- * lo que falle se ignora — el export ya avisa de samples ausentes por su lado.
+ * lo que falle no tumba el resto — pero SÍ se devuelve, porque quien abrió
+ * "desde una plantilla" necesita saber qué faltó en vez de heredar un canal
+ * mudo sin explicación (los llamadores que abren un .orbit de siempre pueden
+ * seguir descartando el resultado con `void`).
  *
  * Esto resuelve SOLO por ruta local, así que no vale para colaboración: en la
  * máquina del otro las rutas `user:`/`recording:` no existen. Ese caso lo lleva
@@ -576,13 +579,17 @@ export async function readSampleBytes(path: string): Promise<ArrayBuffer | null>
  * hash y sube lo nuestro. Si añades una vía nueva de registro de samples, la
  * cubre sola: reconcilia el proyecto entero, no comandos sueltos.
  */
-export async function rehydrateSamples(): Promise<void> {
+export async function rehydrateSamples(): Promise<SampleRef[]> {
+  const missing: SampleRef[] = [];
   for (const ref of Object.values(store.project.samples)) {
     try {
       const bytes = await readSampleBytes(ref.path);
       if (bytes) await engine.loadSample(ref.id, bytes);
+      else missing.push(ref);
     } catch {
-      // sample no disponible en esta máquina: se omite
+      // sample no disponible en esta máquina
+      missing.push(ref);
     }
   }
+  return missing;
 }

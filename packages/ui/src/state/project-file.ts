@@ -8,8 +8,6 @@ import {
   createChannel,
   createEmptyProject,
   createPattern,
-  createProjectFromTemplate,
-  findTemplate,
   decodeMidi,
   parseProject,
   serializeProject,
@@ -21,6 +19,14 @@ import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { setActivePattern, store } from './app';
 import { confirmDiscard, markClean, markCleanAt } from './autosave';
+import {
+  describeTemplateLoad,
+  describeTemplateSave,
+  externalSamples,
+  findStoredTemplate,
+  instantiateTemplate,
+  saveCurrentProjectAsTemplate,
+} from './project-templates';
 
 interface ProjectFileState {
   /** Ruta del .orbit abierto; null = proyecto sin guardar. */
@@ -55,19 +61,52 @@ export function newProject(): void {
 }
 
 /**
- * Proyecto nuevo desde una plantilla de género: canales con su sonido, el
- * groove básico en el patrón y el mixer enrutado. Es un proyecto normal — todo
- * lo que trae se edita o se borra.
+ * Proyecto nuevo desde una plantilla GUARDADA (de fábrica o del usuario, ver
+ * `state/project-templates.ts`): un `.orbit` con nombre, no un generador de
+ * código. `instantiateTemplate` le da id propio para que su historial de
+ * versiones no se mezcle con el de otra canción nacida de la misma plantilla.
+ *
+ * Si trae samples que no son del pack de fábrica se intentan cargar igual, y
+ * si alguno no aparece en este equipo se avisa CON NOMBRES — abrir un
+ * proyecto con canales mudos y sin decir por qué es peor que no abrirlo.
  */
-export function newProjectFromTemplate(id: string): void {
-  if (!confirmDiscard('Cargar la plantilla')) return;
-  const template = findTemplate(id);
-  store.replaceProject(createProjectFromTemplate(id));
+export async function newProjectFromStoredTemplate(id: string): Promise<void> {
+  const template = findStoredTemplate(id);
+  if (!template) {
+    notify('Esa plantilla ya no está.');
+    return;
+  }
+  if (!confirmDiscard(`Cargar la plantilla "${template.name}"`)) return;
+  let project;
+  try {
+    project = instantiateTemplate(template);
+  } catch (err) {
+    notify(err instanceof Error ? err.message : 'Esa plantilla no se pudo leer.');
+    return;
+  }
+  store.replaceProject(project);
   useProjectFile.setState({ path: null });
   markClean();
   const first = store.project.patternOrder[0];
   if (first) setActivePattern(first);
-  notify(template ? `Plantilla "${template.name}" cargada.` : 'Proyecto nuevo.');
+  const missing = await rehydrateSamples();
+  notify(describeTemplateLoad(template.name, missing));
+}
+
+/**
+ * Guarda el proyecto actual como plantilla con nombre (rama "Plantillas" del
+ * Browser). Si usa samples que no son del pack de fábrica, lo dice ya en el
+ * guardado: mejor saber ahí que esa plantilla no viaja sola que descubrirlo
+ * mudo al abrirla en otro equipo.
+ */
+export function saveProjectAsTemplate(name: string, description = ''): void {
+  const clean = name.trim();
+  if (clean === '') {
+    notify('La plantilla necesita un nombre.');
+    return;
+  }
+  const template = saveCurrentProjectAsTemplate(store.project, clean, description);
+  notify(describeTemplateSave(template.name, externalSamples(store.project)));
 }
 
 /** Lo que hay que hacer con un .orbit ya leído, venga del diálogo o de los recientes. */
