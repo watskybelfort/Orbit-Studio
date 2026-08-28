@@ -17,3 +17,6 @@ factory-cache/
 
 # Persistencia local de rooms del servidor de colaboracion
 apps/server/rooms/
+
+# Cache del banco de calidad del encoder Opus (tools/qa)
+.opus-diag-cache/
