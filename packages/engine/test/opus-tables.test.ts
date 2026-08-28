@@ -1,7 +1,7 @@
 /**
  * Tablas de CELT.
  *
- * Aquí no se está probando lógica: se está probando que **696 números siguen
+ * Aquí no se está probando lógica: se está probando que **730 números siguen
  * siendo los que son**. El archivo lo genera `tools/opus-tables.ts` desde la
  * implementación de referencia, y esto es la red por si alguien lo edita a mano,
  * lo reformatea con una herramienta que se coma un dígito, o el extractor cambia
@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BAND_ALLOCATION,
   BETA_COEF,
+  COMB_GAINS,
   E_MEANS,
   BETA_INTRA,
   BITRES,
@@ -58,6 +59,7 @@ describe('tablas · firma', () => {
       TRIM_ICDF: [11, 640],
       SPREAD_ICDF: [4, 50],
       TAPSET_ICDF: [3, 3],
+      COMB_GAINS: [9, 2.2851562499],
       TF_SELECT_TABLE: [32, -11],
       LOG2_FRAC_TABLE: [24, 641],
       FITS32_MAX_N: [15, 100403],
@@ -72,6 +74,7 @@ describe('tablas · firma', () => {
       TRIM_ICDF,
       SPREAD_ICDF,
       TAPSET_ICDF,
+      COMB_GAINS,
       TF_SELECT_TABLE,
       LOG2_FRAC_TABLE,
       FITS32_MAX_N,
@@ -85,7 +88,7 @@ describe('tablas · firma', () => {
     }
   });
 
-  it('son 721 números en total, que es lo que se transcribe del formato', () => {
+  it('son 730 números en total, que es lo que se transcribe del formato', () => {
     const all = [
       EBAND_5MS,
       BAND_ALLOCATION,
@@ -94,13 +97,14 @@ describe('tablas · firma', () => {
       TRIM_ICDF,
       SPREAD_ICDF,
       TAPSET_ICDF,
+      COMB_GAINS,
       TF_SELECT_TABLE,
       LOG2_FRAC_TABLE,
       FITS32_MAX_N,
       FITS32_MAX_K,
       E_MEANS,
     ].flatMap(flat);
-    expect(all).toHaveLength(721);
+    expect(all).toHaveLength(730);
   });
 });
 
@@ -272,5 +276,41 @@ describe('tablas · resto', () => {
   it('la resolución del asignador son octavos de bit', () => {
     expect(BITRES).toBe(3);
     expect(1 << BITRES).toBe(8);
+  });
+});
+
+describe('tablas · ganancias del peine del postfiltro', () => {
+  it('son tres juegos de tres taps', () => {
+    expect(COMB_GAINS).toHaveLength(3);
+    for (const juego of COMB_GAINS) expect(juego).toHaveLength(3);
+  });
+
+  it('cada juego decae del centro hacia los lados', () => {
+    // El tap 0 va en el retardo `T` y los otros dos a ±1 y ±2. Si un tap
+    // lateral pesara más que el central, el peine estaría interpolando hacia
+    // el sitio equivocado.
+    for (const [i, juego] of COMB_GAINS.entries()) {
+      expect(juego[0]!, `juego ${i}`).toBeGreaterThanOrEqual(juego[1]!);
+      expect(juego[1]!, `juego ${i}`).toBeGreaterThanOrEqual(juego[2]!);
+    }
+  });
+
+  it('los tres suman la misma ganancia de continua', () => {
+    // `g0 + 2·g1 + 2·g2` es lo que el peine reinyecta en el retardo, y vale 1
+    // en los tres juegos. Es lo que hace que cambiar de `tapset` cambie la
+    // FORMA del peine y no su profundidad: si no sumaran lo mismo, el símbolo
+    // de dos bits movería el volumen de los armónicos.
+    for (const [i, juego] of COMB_GAINS.entries()) {
+      const dc = juego[0]! + 2 * juego[1]! + 2 * juego[2]!;
+      expect(dc, `juego ${i}`).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('van de repartido a concentrado', () => {
+    // Del 0 al 2 el peso se va al tap central: el 0 promedia cinco muestras
+    // (peine suave, para agudos ruidosos) y el 2 casi todo el retardo (peine
+    // afilado, para agudos limpios). Es lo que elige el `tapset`.
+    expect(COMB_GAINS[0]![0]!).toBeLessThan(COMB_GAINS[1]![0]!);
+    expect(COMB_GAINS[1]![0]!).toBeLessThan(COMB_GAINS[2]![0]!);
   });
 });

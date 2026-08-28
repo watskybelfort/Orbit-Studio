@@ -28,9 +28,9 @@
  * - **Decisiones**: qué valor darle a cada uno. Eso es del codificador. Están
  *   tomadas el dynalloc, la elección intra/inter de la energía, la inclinación
  *   del reparto (que sale de la pendiente del espectro), la dispersión (que
- *   sale de la planitud de cada banda) y el transitorio —con su reparto de
- *   resolución tiempo/frecuencia por banda, en `transient.ts`—; sigue
- *   conservador el postfiltro.
+ *   sale de la planitud de cada banda), el transitorio —con su reparto de
+ *   resolución tiempo/frecuencia por banda, en `transient.ts`— y el postfiltro
+ *   —el predictor de tono, en `postfilter.ts`—.
  *
  * El resultado es un archivo **válido y decodificable** que suena algo peor que
  * el de libopus, no uno roto. Afinar las decisiones es trabajo posterior y no
@@ -50,12 +50,21 @@ import {
   quantEnergyFinalise,
   quantFineEnergy,
 } from './energy';
-import { celtWindowFull, mdct } from './mdct';
+import { celtWindow, celtWindowFull, mdct } from './mdct';
+import {
+  COMBFILTER_MAXPERIOD,
+  COMBFILTER_MINPERIOD,
+  POSTFILTER_GAIN_STEP,
+  combFilter,
+  pitchAnalysis,
+  type PostfilterMode,
+} from './postfilter';
 import { quantAllBands } from './quant-bands';
 import { RangeEncoder } from './range-coder';
 import {
   OPUS_EBANDS,
   computeLogN,
+  ilog,
   initCaps,
   opusPulseCache,
   type PulseCache,
@@ -67,7 +76,14 @@ import {
   type SpreadState,
 } from './spread';
 import { tfAnalysis, transientAnalysis, type TransientMode } from './transient';
-import { BITRES, NB_BANDS, SPREAD_ICDF, TF_SELECT_TABLE, TRIM_ICDF } from './tables';
+import {
+  BITRES,
+  NB_BANDS,
+  SPREAD_ICDF,
+  TAPSET_ICDF,
+  TF_SELECT_TABLE,
+  TRIM_ICDF,
+} from './tables';
 import { SPREAD_NONE, SPREAD_NORMAL } from './vq';
 
 /** Tamaño de la MDCT corta a 48 kHz: 2,5 ms. */
@@ -99,7 +115,10 @@ export interface CeltEncoderState {
   channels: number;
   /** Energía de la trama anterior, para la predicción. Se arrastra. */
   oldBandE: Float64Array;
-  /** Últimas `OVERLAP` muestras de cada canal, con la pre-énfasis ya aplicada. */
+  /**
+   * Últimas `OVERLAP` muestras de cada canal, con la pre-énfasis y el PREFILTRO
+   * ya aplicados. Es lo que la MDCT solapa con la trama siguiente.
+   */
   history: Float64Array;
   /** Memoria del filtro de pre-énfasis, por canal. */
   preemphMem: Float64Array;
@@ -116,6 +135,32 @@ export interface CeltEncoderState {
   first: boolean;
   /** Media de planitud e histéresis de la decisión de dispersión. */
   spreadState: SpreadState;
+  /**
+   * Historial del filtro de peine: `COMBFILTER_MAXPERIOD` muestras por canal de
+   * señal SIN filtrar, con la pre-énfasis aplicada.
+   *
+   * Es otra memoria distinta de `history`, y confundirlas sería predecir desde
+   * una señal que el decodificador no tiene: el peine saca su copia retardada
+   * de la señal de ENTRADA, mientras que la MDCT trabaja sobre la ya filtrada.
+   */
+  prefilterMem: Float64Array;
+  /**
+   * Período, ganancia y `tapset` del postfiltro de la trama ANTERIOR.
+   *
+   * Aquí se guarda lo que se TRANSMITIÓ, nunca lo que se midió. Es toda la
+   * sincronía del postfiltro: el decodificador cruza la zona de solape de estos
+   * tres valores a los de la trama nueva, y si el codificador cruzara desde
+   * otros, los dos historiales se separarían y no volverían a juntarse.
+   */
+  prefilterPeriod: number;
+  prefilterGain: number;
+  prefilterTapset: number;
+  /** Ventana de subida del cruce del peine (`OVERLAP` muestras). */
+  combWindow: Float64Array;
+  /** Borrador del análisis de tono, reutilizado entre tramas. */
+  pitchScratch: Float64Array;
+  /** Borrador de `historial + trama` que ve el peine, reutilizado. */
+  preBuf: Float64Array;
   /**
    * Tramas transitorias seguidas.
    *
@@ -140,8 +185,80 @@ export function createCeltEncoder(channels: number): CeltEncoderState {
     shortWindow: celtWindowFull(SHORT_MDCT_SIZE, OVERLAP),
     first: true,
     spreadState: createSpreadState(),
+    prefilterMem: new Float64Array(COMBFILTER_MAXPERIOD * channels),
+    prefilterPeriod: 0,
+    prefilterGain: 0,
+    prefilterTapset: 0,
+    combWindow: celtWindow(OVERLAP),
+    // La trama más larga es de 960: con eso el borrador del tono mide
+    // `(1024 + 960) / 2` y sirve para cualquier tamaño de trama.
+    pitchScratch: new Float64Array((COMBFILTER_MAXPERIOD + 960) >> 1),
+    preBuf: new Float64Array((COMBFILTER_MAXPERIOD + 960) * channels),
     consecTransient: 0,
   };
+}
+
+/**
+ * Aplica el prefiltro a la trama y deja el estado del peine como quedará en el
+ * decodificador.
+ *
+ * Tres cosas, y las tres tienen que pasar juntas:
+ *
+ * 1. La trama en `fresh` se sustituye por la FILTRADA, que es lo que ve la MDCT.
+ * 2. `prefilterMem` se queda con las últimas `COMBFILTER_MAXPERIOD` muestras de
+ *    la señal SIN filtrar, que es de donde predice el peine.
+ * 3. El período, la ganancia y el `tapset` que se guardan son los TRANSMITIDOS.
+ *
+ * Se llama también en las tramas de silencio, y no por simetría: el
+ * decodificador, en una trama de silencio, no lee parámetros nuevos pero SIGUE
+ * aplicando el peine con los de la anterior cruzándolo a cero. Si aquí se
+ * saltara, el historial de los dos lados dejaría de ser el mismo justo en la
+ * trama siguiente — que es exactamente la forma del bug del silencio, por el
+ * otro extremo.
+ */
+function aplicarPrefiltro(
+  state: CeltEncoderState,
+  pre: Float64Array,
+  preLen: number,
+  fresh: Float64Array,
+  frameSize: number,
+  channels: number,
+  period: number,
+  gain: number,
+  tapset: number,
+): void {
+  // El período de la trama anterior se acota igual que en el decodificador. Un
+  // peine de período 0 no existe, y los dos lados tienen que acotarlo IGUAL.
+  const anterior = Math.max(state.prefilterPeriod, COMBFILTER_MINPERIOD);
+  const filtrada = new Float64Array(frameSize);
+  for (let c = 0; c < channels; c++) {
+    const base = c * preLen + COMBFILTER_MAXPERIOD;
+    // Las ganancias van NEGADAS: el codificador resta lo que el decodificador
+    // va a sumar. Es el par análisis/síntesis, no una preferencia de signo.
+    combFilter(
+      filtrada,
+      0,
+      pre,
+      base,
+      anterior,
+      period,
+      frameSize,
+      -state.prefilterGain,
+      -gain,
+      state.prefilterTapset,
+      tapset,
+      state.combWindow,
+      OVERLAP,
+    );
+    fresh.set(filtrada, c * frameSize);
+    state.prefilterMem.set(
+      pre.subarray(c * preLen + frameSize, c * preLen + frameSize + COMBFILTER_MAXPERIOD),
+      c * COMBFILTER_MAXPERIOD,
+    );
+  }
+  state.prefilterPeriod = period;
+  state.prefilterGain = gain;
+  state.prefilterTapset = tapset;
 }
 
 /**
@@ -262,6 +379,8 @@ export interface CeltFrameOptions {
   spread?: SpreadMode;
   /** Qué hacer con los transitorios. Por defecto, detectados por trama. */
   transient?: TransientMode;
+  /** Qué hacer con el postfiltro. Por defecto, decidido por trama. */
+  postfilter?: PostfilterMode;
 }
 
 /**
@@ -279,6 +398,7 @@ export function celtEncodeFrame(
     bytes,
     spread: spreadMode = 'adaptive',
     transient: transientMode = 'adaptive',
+    postfilter: postfilterMode = 'adaptive',
   } = options;
   const channels = state.channels;
   const lm = Math.log2(frameSize / SHORT_MDCT_SIZE);
@@ -292,21 +412,28 @@ export function celtEncodeFrame(
 
   // ── Pre-énfasis ───────────────────────────────────────────────────────────
   //
-  // Va ANTES de la MDCT y separado de ella a propósito: el detector de
-  // transitorios trabaja sobre esta señal, y hasta que no haya decidido no se
-  // sabe si la trama lleva una MDCT larga o `m` cortas.
-  //
-  // El buffer de análisis lleva por canal las `OVERLAP` muestras de la trama
-  // anterior delante de las nuevas: un golpe que cae en las primeras muestras
-  // sólo se ve como salto si hay con qué compararlo.
+  // Va ANTES de la MDCT y separado de ella a propósito: por delante todavía
+  // tiene que pasar el prefiltro, y el detector de transitorios trabaja sobre
+  // el resultado — hasta que no haya decidido no se sabe si la trama lleva una
+  // MDCT larga o `m` cortas.
   const fresh = new Float64Array(frameSize * channels);
-  const analisis = new Float64Array((frameSize + OVERLAP) * channels);
+  // `pre`: por canal, las 1024 muestras de historial SIN filtrar seguidas de la
+  // trama nueva. Es de donde el peine saca su copia retardada, y por eso llega
+  // 1024 muestras atrás y no `OVERLAP`.
+  const preLen = COMBFILTER_MAXPERIOD + frameSize;
+  const pre =
+    state.preBuf.length >= preLen * channels
+      ? state.preBuf.subarray(0, preLen * channels)
+      : new Float64Array(preLen * channels);
   let silence = true;
   for (let c = 0; c < channels; c++) {
     const canal = preemphasis(pcm, c, channels, frameSize, state.preemphMem);
     fresh.set(canal, c * frameSize);
-    analisis.set(state.history.subarray(c * OVERLAP, (c + 1) * OVERLAP), c * (frameSize + OVERLAP));
-    analisis.set(canal, c * (frameSize + OVERLAP) + OVERLAP);
+    pre.set(
+      state.prefilterMem.subarray(c * COMBFILTER_MAXPERIOD, (c + 1) * COMBFILTER_MAXPERIOD),
+      c * preLen,
+    );
+    pre.set(canal, c * preLen + COMBFILTER_MAXPERIOD);
     for (let i = 0; i < frameSize; i++) if (pcm[i * channels + c] !== 0) silence = false;
   }
 
@@ -328,6 +455,10 @@ export function celtEncodeFrame(
   // agudas. Se oye como un golpe que vuelve apagado justo después de un
   // silencio, que en un DAW es exactamente cada golpe del pack de batería.
   if (silence) {
+    // El peine se apaga, pero se APLICA: el decodificador cruza a cero desde
+    // los parámetros de la trama anterior, y el historial tiene que quedar
+    // igual en los dos lados. Ver `aplicarPrefiltro`.
+    aplicarPrefiltro(state, pre, preLen, fresh, frameSize, channels, COMBFILTER_MINPERIOD, 0, 0);
     for (let c = 0; c < channels; c++) {
       state.history.set(
         fresh.subarray((c + 1) * frameSize - OVERLAP, (c + 1) * frameSize),
@@ -339,8 +470,105 @@ export function celtEncodeFrame(
     return enc.done();
   }
 
-  // ── Postfiltro: no se usa, pero la bandera va igual ───────────────────────
-  if (enc.tell() + 16 <= totalBits) enc.bitLogp(0, 1);
+  // ── Postfiltro: el predictor de tono ──────────────────────────────────────
+  //
+  // El peine reinyecta una copia retardada del período fundamental. Aquí se
+  // RESTA de la entrada y el decodificador la SUMA a su salida: el residuo que
+  // viaja es más pequeño, y —lo que más se oye— el ruido de cuantización sale
+  // con los polos del peine, o sea metido debajo de los armónicos, que es
+  // donde el oído no lo oye.
+  //
+  // La MISMA trampa que la inclinación, la dispersión y el transitorio, y aquí
+  // por partida doble: el bloque entero sólo se transmite si caben 16 bits, y
+  // DENTRO, el `tapset` sólo si caben 2 más. Cuando algo no cabe, el
+  // decodificador da por hecho que no hay postfiltro y que el `tapset` es 0.
+  // Por eso todo el análisis va DENTRO del `if`: decidir fuera y escribir
+  // dentro dejaría al codificador restando un peine que el otro no va a sumar
+  // — y eso no se arregla en la trama siguiente, porque los dos historiales se
+  // separan y ya no vuelven a juntarse.
+  //
+  // (`enc.tell()` aquí vale 2 y la referencia usa el 1 de antes de la bandera
+  // de silencio; con `totalBits` siempre múltiplo de 8, las dos condiciones
+  // dicen lo mismo.)
+  let pitchIndex = COMBFILTER_MINPERIOD;
+  let gain1 = 0;
+  let pfTapset = 0;
+  if (enc.tell() + 16 <= totalBits) {
+    if (postfilterMode !== 'off' && bytes > 12 * channels) {
+      // Con menos de 12 bytes por canal no hay residuo que valga la pena
+      // aplanar, y es además la guarda que garantiza que el bit de encendido
+      // cabe. Es la misma de la referencia.
+      const tono = pitchAnalysis(
+        pre,
+        preLen,
+        frameSize,
+        channels,
+        state.prefilterPeriod,
+        state.prefilterGain,
+        state.pitchScratch,
+      );
+      pitchIndex = tono.period;
+      gain1 = tono.gain;
+      // El `tapset` sale del análisis de dispersión de la trama ANTERIOR: en
+      // ésta todavía no se ha hecho, porque el postfiltro va antes en el
+      // paquete.
+      pfTapset = state.spreadState.tapset;
+    }
+
+    // El umbral de encendido. Sube cuando el período salta respecto al de la
+    // trama anterior —un peine que cambia de nota cada 20 ms mete más artefacto
+    // del que quita— y cuando quedan pocos bytes; baja cuando la trama anterior
+    // ya lo llevaba fuerte, porque apagarlo de golpe también se oye.
+    let umbral = 0.2;
+    if (Math.abs(pitchIndex - state.prefilterPeriod) * 10 > pitchIndex) umbral += 0.2;
+    if (bytes < 25) umbral += 0.1;
+    if (bytes < 35) umbral += 0.1;
+    if (state.prefilterGain > 0.4) umbral -= 0.1;
+    if (state.prefilterGain > 0.55) umbral -= 0.1;
+    if (umbral < 0.2) umbral = 0.2;
+
+    if (gain1 < umbral) {
+      enc.bitLogp(0, 1);
+      gain1 = 0;
+    } else {
+      // Histéresis: si la ganancia se parece a la de la trama anterior, se
+      // reusa tal cual, y así el peine no respira de trama en trama.
+      if (Math.abs(gain1 - state.prefilterGain) < 0.1) gain1 = state.prefilterGain;
+      let qg = Math.floor(0.5 + (gain1 * 32) / 3) - 1;
+      qg = Math.max(0, Math.min(7, qg));
+      enc.bitLogp(1, 1);
+      // El período va en octava + resto y no en diez bits crudos: los períodos
+      // cortos son mucho más frecuentes y así cuestan la mitad.
+      const codificado = pitchIndex + 1;
+      const octave = ilog(codificado) - 5;
+      enc.uint(octave, 6);
+      enc.bits(codificado - (16 << octave), 4 + octave);
+      enc.bits(qg, 3);
+      if (enc.tell() + 2 <= totalBits) enc.icdf(pfTapset, TAPSET_ICDF, 2);
+      else pfTapset = 0;
+      // Y a partir de aquí se usa la ganancia RECONSTRUIDA, no la medida: es la
+      // única que el decodificador va a tener.
+      gain1 = POSTFILTER_GAIN_STEP * (qg + 1);
+    }
+  }
+  const pfOn = gain1 > 0;
+
+  // Y ahora se aplica. Va aquí, después de escribir la decisión y antes de todo
+  // lo demás, porque el detector de transitorios y la MDCT tienen que ver la
+  // señal YA filtrada — igual que el decodificador reconstruye y luego filtra.
+  aplicarPrefiltro(state, pre, preLen, fresh, frameSize, channels, pitchIndex, gain1, pfTapset);
+
+  // El buffer de análisis lleva por canal las `OVERLAP` muestras de la trama
+  // anterior delante de las nuevas: un golpe que cae en las primeras muestras
+  // sólo se ve como salto si hay con qué compararlo.
+  const analisis = new Float64Array((frameSize + OVERLAP) * channels);
+  for (let c = 0; c < channels; c++) {
+    analisis.set(state.history.subarray(c * OVERLAP, (c + 1) * OVERLAP), c * (frameSize + OVERLAP));
+    analisis.set(
+      fresh.subarray(c * frameSize, (c + 1) * frameSize),
+      c * (frameSize + OVERLAP) + OVERLAP,
+    );
+  }
 
   // ── Transitorio ───────────────────────────────────────────────────────────
   //
@@ -505,6 +733,10 @@ export function celtEncodeFrame(
         m,
         frameSize,
         state.spreadState,
+        // El `tapset` del peine sólo se actualiza cuando la trama lleva
+        // postfiltro y no es de bloques cortos: fuera de ahí la medida de
+        // agudos no dice nada sobre lo que hay que ajustar.
+        pfOn && !shortBlocks,
       );
     }
     enc.icdf(spread, SPREAD_ICDF, 5);

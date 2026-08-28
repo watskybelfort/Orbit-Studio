@@ -73,6 +73,21 @@ function numbers(body: string): number[] {
   return out;
 }
 
+/**
+ * Los `QCONST16(x, bits)` de un cuerpo de tabla, en orden de lectura.
+ *
+ * `numbers` no sirve para éstas: sacaría los dígitos del literal y el `15` de
+ * la escala como si fueran tres valores. Aquí se coge el primer argumento, que
+ * es el número de verdad, y se deja fuera la escala de coma fija.
+ */
+function constants(body: string): number[] {
+  const out: number[] = [];
+  for (const token of stripComments(body).matchAll(/QCONST16\(\s*(-?[\d.]+)f?\s*,/g)) {
+    out.push(Number(token[1]));
+  }
+  return out;
+}
+
 function read(file: string): string {
   return stripComments(readFileSync(resolve(root!, file), 'utf8'));
 }
@@ -92,6 +107,10 @@ const eMeansFixed = numbers(tableBody(quantBands, 'eMeans'));
 const trim = numbers(tableBody(celt, 'trim_icdf'));
 const spread = numbers(tableBody(celt, 'spread_icdf'));
 const tapset = numbers(tableBody(celt, 'tapset_icdf'));
+// Las ganancias de los tres taps del filtro de peine, por `tapset`. Están en un
+// `static` dentro de `comb_filter`, y son del FORMATO: el decodificador aplica
+// exactamente éstas.
+const combGains = constants(tableBody(celt, 'gains'));
 const tfSelect = numbers(tableBody(celt, 'tf_select_table'));
 const log2FracTable = numbers(tableBody(rate, 'LOG2_FRAC_TABLE'));
 
@@ -126,6 +145,7 @@ assertSize('LOG2_FRAC_TABLE', log2FracTable.length, 24);
 assertSize('maxN', maxN.length, 15);
 assertSize('maxK', maxK.length, 15);
 assertSize('eMeans', eMeansFixed.length, 25);
+assertSize('comb gains', combGains.length, 9);
 
 /** Parte una lista plana en filas, para que el archivo generado se pueda leer. */
 function rows(values: number[], perRow: number, indent = '  '): string {
@@ -239,6 +259,19 @@ export const SPREAD_ICDF = [${spread.join(', ')}] as const;
 export const TAPSET_ICDF = [${tapset.join(', ')}] as const;
 
 /**
+ * Ganancias de los tres taps del filtro de peine del postfiltro, por \`tapset\`.
+ *
+ * Índices: \`[tapset][tap]\`, con el tap 0 en el retardo \`T\` y los taps 1 y 2 a
+ * ±1 y ±2 muestras. Del 0 al 2 el filtro va de repartido a concentrado: el 0
+ * promedia cinco muestras alrededor del período (peine suave, para material con
+ * agudos ruidosos) y el 2 casi todo en el propio retardo (peine afilado).
+ *
+ * Son del FORMATO, no una decisión: el decodificador reinyecta con estos
+ * números. Uno cambiado no suena distinto, suena a otra cosa.
+ */
+export const COMB_GAINS = ${nested(combGains, [3, 3])} as const;
+
+/**
  * Tabla de resolución tiempo/frecuencia.
  *
  * Índices: \`[LM][4*esTransitorio + 2*tfSelect + cambio]\`. Es lo que permite que
@@ -297,6 +330,7 @@ console.log(
     trim.length +
     spread.length +
     tapset.length +
+    combGains.length +
     tfSelect.length +
     log2FracTable.length +
     maxN.length +

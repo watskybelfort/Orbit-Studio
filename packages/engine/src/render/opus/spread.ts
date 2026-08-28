@@ -37,7 +37,16 @@
  * Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo. BSD-3-Clause.
  */
 
+import { NB_BANDS } from './tables';
 import { SPREAD_AGGRESSIVE, SPREAD_LIGHT, SPREAD_NONE, SPREAD_NORMAL } from './vq';
+
+/**
+ * Por encima de esta banda está lo que mira el `tapset`: las tres últimas, de
+ * 9,6 kHz para arriba. (La referencia lo llama «las cuatro últimas, de 8 kHz
+ * para arriba», pero su condición es `i > nbEBands - 4`, que deja fuera la de
+ * 8-9,6 kHz. Se porta la condición, no el comentario.)
+ */
+const NB_BANDS_HF = NB_BANDS - 4;
 
 /** Estado que la decisión arrastra de una trama a la siguiente. */
 export interface SpreadState {
@@ -45,10 +54,22 @@ export interface SpreadState {
   tonalAverage: number;
   /** La decisión anterior, para la histéresis. */
   last: number;
+  /** Media recursiva de la planitud de las bandas de 9,6 kHz para arriba. */
+  hfAverage: number;
+  /**
+   * Qué juego de taps pide el postfiltro (0, 1 o 2).
+   *
+   * Sale de aquí y no de otro sitio porque la pregunta es la misma que ya se
+   * está contestando: cuánto ruido hay arriba. Con agudos ruidosos conviene un
+   * peine repartido (tapset 2, que aquí es el de más ancho de banda) y con
+   * agudos limpios uno afilado. Lo usa `celtEncodeFrame` en la trama SIGUIENTE,
+   * porque el postfiltro se escribe antes que la dispersión.
+   */
+  tapset: number;
 }
 
 export function createSpreadState(): SpreadState {
-  return { tonalAverage: 256, last: SPREAD_NORMAL };
+  return { tonalAverage: 256, last: SPREAD_NORMAL, hfAverage: 0, tapset: 0 };
 }
 
 /**
@@ -65,12 +86,22 @@ export function spreadingDecision(
   m: number,
   n0: number,
   state: SpreadState,
+  /**
+   * Si además hay que actualizar el `tapset` del postfiltro.
+   *
+   * Es lo que hace la referencia: sólo cuando la trama lleva postfiltro Y no es
+   * de bloques cortos. Fuera de ahí la medida de agudos no vale para decidirlo
+   * —o no hay postfiltro que ajustar— y arrastrar el valor anterior es mejor
+   * que moverlo con un número que no significa lo que dice.
+   */
+  updateHf = false,
 ): number {
   // Si la última banda es minúscula no hay nada que repartir.
   if (m * (ebands[end]! - ebands[end - 1]!) <= 8) return SPREAD_NONE;
 
   let sum = 0;
   let nbBands = 0;
+  let hfSum = 0;
   for (let c = 0; c < channels; c++) {
     for (let i = 0; i < end; i++) {
       const n = m * (ebands[i + 1]! - ebands[i]!);
@@ -89,12 +120,29 @@ export function spreadingDecision(
         if (x2n < 0.0625) t1++;
         if (x2n < 0.015625) t2++;
       }
+      // Sólo las bandas de arriba: el `tapset` del postfiltro se decide por
+      // cuánto ruido hay ahí, que es lo que el peine puede ensuciar.
+      if (i > NB_BANDS_HF) hfSum += Math.trunc((32 * (t1 + t0)) / n);
       const tmp =
         (2 * t2 >= n ? 1 : 0) + (2 * t1 >= n ? 1 : 0) + (2 * t0 >= n ? 1 : 0);
       sum += tmp * 256;
       nbBands++;
     }
   }
+
+  if (updateHf) {
+    if (hfSum) hfSum = Math.trunc(hfSum / (channels * (4 - NB_BANDS + end)));
+    state.hfAverage = (state.hfAverage + hfSum) >> 1;
+    hfSum = state.hfAverage;
+    // Histéresis, igual que la de la dispersión y por lo mismo: que el peine no
+    // cambie de forma cada trama.
+    if (state.tapset === 2) hfSum += 4;
+    else if (state.tapset === 0) hfSum -= 4;
+    if (hfSum > 22) state.tapset = 2;
+    else if (hfSum > 18) state.tapset = 1;
+    else state.tapset = 0;
+  }
+
   if (nbBands === 0) return SPREAD_NORMAL;
 
   // Media entre bandas, y media recursiva con la trama anterior.

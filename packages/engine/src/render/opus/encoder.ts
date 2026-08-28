@@ -24,6 +24,7 @@
 
 import { celtEncodeFrame, createCeltEncoder, OVERLAP, type CeltEncoderState } from './celt-encoder';
 import type { SpreadMode } from './spread';
+import type { PostfilterMode } from './postfilter';
 import type { TransientMode } from './transient';
 import { encodeOggOpus, type OpusPacket } from '../ogg-opus';
 
@@ -78,6 +79,14 @@ export interface EncodeOptions {
    * existen para que el banco pueda medir una contra otra.
    */
   transient?: TransientMode;
+  /**
+   * Qué hace el codificador con el postfiltro (el predictor de tono).
+   *
+   * Por defecto `'adaptive'`: se busca el período fundamental por trama y, si
+   * la predicción es lo bastante buena, se transmite el peine. `'off'` no lo
+   * enciende nunca; existe para que el banco pueda medir una contra otra.
+   */
+  postfilter?: PostfilterMode;
 }
 
 /** Bytes por trama para un bitrate dado, con los topes del formato. */
@@ -123,6 +132,7 @@ export function encodeOpusPackets(
       bytes: bytes - 1,
       spread: options.spread,
       transient: options.transient,
+      postfilter: options.postfilter,
     });
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;

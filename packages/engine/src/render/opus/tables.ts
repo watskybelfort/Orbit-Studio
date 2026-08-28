@@ -119,6 +119,23 @@ export const SPREAD_ICDF = [25, 23, 2, 0] as const;
 export const TAPSET_ICDF = [2, 1, 0] as const;
 
 /**
+ * Ganancias de los tres taps del filtro de peine del postfiltro, por `tapset`.
+ *
+ * Índices: `[tapset][tap]`, con el tap 0 en el retardo `T` y los taps 1 y 2 a
+ * ±1 y ±2 muestras. Del 0 al 2 el filtro va de repartido a concentrado: el 0
+ * promedia cinco muestras alrededor del período (peine suave, para material con
+ * agudos ruidosos) y el 2 casi todo en el propio retardo (peine afilado).
+ *
+ * Son del FORMATO, no una decisión: el decodificador reinyecta con estos
+ * números. Uno cambiado no suena distinto, suena a otra cosa.
+ */
+export const COMB_GAINS = [
+    [0.306640625, 0.2170410156, 0.1296386719],
+    [0.4638671875, 0.2680664062, 0],
+    [0.7998046875, 0.1000976562, 0],
+  ] as const;
+
+/**
  * Tabla de resolución tiempo/frecuencia.
  *
  * Índices: `[LM][4*esTransitorio + 2*tfSelect + cambio]`. Es lo que permite que
