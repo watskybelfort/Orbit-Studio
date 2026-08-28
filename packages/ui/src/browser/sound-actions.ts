@@ -30,6 +30,7 @@ import {
   type SoundSample,
 } from '@orbit/sound-library';
 import { engine, store } from '../state/app';
+import { collectWorkletSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
 
 /** MIME propio para arrastrar sonidos del browser dentro de la app. */
@@ -591,5 +592,15 @@ export async function rehydrateSamples(): Promise<SampleRef[]> {
       missing.push(ref);
     }
   }
+  // Y lo del proyecto ANTERIOR, que ya no lo usa nadie, que lo suelte el
+  // worklet. Este es el sitio porque por aquí pasan las cuatro puertas que
+  // cambian el proyecto entero —abrir un `.orbit`, recuperar el autosave,
+  // restaurar una versión y arrancar desde plantilla—, que es justo el caso en
+  // que se queda colgado el audio del proyecto de antes.
+  //
+  // Va DESPUÉS del bucle a propósito: primero se sube lo que hace falta ahora y
+  // solo entonces se suelta el resto. Al revés, un sample compartido entre los
+  // dos proyectos se soltaría para volver a leerse del disco a continuación.
+  collectWorkletSamples(engine, store.project);
   return missing;
 }
