@@ -47,6 +47,7 @@ import { engine, ensureAudioReady, store } from '../../state/app';
 import { acquireLiveLoudness, useLiveLoudness } from '../../state/live-loudness';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
+import { EffectPluginView } from '../../plugins/PluginView';
 import { acquireScopeTracked, isScopeTrackActive } from '../../state/scope-track';
 import { toggleTrackCapture, useTrackCapture } from '../../state/track-capture';
 import { useProject } from '../../state/useProject';
@@ -729,13 +730,28 @@ function EffectEditor({
 }) {
   // Los plugins JS declaran sus perillas en su archivo: specs del registro.
   const plugins = usePluginsStore((s) => s.plugins);
+  const sources = usePluginsStore((s) => s.sources);
   const plugin = slot.kind === 'plugin' ? plugins.find((p) => p.id === slot.pluginId) : undefined;
   const specs = slot.kind === 'plugin' ? (plugin?.params ?? []) : EFFECT_PARAMS[slot.kind];
   const pluginMissing = slot.kind === 'plugin' && !plugin;
+  // Vista propia del plugin: solo si el archivo declara `createView`. El
+  // código NO se ejecuta aquí — viaja como texto al worker de la vista.
+  const pluginSource = plugin?.view ? sources.get(plugin.id) : undefined;
 
   return (
     <div className="fx-editor">
       {slot.kind === 'eq' && <EqAnalyzer trackIndex={trackIndex} slotIndex={slotIndex} />}
+      {plugin?.view && pluginSource && (
+        <EffectPluginView
+          pluginId={plugin.id}
+          source={pluginSource}
+          view={plugin.view}
+          paramKeys={plugin.params.map((p) => p.key)}
+          defaults={defaultPluginParams(plugin.params)}
+          trackIndex={trackIndex}
+          slotIndex={slotIndex}
+        />
+      )}
       {pluginMissing && (
         <div className="fx-warn">Plugin no encontrado: {slot.pluginId ?? '(sin id)'}</div>
       )}

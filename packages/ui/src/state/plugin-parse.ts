@@ -7,6 +7,10 @@
  * - Opcional: `const name = 'Mi efecto'` y
  *   `const params = [{ key, label, min, max, default }, ...]` (mismo shape que
  *   ParamSpec de @orbit/core; curve/unit/options son opcionales).
+ * - Opcional: `function createView(sampleRate)` + `const view = { ... }` para
+ *   que el plugin pinte su propia vista (ver `packages/ui/src/plugins/`). Aquí
+ *   solo se lee y sanea su DECLARACIÓN: alto, ritmo, qué datos pide y su
+ *   catálogo de etiquetas. El dibujo corre en un worker aparte.
  *
  * La metadata (name/params/qué fábricas trae) se lee de forma ESTÁTICA: NO se
  * ejecuta el código del plugin. Antes se evaluaba con `new Function` en el hilo
@@ -25,6 +29,37 @@
  */
 
 import type { ParamSpec } from '@orbit/core';
+import {
+  VIEW_DEFAULT_FPS,
+  VIEW_DEFAULT_HEIGHT,
+  VIEW_MAX_FPS,
+  VIEW_MAX_HEIGHT,
+  VIEW_MAX_LABELS,
+  VIEW_MAX_LABEL_CHARS,
+  VIEW_MIN_FPS,
+  VIEW_MIN_HEIGHT,
+} from '../plugins/view-protocol';
+
+/**
+ * Vista propia declarada por el plugin, ya saneada.
+ *
+ * Todo lo de aquí lo escribe alguien que no somos nosotros, así que sale del
+ * parser con rangos cerrados: un `height` de 100000 no puede empujar el mixer
+ * fuera de la pantalla, un `fps` de 10000 no puede pedir frames a lo loco, y
+ * las etiquetas van recortadas en número y en largo — son lo ÚNICO que un
+ * plugin puede hacer aparecer como texto en la UI, y llegan aquí, en el
+ * arranque, no por el canal de dibujo de cada frame.
+ */
+export interface ParsedView {
+  /** Alto del área de dibujo en píxeles lógicos. */
+  height: number;
+  /** Ritmo al que se le piden frames (el presupuesto puede bajarlo luego). */
+  fps: number;
+  /** Qué datos quiere en el frame: pedir menos es no calcularlos. */
+  needs: { level: boolean; spectrum: boolean };
+  /** Catálogo de textos que puede pintar, por índice. */
+  labels: string[];
+}
 
 export interface ParsedPlugin {
   /** `const name` del archivo, o null si no lo declara (se usa el nombre del .js). */
@@ -34,10 +69,12 @@ export interface ParsedPlugin {
   /** Qué fábricas trae: un archivo puede ser efecto, instrumento o los dos. */
   effect: boolean;
   instrument: boolean;
+  /** Vista propia, o null si el archivo no declara `createView`. */
+  view: ParsedView | null;
 }
 
 /** Tope defensivo de perillas que la UI pinta por plugin. */
-const MAX_PARAMS = 32;
+export const MAX_PARAMS = 32;
 
 /**
  * Sanea UNA entrada del array `params` del plugin. Devuelve null (entrada
@@ -284,6 +321,71 @@ function parseParams(source: string): unknown[] | null {
   return Array.isArray(value) ? value : null;
 }
 
+/** Lee `const view = { ... }` como objeto de literales, o null si no lo es. */
+function parseViewLiteral(source: string): Record<string, unknown> | null {
+  const m = /(?:const|let|var)\s+view\s*=\s*(?=\{)/.exec(source);
+  if (!m) return null;
+  const value = new LiteralReader(source.slice(m.index + m[0].length)).value();
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Sanea el catálogo de etiquetas de la vista.
+ *
+ * Es la única cadena de un plugin que la UI llega a PINTAR, así que se recorta
+ * dos veces: en cuántas (una vista con mil etiquetas es una vista que tarda mil
+ * `fillText`) y en cuánto mide cada una (una etiqueta de 10 kB desbordaría el
+ * recuadro y taparía la UI de al lado). Los caracteres de control se quitan
+ * porque un salto de línea o un byte de control dentro de un `fillText` no se
+ * ve pero descoloca lo que hay alrededor.
+ */
+function sanitizeLabels(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const entry of raw) {
+    if (out.length >= VIEW_MAX_LABELS) break;
+    if (typeof entry !== 'string') continue;
+    const clean = entry
+      .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+      .trim()
+      .slice(0, VIEW_MAX_LABEL_CHARS);
+    if (clean !== '') out.push(clean);
+  }
+  return out;
+}
+
+/** Número declarado por el plugin, recortado a un rango, con caída al defecto. */
+function clampDeclared(raw: unknown, lo: number, hi: number, fallback: number): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return fallback;
+  return Math.round(Math.min(hi, Math.max(lo, raw)));
+}
+
+/**
+ * Lee la declaración de la vista. Solo devuelve algo si el archivo DECLARA
+ * `createView`: un `const view = {...}` suelto, sin fábrica que dibuje, no
+ * abre ninguna superficie.
+ *
+ * Sin `const view` la vista existe igual, con los valores por defecto: lo
+ * mínimo para que un plugin que solo quiere pintar una curva no tenga que
+ * declarar nada más que su función.
+ */
+function parseView(source: string): ParsedView | null {
+  if (!hasFactory(source, 'createView')) return null;
+  const raw = parseViewLiteral(source) ?? {};
+  const needsRaw = raw['needs'];
+  const needs = Array.isArray(needsRaw) ? needsRaw.filter((n) => typeof n === 'string') : [];
+  return {
+    height: clampDeclared(raw['height'], VIEW_MIN_HEIGHT, VIEW_MAX_HEIGHT, VIEW_DEFAULT_HEIGHT),
+    fps: clampDeclared(raw['fps'], VIEW_MIN_FPS, VIEW_MAX_FPS, VIEW_DEFAULT_FPS),
+    needs: {
+      level: needs.includes('level'),
+      spectrum: needs.includes('spectrum'),
+    },
+    labels: sanitizeLabels(raw['labels']),
+  };
+}
+
 /**
  * Extrae la metadata (name/params/fábricas) de la fuente de un plugin SIN
  * ejecutarla. Devuelve null si el archivo no declara ninguna fábrica
@@ -309,7 +411,7 @@ export function parsePluginSource(source: string): ParsedPlugin | null {
       }
     }
   }
-  return { name, params, effect: isEffect, instrument: isInstrument };
+  return { name, params, effect: isEffect, instrument: isInstrument, view: parseView(source) };
 }
 
 /** Params por defecto de un plugin (espejo de defaultEffectParams del core). */

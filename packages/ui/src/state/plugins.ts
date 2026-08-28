@@ -10,7 +10,7 @@
 import { create } from 'zustand';
 import type { ParamSpec } from '@orbit/core';
 import { engine } from './app';
-import { parsePluginSource } from './plugin-parse';
+import { parsePluginSource, type ParsedView } from './plugin-parse';
 
 export interface PluginInfo {
   /** Nombre de archivo sin extensión: slug estable que viaja en el proyecto. */
@@ -23,6 +23,14 @@ export interface PluginInfo {
   effect: boolean;
   /** Se puede cargar como instrumento en un canal del rack. */
   instrument: boolean;
+  /**
+   * Vista propia del plugin (declara createView), o null.
+   *
+   * Solo la DECLARACIÓN saneada: alto, ritmo, qué datos pide y sus etiquetas.
+   * El código que dibuja no vive aquí — se le pasa al worker de la vista desde
+   * `sources`, y se compila allí (ver `packages/ui/src/plugins/`).
+   */
+  view: ParsedView | null;
 }
 
 interface PluginsState {
@@ -83,6 +91,7 @@ async function scanPlugins(): Promise<void> {
       params: parsed.params,
       effect: parsed.effect,
       instrument: parsed.instrument,
+      view: parsed.view,
     });
     sources.set(f.id, f.source);
     // El motor encola los mensajes hasta que el AudioContext despierte,

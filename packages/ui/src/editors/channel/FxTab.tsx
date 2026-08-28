@@ -28,6 +28,7 @@ import {
 import { store } from '../../state/app';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
+import { ChannelPluginView } from '../../plugins/PluginView';
 import { Knob } from '../../widgets/Knob';
 import { MenuPortal } from '../../widgets/MenuPortal';
 import { ParamControl } from './ParamControl';
@@ -192,6 +193,7 @@ export function FxTab({ channel, mixer }: FxTabProps) {
                   slotIndex={i}
                   slot={slot}
                   mixer={mixer}
+                  trackIndex={channel.mixerTrack}
                 />
               )}
             </div>
@@ -252,19 +254,38 @@ function ChannelEffectEditor({
   slotIndex,
   slot,
   mixer,
+  trackIndex,
 }: {
   channelId: string;
   slotIndex: number;
   slot: EffectSlot;
   mixer: MixerTrack[];
+  /** Pista de mixer del canal: de ahí sale el tap si la vista pide señal. */
+  trackIndex: number;
 }) {
   const plugins = usePluginsStore((s) => s.plugins);
+  const sources = usePluginsStore((s) => s.sources);
   const plugin = slot.kind === 'plugin' ? plugins.find((p) => p.id === slot.pluginId) : undefined;
   const specs = slot.kind === 'plugin' ? (plugin?.params ?? []) : EFFECT_PARAMS[slot.kind];
   const pluginMissing = slot.kind === 'plugin' && !plugin;
+  // Igual que en el mixer: la vista solo aparece si el plugin declara
+  // `createView`, y su código cruza como texto al worker de la vista.
+  const pluginSource = plugin?.view ? sources.get(plugin.id) : undefined;
 
   return (
     <div className="chan-fx-editor">
+      {plugin?.view && pluginSource && (
+        <ChannelPluginView
+          pluginId={plugin.id}
+          source={pluginSource}
+          view={plugin.view}
+          paramKeys={plugin.params.map((p) => p.key)}
+          defaults={defaultPluginParams(plugin.params)}
+          channelId={channelId}
+          slotIndex={slotIndex}
+          trackIndex={trackIndex}
+        />
+      )}
       {pluginMissing && (
         <div className="chan-warn">Plugin no encontrado: {slot.pluginId ?? '(sin id)'}</div>
       )}

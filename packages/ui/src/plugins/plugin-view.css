@@ -1,0 +1,49 @@
+/* Vista propia de un plugin JS.
+   Ni un color literal: todo por tokens de tema (regla 4 del repo). La paleta
+   que puede pedir el plugin sale de estas mismas variables, resueltas por el
+   host al repintar — ver view-protocol.ts. */
+
+.plugin-view {
+  position: relative;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+  /* El alto lo pone el componente desde `view.height`, ya recortado. */
+}
+
+.plugin-view > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Aviso de vista apagada: tapa el canvas (que ya no se refresca) y deja claro
+   que lo que se ha parado es el DIBUJO, no el efecto. */
+.plugin-view-dead {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 10px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.plugin-view-dead b {
+  color: var(--meter-clip);
+  font-weight: 600;
+}
+
+.plugin-view-dead span {
+  opacity: 0.75;
+  font-size: 10px;
+  word-break: break-word;
+}
