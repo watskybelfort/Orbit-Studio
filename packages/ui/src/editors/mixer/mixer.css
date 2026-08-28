@@ -121,6 +121,36 @@
   line-height: 1;
 }
 
+/* LUFS integrado del master, en vivo (solo en el strip índice 0). */
+.strip-lufs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+}
+
+.strip-lufs-val {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--meter);
+}
+
+.strip-lufs-val.hot {
+  color: var(--meter-hot);
+}
+
+.strip-lufs.stale .strip-lufs-val {
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.strip-lufs-label {
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
 .strip-ms {
   display: flex;
   gap: 4px;
@@ -397,6 +427,21 @@
 }
 
 .eq-viz canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Espectro en vivo de la pista seleccionada, siempre visible (sin EQ abierto) */
+
+.track-spectrum {
+  width: 100%;
+  height: 84px;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.track-spectrum canvas {
   display: block;
   width: 100%;
   height: 100%;

@@ -1,54 +1,62 @@
 /**
- * Orbit Scope: forma de onda (arriba) y espectro (abajo) del master en vivo.
- * El kernel manda los últimos 2048 samples con cada frame de medidores SOLO
- * mientras esta ventana está abierta (engine.setScope). El espectro se calcula
- * aquí con una FFT radix-2 de 1024 puntos con ventana de Hann.
+ * Orbit Scope: forma de onda (arriba) y espectro (abajo) del master en vivo,
+ * más los tres números de loudness (integrado, short-term, true-peak) para
+ * ver que la mezcla va camino a -14 LUFS ANTES de exportar. El kernel manda
+ * los últimos 2048 samples con cada frame de medidores SOLO mientras esta
+ * ventana está abierta (engine.setScope). El espectro se calcula aquí con
+ * `SpectrumAnalyzer` (FFT radix-2 de 1024 puntos, ventana de Hann, suavizado
+ * entre frames) y el loudness con `LiveLoudnessMeter`, el mismo cálculo que
+ * `analyzeMix` (engine/render/analysis.ts) pero alimentado a trozos según
+ * llega el audio en vez de sobre un archivo terminado.
  */
 
 import { useEffect, useRef } from 'react';
 import { engine, ensureAudioReady } from '../state/app';
-import { acquireScope } from '../state/scope-owner';
+import { acquireLiveLoudness, useLiveLoudness } from '../state/live-loudness';
+import { acquireScopeTracked, isScopeTrackActive, MASTER_TRACK } from '../state/scope-track';
 import { useUiStore } from '../state/ui';
+import { freqToBin, SpectrumAnalyzer, SPECTRUM_DB_FLOOR } from './spectrum';
 import './scope.css';
 
-const FFT_N = 1024;
-const DB_FLOOR = -90;
 const FREQ_MIN = 20;
+const LUFS_TARGET = -14;
 
-/** FFT radix-2 in situ sobre re/im (longitud potencia de 2). */
-function fft(re: Float32Array, im: Float32Array): void {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      const tr = re[i]!; re[i] = re[j]!; re[j] = tr;
-      const ti = im[i]!; im[i] = im[j]!; im[j] = ti;
-    }
-  }
-  for (let len = 2; len <= n; len <<= 1) {
-    const ang = (-2 * Math.PI) / len;
-    const wr = Math.cos(ang);
-    const wi = Math.sin(ang);
-    for (let i = 0; i < n; i += len) {
-      let cr = 1;
-      let ci = 0;
-      for (let k = 0; k < len / 2; k++) {
-        const a = i + k;
-        const b = i + k + len / 2;
-        const xr = re[b]! * cr - im[b]! * ci;
-        const xi = re[b]! * ci + im[b]! * cr;
-        re[b] = re[a]! - xr;
-        im[b] = im[a]! - xi;
-        re[a] = re[a]! + xr;
-        im[a] = im[a]! + xi;
-        const ncr = cr * wr - ci * wi;
-        ci = cr * wi + ci * wr;
-        cr = ncr;
-      }
-    }
-  }
+function fmtLufs(v: number | null): string {
+  if (v === null || !Number.isFinite(v)) return '—';
+  return `${v.toFixed(1)}`;
+}
+
+/** Fila compacta de loudness del master: integrado / short-term / true-peak. */
+function ScopeLoudness() {
+  const integrated = useLiveLoudness((s) => s.integrated);
+  const shortTerm = useLiveLoudness((s) => s.shortTerm);
+  const truePeak = useLiveLoudness((s) => s.truePeak);
+  const stale = useLiveLoudness((s) => s.stale);
+  const overTarget = integrated !== null && integrated > LUFS_TARGET;
+  const hot = truePeak > -1;
+  const clip = truePeak >= 0;
+
+  useEffect(() => acquireLiveLoudness(), []);
+
+  return (
+    <div className="scope-lufs" title="LUFS del master en vivo — objetivo de streaming: -14 LUFS integrado">
+      <div className="scope-lufs-item">
+        <span className="scope-lufs-label">Integrado</span>
+        <span className={`scope-lufs-val${overTarget ? ' hot' : ''}`}>{fmtLufs(integrated)}</span>
+      </div>
+      <div className="scope-lufs-item">
+        <span className="scope-lufs-label">Short-term</span>
+        <span className="scope-lufs-val">{fmtLufs(shortTerm)}</span>
+      </div>
+      <div className="scope-lufs-item">
+        <span className="scope-lufs-label">True peak</span>
+        <span className={`scope-lufs-val${clip ? ' clip' : hot ? ' hot' : ''}`}>
+          {Number.isFinite(truePeak) ? truePeak.toFixed(1) : '—'}
+        </span>
+      </div>
+      <div className="scope-lufs-target">objetivo {LUFS_TARGET} LUFS{stale ? ' · en pausa' : ''}</div>
+    </div>
+  );
 }
 
 export function ScopePanel() {
@@ -59,13 +67,10 @@ export function ScopePanel() {
     ensureAudioReady();
     // Préstamo con recuento: el EQ del mixer usa el MISMO tap del kernel y,
     // sin esto, plegarlo dejaba esta ventana en blanco para siempre.
-    const releaseScope = acquireScope(0);
+    const releaseScope = acquireScopeTracked(MASTER_TRACK);
     let raf = 0;
 
-    const re = new Float32Array(FFT_N);
-    const im = new Float32Array(FFT_N);
-    const hann = new Float32Array(FFT_N);
-    for (let i = 0; i < FFT_N; i++) hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_N - 1)));
+    const spectrum = new SpectrumAnalyzer();
 
     const drawLoop = () => {
       raf = requestAnimationFrame(drawLoop);
@@ -97,7 +102,17 @@ export function ScopePanel() {
       const specTop = waveH + 8;
       const specH = h - specTop - 14;
 
-      const frame = useUiStore.getState().scopeFrame;
+      // Si otra vista (un EQ del mixer, el espectro de una pista) pidió el tap
+      // después que esta ventana, es SU audio el que viaja ahora por
+      // scopeFrame: pintarlo igual sería mostrar la pista de otro como si
+      // fuera el master. Se deja en blanco (con la rejilla) en vez de mentir.
+      const owns = isScopeTrackActive(MASTER_TRACK);
+      const frame = owns ? useUiStore.getState().scopeFrame : null;
+      if (!owns) {
+        ctx.fillStyle = dim;
+        ctx.font = `10px ${css.fontFamily}`;
+        ctx.fillText('En pausa — hay un espectro de otra pista abierto', 8, waveH / 2 + 3);
+      }
 
       // ── Forma de onda ──
       ctx.strokeStyle = line;
@@ -140,20 +155,15 @@ export function ScopePanel() {
       }
 
       if (frame) {
-        const off = frame.length - FFT_N;
-        for (let i = 0; i < FFT_N; i++) {
-          re[i] = frame[off + i]! * hann[i]!;
-          im[i] = 0;
-        }
-        fft(re, im);
+        spectrum.update(frame);
+        const db = spectrum.db;
         ctx.beginPath();
         ctx.moveTo(0, specTop + specH);
         for (let x = 0; x < w; x++) {
           const f = Math.pow(10, logMin + (x / w) * (logMax - logMin));
-          const bin = Math.min(FFT_N / 2 - 1, Math.max(1, Math.round((f / nyquist) * (FFT_N / 2))));
-          const mag = Math.hypot(re[bin]!, im[bin]!) / (FFT_N / 4);
-          const db = Math.max(DB_FLOOR, 20 * Math.log10(mag + 1e-9));
-          const y = specTop + ((db / DB_FLOOR) * specH);
+          const bin = freqToBin(f, spectrum.fftN, sr);
+          const mag = db[bin]!;
+          const y = specTop + (mag / SPECTRUM_DB_FLOOR) * specH;
           ctx.lineTo(x, Math.min(specTop + specH, y));
         }
         ctx.lineTo(w, specTop + specH);
@@ -173,8 +183,11 @@ export function ScopePanel() {
   }, []);
 
   return (
-    <div className="scope" ref={wrapRef}>
-      <canvas ref={canvasRef} className="scope-canvas" />
+    <div className="scope">
+      <ScopeLoudness />
+      <div className="scope-canvas-wrap" ref={wrapRef}>
+        <canvas ref={canvasRef} className="scope-canvas" />
+      </div>
     </div>
   );
 }

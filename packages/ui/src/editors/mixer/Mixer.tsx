@@ -44,12 +44,14 @@ import {
 } from '@orbit/core';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
-import { acquireScope } from '../../state/scope-owner';
+import { acquireLiveLoudness, useLiveLoudness } from '../../state/live-loudness';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
+import { acquireScopeTracked, isScopeTrackActive } from '../../state/scope-track';
 import { toggleTrackCapture, useTrackCapture } from '../../state/track-capture';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
+import { freqToBin, SpectrumAnalyzer, SPECTRUM_DB_FLOOR } from '../../scope/spectrum';
 import { Fader } from '../../widgets/Fader';
 import { Knob } from '../../widgets/Knob';
 import { LevelMeter } from '../../widgets/LevelMeter';
@@ -133,6 +135,35 @@ function StripMeter({ index }: { index: number }) {
   // Línea de RMS de SU pista (el kernel mide todas por frame).
   const rms = useUiStore((s) => s.trackRms?.[index]);
   return <LevelMeter peak={peak} rms={rms} height={FADER_H} />;
+}
+
+/**
+ * LUFS integrado del master en vivo, en el strip mismo: es lo que hace falta
+ * para ver que la mezcla va camino a -14 (objetivo de streaming del
+ * proyecto) SIN exportar. Vive mientras el strip del Master esté montado —
+ * es decir, mientras el mixer esté abierto — igual que el Orbit Scope se
+ * apaga solo al cerrar su ventana.
+ */
+function MasterLoudness() {
+  const integrated = useLiveLoudness((s) => s.integrated);
+  const stale = useLiveLoudness((s) => s.stale);
+  useEffect(() => acquireLiveLoudness(), []);
+  const over = integrated !== null && integrated > -14;
+  return (
+    <div
+      className={`strip-lufs${stale ? ' stale' : ''}`}
+      title={
+        stale
+          ? 'LUFS del master — en pausa: hay un espectro de otra pista abierto (el tap del kernel solo puede mirar una pista a la vez)'
+          : 'LUFS integrado del master en vivo — objetivo de streaming: -14 LUFS'
+      }
+    >
+      <span className={`strip-lufs-val${over ? ' hot' : ''}`}>
+        {integrated === null ? '—' : integrated.toFixed(1)}
+      </span>
+      <span className="strip-lufs-label">LUFS</span>
+    </div>
+  );
 }
 
 function StripName({ index, name }: { index: number; name: string }) {
@@ -281,6 +312,7 @@ function Strip({
         />
       </div>
       <div className="strip-db">{db <= -96 ? '-∞' : db.toFixed(1)}</div>
+      {index === 0 && <MasterLoudness />}
       <div className="strip-ms">
         <button
           className={`strip-btn${track.mute ? ' on-mute' : ''}`}
@@ -327,47 +359,9 @@ function Strip({
 
 // ── Analizador del Orbit EQ: espectro en vivo + curva de respuesta ───────────
 
-const FFT_N = 1024;
-const SPEC_DB_FLOOR = -90;
 const FREQ_MIN = 20;
 /** Escala vertical de la curva de respuesta: ±18 dB (0 dB al centro). */
 const CURVE_DB = 18;
-
-/** FFT radix-2 in situ sobre re/im (copiada del Orbit Scope). */
-function fft(re: Float32Array, im: Float32Array): void {
-  const n = re.length;
-  for (let i = 1, j = 0; i < n; i++) {
-    let bit = n >> 1;
-    for (; j & bit; bit >>= 1) j ^= bit;
-    j ^= bit;
-    if (i < j) {
-      const tr = re[i]!; re[i] = re[j]!; re[j] = tr;
-      const ti = im[i]!; im[i] = im[j]!; im[j] = ti;
-    }
-  }
-  for (let len = 2; len <= n; len <<= 1) {
-    const ang = (-2 * Math.PI) / len;
-    const wr = Math.cos(ang);
-    const wi = Math.sin(ang);
-    for (let i = 0; i < n; i += len) {
-      let cr = 1;
-      let ci = 0;
-      for (let k = 0; k < len / 2; k++) {
-        const a = i + k;
-        const b = i + k + len / 2;
-        const xr = re[b]! * cr - im[b]! * ci;
-        const xi = re[b]! * ci + im[b]! * cr;
-        re[b] = re[a]! - xr;
-        im[b] = im[a]! - xi;
-        re[a] = re[a]! + xr;
-        im[a] = im[a]! + xi;
-        const ncr = cr * wr - ci * wi;
-        ci = cr * wi + ci * wr;
-        cr = ncr;
-      }
-    }
-  }
-}
 
 /**
  * Coeficientes RBJ (a0 normalizado a 1), réplica EXACTA de las fórmulas de
@@ -488,13 +482,10 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
     // Préstamo con recuento: el tap del kernel es uno solo y lo comparte con la
     // ventana del Orbit Scope. Al plegar este EQ, el tap vuelve a quien lo
     // tuviera antes en vez de apagarse y dejar al otro en blanco.
-    const releaseScope = acquireScope(trackIndex);
+    const releaseScope = acquireScopeTracked(trackIndex);
     let raf = 0;
 
-    const re = new Float32Array(FFT_N);
-    const im = new Float32Array(FFT_N);
-    const hann = new Float32Array(FFT_N);
-    for (let i = 0; i < FFT_N; i++) hann[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (FFT_N - 1)));
+    const spectrum = new SpectrumAnalyzer();
 
     const drawLoop = () => {
       raf = requestAnimationFrame(drawLoop);
@@ -545,22 +536,20 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
       }
 
       // ── Espectro en vivo (relleno translúcido) ──
-      const frame = useUiStore.getState().scopeFrame;
+      // Igual que el Orbit Scope: si otra vista se llevó el tap por delante,
+      // no se dibuja el audio de una pista ajena como si fuera la de aquí.
+      const owns = isScopeTrackActive(trackIndex);
+      const frame = owns ? useUiStore.getState().scopeFrame : null;
       if (frame) {
-        const off = frame.length - FFT_N;
-        for (let i = 0; i < FFT_N; i++) {
-          re[i] = frame[off + i]! * hann[i]!;
-          im[i] = 0;
-        }
-        fft(re, im);
+        spectrum.update(frame);
+        const db = spectrum.db;
         ctx.beginPath();
         ctx.moveTo(0, h);
         for (let x = 0; x < w; x++) {
           const f = xToFreq(x);
-          const bin = Math.min(FFT_N / 2 - 1, Math.max(1, Math.round((f / nyquist) * (FFT_N / 2))));
-          const mag = Math.hypot(re[bin]!, im[bin]!) / (FFT_N / 4);
-          const db = Math.max(SPEC_DB_FLOOR, 20 * Math.log10(mag + 1e-9));
-          ctx.lineTo(x, Math.min(h, (db / SPEC_DB_FLOOR) * h));
+          const bin = freqToBin(f, spectrum.fftN, sr);
+          const mag = db[bin]!;
+          ctx.lineTo(x, Math.min(h, (mag / SPECTRUM_DB_FLOOR) * h));
         }
         ctx.lineTo(w, h);
         ctx.closePath();
@@ -568,6 +557,10 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
         ctx.globalAlpha = 0.35;
         ctx.fill();
         ctx.globalAlpha = 1;
+      } else if (!owns) {
+        ctx.fillStyle = dim;
+        ctx.font = `9px ${css.fontFamily}`;
+        ctx.fillText('En pausa — Orbit Scope u otra pista tiene el tap', 6, h / 2);
       }
 
       // ── Curva de respuesta del EQ (±18 dB, línea de 0 dB al centro) ──
@@ -610,6 +603,112 @@ function EqAnalyzer({ trackIndex, slotIndex }: { trackIndex: number; slotIndex: 
 
   return (
     <div className="eq-viz" ref={wrapRef}>
+      <canvas ref={canvasRef} />
+    </div>
+  );
+}
+
+/**
+ * Espectro en vivo de la pista seleccionada, SIEMPRE visible en el panel de
+ * cadena — a diferencia de `EqAnalyzer`, no hace falta insertar ni abrir un
+ * EQ para verlo. Es lo que hace falta para encontrar dónde choca el 808 con
+ * el bombo sin exportar: seleccioná la pista y mirá dónde se pisa la energía.
+ *
+ * Mismo tap y misma FFT que el Orbit Scope y el EQ (`SpectrumAnalyzer`,
+ * `acquireScopeTracked`): si otra vista pidió el tap después, este panel se
+ * queda en pausa en vez de mostrar el audio de una pista ajena.
+ */
+function TrackSpectrum({ trackIndex }: { trackIndex: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    ensureAudioReady();
+    const releaseScope = acquireScopeTracked(trackIndex);
+    let raf = 0;
+    const spectrum = new SpectrumAnalyzer();
+
+    const drawLoop = () => {
+      raf = requestAnimationFrame(drawLoop);
+      const canvas = canvasRef.current;
+      const wrap = wrapRef.current;
+      if (!canvas || !wrap) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      if (w === 0 || h === 0) return;
+      if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = `${w}px`;
+        canvas.style.height = `${h}px`;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const css = getComputedStyle(canvas);
+      const col = (name: string) => css.getPropertyValue(name).trim();
+      const accent = col('--accent');
+      const dim = col('--text-dim');
+      const line = col('--border');
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.strokeStyle = line;
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+
+      const sr = engine.sampleRate;
+      const nyquist = sr / 2;
+      const logMin = Math.log10(FREQ_MIN);
+      const logMax = Math.log10(nyquist);
+      const freqToX = (f: number) =>
+        ((Math.log10(Math.max(FREQ_MIN, f)) - logMin) / (logMax - logMin)) * w;
+
+      ctx.fillStyle = dim;
+      ctx.font = `9px ${css.fontFamily}`;
+      for (const f of [60, 250, 1000, 5000, 12000]) {
+        const x = freqToX(f);
+        ctx.globalAlpha = 0.3;
+        ctx.fillRect(x, 0, 1, h);
+        ctx.globalAlpha = 1;
+        ctx.fillText(f >= 1000 ? `${f / 1000}k` : String(f), x + 3, h - 3);
+      }
+
+      const owns = isScopeTrackActive(trackIndex);
+      const frame = owns ? useUiStore.getState().scopeFrame : null;
+      if (frame) {
+        spectrum.update(frame);
+        const db = spectrum.db;
+        ctx.beginPath();
+        ctx.moveTo(0, h);
+        for (let x = 0; x < w; x++) {
+          const f = Math.pow(10, logMin + (x / w) * (logMax - logMin));
+          const bin = freqToBin(f, spectrum.fftN, sr);
+          const mag = db[bin]!;
+          ctx.lineTo(x, Math.min(h, (mag / SPECTRUM_DB_FLOOR) * h));
+        }
+        ctx.lineTo(w, h);
+        ctx.closePath();
+        ctx.fillStyle = accent;
+        ctx.globalAlpha = 0.4;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else if (!owns) {
+        ctx.fillStyle = dim;
+        ctx.font = `9px ${css.fontFamily}`;
+        ctx.fillText('En pausa — el Orbit Scope tiene el tap abierto', 6, h / 2);
+      }
+    };
+    raf = requestAnimationFrame(drawLoop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      releaseScope();
+    };
+  }, [trackIndex]);
+
+  return (
+    <div className="track-spectrum" ref={wrapRef}>
       <canvas ref={canvasRef} />
     </div>
   );
@@ -893,6 +992,7 @@ function ChainPanel({
           {capturing ? `${captureSeconds.toFixed(1)} s` : 'Grabar salida'}
         </button>
       </div>
+      <TrackSpectrum trackIndex={trackIndex} />
       {/* EQ rápido del strip + separación estéreo (post-efectos, pre-fader). */}
       <div className="strip-eq">
         <span className="strip-eq-label" title="EQ de la pista: 120 Hz · 1 kHz · 6 kHz">

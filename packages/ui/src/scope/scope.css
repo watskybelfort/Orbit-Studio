@@ -3,10 +3,67 @@
   height: 100%;
   padding: 8px;
   background: transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+
+.scope-canvas-wrap {
+  flex: 1;
+  min-height: 0;
 }
 
 .scope-canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+/* ── Loudness del master (integrado / short-term / true-peak) ── */
+
+.scope-lufs {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.scope-lufs-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.scope-lufs-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+.scope-lufs-val {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--meter);
+}
+
+.scope-lufs-val.hot {
+  color: var(--meter-hot);
+}
+
+.scope-lufs-val.clip {
+  color: var(--meter-clip);
+}
+
+.scope-lufs-target {
+  margin-left: auto;
+  align-self: center;
+  font-size: 10px;
+  color: var(--text-dim);
 }
