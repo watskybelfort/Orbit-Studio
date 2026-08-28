@@ -21,8 +21,9 @@
  *   todo aquí, completo.
  * - **Decisiones**: qué valor darle a cada uno. Eso es del codificador. Están
  *   tomadas el dynalloc, la elección intra/inter de la energía y la
- *   inclinación del reparto (que sale de la pendiente del espectro); siguen
- *   conservadoras el postfiltro, los transitorios y la dispersión.
+ *   inclinación del reparto (que sale de la pendiente del espectro) y la
+ *   dispersión (que sale de la planitud de cada banda); siguen conservadoras
+ *   el postfiltro y los transitorios.
  *
  * El resultado es un archivo **válido y decodificable** que suena algo peor que
  * el de libopus, no uno roto. Afinar las decisiones es trabajo posterior y no
@@ -52,8 +53,14 @@ import {
   opusPulseCache,
   type PulseCache,
 } from './rate';
+import {
+  createSpreadState,
+  spreadingDecision,
+  type SpreadMode,
+  type SpreadState,
+} from './spread';
 import { BITRES, NB_BANDS, SPREAD_ICDF, TF_SELECT_TABLE, TRIM_ICDF } from './tables';
-import { SPREAD_NORMAL } from './vq';
+import { SPREAD_NONE, SPREAD_NORMAL } from './vq';
 
 /** Tamaño de la MDCT corta a 48 kHz: 2,5 ms. */
 export const SHORT_MDCT_SIZE = 120;
@@ -87,6 +94,8 @@ export interface CeltEncoderState {
   window: Float64Array;
   /** Primera trama: no hay nada de qué predecir. */
   first: boolean;
+  /** Media de planitud e histéresis de la decisión de dispersión. */
+  spreadState: SpreadState;
 }
 
 export function createCeltEncoder(channels: number): CeltEncoderState {
@@ -101,6 +110,7 @@ export function createCeltEncoder(channels: number): CeltEncoderState {
     logN: computeLogN(OPUS_EBANDS),
     window: celtWindowFull(960, OVERLAP),
     first: true,
+    spreadState: createSpreadState(),
   };
 }
 
@@ -176,6 +186,8 @@ export interface CeltFrameOptions {
   frameSize: number;
   /** Bytes que puede ocupar la trama CELT (sin contar el byte TOC de Opus). */
   bytes: number;
+  /** Qué hacer con la dispersión. Por defecto, decidida por trama. */
+  spread?: SpreadMode;
 }
 
 /**
@@ -188,7 +200,7 @@ export function celtEncodeFrame(
   pcm: Float64Array | Float32Array,
   options: CeltFrameOptions,
 ): Uint8Array {
-  const { frameSize, bytes } = options;
+  const { frameSize, bytes, spread: spreadMode = 'adaptive' } = options;
   const channels = state.channels;
   const lm = Math.log2(frameSize / SHORT_MDCT_SIZE);
   if (!Number.isInteger(lm) || lm < 0 || lm > 3) {
@@ -306,8 +318,32 @@ export function celtEncodeFrame(
   encodeTf(enc, tfRes, lm, isTransient, totalBits);
 
   // ── Dispersión ────────────────────────────────────────────────────────────
-  const spread = SPREAD_NORMAL;
-  if (enc.tell() + 4 <= totalBits) enc.icdf(spread, SPREAD_ICDF, 5);
+  //
+  // La MISMA trampa que la inclinación, y por eso la decisión va DENTRO del
+  // `if`: el símbolo sólo se transmite si cabe, y cuando no cabe el
+  // decodificador da por hecho `SPREAD_NORMAL`. Decidir fuera y escribir dentro
+  // dejaría a los dos lados rotando las bandas de forma distinta antes del PVQ
+  // — y eso no da error, da ruido.
+  let spread = SPREAD_NORMAL;
+  if (enc.tell() + 4 <= totalBits) {
+    if (spreadMode === 'none') {
+      spread = SPREAD_NONE;
+    } else if (spreadMode === 'adaptive' && !shortBlocks && bytes >= 10 * channels) {
+      // Con menos de 10 bytes por canal el análisis no compensa: son tramas
+      // donde apenas hay pulsos que repartir. Es la misma guarda que la
+      // referencia.
+      spread = spreadingDecision(
+        shape,
+        OPUS_EBANDS,
+        NB_BANDS,
+        channels,
+        m,
+        frameSize,
+        state.spreadState,
+      );
+    }
+    enc.icdf(spread, SPREAD_ICDF, 5);
+  }
 
   // ── Dynalloc: refuerzo a las bandas que destacan sobre sus vecinas ────────
   const caps = initCaps(state.cache, OPUS_EBANDS, lm, channels);

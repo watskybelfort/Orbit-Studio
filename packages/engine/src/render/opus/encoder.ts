@@ -23,6 +23,7 @@
  */
 
 import { celtEncodeFrame, createCeltEncoder, OVERLAP, type CeltEncoderState } from './celt-encoder';
+import type { SpreadMode } from './spread';
 import { encodeOggOpus, type OpusPacket } from '../ogg-opus';
 
 /** Configuraciones de CELT en banda completa, por duración de trama. */
@@ -57,6 +58,15 @@ export interface EncodeOptions {
   bitrate?: number;
   vendor?: string;
   tags?: Record<string, string>;
+  /**
+   * Qué hace el codificador con la dispersión del PVQ.
+   *
+   * Por defecto `'adaptive'`: se decide por trama según la planitud de cada
+   * banda. `'normal'` fija la constante de siempre y `'none'` la apaga; las dos
+   * existen para que el banco de calidad pueda medir una contra otra, que es la
+   * única forma de decidir esto.
+   */
+  spread?: SpreadMode;
 }
 
 /** Bytes por trama para un bitrate dado, con los topes del formato. */
@@ -97,7 +107,11 @@ export function encodeOpusPackets(
     const available = Math.min(frameSize, total - start);
     for (let i = 0; i < available * channels; i++) block[i] = pcm[start * channels + i]!;
 
-    const frame = celtEncodeFrame(state, block, { frameSize, bytes: bytes - 1 });
+    const frame = celtEncodeFrame(state, block, {
+      frameSize,
+      bytes: bytes - 1,
+      spread: options.spread,
+    });
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;
     data.set(frame, 1);
