@@ -23,6 +23,7 @@ export * from './model/defaults';
 export * from './arrangement';
 export * from './commands';
 export * from './store';
+export * from './history-tree';
 export * from './format';
 export { newId } from './ids';
 export { encodeMidi, type EncodeMidiOptions } from './midi/encode';

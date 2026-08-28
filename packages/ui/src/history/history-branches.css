@@ -1,0 +1,220 @@
+/* Ramas guardadas del historial. Solo tokens globales (var(--…)): oscuro,
+   claro y acrílico salen del tema sin colores literales. */
+
+.brs {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px 10px;
+  font-size: 12px;
+  color: var(--text);
+  user-select: none;
+}
+
+.brs-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.brs-title {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.brs-detail {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.brs-notice {
+  margin: 0 0 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* ── Una rama ── */
+
+.brs-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin-bottom: 5px;
+  overflow: hidden;
+}
+
+/* El presente ES su punto de bifurcación: volver es un solo salto. */
+.brs-card.here {
+  border-color: var(--accent);
+}
+
+/* Su ancla ya no está en el historial: se enseña, pero no se puede sacar. */
+.brs-card.lost {
+  opacity: 0.5;
+}
+
+.brs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brs-row:hover {
+  background: var(--surface-2);
+}
+
+.brs-fork {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.brs-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.brs-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brs-from {
+  font-size: 10px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.brs-who {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.brs-who.local {
+  color: var(--accent);
+}
+
+.brs-who.claude {
+  color: var(--meter-hot);
+}
+
+.brs-who.remote {
+  color: var(--meter);
+}
+
+.brs-meta {
+  flex: none;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Mini-diagrama: el tronco como barra, la bifurcación como punto ── */
+
+.brs-spine {
+  position: relative;
+  height: 3px;
+  margin: 0 8px 5px;
+  border-radius: 2px;
+  background: var(--surface-2);
+}
+
+.brs-spine-dot {
+  position: absolute;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+
+/* ── Desplegable: los cambios de la rama, uno a uno ── */
+
+.brs-body {
+  padding: 2px 8px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.brs-steps {
+  margin: 6px 0 8px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.brs-steps li {
+  display: flex;
+  gap: 8px;
+}
+
+.brs-step-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.brs-step-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.brs-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.brs-btn {
+  padding: 3px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.brs-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.brs-btn.primary {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.brs-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

@@ -563,7 +563,8 @@ código.
   este código a mi sesión"), persistencia del doc, auth simple por token.
 - Presencia: cursores de otros usuarios en playlist/piano roll, colores por
   usuario, "X está editando el Mixer", lista de conectados con avatar.
-- Undo **por usuario** (Yjs UndoManager con origin scoping).
+- Undo **por usuario** (scoping por origen en `ProjectStore` — no `Y.UndoManager`,
+  que nunca llegó a existir; ver `docs/HISTORY.md`).
 - Modo seguidor: ver la vista de otro usuario en vivo.
 
 ---

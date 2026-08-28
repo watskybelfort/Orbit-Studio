@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import type { HistoryItem } from '@orbit/core';
+import { HistoryBranches } from '../../history';
 import { store } from '../../state/app';
 import { useProjectVersion } from '../../state/useProject';
 import { VersionList } from './VersionList';
@@ -66,6 +67,14 @@ export function HistoryPanel() {
           <Row key={item.id} item={item} isNow={i === view.present - 1} />
         ))}
       </div>
+
+      {/*
+        Las ramas van DEBAJO del tronco y ENCIMA de las versiones guardadas, que
+        es su orden por duración: el tronco es lo que estás haciendo, las ramas
+        son lo que dejaste a medias en esta sesión, y las versiones son lo que
+        decidiste guardar para mañana.
+      */}
+      <HistoryBranches />
 
       <VersionList />
 

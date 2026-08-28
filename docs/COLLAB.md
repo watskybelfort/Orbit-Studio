@@ -235,9 +235,29 @@ levanta un vecino falso que se anuncia y luego invita.
 
 ## Undo por usuario
 
-`Y.UndoManager` con `trackedOrigins = {miUserId}`: tu Ctrl+Z deshace **tus**
-cambios, no los del colaborador. El historial visible marca de quién fue cada
-paso.
+Tu Ctrl+Z deshace **tus** cambios, no los del colaborador. El historial visible
+marca de quién fue cada paso.
+
+El scoping por origen NO lo hace Yjs: no hay ningún `Y.UndoManager` en el repo.
+Lo hace `ProjectStore` (`packages/core/src/store.ts`), con `undo(origin)` /
+`redo(origin)` sobre sus dos pilas — cada entrada lleva su origen (`local`,
+`claude`, `remote:<usuario>`) y el undo busca la más reciente que sea tuya.
+
+Y hay una consecuencia que conviene tener presente: **en Orbit un undo no
+rebobina nada**. Aplica el comando inverso y lo emite como un cambio más, que
+este binding anexa al log compartido. Para la sala, tu Ctrl+Z es una edición
+nueva como cualquier otra — por eso converge sin protocolo especial de undo.
+
+### El historial en árbol
+
+Deshacer y volver a editar ya no borra lo deshecho: se archiva como rama a la
+que se puede volver. Ese árbol es **local**, no se replica, y una re-derivación
+(`replay` → `replaceProject`) lo borra igual que borraba el undo lineal — pero
+ahora avisando (`ProjectStore.historyEpoch`). Las ramas de origen `remote:*`
+**no se archivan** a propósito: volver a ellas re-aplicaría comandos ajenos sin
+pasar por el log y sacaría a este cliente del estado de la sala.
+
+El porqué completo, con lo que se promete y lo que no: **`docs/HISTORY.md`**.
 
 ## Audio en colaboración
 

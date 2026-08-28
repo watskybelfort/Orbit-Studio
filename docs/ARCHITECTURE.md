@@ -34,7 +34,8 @@
    tiene inverso (undo) y se aplica sobre el doc Yjs, así la colaboración y el
    undo por usuario salen del mismo mecanismo.
 4. **Yjs para colaboración.** CRDT probado, tipos Y.Map/Y.Array mapean el modelo
-   1:1, UndoManager con scoping por origen (usuario), awareness para presencia.
+   1:1 y awareness para presencia. El undo por usuario NO es de Yjs: el scoping
+   por origen lo hace `ProjectStore` (ver `docs/HISTORY.md`).
 5. **Claude entra por MCP, no por hacks.** `packages/claude-bridge` expone tools
    MCP que emiten comandos al mismo bus. Claude es, a efectos del sistema, un
    colaborador más con presencia propia.
@@ -67,7 +68,8 @@
 
 ### `packages/collab`
 - `bindProject(ydoc, store)`: mapea el modelo a Y.Map/Y.Array y aplica cambios
-  remotos al store. Awareness → presencia. UndoManager por origen.
+  remotos al store. Awareness → presencia. El undo por origen lo hace el store
+  de core, no Yjs.
 
 ### `packages/claude-bridge`
 - Servidor MCP (WebSocket) dentro del main process. Tools → comandos de core.
