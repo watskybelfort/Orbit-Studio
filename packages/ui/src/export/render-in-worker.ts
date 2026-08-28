@@ -26,9 +26,31 @@ interface Resp {
   stems?: { idx: number; result: RenderResult }[];
 }
 
+/**
+ * Mensaje intermedio del worker: no resuelve la petición (no lleva `ok`),
+ * solo informa que empezó a renderizar la pista `index` de `total`. Casado
+ * por el mismo `id` que la petición — ver `request()`.
+ */
+interface ProgressMsg {
+  id: number;
+  progress: { index: number; total: number };
+}
+
+function isProgressMsg(data: Resp | ProgressMsg): data is ProgressMsg {
+  return 'progress' in data;
+}
+
+interface PendingRequest {
+  resolve: (r: Resp) => void;
+  reject: (e: Error) => void;
+  onProgress?: (index: number, total: number) => void;
+  /** Rearma el watchdog: un progreso intermedio cuenta como "sigue vivo". */
+  touch: () => void;
+}
+
 let worker: Worker | null = null;
 let seq = 0;
-const pending = new Map<number, { resolve: (r: Resp) => void; reject: (e: Error) => void }>();
+const pending = new Map<number, PendingRequest>();
 
 /** ¿Se puede usar el worker aquí? (No en Node/tests). */
 export function canUseRenderWorker(): boolean {
@@ -60,9 +82,15 @@ function killWorker(reason: string): void {
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' });
-    worker.addEventListener('message', (e: MessageEvent<Resp>) => {
+    worker.addEventListener('message', (e: MessageEvent<Resp | ProgressMsg>) => {
       const p = pending.get(e.data.id);
       if (!p) return;
+      if (isProgressMsg(e.data)) {
+        // No resuelve nada: solo avisa y rearma el watchdog de la petición.
+        p.touch();
+        p.onProgress?.(e.data.progress.index, e.data.progress.total);
+        return;
+      }
       pending.delete(e.data.id);
       if (e.data.ok) p.resolve(e.data);
       else p.reject(new Error(e.data.error ?? 'Fallo en el worker de render'));
@@ -85,19 +113,39 @@ function getWorker(): Worker {
  */
 const REQUEST_TIMEOUT_MS = 15 * 60_000;
 
-function request(msg: Record<string, unknown>): Promise<Resp> {
+function request(
+  msg: Record<string, unknown>,
+  onProgress?: (index: number, total: number) => void,
+): Promise<Resp> {
   const id = ++seq;
   const w = getWorker();
   return new Promise<Resp>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (!pending.has(id)) return;
-      killWorker('El worker de render no respondió');
-    }, REQUEST_TIMEOUT_MS);
+    // El timer se REARMA en cada progreso intermedio (`touch`, más abajo): el
+    // tope es para un worker que se calla del todo, no para el total de una
+    // petición con muchas pistas — antes cada stem tenía sus 15 min propios
+    // en una petición separada; agrupar todos en una sola no debe recortar
+    // ese presupuesto a una sola pista.
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      timer = setTimeout(() => {
+        if (!pending.has(id)) return;
+        killWorker('El worker de render no respondió');
+      }, REQUEST_TIMEOUT_MS);
+    };
     const done = <T>(fn: (value: T) => void) => (value: T) => {
       clearTimeout(timer);
       fn(value);
     };
-    pending.set(id, { resolve: done(resolve), reject: done(reject) });
+    pending.set(id, {
+      resolve: done(resolve),
+      reject: done(reject),
+      onProgress,
+      touch: () => {
+        clearTimeout(timer);
+        arm();
+      },
+    });
+    arm();
     w.postMessage({ ...msg, id });
   });
 }
@@ -111,12 +159,19 @@ export async function renderProjectInWorker(
   return resp.result;
 }
 
+/**
+ * Renderiza VARIAS pistas en una sola petición al worker (un único structured
+ * clone de `opts.samples`, no uno por pista). `onProgress(index, total)` —si
+ * se pasa— se llama una vez al empezar cada pista de `trackIndices`, en su
+ * mismo orden, a partir de los mensajes intermedios del worker.
+ */
 export async function renderStemsInWorker(
   compiled: CompiledProject,
   trackIndices: number[],
   opts: WorkerRenderOpts,
+  onProgress?: (index: number, total: number) => void,
 ): Promise<Map<number, RenderResult>> {
-  const resp = await request({ kind: 'stems', compiled, trackIndices, opts });
+  const resp = await request({ kind: 'stems', compiled, trackIndices, opts }, onProgress);
   const out = new Map<number, RenderResult>();
   for (const s of resp.stems ?? []) out.set(s.idx, s.result);
   return out;

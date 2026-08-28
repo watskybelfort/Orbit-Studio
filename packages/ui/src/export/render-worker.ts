@@ -13,6 +13,7 @@
 import { renderProject, renderStems } from '@orbit/engine';
 import type { CompiledProject, RenderResult } from '@orbit/engine';
 import type { SampleData } from '@orbit/engine';
+import { trackStemProgress } from './stem-progress';
 
 interface RenderOpts {
   samples?: Map<string, SampleData>;
@@ -21,6 +22,7 @@ interface RenderOpts {
   tailSeconds?: number;
   startBeat?: number;
   endBeat?: number;
+  onProgress?: (fraction: number) => void;
 }
 
 type Req =
@@ -49,7 +51,16 @@ ctx.onmessage = (e: MessageEvent<Req>) => {
       return;
     }
     // stems: un RenderResult por pista; se transfieren todos los buffers.
-    const map = renderStems(msg.compiled, msg.trackIndices, msg.opts);
+    // Varias pistas pueden llegar en una sola petición (el llamante decide
+    // cuántas por lote — nada de un postMessage, y un structured clone de
+    // `samples`, por stem), así que el progreso viaja por mensajes
+    // intermedios casados por el mismo `id`: uno al empezar cada pista,
+    // derivado del onProgress de `renderStems` (ver stem-progress.ts).
+    const total = msg.trackIndices.length;
+    const onProgress = trackStemProgress(total, (index) => {
+      ctx.postMessage({ id: msg.id, progress: { index, total } });
+    });
+    const map = renderStems(msg.compiled, msg.trackIndices, { ...msg.opts, onProgress });
     const stems = [...map.entries()].map(([idx, result]) => ({ idx, result }));
     const transfer = stems.flatMap((s) => transferOf(s.result));
     ctx.postMessage({ id: msg.id, ok: true, stems }, transfer);

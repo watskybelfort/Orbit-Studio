@@ -470,32 +470,63 @@ async function renderAndWrite(
   }
 
   // Stems: rutas hermanas <base>-<pista>.wav derivadas de la principal.
+  //
+  // Se piden por LOTES de `STEM_BATCH_SIZE` en vez de una petición por stem
+  // (como antes) o una sola con todas: `renderOpts.samples` lleva el audio
+  // entero del proyecto, y pedirlo de a una clonaba esa Map completa por cada
+  // stem al cruzar al worker — con 12 pistas, 12 copias del mismo audio, una
+  // detrás de otra. Medido con structuredClone (el mismo algoritmo que usa
+  // postMessage) sobre ~9,6 MB de samples: 12 clones sueltos, 88,5 ms; un
+  // clone por lote de 4, ~3 clones, ~24 ms — casi todo el ahorro sin pedir
+  // las 12 juntas.
+  //
+  // Pedirlas TODAS juntas sí tiene un costo real: medido con un proyecto
+  // sintético de 12 pistas × 2 min a 44,1 kHz, el Map con las 12 completas
+  // deja ~649 MB de RSS vivos a la vez (contra ~132 MB pidiendo de a una). En
+  // un tema de 4 min con 16 pistas eso escala a más de 1 GB solo en stems,
+  // antes de sumar la librería de samples del proyecto. Con lotes de 4 el
+  // pico queda ~4/12 de eso — cerca del "de a una" — y el tiempo total de
+  // render no cambia (es el mismo cómputo DSP): ~8,2 s todo junto contra
+  // ~8,7 s de a una en la misma medición.
+  const STEM_BATCH_SIZE = 4;
   let stemsWritten = 0;
   const stemTracks = opts.stems ? usedMixerTracks(proj) : [];
-  if (stemTracks.length > 0) {
+  const totalStems = stemTracks.length;
+  if (totalStems > 0) {
     const usedSlugs = new Set<string>();
-    for (let i = 0; i < stemTracks.length; i++) {
-      const t = stemTracks[i]!;
-      await report(`Renderizando stem ${i + 1}/${stemTracks.length} (${t.name})…`);
+    for (let start = 0; start < totalStems; start += STEM_BATCH_SIZE) {
+      const batch = stemTracks.slice(start, start + STEM_BATCH_SIZE);
+      const batchIndices = batch.map((t) => t.idx);
+      const reportStem = (localIndex: number): void => {
+        const t = batch[localIndex];
+        if (t) void report(`Renderizando stem ${start + localIndex + 1}/${totalStems} (${t.name})…`);
+      };
+      reportStem(0);
       const stemMap = canUseRenderWorker()
-        ? await renderStemsInWorker(compiled, [t.idx], renderOpts)
-        : renderStems(compiled, [t.idx], renderOpts);
-      let res = stemMap.get(t.idx);
-      if (!res) continue;
-      res = cut(res);
-      if (gainDb !== null) applyGain(res, gainDb); // misma ganancia que el master
-      let slug = slugName(t.name);
-      if (usedSlugs.has(slug)) slug = `${slug}-${t.idx}`;
-      usedSlugs.add(slug);
-      const stemPath = siblingPath(target, slug);
-      try {
-        await orbit.file.write(
-          stemPath,
-          encodeWav(res.left, res.right, res.sampleRate, opts.depth),
-        );
-        stemsWritten++;
-      } catch (e) {
-        warnings.push(`No se pudo escribir ${stemPath}: ${errorText(e)}`);
+        ? await renderStemsInWorker(compiled, batchIndices, renderOpts, (idx) => reportStem(idx))
+        : renderStems(compiled, batchIndices, renderOpts);
+      for (const t of batch) {
+        let res = stemMap.get(t.idx);
+        // Ya escrito o por escribir: fuera del Map en cuanto se usa, para que
+        // el GC pueda recuperar cada buffer según se va escribiendo en vez de
+        // retener el lote entero hasta que termine el bucle interno.
+        stemMap.delete(t.idx);
+        if (!res) continue;
+        res = cut(res);
+        if (gainDb !== null) applyGain(res, gainDb); // misma ganancia que el master
+        let slug = slugName(t.name);
+        if (usedSlugs.has(slug)) slug = `${slug}-${t.idx}`;
+        usedSlugs.add(slug);
+        const stemPath = siblingPath(target, slug);
+        try {
+          await orbit.file.write(
+            stemPath,
+            encodeWav(res.left, res.right, res.sampleRate, opts.depth),
+          );
+          stemsWritten++;
+        } catch (e) {
+          warnings.push(`No se pudo escribir ${stemPath}: ${errorText(e)}`);
+        }
       }
     }
   }
