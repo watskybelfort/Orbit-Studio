@@ -24,6 +24,7 @@
 
 import { celtEncodeFrame, createCeltEncoder, OVERLAP, type CeltEncoderState } from './celt-encoder';
 import type { SpreadMode } from './spread';
+import type { TransientMode } from './transient';
 import { encodeOggOpus, type OpusPacket } from '../ogg-opus';
 
 /** Configuraciones de CELT en banda completa, por duración de trama. */
@@ -67,6 +68,16 @@ export interface EncodeOptions {
    * única forma de decidir esto.
    */
   spread?: SpreadMode;
+  /**
+   * Qué hace el codificador con los transitorios.
+   *
+   * Por defecto `'adaptive'`: se detecta el ataque por trama y, si lo hay, la
+   * trama va en sub-tramas cortas de 2,5 ms para que el ruido de cuantización
+   * no se derrame hacia atrás (pre-eco). `'tf'` deja sólo la decisión de
+   * resolución por banda y `'off'` vuelve a bloques largos siempre; las dos
+   * existen para que el banco pueda medir una contra otra.
+   */
+  transient?: TransientMode;
 }
 
 /** Bytes por trama para un bitrate dado, con los topes del formato. */
@@ -111,6 +122,7 @@ export function encodeOpusPackets(
       frameSize,
       bytes: bytes - 1,
       spread: options.spread,
+      transient: options.transient,
     });
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;
