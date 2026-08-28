@@ -1,0 +1,89 @@
+# Release: al empujar un tag v*, arma el instalador de Windows en un runner
+# windows-latest DE VERDAD (ci.yml corre la matriz typecheck+test+build ahí
+# también, pero nunca empaqueta) y lo adjunta a la GitHub Release de ese tag,
+# creándola si todavía no existe.
+#
+# Por qué acá SÍ hace falta `npm ci` completo (sin --ignore-scripts):
+# ci.yml se salta los postinstall porque typecheck/test/build nunca levantan
+# Electron (esbuild trae su binario por optionalDependencies, sin postinstall;
+# electron-vite tampoco necesita el binario de Electron para bundlear). Pero
+# este job corre `electron-builder --win --x64`, que empaqueta la app CON el
+# runtime de Electron — y para eso hace falta el binario ya descargado del
+# postinstall del paquete `electron` en node_modules/electron/dist.
+# electron-builder también sabe descargarlo por su cuenta desde su propia
+# caché (@electron/get) aunque node_modules/electron esté vacío, pero apoyarse
+# en esa ruta paralela en el único job que produce el artefacto que se publica
+# es un riesgo innecesario: acá se corre `npm ci` a secas.
+#
+# Firma de editor: NO hay certificado de firma de código configurado en este
+# repo. El instalador sale sin firmar — electron-builder no falla por esto,
+# simplemente omite el paso de firma si no encuentra CSC_LINK/CSC_KEY_PASSWORD
+# en el entorno. El README ya avisa que SmartScreen muestra la advertencia de
+# editor no reconocido la primera vez ("Más información → Ejecutar de todas
+# formas"). Para firmarlo de verdad hace falta comprar un certificado
+# Authenticode (idealmente EV, para que SmartScreen no acumule reputación
+# desde cero) y guardar como secrets del repo CSC_LINK (el .pfx en base64, o
+# una URL a él) + CSC_KEY_PASSWORD — hoy no existen y este workflow no los
+# inventa ni asume que están.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-windows-installer:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Sin --ignore-scripts: ver el comentario de arriba del archivo.
+      - run: npm ci
+
+      - name: Compilar + empaquetar (electron-vite build && electron-builder --win --x64)
+        run: npm run dist -w @orbit/desktop
+
+      - name: Smoke test del paquete (pack de sonidos en resources/sound-library)
+        run: node tools/qa/package-smoke.mjs apps/desktop/dist/win-unpacked
+
+      - name: Resumen del instalador (nombre + tamaño)
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const dir = 'apps/desktop/dist';
+            const exe = fs.readdirSync(dir).find((f) => f.toLowerCase().endsWith('.exe'));
+            if (!exe) { console.error('No hay .exe en ' + dir); process.exit(1); }
+            const bytes = fs.statSync(dir + '/' + exe).size;
+            const mb = (bytes / (1024 * 1024)).toFixed(1);
+            const line = 'Instalador: ' + exe + ' — ' + mb + ' MB';
+            console.log(line);
+            if (process.env.GITHUB_STEP_SUMMARY) {
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '**' + line + '**\n');
+            }
+          "
+
+      - name: Publicar/actualizar la GitHub Release y adjuntar el instalador
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" apps/desktop/dist/*.exe --clobber
+          else
+            gh release create "${{ github.ref_name }}" apps/desktop/dist/*.exe \
+              --title "${{ github.ref_name }}" \
+              --generate-notes
+          fi

@@ -2,6 +2,15 @@
 # --ignore-scripts: ni electron ni esbuild necesitan postinstall aquí (esbuild trae
 # el binario por optionalDependencies; el binario de electron solo hace falta para
 # ejecutar la app, no para bundlear con electron-vite).
+#
+# Matriz ubuntu-latest + windows-latest: la app es Windows-only de verdad
+# (acrílico por DWM, backgroundMaterial, NSIS) y hay lógica sensible a la
+# plataforma (p. ej. apps/desktop/src/main/path-guard.ts, que normaliza rutas
+# distinto según process.platform === 'win32' y tiene su propio test en
+# apps/desktop/test/path-guard.test.ts). Corriendo solo en Linux, un fallo de
+# ese tipo no lo ve nadie hasta abrir la app empaquetada. El empaquetado en sí
+# (electron-builder --win) NO corre acá — para eso está el workflow de
+# release.yml, que arma y prueba el instalador de verdad al taguear.
 name: CI
 
 on:
@@ -11,7 +20,11 @@ on:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
