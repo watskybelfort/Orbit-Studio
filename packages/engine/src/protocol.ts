@@ -226,6 +226,40 @@ export interface CompiledProject {
   mixerOrder: number[];
 }
 
+// ── Entrada en vivo: enrutado de canales físicos ─────────────────────────────
+
+/**
+ * Una ruta de entrada tal como la ve el KERNEL: de qué canales físicos del
+ * aparato lee y dónde los deja. Nada de nombres ni de ids — eso vive en el
+ * proyecto (`@orbit/core`, `model/input-routing.ts`), y el motor no lo
+ * necesita para mover muestras.
+ *
+ * El ÍNDICE de la ruta dentro del array es su identidad aquí: es lo que dice
+ * el mensaje de captura y lo que vuelve en cada paquete de audio grabado. Por
+ * eso las rutas que el aparato no tiene viajan igual en vez de filtrarse: si
+ * se filtraran, la toma de una ruta caería en la pista de otra.
+ */
+export interface CompiledInputRoute {
+  /** Canal físico (0-based) que alimenta el lado izquierdo. */
+  srcL: number;
+  /** Canal físico del lado derecho; **-1 = mono** (el izquierdo a los dos lados). */
+  srcR: number;
+  /** Pista de mixer por la que entra, ANTES de sus inserts. */
+  mixerTrack: number;
+  /** Ganancia de entrada, lineal. No afecta al medidor ni a la toma en crudo. */
+  gain: number;
+  /** Se oye por su pista (con el interruptor maestro de `setLiveInput` puesto). */
+  monitor: boolean;
+}
+
+/** Audio en crudo de UNA ruta desde el frame anterior. */
+export interface InputCaptureChunk {
+  /** Índice de la ruta dentro del último `setInputRoutes`. */
+  routeIndex: number;
+  left: Float32Array;
+  right: Float32Array;
+}
+
 // ── Mensajes UI → kernel ─────────────────────────────────────────────────────
 
 export type ToKernel =
@@ -284,7 +318,27 @@ export type ToKernel =
    * webm/opus: cada toma se comprimía y se volvía a decodificar antes de
    * escribirse como WAV de 24 bits que ya no tenía 24 bits de información.
    */
-  | { type: 'setInputCapture'; enabled: boolean }
+  /**
+   * Reparto de la entrada por canal físico. Sin esto (o con la lista vacía) el
+   * kernel se comporta como siempre: una ruta implícita que lee los canales 1
+   * y 2 y los mete en la pista de `setLiveInput`.
+   *
+   * Llega COMO MENSAJE y no dentro del snapshot a propósito: el enrutado
+   * depende del aparato que haya abierto ahora mismo (cuántas entradas trae),
+   * no solo del proyecto, y recompilar el proyecto entero por enchufar una
+   * interfaz sería trabajo de sobra en el peor momento.
+   */
+  | { type: 'setInputRoutes'; routes: readonly CompiledInputRoute[] }
+  | {
+      type: 'setInputCapture';
+      enabled: boolean;
+      /**
+       * Qué rutas se graban, por índice. Ausente o vacío = solo la primera,
+       * que sin rutas declaradas es la implícita: exactamente la grabación de
+       * un micro de toda la vida.
+       */
+      routes?: readonly number[];
+    }
 
   /** Tap del Orbit Scope; `trackIndex` elige la pista de mixer (default 0 = master). */
 
@@ -362,9 +416,21 @@ export interface MeterFrame {
   /** Audio grabado de la pista en captura desde el frame anterior (estéreo). */
   captureL?: Float32Array;
   captureR?: Float32Array;
-  /** Entrada en vivo en crudo desde el frame anterior (grabación de micro). */
+  /**
+   * Entrada en vivo en crudo desde el frame anterior (grabación de micro).
+   * Es la PRIMERA ruta que esté capturando; el resto viaja en `inputCaptures`.
+   * Se mantiene aparte porque es el camino de siempre —una toma, un micro— y
+   * quien lo escucha (el grabador, la calibración de latencia) no tiene por
+   * qué saber que existen las rutas.
+   */
   inputCaptureL?: Float32Array;
   inputCaptureR?: Float32Array;
+  /**
+   * Todas las rutas que están capturando, la primera incluida (la misma que
+   * viaja arriba, sin copiar: es el mismo Float32Array). Ausente cuando no hay
+   * ninguna captura en marcha, que es el caso normal.
+   */
+  inputCaptures?: InputCaptureChunk[];
 
   /** Posición del playhead en beats. */
   positionBeats: number;
@@ -374,8 +440,18 @@ export interface MeterFrame {
    * que suena ahora. Ausente cuando no hay cuenta en marcha.
    */
   countInBeatsLeft?: number;
-  /** Pico de la entrada en vivo ANTES de su ganancia (0 si no se escucha). */
+  /**
+   * Pico de la entrada en vivo ANTES de su ganancia (0 si no se escucha). Con
+   * varias rutas es el MAYOR de todas: es el LED de "está entrando algo", y
+   * sigue significando eso enchufes lo que enchufes.
+   */
   inputPeak: number;
+  /**
+   * Pico por ruta, en el orden del último `setInputRoutes`. Es lo que permite
+   * ajustar la ganancia de cada micro por separado — con un solo número no se
+   * puede saber cuál de los dos está saturando. Ausente mientras no se escucha.
+   */
+  inputPeaks?: Float32Array;
 
   /** Carga estimada del kernel 0..1. */
   cpu: number;

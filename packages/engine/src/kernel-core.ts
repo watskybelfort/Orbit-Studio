@@ -6,9 +6,11 @@
  * setSnapshot()/mensajes (que corren entre bloques).
  */
 
+import { MAX_INPUT_CHANNELS, MAX_INPUT_ROUTES } from '@orbit/core';
 import type {
   CompiledChannel,
   CompiledEffect,
+  CompiledInputRoute,
   CompiledParamTarget,
   CompiledProject,
   FromKernel,
@@ -218,17 +220,57 @@ export class KernelCore {
   // ── Entrada en vivo (micro / instrumento) ──
   /** Medir lo que entra (para ajustar ganancia sin oírse). */
   private inputListening = false;
-  /** Además meterlo en la pista, antes de sus inserts. */
+  /**
+   * Interruptor MAESTRO del monitor. Con enrutado declarado cada ruta trae
+   * además el suyo, y suena la que diga que sí Y tenga esto puesto: apagar el
+   * monitor tiene que callarlo TODO de un botón (hay altavoces al otro lado).
+   */
   private inputMonitor = false;
+  /** Pista y ganancia de la ruta IMPLÍCITA (sin enrutado declarado). */
   private inputTrack = 0;
   private inputGain = 1;
   /** Pico del bloque, ANTES de la ganancia: un micro que satura se ve igual. */
   private inputPeak = 0;
   /** Guardar la entrada en crudo (grabación de micro sin códec de por medio). */
   private inputCapture = false;
-  private inputCapL = new Float32Array(CAPTURE_BUFFER);
-  private inputCapR = new Float32Array(CAPTURE_BUFFER);
-  private inputCapPos = 0;
+
+  /*
+   * Enrutado de la entrada por canal FÍSICO. Todo preasignado: las tablas se
+   * llenan al recibir `setInputRoutes` —que corre entre bloques— y dentro de
+   * `process()` solo se leen. Con `routeCount === 0` manda la ruta implícita
+   * (canales 0 y 1 → `inputTrack` con `inputGain`), que es como sonó siempre.
+   */
+  private routeCount = 0;
+  private routeSrcL = new Int32Array(MAX_INPUT_ROUTES);
+  /** -1 = ruta MONO: el canal izquierdo va a los dos lados. */
+  private routeSrcR = new Int32Array(MAX_INPUT_ROUTES);
+  private routeTrack = new Int32Array(MAX_INPUT_ROUTES);
+  private routeGain = new Float32Array(MAX_INPUT_ROUTES);
+  private routeMonitor = new Uint8Array(MAX_INPUT_ROUTES);
+  /** Pico por ruta, antes de su ganancia. */
+  private routePeak = new Float32Array(MAX_INPUT_ROUTES);
+  /** Rutas que están grabando (1 = sí). */
+  private routeCapture = new Uint8Array(MAX_INPUT_ROUTES);
+  /**
+   * Buffers de grabación POR RUTA, y su posición. Se crean al declarar la
+   * captura (mensaje, entre bloques) y JAMÁS dentro de `process()`: grabar dos
+   * micros a la vez no puede costar una alocación por bloque.
+   */
+  private inputCapL: Float32Array[] = [new Float32Array(CAPTURE_BUFFER)];
+  private inputCapR: Float32Array[] = [new Float32Array(CAPTURE_BUFFER)];
+  private inputCapPos = new Int32Array(MAX_INPUT_ROUTES);
+  /**
+   * Los canales del bloque por índice físico. Se rellena con REFERENCIAS a los
+   * buffers que trae el worklet —no se copia audio— y por eso el array está
+   * preasignado al máximo: dentro de `process()` solo se escriben punteros en
+   * huecos que ya existen.
+   */
+  private inChans: (Float32Array | undefined)[] = Array.from(
+    { length: MAX_INPUT_CHANNELS },
+    () => undefined as Float32Array | undefined,
+  );
+  /** Cuántos canales trajo el bloque (lo que hay que limpiar en el siguiente). */
+  private inChanCount = 0;
 
 
 
@@ -359,11 +401,16 @@ export class KernelCore {
         this.inputGain = Math.max(0, msg.gain);
         // Al dejar de escuchar, el medidor cae a cero en el acto: si no, el
         // último pico se queda clavado en pantalla como si siguiera entrando.
-        if (!msg.listening) this.inputPeak = 0;
+        if (!msg.listening) {
+          this.inputPeak = 0;
+          this.routePeak.fill(0);
+        }
+        break;
+      case 'setInputRoutes':
+        this.setInputRoutes(msg.routes);
         break;
       case 'setInputCapture':
-        this.inputCapture = msg.enabled;
-        this.inputCapPos = 0;
+        this.setInputCapture(msg.enabled, msg.routes);
         break;
 
 
@@ -1429,18 +1476,121 @@ export class KernelCore {
     return true;
   }
 
+  // ── Entrada en vivo: enrutado por canal físico ────────────────────────────
+
+  /**
+   * Fija el reparto de la entrada. Aquí —entre bloques— es donde se preasigna
+   * TODO lo que `process()` va a necesitar después: la tabla de rutas y, si
+   * alguna graba, su buffer de captura.
+   *
+   * Lista vacía = volver a la ruta implícita (canales 1 y 2 a la pista de
+   * `setLiveInput`), que es el camino de siempre.
+   */
+  private setInputRoutes(routes: readonly CompiledInputRoute[]): void {
+    const n = Math.min(routes.length, MAX_INPUT_ROUTES);
+    for (let i = 0; i < n; i++) {
+      const r = routes[i]!;
+      const l = Math.round(r.srcL);
+      const right = Math.round(r.srcR);
+      // Un canal fuera de la tabla no es un error que reventar: es una ruta
+      // que apunta a una entrada que este aparato no tiene. Se queda muda.
+      this.routeSrcL[i] = l >= 0 && l < MAX_INPUT_CHANNELS ? l : -1;
+      this.routeSrcR[i] = right >= 0 && right < MAX_INPUT_CHANNELS ? right : -1;
+      this.routeTrack[i] = Math.max(0, Math.round(r.mixerTrack));
+      this.routeGain[i] = Math.max(0, r.gain);
+      this.routeMonitor[i] = r.monitor ? 1 : 0;
+      this.ensureCaptureBuffer(i);
+    }
+    // Lo que sobra al encoger: sin esto, una ruta que ya no existe se quedaría
+    // con su pico clavado en el medidor y con audio a medias en su buffer.
+    for (let i = n; i < MAX_INPUT_ROUTES; i++) {
+      this.routePeak[i] = 0;
+      this.routeCapture[i] = 0;
+      this.inputCapPos[i] = 0;
+    }
+    this.routeCount = n;
+  }
+
+  /**
+   * Qué rutas graban. Sin lista, la PRIMERA: sin enrutado declarado esa es la
+   * implícita, o sea la grabación de un micro de toda la vida.
+   */
+  private setInputCapture(enabled: boolean, routes?: readonly number[]): void {
+    this.inputCapture = enabled;
+    this.routeCapture.fill(0);
+    this.inputCapPos.fill(0);
+    if (!enabled) return;
+    if (routes && routes.length > 0) {
+      for (const r of routes) {
+        if (!Number.isInteger(r) || r < 0 || r >= MAX_INPUT_ROUTES) continue;
+        this.routeCapture[r] = 1;
+        this.ensureCaptureBuffer(r);
+      }
+    } else {
+      this.routeCapture[0] = 1;
+      this.ensureCaptureBuffer(0);
+    }
+  }
+
+  /** Reserva el buffer de grabación de una ruta. Nunca desde `process()`. */
+  private ensureCaptureBuffer(route: number): void {
+    while (this.inputCapL.length <= route) {
+      this.inputCapL.push(new Float32Array(CAPTURE_BUFFER));
+      this.inputCapR.push(new Float32Array(CAPTURE_BUFFER));
+    }
+  }
+
+  /**
+   * Deja `inChans` apuntando a los canales de ESTE bloque. No copia audio:
+   * guarda referencias a los buffers que trae quien llama, así que no aloca.
+   *
+   * Acepta las dos formas de llamada, y no por comodidad: un Float32Array
+   * suelto (más el derecho, opcional) es como se llamó siempre cuando la
+   * entrada era un par fijo —el render offline y las pruebas siguen ahí—, y el
+   * array de canales entero es lo que da el worklet con una interfaz de
+   * verdad enchufada.
+   */
+  private bindInput(
+    inL?: Float32Array | readonly (Float32Array | undefined)[],
+    inR?: Float32Array,
+  ): void {
+    const chans = this.inChans;
+    // Solo se limpia lo que se ensució en el bloque anterior.
+    for (let i = 0; i < this.inChanCount; i++) chans[i] = undefined;
+    let count = 0;
+    if (inL === undefined) {
+      // Nada conectado: el array viene vacío y no hay entrada que repartir.
+    } else if (Array.isArray(inL)) {
+      const src = inL as readonly (Float32Array | undefined)[];
+      count = Math.min(src.length, MAX_INPUT_CHANNELS);
+      for (let i = 0; i < count; i++) chans[i] = src[i];
+    } else {
+      chans[0] = inL as Float32Array;
+      count = 1;
+      if (inR !== undefined) {
+        chans[1] = inR;
+        count = 2;
+      }
+    }
+    this.inChanCount = count;
+  }
+
   // ── Proceso principal ─────────────────────────────────────────────────────
 
   /**
    * `inL`/`inR` son la entrada en vivo del nodo (micro, instrumento). Llegan
    * como parámetros y no como estado porque el worklet las recibe por bloque:
    * el render offline y las pruebas simplemente no las pasan.
+   *
+   * `inL` admite además el ARRAY DE CANALES entero, que es lo que da el nodo
+   * cuando hay una interfaz de varias entradas enchufada: el reparto de cada
+   * canal a su pista lo decide `setInputRoutes` (ver `bindInput`).
    */
   process(
     outL: Float32Array,
     outR: Float32Array,
     n: number,
-    inL?: Float32Array,
+    inL?: Float32Array | readonly (Float32Array | undefined)[],
     inR?: Float32Array,
   ): void {
     const p = this.project;
@@ -1478,39 +1628,71 @@ export class KernelCore {
      * único que hace útil el monitor: cantar oyendo el reverb y el compresor
      * que va a llevar la toma, no la voz seca.
      */
-    if (this.inputListening && inL) {
-      const right = inR ?? inL;
-      const count = Math.min(n, inL.length);
-      let peak = 0;
-      for (let i = 0; i < count; i++) {
-        const l = inL[i]!;
-        const r = right[i]!;
-        const a = Math.abs(l);
-        const b = Math.abs(r);
-        if (a > peak) peak = a;
-        if (b > peak) peak = b;
-      }
-      this.inputPeak = peak;
-      // La toma se guarda ANTES de la ganancia de entrada y de la cadena: es
-      // la señal del micro tal cual, que es lo que hay que poder volver a
-      // mezclar mañana con otra idea.
-      if (this.inputCapture && this.inputCapPos + count <= this.inputCapL.length) {
-        this.inputCapL.set(inL.subarray(0, count), this.inputCapPos);
-        this.inputCapR.set(right.subarray(0, count), this.inputCapPos);
-        this.inputCapPos += count;
-      }
-      const dl = this.bufL[this.inputTrack];
-
-      const dr = this.bufR[this.inputTrack];
-      if (this.inputMonitor && dl && dr) {
-        const g = this.inputGain;
+    this.bindInput(inL, inR);
+    if (this.inputListening && this.inChanCount > 0) {
+      /*
+       * Una vuelta por ruta. Sin enrutado declarado hay UNA, la implícita, y
+       * lo que sale de este bucle es exactamente lo de siempre: canal 1 a la
+       * izquierda, canal 2 a la derecha (o el mismo a los dos si el aparato es
+       * mono), a la pista de `setLiveInput`.
+       */
+      const implicit = this.routeCount === 0;
+      const routes = implicit ? 1 : this.routeCount;
+      let maxPeak = 0;
+      for (let r = 0; r < routes; r++) {
+        const srcL = implicit ? 0 : this.routeSrcL[r]!;
+        const cl = srcL >= 0 ? this.inChans[srcL] : undefined;
+        if (!cl) {
+          // Este aparato no tiene ese canal. La ruta no suena ni mide, pero
+          // NO se salta ni se recoloca: su índice es lo que enlaza la tabla
+          // con la UI y con las tomas, y moverlo pondría la grabación de una
+          // entrada en la pista de otra.
+          this.routePeak[r] = 0;
+          continue;
+        }
+        const srcR = implicit ? 1 : this.routeSrcR[r]!;
+        const cr = (srcR >= 0 ? this.inChans[srcR] : undefined) ?? cl;
+        const count = Math.min(n, cl.length, cr.length);
+        let peak = 0;
         for (let i = 0; i < count; i++) {
-          dl[i]! += inL[i]! * g;
-          dr[i]! += right[i]! * g;
+          const a = Math.abs(cl[i]!);
+          const b = Math.abs(cr[i]!);
+          if (a > peak) peak = a;
+          if (b > peak) peak = b;
+        }
+        this.routePeak[r] = peak;
+        if (peak > maxPeak) maxPeak = peak;
+        // La toma se guarda ANTES de la ganancia de entrada y de la cadena: es
+        // la señal del micro tal cual, que es lo que hay que poder volver a
+        // mezclar mañana con otra idea.
+        if (this.inputCapture && this.routeCapture[r] === 1) {
+          const capL = this.inputCapL[r];
+          const capR = this.inputCapR[r];
+          const at = this.inputCapPos[r]!;
+          if (capL && capR && at + count <= capL.length) {
+            capL.set(cl.subarray(0, count), at);
+            capR.set(cr.subarray(0, count), at);
+            this.inputCapPos[r] = at + count;
+          }
+        }
+        // El maestro manda: apagar el monitor calla todas las rutas de un
+        // botón, que es lo que hace falta cuando hay altavoces delante.
+        if (!this.inputMonitor) continue;
+        if (!implicit && this.routeMonitor[r] !== 1) continue;
+        const track = implicit ? this.inputTrack : this.routeTrack[r]!;
+        const dl = this.bufL[track];
+        const dr = this.bufR[track];
+        if (!dl || !dr) continue;
+        const g = implicit ? this.inputGain : this.routeGain[r]!;
+        for (let i = 0; i < count; i++) {
+          dl[i]! += cl[i]! * g;
+          dr[i]! += cr[i]! * g;
         }
       }
+      this.inputPeak = maxPeak;
     } else if (this.inputPeak !== 0) {
       this.inputPeak = 0;
+      this.routePeak.fill(0);
     }
 
 
@@ -2105,10 +2287,30 @@ export class KernelCore {
       for (let i = 0; i < 2048; i++) scope[i] = this.scopeRing[(this.scopePos + i) & 2047]!;
       frame.scope = scope;
     }
-    if (this.inputCapture && this.inputCapPos > 0) {
-      frame.inputCaptureL = this.inputCapL.slice(0, this.inputCapPos);
-      frame.inputCaptureR = this.inputCapR.slice(0, this.inputCapPos);
-      this.inputCapPos = 0;
+    // Pico por ruta: solo con enrutado declarado. Sin él, el número de
+    // siempre (`inputPeak`) ya lo dice todo y mandar un array de uno sería
+    // alocar por frame para nada.
+    if (this.inputListening && this.routeCount > 0) {
+      frame.inputPeaks = this.routePeak.slice(0, this.routeCount);
+    }
+    if (this.inputCapture) {
+      const limit = this.routeCount > 0 ? this.routeCount : 1;
+      for (let r = 0; r < limit; r++) {
+        if (this.routeCapture[r] !== 1) continue;
+        const pos = this.inputCapPos[r]!;
+        if (pos <= 0) continue;
+        const left = this.inputCapL[r]!.slice(0, pos);
+        const right = this.inputCapR[r]!.slice(0, pos);
+        this.inputCapPos[r] = 0;
+        // La primera que grabe viaja ADEMÁS en el sitio de siempre (el mismo
+        // Float32Array, sin copiar): quien graba un micro —y la calibración de
+        // latencia— no tiene por qué saber que existen las rutas.
+        if (frame.inputCaptureL === undefined) {
+          frame.inputCaptureL = left;
+          frame.inputCaptureR = right;
+        }
+        (frame.inputCaptures ??= []).push({ routeIndex: r, left, right });
+      }
     }
     if (this.captureTrack >= 0 && this.capturePos > 0) {
 

@@ -13,6 +13,9 @@
 // que a su vez necesita `Id` de aquí. Al ser un import de tipos, TypeScript lo
 // borra al compilar y el ciclo no existe en tiempo de ejecución.
 import type { KeymapZone } from './keymap';
+// Igual que arriba: solo el TIPO. Las reglas del enrutado de entrada viven en
+// `model/input-routing.ts`, que necesita `Id` y `Project` de aquí.
+import type { InputRoute } from './input-routing';
 
 export type Id = string;
 
@@ -519,6 +522,14 @@ export interface Project {
   sections: Record<Id, ArrangementSection>;
   /** Moduladores continuos por parámetro (v0.8; los .orbit viejos no lo traen). */
   lfos: Record<Id, Lfo>;
+  /**
+   * Enrutado de entrada (v3.5): qué canal físico de la interfaz entra en qué
+   * pista. Aditivo — un `.orbit` anterior no lo trae y se resuelve a la ruta
+   * implícita (el par 1-2), que es como grabó siempre. Ver
+   * `model/input-routing.ts`.
+   */
+  inputRoutes: Record<Id, InputRoute>;
+  inputRouteOrder: Id[];
   /**
    * Layouts de ventanas guardados con el proyecto (v1.0): nombre → ventana →
    * posición. La UI decide qué claves usa; el modelo solo los transporta.

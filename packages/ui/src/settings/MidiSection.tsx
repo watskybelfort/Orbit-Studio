@@ -1,14 +1,22 @@
 /**
- * MIDI dentro de Ajustes: qué controladores escuchan, cómo se interpreta lo
- * que mandan y qué mando está atado a qué parámetro.
+ * Entrada dentro de Ajustes: qué controladores MIDI escuchan, cómo se
+ * interpreta lo que mandan, qué mando está atado a qué parámetro, y —desde el
+ * enrutado de entradas— qué canal FÍSICO de la interfaz entra en qué pista.
  *
  * El LED de actividad es la mitad de lo que sirve este panel: cuando un
  * teclado "no funciona" lo primero que hay que saber es si sus mensajes están
- * llegando, y eso no se ve en ningún otro sitio.
+ * llegando, y eso no se ve en ningún otro sitio. El medidor por entrada, más
+ * abajo, es lo mismo para el audio: con dos micros abiertos es lo único que
+ * dice cuál de los dos está saturando.
  */
 
 import { useEffect, useState } from 'react';
-import { describeParamRef } from '@orbit/core';
+import {
+  MAX_INPUT_ROUTES,
+  describeParamRef,
+  projectInputRoutes,
+  resolveInputRoutes,
+} from '@orbit/core';
 import {
   MIDI_QUANTIZE,
   setMidiBendRange,
@@ -27,7 +35,13 @@ import {
 } from '../state/midi-learn';
 import { BEND_RANGES, VELOCITY_CURVES } from '../state/midi-message';
 import { useProject } from '../state/useProject';
-import { useInputMonitorStore } from '../state/input-monitor';
+import {
+  addInputRoute,
+  patchInputRoute,
+  removeInputRoute,
+  setInputRouteChannels,
+  useInputMonitorStore,
+} from '../state/input-monitor';
 import { useRecorderStore } from '../state/recorder';
 import {
   latencyMs,
@@ -58,6 +72,13 @@ export function MidiSection() {
   const learning = useMidiLearnStore((s) => s.learning);
 
   const inputDeviceId = useInputMonitorStore((s) => s.deviceId);
+  const inputDevices = useInputMonitorStore((s) => s.devices);
+  const channelCount = useInputMonitorStore((s) => s.channelCount);
+  const routePeaks = useInputMonitorStore((s) => s.routePeaks);
+  const inputPeak = useInputMonitorStore((s) => s.peak);
+  const inputTrack = useInputMonitorStore((s) => s.trackIndex);
+  const inputGain = useInputMonitorStore((s) => s.gain);
+  const inputMonitor = useInputMonitorStore((s) => s.monitor);
   const recPhase = useRecorderStore((s) => s.phase);
   const latSamples = useLatencyCalibrationStore((s) => s.delaySamples);
   const latSource = useLatencyCalibrationStore((s) => s.source);
@@ -83,6 +104,27 @@ export function MidiSection() {
   }, [inputDeviceId]);
 
   const mappingList = Object.values(mappings).sort((a, b) => a.source.localeCompare(b.source));
+
+  // Las rutas del proyecto y su resolución contra el aparato abierto. Se
+  // resuelve aquí con el MISMO helper que usan el motor y el grabador: si la
+  // UI resolviera por su cuenta, el índice de una entrada podría no significar
+  // lo mismo en los tres sitios, y ese índice es lo que enlaza una toma con su
+  // pista.
+  const declaredRoutes = projectInputRoutes(project);
+  const resolvedRoutes = resolveInputRoutes(project, {
+    ...(channelCount > 0 ? { channelCount } : null),
+    fallback: { mixerTrack: inputTrack, gain: inputGain, monitor: inputMonitor },
+  });
+  // Cuántos canales ofrecer en los selectores: los del aparato abierto, los
+  // que declare la lista de dispositivos, o al menos los que ya usa el
+  // proyecto (para poder ver —y arreglar— una ruta que apunta a un canal que
+  // esta máquina no tiene).
+  const declaredChannels = inputDevices.find((d) => d.id === inputDeviceId)?.channels ?? 0;
+  const usedChannels = resolvedRoutes.reduce(
+    (max, r) => Math.max(max, r.srcL + 1, r.srcR + 1),
+    2,
+  );
+  const channelOptions = Math.max(2, channelCount, declaredChannels, usedChannels);
 
   return (
     <>
@@ -238,6 +280,159 @@ export function MidiSection() {
         parar para verlo. Las teclas que sigas pulsando se parten en el cierre y siguen en la
         vuelta siguiente.
       </p>
+
+      <h3 className="set-heading">Entradas de audio</h3>
+      <p className="set-note">
+        Con una interfaz de varias entradas, aquí se dice cuál entra por dónde: el micro de la voz
+        a su pista, la guitarra a la suya, y las dos grabando a la vez desde un solo aparato. Sin
+        declarar nada, Orbit usa el par 1-2 de siempre.
+      </p>
+
+      <div className="set-row">
+        <span className="set-label">Aparato</span>
+        <span className="set-value">
+          {channelCount > 0
+            ? `${channelCount} ${channelCount === 1 ? 'entrada' : 'entradas'} abiertas`
+            : declaredChannels > 0
+              ? `Declara ${declaredChannels} entrada(s) · abre el micro para usarlas`
+              : 'Cerrado: abre el micro para saber cuántas entradas trae'}
+        </span>
+      </div>
+
+      <div className="input-routes">
+        {resolvedRoutes.map((route, index) => {
+          const declared = route.routeId ? project.inputRoutes[route.routeId] : undefined;
+          const mono = route.srcR < 0 || route.srcR === route.srcL;
+          const peak = route.routeId ? (routePeaks[index] ?? 0) : inputPeak;
+          return (
+            <div
+              key={route.routeId ?? 'default'}
+              className={`input-route${route.available ? '' : ' missing'}`}
+            >
+              <input
+                className="input-route-name"
+                value={route.name}
+                disabled={!declared}
+                title={declared ? 'Nombre de la entrada' : 'La entrada por defecto no tiene nombre propio'}
+                onChange={(e) =>
+                  declared && patchInputRoute(declared.id, { name: e.target.value })
+                }
+              />
+              <select
+                className="set-select"
+                value={route.srcL}
+                disabled={!declared}
+                title="Canal físico de la interfaz"
+                onChange={(e) =>
+                  declared &&
+                  setInputRouteChannels(
+                    declared.id,
+                    Number(e.target.value),
+                    mono ? null : route.srcR,
+                  )
+                }
+              >
+                {Array.from({ length: channelOptions }, (_, i) => (
+                  <option key={i} value={i}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="set-select"
+                value={mono ? -1 : route.srcR}
+                disabled={!declared}
+                title="Canal derecho; en mono el izquierdo llega a los dos lados"
+                onChange={(e) => {
+                  const value = Number(e.target.value);
+                  if (declared) setInputRouteChannels(declared.id, route.srcL, value < 0 ? null : value);
+                }}
+              >
+                <option value={-1}>Mono</option>
+                {Array.from({ length: channelOptions }, (_, i) => (
+                  <option key={i} value={i}>
+                    {i + 1}
+                  </option>
+                ))}
+              </select>
+              <label className="input-route-track" title="Pista de mixer por la que entra">
+                Pista
+                <input
+                  type="number"
+                  min={0}
+                  max={project.mixer.length - 1}
+                  value={route.mixerTrack}
+                  disabled={!declared}
+                  onChange={(e) =>
+                    declared &&
+                    patchInputRoute(declared.id, { mixerTrack: Number(e.target.value) })
+                  }
+                />
+              </label>
+              <label className="input-route-flag" title="Graba cuando se pulse Rec">
+                <input
+                  type="checkbox"
+                  checked={route.armed}
+                  disabled={!declared}
+                  onChange={(e) => declared && patchInputRoute(declared.id, { armed: e.target.checked })}
+                />
+                Armar
+              </label>
+              <label className="input-route-flag" title="Se oye por su pista, con su cadena puesta">
+                <input
+                  type="checkbox"
+                  checked={route.monitor}
+                  disabled={!declared}
+                  onChange={(e) =>
+                    declared && patchInputRoute(declared.id, { monitor: e.target.checked })
+                  }
+                />
+                Oír
+              </label>
+              <span className="input-route-meter" title="Pico de esta entrada, antes de su ganancia">
+                <span style={{ width: `${Math.min(100, peak * 100)}%` }} />
+              </span>
+              {declared && (
+                <button
+                  className="custom-del"
+                  title="Quitar esta entrada"
+                  onClick={() => removeInputRoute(declared.id)}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="set-row">
+        <button
+          className="tbtn"
+          disabled={declaredRoutes.length >= MAX_INPUT_ROUTES}
+          title={
+            declaredRoutes.length === 0
+              ? 'Hace explícita la entrada de siempre y añade una más'
+              : 'Añade otra entrada'
+          }
+          onClick={addInputRoute}
+        >
+          Añadir entrada
+        </button>
+        <span className="set-value">
+          {declaredRoutes.length === 0
+            ? 'Sin declarar: el par 1-2 a la pista de siempre'
+            : `${declaredRoutes.length} de ${MAX_INPUT_ROUTES}`}
+        </span>
+      </div>
+
+      {resolvedRoutes.some((r) => !r.available) && (
+        <p className="set-error">
+          Hay entradas apuntando a canales que este aparato no tiene: no suenan ni graban. Se
+          quedan donde están —enchufar la interfaz las devuelve a la vida— pero mientras tanto no
+          cuentan como armadas.
+        </p>
+      )}
 
       <h3 className="set-heading">Mandos aprendidos</h3>
 

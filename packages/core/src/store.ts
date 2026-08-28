@@ -322,6 +322,9 @@ export function describeCommand(cmd: Command): string {
     case 'patchSend': return 'Ajustar send';
     case 'setSend': return 'Send';
     case 'setRoute': return 'Routing';
+    case 'addInputRoute': return `Entrada "${cmd.route.name}"`;
+    case 'removeInputRoute': return 'Quitar entrada';
+    case 'patchInputRoute': return 'Ajustar entrada';
     case 'registerSample': return `Sample "${cmd.sample.name}"`;
     case 'unregisterSample': return 'Quitar sample';
     case 'batch': return cmd.label ?? `${cmd.commands.length} cambios`;

@@ -12,20 +12,31 @@
  * entrada del nodo del kernel y sus muestras vuelven tal cual en los frames de
  * medidores. Además arranca en el bloque siguiente al mensaje (~3 ms) en vez
  * de cuando el navegador tenga a bien abrir su codificador.
+ *
+ * **Y una toma por ENTRADA ARMADA, no una sola.** Con una interfaz de varias
+ * entradas, cada ruta armada (`model/input-routing.ts` de `@orbit/core`)
+ * graba lo suyo y cae en SU pista, todo en el mismo paso de undo: dos micros
+ * a la vez salen de UN stream multicanal, nunca de dos `getUserMedia` sobre el
+ * mismo aparato — el motivo está tres párrafos más abajo, en `startRecording`.
  */
 
 import {
+  armedInputRoutes,
   createPlaylistTrack,
   newId,
   type Clip,
   type Command,
+  type Id,
+  type Project,
+  type ResolvedInputRoute,
   type SampleRef,
 } from '@orbit/core';
-import { encodeWav } from '@orbit/engine';
+import { encodeWav, type InputCaptureChunk } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
 import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store, togglePlay } from './app';
 import {
+  currentInputRoutes,
   currentInputStream,
   setInputStreamFactory,
   startInputMonitor,
@@ -61,8 +72,16 @@ export function cycleCountIn(): void {
   useRecorderStore.setState({ countInBars: bars >= 2 ? 0 : bars + 1 });
 }
 
-/** Pista donde cayó la última toma: la siguiente se apila ahí en otro carril. */
-let lastTakeTrackId: string | null = null;
+/**
+ * Pista donde cayó la última toma DE CADA ENTRADA: la siguiente se apila ahí
+ * en otro carril. Va por ruta y no global porque con dos micros a la vez cada
+ * uno tiene su propia pila de tomas — apilar la guitarra encima de la voz
+ * sería comping entre cosas distintas.
+ *
+ * La clave es el id de la ruta; la entrada implícita (sin enrutado declarado)
+ * usa la cadena vacía, o sea el comportamiento de siempre.
+ */
+const lastTakeTrackByRoute = new Map<string, Id>();
 /**
  * ¿El micro lo abrió esta grabación? Si ya estaba abierto es del monitor de
  * entrada: cerrarlo al guardar la toma dejaría al usuario sin oírse justo
@@ -71,10 +90,36 @@ let lastTakeTrackId: string | null = null;
 let ownsInput = false;
 /** Estamos recogiendo muestras del kernel. */
 let capturing = false;
-let capL: Float32Array[] = [];
-let capR: Float32Array[] = [];
-let capTotal = 0;
 let startBeat = 0;
+
+/** Una toma en curso: los trozos que va soltando el kernel para UNA ruta. */
+interface TakeBuffer {
+  /** Índice de la ruta dentro de `currentInputRoutes()`. */
+  index: number;
+  route: ResolvedInputRoute;
+  left: Float32Array[];
+  right: Float32Array[];
+  total: number;
+  /** Carril de comping que le tocó al colocarla (lo pone `placeTake`). */
+  lane?: number;
+}
+
+/**
+ * Las tomas de esta grabación, una por entrada armada y en orden de índice.
+ * Vacío = no se está grabando.
+ */
+let takes: TakeBuffer[] = [];
+
+/**
+ * Índice de la ruta cuyo audio llega por el camino de SIEMPRE —el
+ * `inputCaptureL/R` del frame de medidores, que el kernel rellena con la
+ * primera ruta que grabe—. Las demás llegan por `engine.onInputCaptures`.
+ *
+ * Que la primera siga viniendo por donde vino siempre no es una peculiaridad
+ * gratuita: es lo que deja intacto el caso normal (un micro, una toma) y con
+ * él la calibración de latencia, que se cuelga de ese mismo camino.
+ */
+let primaryRoute = 0;
 
 /**
  * Sumidero alternativo para la entrada en crudo: lo usa la calibración de
@@ -96,6 +141,12 @@ export function setRawInputSink(
  * Trozo de entrada en crudo de un frame del kernel (lo llama el puente de
  * medidores). Llegan cada ~43 ms y se pegan al final sin copiar nada: la
  * concatenación se hace UNA vez, al cerrar la toma.
+ *
+ * Este camino trae SIEMPRE la primera ruta que esté grabando, y es el que
+ * comparte con la calibración: mientras su sumidero está puesto, aquí no se
+ * queda nada. Las rutas de más (grabar dos micros a la vez) no pasan por aquí
+ * —pasan por `handleInputCaptures`— justamente para que este desvío siga
+ * siendo lo que era: un `if` al principio y nada más.
  */
 export function pushInputChunk(left: Float32Array, right: Float32Array): void {
   if (rawInputSink) {
@@ -103,9 +154,32 @@ export function pushInputChunk(left: Float32Array, right: Float32Array): void {
     return;
   }
   if (!capturing) return;
-  capL.push(left);
-  capR.push(right);
-  capTotal += left.length;
+  pushTakeChunk(primaryRoute, left, right);
+}
+
+/** Pega un trozo a la toma de una ruta (si esa ruta está grabando). */
+function pushTakeChunk(routeIndex: number, left: Float32Array, right: Float32Array): void {
+  const take = takes.find((t) => t.index === routeIndex);
+  if (!take) return;
+  take.left.push(left);
+  take.right.push(right);
+  take.total += left.length;
+}
+
+/**
+ * Las rutas de MÁS de una grabación multicanal, tal como las manda el motor.
+ *
+ * Se salta la primera a propósito: esa ya llegó por `pushInputChunk` con el
+ * mismo Float32Array, y recogerla dos veces duplicaría la toma. Y con la
+ * calibración en marcha `takes` está vacío, así que esto no hace nada — las
+ * dos cosas no corren nunca a la vez (ver `startRecording`).
+ */
+function handleInputCaptures(chunks: InputCaptureChunk[]): void {
+  if (!capturing || takes.length < 2) return;
+  for (const chunk of chunks) {
+    if (chunk.routeIndex === primaryRoute) continue;
+    pushTakeChunk(chunk.routeIndex, chunk.left, chunk.right);
+  }
 }
 
 function concatChunks(parts: Float32Array[], total: number): Float32Array {
@@ -292,7 +366,7 @@ async function startRecording(): Promise<void> {
   if (starting) return;
   // La calibración de latencia se queda con los paquetes de entrada en
   // crudo (ver `rawInputSink`): grabar mientras corre le robaría la toma
-  // entera y no dejaría nada en `capL`/`capR`.
+  // entera y las tomas saldrían vacías.
   if (useLatencyCalibrationStore.getState().status === 'measuring') {
     useRecorderStore.setState({ error: 'Calibrando la latencia de entrada: espera a que termine.' });
     return;
@@ -309,9 +383,24 @@ async function startRecording(): Promise<void> {
     if (ownsInput && !(await startInputMonitor())) {
       throw new Error(useInputMonitorStore.getState().error ?? 'No se pudo abrir el micro');
     }
-    capL = [];
-    capR = [];
-    capTotal = 0;
+    /*
+     * Qué se graba: las entradas ARMADAS del proyecto, resueltas contra el
+     * aparato que acaba de abrirse. Sin enrutado declarado sale una sola —la
+     * implícita, el par 1-2— y todo lo de abajo se comporta exactamente como
+     * cuando esto solo sabía grabar un micro.
+     *
+     * Las rutas que apuntan a canales que este aparato no tiene se quedan
+     * fuera (`armedInputRoutes`): armar una entrada que no existe no puede
+     * dejar la grabación esperando una toma que no va a llegar nunca.
+     */
+    const armed = armedInputRoutes(currentInputRoutes());
+    if (armed.length === 0) {
+      throw new Error(
+        'Ninguna entrada armada con canales disponibles: revisa Ajustes → Entradas.',
+      );
+    }
+    takes = armed.map(({ index, route }) => ({ index, route, left: [], right: [], total: 0 }));
+    primaryRoute = takes[0]!.index;
     // Rodando, la posición buena es la extrapolada: la del store viene del
     // último frame de medidores y puede ir hasta 46 ms por detrás.
     startBeat = useUiStore.getState().playing
@@ -350,16 +439,96 @@ async function startRecording(): Promise<void> {
 /** Le dice al kernel que empiece a mandar la entrada en crudo. */
 function beginCapture(): void {
   capturing = true;
-  engine.setInputCapture(true);
+  // El gancho se engancha AQUÍ y no al cargar el módulo: `engine` viene de
+  // `./app`, que a su vez importa esto, y tocarlo mientras se evalúa el módulo
+  // es tocarlo a medio construir.
+  engine.onInputCaptures = handleInputCaptures;
+  engine.setInputCapture(true, takes.map((t) => t.index));
   useRecorderStore.setState({ phase: 'recording', error: null });
 }
 
 /** Deja de capturar y cierra el micro SI era nuestro. */
 function releaseInput(): void {
   capturing = false;
+  takes = [];
   engine.setInputCapture(false);
   if (ownsInput) stopInputMonitor();
   ownsInput = false;
+}
+
+/**
+ * Dónde cae la toma de una ruta y en qué carril.
+ *
+ * Es la regla de comping de siempre —la toma nueva se apila encima de la
+ * anterior y calla a las que pisa, porque la buena es la última— con dos
+ * añadidos que vienen del enrutado:
+ *
+ * - Una ruta puede DECLARAR su pista (`playlistTrackId`): entonces manda ella,
+ *   que es la gracia de "el micro de la voz siempre a la pista de la voz".
+ * - `claimed` son las pistas que ya se ha llevado otra toma de ESTA misma
+ *   grabación: sin eso, dos micros a la vez caerían los dos en la primera
+ *   pista libre, uno encima del otro.
+ */
+function placeTake(
+  project: Project,
+  take: TakeBuffer,
+  placedStart: number,
+  lengthBeats: number,
+  claimed: Set<Id>,
+  commands: Command[],
+): Id {
+  const arrangementId = project.activeArrangementId;
+  const clips = Object.values(project.clips);
+  const overlaps = (c: Clip) =>
+    c.start < placedStart + lengthBeats && c.start + c.length > placedStart;
+  const routeKey = take.route.routeId ?? '';
+
+  const declared = take.route.playlistTrackId
+    ? project.playlistTracks[take.route.playlistTrackId]
+    : undefined;
+  const previousId = declared ? declared.id : lastTakeTrackByRoute.get(routeKey);
+  const previous = previousId ? project.playlistTracks[previousId] : undefined;
+  const previousTakes =
+    previous && previous.arrangementId === arrangementId
+      ? clips.filter((c) => c.playlistTrackId === previous.id && overlaps(c))
+      : [];
+
+  // Sobre la pista declarada se apila SIEMPRE, aunque esté vacía: es la pista
+  // que el usuario eligió para esa entrada, no una sugerencia.
+  if (previous && previous.arrangementId === arrangementId && (declared || previousTakes.length > 0)) {
+    if (previousTakes.length > 0) {
+      commands.push({
+        type: 'patchClips',
+        patches: previousTakes.filter((c) => !c.muted).map((c) => ({ id: c.id, muted: true })),
+      });
+    }
+    take.lane =
+      previousTakes.length > 0 ? Math.max(...previousTakes.map((c) => c.lane ?? 0)) + 1 : 0;
+    claimed.add(previous.id);
+    lastTakeTrackByRoute.set(routeKey, previous.id);
+    return previous.id;
+  }
+
+  const tracks = Object.values(project.playlistTracks)
+    .filter((t) => t.arrangementId === arrangementId)
+    .sort((a, b) => a.order - b.order);
+  const free = tracks.find(
+    (t) => !claimed.has(t.id) && !clips.some((c) => c.playlistTrackId === t.id && overlaps(c)),
+  );
+  take.lane = 0;
+  if (free) {
+    claimed.add(free.id);
+    lastTakeTrackByRoute.set(routeKey, free.id);
+    return free.id;
+  }
+  const track = createPlaylistTrack(arrangementId, tracks.length + claimed.size);
+  // Con enrutado declarado la pista nace con el nombre de la entrada: abrir el
+  // proyecto mañana y ver "Voz" y "Guitarra" en vez de dos "Grabaciones".
+  track.name = take.route.routeId ? take.route.name : 'Grabaciones';
+  commands.push({ type: 'addPlaylistTrack', track });
+  claimed.add(track.id);
+  lastTakeTrackByRoute.set(routeKey, track.id);
+  return track.id;
 }
 
 async function stopRecording(): Promise<void> {
@@ -377,41 +546,31 @@ async function stopRecording(): Promise<void> {
   engine.setInputCapture(false);
 
   const sampleRate = engine.sampleRate;
-  const left = concatChunks(capL, capTotal);
-  const right = concatChunks(capR, capTotal);
-  capL = [];
-  capR = [];
-  capTotal = 0;
+  const recorded = takes.map((take) => ({
+    take,
+    left: concatChunks(take.left, take.total),
+    right: concatChunks(take.right, take.total),
+  })).filter((t) => t.left.length > 0);
+  takes = [];
   if (ownsInput) stopInputMonitor();
   ownsInput = false;
 
   try {
     const api = window.orbit;
     if (!api) throw new Error('Sin puente de escritorio');
-    if (left.length === 0) throw new Error('La toma salió vacía');
-
-    // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
-    const wav = encodeWav(left, right, sampleRate, 24);
-    const duration = left.length / sampleRate;
-
-    const stamp = new Date();
-    const two = (n: number) => String(n).padStart(2, '0');
-    const name = `Toma ${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}.wav`;
-    const file = await api.recording.save(name, wav);
-
-    const sampleId = newId();
-    const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
-    await engine.loadSample(sampleId, wavBuf);
+    if (recorded.length === 0) throw new Error('La toma salió vacía');
 
     const project = store.project;
-    const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
-
     // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
     // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
     // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
     // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
     // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
     // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
+    //
+    // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
+    // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
+    // por separado sería inventarse diferencias que no existen.
     const placedStart = compensateClipStart(
       startBeat,
       getLatencyCompensationSamples(),
@@ -419,73 +578,64 @@ async function stopRecording(): Promise<void> {
       project.tempo,
     );
 
-    const arrangementId = project.activeArrangementId;
-    const tracks = Object.values(project.playlistTracks)
-      .filter((t) => t.arrangementId === arrangementId)
-      .sort((a, b) => a.order - b.order);
-    const clips = Object.values(project.clips);
-    const overlaps = (c: Clip) =>
-      c.start < placedStart + lengthBeats && c.start + c.length > placedStart;
+    const stamp = new Date();
+    const two = (n: number) => String(n).padStart(2, '0');
+    const clock = `${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
 
     const commands: Command[] = [];
-    let trackId: string;
-    let lane = 0;
+    const claimed = new Set<Id>();
+    const names: string[] = [];
 
-    // Comping: si ya grabaste ahí, la toma nueva se apila en el carril
-    // siguiente de la MISMA pista (y calla a las que pisa, que la buena es la
-    // última). Si no, pista libre; y si no hay, una nueva.
-    const previous = lastTakeTrackId ? project.playlistTracks[lastTakeTrackId] : undefined;
-    const previousTakes =
-      previous && previous.arrangementId === arrangementId
-        ? clips.filter((c) => c.playlistTrackId === previous.id && overlaps(c))
-        : [];
+    for (const { take, left, right } of recorded) {
+      // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
+      const wav = encodeWav(left, right, sampleRate, 24);
+      const duration = left.length / sampleRate;
+      const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
 
-    if (previous && previousTakes.length > 0) {
-      trackId = previous.id;
-      lane = Math.max(...previousTakes.map((c) => c.lane ?? 0)) + 1;
-      commands.push({
-        type: 'patchClips',
-        patches: previousTakes.filter((c) => !c.muted).map((c) => ({ id: c.id, muted: true })),
-      });
-    } else {
-      const free = tracks.find(
-        (t) => !clips.some((c) => c.playlistTrackId === t.id && overlaps(c)),
-      );
-      if (free) {
-        trackId = free.id;
-      } else {
-        const track = createPlaylistTrack(arrangementId, tracks.length);
-        track.name = 'Grabaciones';
-        commands.push({ type: 'addPlaylistTrack', track });
-        trackId = track.id;
-      }
+      // El nombre lleva la entrada cuando hay más de una: dos tomas del mismo
+      // segundo comparten archivo si no, y la segunda pisa a la primera.
+      const name =
+        recorded.length > 1 ? `Toma ${clock} ${take.route.name}.wav` : `Toma ${clock}.wav`;
+      const file = await api.recording.save(name, wav);
+
+      const sampleId = newId();
+      const wavBuf = wav.buffer.slice(
+        wav.byteOffset,
+        wav.byteOffset + wav.byteLength,
+      ) as ArrayBuffer;
+      await engine.loadSample(sampleId, wavBuf);
+
+      const sample: SampleRef = {
+        id: sampleId,
+        name: file.replace(/\.wav$/i, ''),
+        path: `recording:${file}`,
+        hash: (await sha1Hex(wavBuf)) ?? sampleId,
+        duration,
+      };
+      commands.push({ type: 'registerSample', sample });
+      names.push(sample.name);
+
+      const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands);
+      const lane = take.lane ?? 0;
+      const clip: Clip = {
+        id: newId(),
+        kind: 'audio',
+        playlistTrackId: trackId,
+        start: placedStart,
+        length: lengthBeats,
+        muted: false,
+        sampleId,
+        audioOffset: 0,
+        audioGain: 1,
+        ...(lane > 0 ? { lane } : null),
+      };
+      commands.push({ type: 'addClips', clips: [clip] });
     }
-    lastTakeTrackId = trackId;
 
-    const sample: SampleRef = {
-      id: sampleId,
-      name: file.replace(/\.wav$/i, ''),
-      path: `recording:${file}`,
-      hash: (await sha1Hex(wavBuf)) ?? sampleId,
-      duration,
-    };
-    commands.push({ type: 'registerSample', sample });
-
-    const clip: Clip = {
-      id: newId(),
-      kind: 'audio',
-      playlistTrackId: trackId,
-      start: placedStart,
-      length: lengthBeats,
-      muted: false,
-      sampleId,
-      audioOffset: 0,
-      audioGain: 1,
-      ...(lane > 0 ? { lane } : null),
-    };
-    commands.push({ type: 'addClips', clips: [clip] });
-
-    const label = `Grabar "${sample.name}"`;
+    // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y
+    // deshacerlas de una en una dejaría media grabación puesta.
+    const label =
+      names.length === 1 ? `Grabar "${names[0]}"` : `Grabar ${names.length} entradas`;
     store.dispatch({ type: 'batch', label, commands }, { label });
     useRecorderStore.setState({ phase: 'idle', error: null });
   } catch (err) {

@@ -174,6 +174,10 @@ export function createEmptyProject(title = 'Nuevo proyecto'): Project {
     markers: {},
     sections: {},
     lfos: {},
+    // Sin rutas declaradas: la entrada se resuelve a la implícita (el par 1-2
+    // con los ajustes de la app), que es como grabó Orbit desde el principio.
+    inputRoutes: {},
+    inputRouteOrder: [],
     mixer: Array.from({ length: DEFAULT_MIXER_TRACKS }, (_, i) => createMixerTrack(i)),
     samples: {},
   };

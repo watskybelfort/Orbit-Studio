@@ -27,6 +27,8 @@ import type {
   TimeSig,
 } from './model/types';
 import { CHANNEL_SLOTS, MIXER_SLOTS } from './model/types';
+import type { InputRoute } from './model/input-routing';
+import { MAX_INPUT_ROUTES } from './model/input-routing';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -157,6 +159,14 @@ export type Command =
       patch: Partial<Omit<Send, 'target'>>;
     }
   | { type: 'setRoute'; trackIndex: number; routeTo: number | null }
+  /*
+   * Enrutado de entrada (v3.5): qué canal físico de la interfaz entra en qué
+   * pista. Van de una en una y no en lote (como los marcadores, no como los
+   * clips): una ruta se crea, se cambia o se quita a mano, nunca por barrido.
+   */
+  | { type: 'addInputRoute'; route: InputRoute; index?: number }
+  | { type: 'removeInputRoute'; routeId: Id }
+  | { type: 'patchInputRoute'; routeId: Id; patch: Partial<Omit<InputRoute, 'id'>> }
   // Samples
   | { type: 'registerSample'; sample: SampleRef }
   | { type: 'unregisterSample'; sampleId: Id }
@@ -787,6 +797,42 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
 
     // Samples
+    // Enrutado de entrada
+    case 'addInputRoute': {
+      // Tope duro: el kernel enruta sobre tablas preasignadas y la ruta que
+      // pasa del máximo no tendría dónde caer. Falla aquí, con su nombre, en
+      // vez de crearse en el proyecto y no sonar nunca.
+      if (project.inputRouteOrder.length >= MAX_INPUT_ROUTES) {
+        throw new Error(`No caben más entradas: el máximo son ${MAX_INPUT_ROUTES}`);
+      }
+      project.inputRoutes[cmd.route.id] = cmd.route;
+      const at = cmd.index ?? project.inputRouteOrder.length;
+      project.inputRouteOrder.splice(at, 0, cmd.route.id);
+      return { type: 'removeInputRoute', routeId: cmd.route.id };
+    }
+    case 'removeInputRoute': {
+      const route = must(project.inputRoutes[cmd.routeId], `entrada ${cmd.routeId}`);
+      const index = project.inputRouteOrder.indexOf(cmd.routeId);
+      delete project.inputRoutes[cmd.routeId];
+      // Misma guardia que en `removeChannel`: con la ruta fuera del orden
+      // (merge de colaboración), splice(-1, 1) expulsaría a la última.
+      if (index >= 0) project.inputRouteOrder.splice(index, 1);
+      // El inverso recuerda su SITIO: el índice de una ruta es lo que enlaza
+      // la UI, el motor y las tomas capturadas, así que deshacer tiene que
+      // devolverla a la misma posición, no al final.
+      return { type: 'addInputRoute', route, index: Math.max(0, index) };
+    }
+    case 'patchInputRoute': {
+      const route = must(project.inputRoutes[cmd.routeId], `entrada ${cmd.routeId}`);
+      const inverse: Command = {
+        type: 'patchInputRoute',
+        routeId: cmd.routeId,
+        patch: pickOld(route, cmd.patch),
+      };
+      Object.assign(route, cmd.patch);
+      return inverse;
+    }
+
     case 'registerSample': {
       project.samples[cmd.sample.id] = cmd.sample;
       return { type: 'unregisterSample', sampleId: cmd.sample.id };

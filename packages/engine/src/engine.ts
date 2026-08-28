@@ -4,11 +4,13 @@
  * snapshots compilados. La UI habla con esto, nunca con el worklet directo.
  */
 
-import type { Project } from '@orbit/core';
+import { MAX_INPUT_CHANNELS, type Project } from '@orbit/core';
 import { compileProject, type PlayMode } from './compile';
 import {
   KERNEL_NAME,
+  type CompiledInputRoute,
   type FromKernel,
+  type InputCaptureChunk,
   type MeterFrame,
   type ToKernel,
 } from './protocol';
@@ -34,6 +36,13 @@ export class AudioEngine {
 
   playMode: PlayMode = { mode: 'song' };
   onMeters: ((frame: MeterFrame) => void) | null = null;
+  /**
+   * Audio grabado de las rutas de entrada, cuando hay más de una. Va por su
+   * propio gancho y no dentro de `onMeters` porque quien graba varias entradas
+   * a la vez (el grabador) no es quien pinta los medidores: el camino de
+   * siempre —una toma, un micro— sigue viajando en el frame, intacto.
+   */
+  onInputCaptures: ((captures: InputCaptureChunk[]) => void) | null = null;
   lastMeters: MeterFrame | null = null;
 
   get ready(): boolean {
@@ -88,6 +97,9 @@ export class AudioEngine {
       const msg = e.data;
       if (msg.type === 'meters') {
         this.lastMeters = msg.frame;
+        // Antes que los medidores: si una toma multicanal está en marcha, sus
+        // paquetes no pueden depender de que la UI llegue a repintar.
+        if (msg.frame.inputCaptures) this.onInputCaptures?.(msg.frame.inputCaptures);
         this.onMeters?.(msg.frame);
       }
     };
@@ -179,22 +191,69 @@ export class AudioEngine {
   }
 
   /**
+   * Reparto de la entrada por canal FÍSICO: qué entrada del aparato va a qué
+   * pista. Lista vacía = la de siempre (el par 1-2 a la pista de
+   * `setLiveInput`).
+   */
+  setInputRoutes(routes: readonly CompiledInputRoute[]): void {
+    this.send({ type: 'setInputRoutes', routes });
+  }
+
+  /**
    * Guarda la entrada EN CRUDO: mientras está activo, el audio del micro llega
    * en `inputCaptureL/R` de cada frame de medidores. Es la grabación de voz
    * sin códec de por medio.
+   *
+   * `routes` elige QUÉ rutas se graban (por índice del último
+   * `setInputRoutes`); sin lista, la primera — que sin enrutado declarado es
+   * la implícita, o sea la grabación de un micro de toda la vida. Con varias,
+   * el audio de cada una llega por `onInputCaptures`.
    */
-  setInputCapture(enabled: boolean): void {
-    this.send({ type: 'setInputCapture', enabled });
+  setInputCapture(enabled: boolean, routes?: readonly number[]): void {
+    this.send({
+      type: 'setInputCapture',
+      enabled,
+      ...(routes && routes.length > 0 ? { routes } : null),
+    });
   }
 
 
   /**
-   * Conecta una fuente de audio a la entrada del kernel (el micro). Devuelve
-   * el nodo de origen para poder desconectarlo; null si el audio no arrancó.
+   * Conecta una fuente de audio a la entrada del kernel (el micro, o la
+   * interfaz entera). Devuelve el nodo de origen para poder desconectarlo;
+   * null si el audio no arrancó.
+   *
+   * `channelCount` son las entradas REALES del aparato abierto (de
+   * `MediaStreamTrack.getSettings()`). El nodo se ensancha para dejarlas pasar
+   * todas: sin esto el grafo mezcla la interfaz de ocho a los dos canales del
+   * nodo y los canales 3..8 se pierden ANTES de que nadie pueda elegirlos —
+   * que es exactamente el motivo de que hasta ahora solo se pudiera grabar el
+   * par que el sistema pusiera primero.
+   *
+   * Con uno o dos canales el nodo se deja como estaba (2 canales
+   * interpretados como altavoces) para que un micro mono siga llegando a los
+   * dos lados. A partir de tres, `discrete`: mezclar ocho entradas
+   * independientes "como altavoces" las repartiría por un 7.1 imaginario en
+   * vez de dejarlas donde están.
    */
-  connectInput(stream: MediaStream): MediaStreamAudioSourceNode | null {
+  connectInput(stream: MediaStream, channelCount?: number): MediaStreamAudioSourceNode | null {
     if (!this.ctx || !this.node) return null;
     const source = this.ctx.createMediaStreamSource(stream);
+    const declared = channelCount ?? source.channelCount;
+    const count = Number.isFinite(declared)
+      ? Math.min(MAX_INPUT_CHANNELS, Math.max(1, Math.round(declared)))
+      : 2;
+    if (count > 2) {
+      this.node.channelCount = count;
+      this.node.channelInterpretation = 'discrete';
+    } else {
+      // Volver a dejarlo como estaba importa: si antes hubo una interfaz de
+      // ocho y ahora se abre el micro del portátil, el nodo seguiría pidiendo
+      // ocho canales y rellenando seis de silencio.
+      this.node.channelCount = 2;
+      this.node.channelInterpretation = 'speakers';
+    }
+    this.node.channelCountMode = 'explicit';
     source.connect(this.node);
     return source;
   }

@@ -5,6 +5,7 @@ import { FORMAT_VERSION } from './model/types';
 import { normalizeKeymap } from './model/keymap';
 import { BEND_MAX } from './model/paramref';
 import { normalizeSlicePoints } from './model/slices';
+import { normalizeProjectInputRoutes } from './model/input-routing';
 
 
 export const ORBIT_EXTENSION = '.orbit';
@@ -62,6 +63,15 @@ export function parseProject(json: string): Project {
   // Carpetas del rack (v1.5): aditivas, los archivos anteriores no las traen.
   p.channelGroups ??= {};
   p.channelGroupOrder ??= [];
+  // Enrutado de entrada (v3.5): aditivo. Un .orbit anterior abre sin rutas y
+  // se resuelve a la implícita —el par 1-2— que es como grabó siempre. Y las
+  // que vengan se sanean aquí: cada número de una ruta acaba siendo un índice
+  // de tabla del kernel o una ganancia, y eso no puede llegar del disco sin
+  // mirar. Va DESPUÉS de `playlistTracks` porque comprueba que la pista de
+  // cada ruta siga existiendo.
+  p.inputRoutes ??= {};
+  p.inputRouteOrder ??= [];
+  normalizeProjectInputRoutes(p);
   // Cortes del Slicer: llegan del disco sin garantías (archivo tocado a mano,
   // versión futura) y el motor los usa tal cual, así que se sanean una vez aquí.
   for (const channel of Object.values(p.channels ?? {})) {

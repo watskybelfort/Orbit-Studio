@@ -454,3 +454,87 @@ input[type='range'] {
 .in-meter-fill.hot {
   background: var(--danger, #e6675a);
 }
+
+/* ── Enrutado de entrada (qué canal físico entra en qué pista) ── */
+
+.input-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 8px;
+}
+
+.input-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* Apunta a un canal que este aparato no tiene: ni suena ni graba. */
+.input-route.missing {
+  opacity: 0.5;
+  border: 1px solid var(--meter-clip);
+}
+
+.input-route-name {
+  width: 110px;
+  flex: none;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.input-route .set-select {
+  max-width: 74px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.input-route-track {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.input-route-track input {
+  width: 48px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+
+.input-route-flag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+/* Pico de ESA entrada: con dos micros abiertos es lo único que dice cuál de
+   los dos está saturando. */
+.input-route-meter {
+  flex: 1 1 auto;
+  min-width: 48px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.input-route-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 60ms linear;
+}

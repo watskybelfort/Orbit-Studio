@@ -23,12 +23,16 @@ class OrbitKernelProcessor extends AudioWorkletProcessor {
     if (!out || out.length === 0) return true;
     const l = out[0]!;
     const r = out[1] ?? out[0]!;
-    // Entrada en vivo (micro/instrumento). Sin nada conectado el array viene
-    // vacío, y con un micro mono viene un solo canal: el kernel lo duplica.
-    const input = inputs[0];
-    const inL = input && input.length > 0 ? input[0] : undefined;
-    const inR = input && input.length > 1 ? input[1] : undefined;
-    this.core.process(l, r, l.length, inL, inR);
+    // Entrada en vivo (micro/instrumento/interfaz). Sin nada conectado el
+    // array viene vacío; con un micro mono viene UN canal y el kernel lo
+    // duplica; con una interfaz de ocho entradas vienen los ocho y el kernel
+    // reparte cada uno a su pista según `setInputRoutes`.
+    //
+    // Se le pasa el array ENTERO y no el par de siempre: el nodo ya declara
+    // `channelCount` con las entradas reales del aparato (ver `engine.ts`), y
+    // quedarse aquí con los dos primeros canales tiraría los otros seis antes
+    // de que nadie pudiera elegirlos.
+    this.core.process(l, r, l.length, inputs[0]);
 
     if (++this.blocks >= METER_INTERVAL_BLOCKS) {
       this.blocks = 0;
