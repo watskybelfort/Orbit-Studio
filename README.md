@@ -334,7 +334,7 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Seguir afinando el encoder Opus** | La inclinación del reparto ya sale del espectro y con eso la distancia media a libopus bajó de −2,06 a −1,21 dB (ver `tools/qa/opus-quality.ts`). Queda el agujero tonal, −7,9 dB en el peor caso, y ahí lo que ayuda es el **postfiltro** — un predictor de tono que pide correr el decodificador dentro del encoder para no perder la sincronía del estado. Detrás van los transitorios, la intensidad estéreo y el VBR por trama. La dispersión adaptativa se implementó y NO entró: la SNR no ve lo que hace, salió neutra y sin poder demostrar la mejora no se sube — para decidirla hace falta una medida perceptual, no una de error. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
+| **Seguir afinando el encoder Opus** | El banco ya tiene una medida **perceptual** además de la SNR, y con ella el orden cambió: el agujero grande son los **transitorios** (−19,57 dB en percusión mono 64k, donde la SNR decía −3,15), no lo tonal (−7,9 dB). `isTransient` está clavado a 0, así que una trama con un ataque dentro reparte el error por toda su duración y el ruido aparece *antes* del golpe. Detrás va el **postfiltro**, que pide correr el decodificador dentro del encoder para no perder la sincronía del estado, y luego la intensidad estéreo y el VBR por trama. La dispersión adaptativa ya entró: llevaba fuera por medirse neutra en SNR, y con el patrón vale +0,40 dB. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
 
 ### Más adelante
@@ -390,15 +390,17 @@ ffmpeg.**
 
 ### Lo que todavía no hace
 
-Le faltan tres decisiones: **postfiltro**, **detección de transitorios** y
-**dispersión adaptativa**. Eso son *decisiones*, no sintaxis — dan un archivo
-válido que suena algo peor que el de libopus a igualdad de bits, no uno roto.
+Le faltan dos decisiones: **postfiltro** y **detección de transitorios**. Eso
+son *decisiones*, no sintaxis — dan un archivo válido que suena algo peor que el
+de libopus a igualdad de bits, no uno roto.
 
 Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus vecinas,
 sin el cual un tono puro suena sucio a bitrate medio), la elección intra/inter
 de la energía —que se decide **codificando las dos y quedándose con la que
-menos recorta**— y la **inclinación del reparto**, que sale de la pendiente del
-espectro en vez de estar fija en neutro.
+menos recorta**—, la **inclinación del reparto**, que sale de la pendiente del
+espectro en vez de estar fija en neutro, y la **dispersión adaptativa**, que
+estuvo un tiempo fuera por no poder demostrarse y entró en cuanto hubo con qué
+medirla (abajo).
 
 ### Cuánto se pierde por bit
 
@@ -408,23 +410,42 @@ npx tsx tools/qa/opus-quality.ts
 
 La misma señal codificada con Orbit y con libopus al mismo bitrate, las dos
 decodificadas con ffmpeg y comparadas con el original. Cuatro señales elegidas
-por lo que ponen a prueba, cinco combinaciones de canales y bitrate. Hoy:
+por lo que ponen a prueba, cinco combinaciones de canales y bitrate. **Dos
+medidas por cada una**, y no miden lo mismo:
 
-| | Orbit | libopus | distancia |
-|---|---|---|---|
-| Media de las 20 medidas | 15,53 dB | 16,74 dB | **−1,21 dB** |
-| La peor (tonal, estéreo 96k) | 26,05 dB | 33,91 dB | −7,86 dB |
+| | Orbit | libopus | distancia | la peor |
+|---|---|---|---|---|
+| **Patrón** (perceptual) | 26,68 dB | 30,27 dB | **−3,59 dB** | −19,57 dB · percusión mono 64k |
+| SNR (error) | 15,51 dB | 16,74 dB | −1,23 dB | −7,90 dB · tonal estéreo 96k |
 
-Lo tonal es el agujero que queda, y es donde ayudaría el postfiltro. En ruido y
-en mezcla salimos por delante, y eso **no** es buena noticia: quiere decir que
-gastamos bits donde libopus ya sabe que no hacen falta.
+**Para decidir manda el patrón.** Es un PEAQ simplificado sobre el modelo de
+oído de la BS.1387 —109 celdas de 0,25 Bark, oído externo y medio, ruido
+interno, dispersión frecuencial de dos pendientes, suavizado temporal— con dos
+términos: la distancia entre patrones de excitación, y la diferencia de
+**planitud espectral** por banda, que es lo que distingue si algo suena a ruido
+o a tonos. La SNR se queda al lado como red de seguridad: es ciega a lo
+perceptual, pero cazaría una catástrofe de fase, a la que el patrón sí es ciego.
 
-Y por eso el banco lleva escrito que la SNR es un apaño. Opus es perceptual: un
-archivo con menos SNR puede sonar mejor. Vale para comparar dos versiones del
-mismo encoder y para ver si la distancia se acorta, no como nota de calidad.
-Cuando se probó la dispersión adaptativa, la medida salió neutra (−0,02 dB, que
-es ruido) porque la SNR no ve lo que hace la dispersión — así que esa decisión
-no entró: no se pudo demostrar que mejorase.
+Por qué hicieron falta las dos, con números: ante el mismo error repartido
+esparcido o denso, la SNR da 3,385 contra 3,353 —0,03 dB, ruido— y el patrón
+8,82 contra 16,88. Ante el mismo error enmascarado o no, **la SNR da 30,0043 por
+los dos lados, idéntica hasta el decimotercer decimal**, y el patrón separa 40,4
+dB.
+
+Y midiendo bien se cae una conclusión vieja de este README: aquello de que en
+ruido y en mezcla salíamos *por delante* de libopus —que no era buena noticia,
+sino señal de gastar bits donde no hacen falta— **desaparece**. Percusión
+estéreo 96k pasa de +0,25 dB de SNR a −4,37 de patrón; el ruido rosa, de +1,85 a
+−0,24; la mezcla, de +1,21 a −0,69.
+
+La dispersión adaptativa es el caso de libro. Se implementó, midió −0,02 dB de
+SNR —ruido— y **no entró**, porque sin poder demostrar la mejora no se sube. No
+era que no sirviera: era que la SNR no la ve, porque la dispersión *reparte* el
+error dentro de la banda en vez de reducirlo. Con el patrón vale **+0,40 dB**,
+casi dos tercios de lo que vale la dispersión entera, y entró. Se ve incluso sin
+modelo de oído: en ruido rosa estéreo 64k la banda de aire tiene planitud 0,562
+en el original, vuelve a 0,256 sin dispersión —silbidos—, a 0,393 con la
+constante y a 0,620 con la adaptativa.
 
 ## Arranque rápido (desarrollo)
 
