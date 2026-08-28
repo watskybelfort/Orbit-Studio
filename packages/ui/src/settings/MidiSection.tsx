@@ -27,6 +27,16 @@ import {
 } from '../state/midi-learn';
 import { BEND_RANGES, VELOCITY_CURVES } from '../state/midi-message';
 import { useProject } from '../state/useProject';
+import { useInputMonitorStore } from '../state/input-monitor';
+import { useRecorderStore } from '../state/recorder';
+import {
+  latencyMs,
+  refreshStaleness,
+  runLatencyCalibration,
+  setLatencySamplesManually,
+  useLatencyCalibrationStore,
+} from '../state/latency-calibration';
+import { NumberScrubber } from '../widgets/NumberScrubber';
 
 /** Cuánto se queda encendido el LED tras el último mensaje. */
 const ACTIVITY_MS = 250;
@@ -47,6 +57,15 @@ export function MidiSection() {
   const mappings = useMidiLearnStore((s) => s.mappings);
   const learning = useMidiLearnStore((s) => s.learning);
 
+  const inputDeviceId = useInputMonitorStore((s) => s.deviceId);
+  const recPhase = useRecorderStore((s) => s.phase);
+  const latSamples = useLatencyCalibrationStore((s) => s.delaySamples);
+  const latSource = useLatencyCalibrationStore((s) => s.source);
+  const latStatus = useLatencyCalibrationStore((s) => s.status);
+  const latConfidence = useLatencyCalibrationStore((s) => s.confidence);
+  const latError = useLatencyCalibrationStore((s) => s.error);
+  const latStale = useLatencyCalibrationStore((s) => s.stale);
+
   // El LED se apaga solo: sin este tic nadie repinta cuando dejan de llegar
   // mensajes y se quedaría encendido para siempre tras la última nota.
   const [, tick] = useState(0);
@@ -55,6 +74,13 @@ export function MidiSection() {
     return () => clearInterval(id);
   }, []);
   const active = lastMessageAt > 0 && performance.now() - lastMessageAt < ACTIVITY_MS;
+
+  // Cambiar de dispositivo de entrada es EL motivo típico de que el número
+  // calibrado deje de valer: recalcular el aviso en cuanto pasa (y también al
+  // abrir Ajustes, que es cuando de verdad importa que se vea).
+  useEffect(() => {
+    refreshStaleness();
+  }, [inputDeviceId]);
 
   const mappingList = Object.values(mappings).sort((a, b) => a.source.localeCompare(b.source));
 
@@ -244,6 +270,79 @@ export function MidiSection() {
           ))}
         </div>
       )}
+
+      <h3 className="set-heading">Latencia de grabación</h3>
+      <p className="set-note">
+        Entre el micro y el motor hay un buffer del sistema que nadie compensa solo: cada toma cae
+        unos milisegundos tarde respecto de lo que cantaste. Este bucle lo mide sacando un barrido
+        por los altavoces y escuchándolo volver por el micro —hace falta que la salida LLEGUE a la
+        entrada: un cable de salida a entrada, o altavoces con el micro delante. Con cascos puestos
+        no hay bucle que medir, y eso se detecta y se avisa en vez de guardar un cero.
+      </p>
+
+      <div className="set-row">
+        <span className="set-label">Bucle</span>
+        <button
+          className="tbtn"
+          disabled={latStatus === 'measuring' || recPhase !== 'idle'}
+          title={
+            recPhase !== 'idle'
+              ? 'Para la toma en curso antes de calibrar'
+              : 'Saca un barrido por los altavoces y lo escucha volver por el micro'
+          }
+          onClick={() => void runLatencyCalibration()}
+        >
+          {latStatus === 'measuring' ? 'Midiendo…' : 'Medir latencia'}
+        </button>
+        <span className="set-value">
+          {latStatus === 'measuring'
+            ? 'Sonando el barrido y escuchando el micro…'
+            : recPhase !== 'idle'
+              ? 'Hay una toma en curso'
+              : latConfidence !== null
+                ? `Última medida: confianza ${(latConfidence * 100).toFixed(0)}%`
+                : latSource === 'manual'
+                  ? 'Puesto a mano, sin medir'
+                  : 'Sin calibrar todavía'}
+        </span>
+      </div>
+
+      <div className="set-row">
+        <span className="set-label">Retardo</span>
+        <NumberScrubber
+          value={latSamples}
+          min={0}
+          max={48000}
+          step={1}
+          suffix=" smp"
+          onChange={setLatencySamplesManually}
+        />
+        <span className="set-value">
+          {latSamples === 0
+            ? 'Sin compensar: el clip cae donde se grabó, tal cual'
+            : `≈ ${latencyMs().toFixed(1)} ms · cada toma nueva nace corrida esto hacia atrás`}
+        </span>
+        <button
+          className="set-reset"
+          disabled={latSamples === 0}
+          title="Quitar la compensación"
+          onClick={() => setLatencySamplesManually(0)}
+        >
+          0
+        </button>
+      </div>
+      <p className="set-note">
+        El número es editable a mano: quien conoce su interfaz sabe su cifra. Medirlo de nuevo
+        sobrescribe lo que haya, a mano o medido.
+      </p>
+
+      {latStale && (
+        <p className="set-error">
+          El aparato de entrada cambió desde la última calibración: este número podría ya no
+          valer. Vuelve a medir.
+        </p>
+      )}
+      {latError && <p className="set-error">{latError}</p>}
     </>
   );
 }

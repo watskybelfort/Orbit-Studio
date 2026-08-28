@@ -32,6 +32,8 @@ import {
   stopInputMonitor,
   useInputMonitorStore,
 } from './input-monitor';
+import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
+import { compensateClipStart } from './input-latency';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -75,11 +77,31 @@ let capTotal = 0;
 let startBeat = 0;
 
 /**
+ * Sumidero alternativo para la entrada en crudo: lo usa la calibración de
+ * latencia (`latency-calibration.ts`) para quedarse con los paquetes en vez
+ * de que caigan en la toma. Las dos cosas NUNCA corren a la vez —grabar una
+ * toma y calibrar el bucle del aparato se rechazan mutuamente, ver
+ * `startRecording` y `runLatencyCalibration`— así que no hace falta
+ * repartir, solo desviar.
+ */
+let rawInputSink: ((left: Float32Array, right: Float32Array) => void) | null = null;
+
+export function setRawInputSink(
+  sink: ((left: Float32Array, right: Float32Array) => void) | null,
+): void {
+  rawInputSink = sink;
+}
+
+/**
  * Trozo de entrada en crudo de un frame del kernel (lo llama el puente de
  * medidores). Llegan cada ~43 ms y se pegan al final sin copiar nada: la
  * concatenación se hace UNA vez, al cerrar la toma.
  */
 export function pushInputChunk(left: Float32Array, right: Float32Array): void {
+  if (rawInputSink) {
+    rawInputSink(left, right);
+    return;
+  }
   if (!capturing) return;
   capL.push(left);
   capR.push(right);
@@ -268,6 +290,13 @@ async function startRecording(): Promise<void> {
   // tracks no los paraba nadie —el micro se quedaba abierto hasta cerrar la
   // app— mientras los dos MediaRecorder empujaban al mismo array de trozos.
   if (starting) return;
+  // La calibración de latencia se queda con los paquetes de entrada en
+  // crudo (ver `rawInputSink`): grabar mientras corre le robaría la toma
+  // entera y no dejaría nada en `capL`/`capR`.
+  if (useLatencyCalibrationStore.getState().status === 'measuring') {
+    useRecorderStore.setState({ error: 'Calibrando la latencia de entrada: espera a que termine.' });
+    return;
+  }
   starting = true;
   try {
     ensureAudioReady();
@@ -376,13 +405,27 @@ async function stopRecording(): Promise<void> {
 
     const project = store.project;
     const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
+
+    // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
+    // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
+    // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
+    // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
+    // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
+    // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
+    const placedStart = compensateClipStart(
+      startBeat,
+      getLatencyCompensationSamples(),
+      sampleRate,
+      project.tempo,
+    );
+
     const arrangementId = project.activeArrangementId;
     const tracks = Object.values(project.playlistTracks)
       .filter((t) => t.arrangementId === arrangementId)
       .sort((a, b) => a.order - b.order);
     const clips = Object.values(project.clips);
     const overlaps = (c: Clip) =>
-      c.start < startBeat + lengthBeats && c.start + c.length > startBeat;
+      c.start < placedStart + lengthBeats && c.start + c.length > placedStart;
 
     const commands: Command[] = [];
     let trackId: string;
@@ -432,7 +475,7 @@ async function stopRecording(): Promise<void> {
       id: newId(),
       kind: 'audio',
       playlistTrackId: trackId,
-      start: startBeat,
+      start: placedStart,
       length: lengthBeats,
       muted: false,
       sampleId,

@@ -44,6 +44,7 @@ import {
   onMidiControl,
   SOURCE_BEND,
 } from './midi-learn';
+import { loadLatencySettings } from './latency-calibration';
 import { SustainPedal } from './sustain';
 
 import { useUiStore } from './ui';
@@ -528,6 +529,10 @@ export function initLiveInput(): void {
 
   void loadSettings();
   void loadMidiMappings();
+  // El retardo calibrado vive con el resto de ajustes de entrada, pero en su
+  // propio módulo (`latency-calibration.ts`) para que la correlación siga
+  // siendo puro y testeable sin arrastrar MIDI.
+  void loadLatencySettings();
 
   // ── Web MIDI ──
   const nav = navigator as Navigator & {
