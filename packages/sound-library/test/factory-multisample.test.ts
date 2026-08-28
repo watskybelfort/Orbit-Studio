@@ -327,44 +327,54 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
     }
   });
 
-  describe('la misma tecla, floja y fuerte, no suena igual', () => {
+  describe('la misma tecla suena distinta en cada capa de fuerza', () => {
     // Esta es la prueba de las capas de velocidad del lado de quien toca: la
     // misma nota, el mismo canal, y lo único que cambia es cuánto aprietas.
     //
+    // Se recorren TODAS las capas de la nota —ordenadas de más floja a más
+    // fuerte, no solo los extremos— porque con tres capas hay una de en medio,
+    // y el punto de la tercera capa es justo ese: que el timbre se gradúe en
+    // dos escalones pequeños y no en uno solo grande. Elegir la capa por
+    // `< 0.5` / `> 0.5` —lo que valía con dos— deja a la del medio sin dueño;
+    // por eso se ordena por el centro de su franja en vez de partir el eje a
+    // ciegas, y así la prueba sigue valiendo si el pack pasa de tres capas a
+    // cuatro.
+    //
     // Los dos fallos que caza no dan error por su cuenta. Si el keymap no
-    // separase las capas, sonarían las DOS a la vez —el timbre flojo y el
-    // fuerte sumados, la nota al doble de volumen—. Y si la síntesis hubiera
-    // grabado dos veces lo mismo, saldrían dos señales de idéntico timbre y
-    // distinto volumen: el manifest perfecto, el instalador 28 MB más gordo y
-    // en el teclado nada.
+    // separase las capas, sonarían VARIAS a la vez —timbres sumados, la nota
+    // más fuerte de lo que toca—. Y si la síntesis hubiera grabado la misma
+    // toma dos veces, saldrían señales de idéntico timbre y distinto volumen:
+    // el manifest perfecto, el instalador más gordo y en el teclado nada.
     for (const entry of instrumentos) {
       it(`${entry.id}`, () => {
         const tomas = entry.samples!;
         const nota = tomas.find((s) => s.file === entry.file)!.rootMidi;
-        const floja = tomas.find((s) => s.rootMidi === nota && velocidadDe(s) < 0.5)!;
-        const fuerte = tomas.find((s) => s.rootMidi === nota && velocidadDe(s) > 0.5)!;
+        const capas = tomas
+          .filter((s) => s.rootMidi === nota)
+          .sort((a, b) => velocidadDe(a) - velocidadDe(b));
+        expect(capas.length, entry.id).toBeGreaterThanOrEqual(2);
 
-        const salidaFloja = tocar(entry, nota, 0.25);
-        const salidaFuerte = tocar(entry, nota, 0.9);
+        const brillos = capas.map((capa) => {
+          const vel = velocidadDe(capa);
+          const salida = tocar(entry, nota, vel);
+          // 1. Cada pulsación trae SU grabación, no la de al lado.
+          expect(
+            mejorCorrelacion(salida, leerWav(capa.file).left, 0),
+            `${entry.id} vel ${vel.toFixed(3)}: no suena su propia capa`,
+          ).toBeGreaterThan(0.9);
+          return brilloRms(salida);
+        });
 
-        // 1. Cada pulsación trae SU grabación, no la de al lado.
-        expect(
-          mejorCorrelacion(salidaFloja, leerWav(floja.file).left, 0),
-          `${entry.id}: pulsando flojo no suena la capa floja`,
-        ).toBeGreaterThan(0.9);
-        expect(
-          mejorCorrelacion(salidaFuerte, leerWav(fuerte.file).left, 0),
-          `${entry.id}: pulsando fuerte no suena la capa fuerte`,
-        ).toBeGreaterThan(0.9);
-
-        // 2. Y lo que sale por el máster es MÁS OSCURO, que es el motivo de
-        //    haber grabado dos veces cada altura.
-        const oscura = brilloRms(salidaFloja);
-        const clara = brilloRms(salidaFuerte);
-        expect(
-          oscura / clara,
-          `${entry.id}: pulsar flojo no oscurece, solo baja el volumen`,
-        ).toBeLessThan(0.98);
+        // 2. Y cada capa es MÁS OSCURA que la siguiente — es el motivo de
+        //    grabar varias veces cada altura: no es la misma toma más bajita,
+        //    es un timbre distinto en cada escalón, y los escalones no se
+        //    saltan ninguno.
+        for (let i = 1; i < brillos.length; i++) {
+          expect(
+            brillos[i - 1]! / brillos[i]!,
+            `${entry.id}: la capa ${i - 1} no es más oscura que la ${i}`,
+          ).toBeLessThan(0.98);
+        }
       });
     }
   });
@@ -408,9 +418,9 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
     // hacia arriba, así que no puede quedar ni una tecla muda entre medias.
     for (const entry of instrumentos) {
       for (const key of [0, 24, 40, 55, 60, 70, 88, 110, 127]) {
-        // Y a las dos fuerzas: un hueco en la franja deja la tecla muda solo a
-        // una de las dos capas, y tocando siempre a 0,9 eso no se ve nunca.
-        for (const vel of [0.2, 0.9]) {
+        // Y a las TRES fuerzas: un hueco en la franja deja la tecla muda solo a
+        // una de las tres capas, y tocando siempre a 0,9 eso no se ve nunca.
+        for (const vel of [0.2, 0.5, 0.9]) {
           const out = tocar(entry, key, vel, 40);
           const donde = `${entry.id} @ ${key} vel ${vel}`;
           expect(rms(out), donde).toBeGreaterThan(1e-5);

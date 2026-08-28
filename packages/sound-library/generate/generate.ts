@@ -51,11 +51,14 @@ const PACK_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '
  * La capa MÁS FUERTE no lleva apellido, y ese hueco es el que mantiene vivos
  * los proyectos guardados: `instrumentos/piano-suave.wav` sigue siendo el
  * mismo archivo con el mismo contenido que antes de que existieran las capas.
- * Las demás llevan su marca de dinámica de toda la vida. Si algún día entra
- * una tercera capa, aquí van tres: `['-pp', '-p', '']` o lo que toque, y el
- * generador se planta si las cuentas no cuadran.
+ *
+ * Con la tercera capa, la que antes era "la floja" (`-p`) pasa a ser la más
+ * floja de tres y se apellida `-pp`; la nueva capa de en medio hereda el `-p`
+ * que dejó libre. Es el mismo apellido de toda la vida para el mismo lugar en
+ * la escala de dinámica —pianísimo, piano, forte—, no un renombrado a ciegas.
+ * El generador se planta si las cuentas no cuadran con `DYNAMICS`.
  */
-const SUFIJO_CAPA = ['-p', ''];
+const SUFIJO_CAPA = ['-pp', '-p', ''];
 
 /**
  * La franja de fuerza que le toca a la capa `i` de `n`: se reparte el 0..1 a
@@ -892,13 +895,18 @@ function main(): void {
   );
   // 15 → 24 MB al entrar los instrumentos con altura (v0.5); 24 → 48 al pasar
   // el pack a multisample (v0.6), que son tres tomas por instrumento en vez de
-  // una; y 48 → 80 al entrar las capas de fuerza, que vuelven a doblar los
-  // instrumentos: 72 grabaciones pasan a 144. El tope existe porque este pack
-  // viaja DENTRO del instalador: no es un límite técnico, es la promesa de que
-  // descargarse Orbit sigue siendo rápido. Subirlo otra vez es una decisión, no
-  // un trámite — y la de esta vez la tomó el usuario sabiendo lo que costaba.
-  if (totalBytes > 80 * 1024 * 1024) {
-    throw new Error('El pack supera los 80 MB: recorta colas o duraciones');
+  // una; 48 → 80 al entrar las capas de fuerza, que vuelven a doblar los
+  // instrumentos: 72 grabaciones pasan a 144; y 80 → 98,87 (medido, no
+  // estimado) al entrar la TERCERA capa de fuerza, que vuelve a doblar el
+  // paso: 144 grabaciones pasan a 216. El tope existe porque este pack viaja
+  // DENTRO del instalador: no es un límite técnico, es la promesa de que
+  // descargarse Orbit sigue siendo rápido. Subirlo es una decisión, no un
+  // trámite — y la de esta vez la tomó el usuario sabiendo lo que costaba.
+  // 115 deja el mismo margen (~16 %) que tenía el tope de 80 sobre los 70 MB
+  // reales de antes de esta capa.
+  const TOPE_MB = 115;
+  if (totalBytes > TOPE_MB * 1024 * 1024) {
+    throw new Error(`El pack supera los ${TOPE_MB} MB: recorta colas o duraciones`);
   }
   console.log('Pack generado y verificado.');
 }

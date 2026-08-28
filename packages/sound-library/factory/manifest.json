@@ -889,45 +889,66 @@
       "file": "instrumentos/piano-suave.wav",
       "samples": [
         {
-          "file": "instrumentos/piano-suave-48-p.wav",
+          "file": "instrumentos/piano-suave-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3.2,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/piano-suave-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3.2,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-suave-48.wav",
           "rootMidi": 48,
           "durationSec": 3.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/piano-suave-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/piano-suave-p.wav",
           "rootMidi": 60,
           "durationSec": 3.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-suave.wav",
           "rootMidi": 60,
           "durationSec": 3.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/piano-suave-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/piano-suave-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-suave-72.wav",
           "rootMidi": 72,
           "durationSec": 3.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -949,45 +970,66 @@
       "file": "instrumentos/piano-brillante.wav",
       "samples": [
         {
-          "file": "instrumentos/piano-brillante-48-p.wav",
+          "file": "instrumentos/piano-brillante-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/piano-brillante-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-brillante-48.wav",
           "rootMidi": 48,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/piano-brillante-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/piano-brillante-p.wav",
           "rootMidi": 60,
           "durationSec": 3,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-brillante.wav",
           "rootMidi": 60,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/piano-brillante-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/piano-brillante-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/piano-brillante-72.wav",
           "rootMidi": 72,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1009,45 +1051,66 @@
       "file": "instrumentos/ep-rhodes.wav",
       "samples": [
         {
-          "file": "instrumentos/ep-rhodes-48-p.wav",
+          "file": "instrumentos/ep-rhodes-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/ep-rhodes-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-rhodes-48.wav",
           "rootMidi": 48,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/ep-rhodes-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/ep-rhodes-p.wav",
           "rootMidi": 60,
           "durationSec": 3,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-rhodes.wav",
           "rootMidi": 60,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/ep-rhodes-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/ep-rhodes-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-rhodes-72.wav",
           "rootMidi": 72,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1070,45 +1133,66 @@
       "file": "instrumentos/ep-sucio.wav",
       "samples": [
         {
-          "file": "instrumentos/ep-sucio-48-p.wav",
+          "file": "instrumentos/ep-sucio-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.8,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/ep-sucio-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.8,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-sucio-48.wav",
           "rootMidi": 48,
           "durationSec": 2.8,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/ep-sucio-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.8,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/ep-sucio-p.wav",
           "rootMidi": 60,
           "durationSec": 2.8,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-sucio.wav",
           "rootMidi": 60,
           "durationSec": 2.8,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/ep-sucio-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.8,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/ep-sucio-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.8,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/ep-sucio-72.wav",
           "rootMidi": 72,
           "durationSec": 2.8,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1131,45 +1215,66 @@
       "file": "instrumentos/guitarra-nylon.wav",
       "samples": [
         {
-          "file": "instrumentos/guitarra-nylon-36-p.wav",
+          "file": "instrumentos/guitarra-nylon-36-pp.wav",
           "rootMidi": 36,
           "durationSec": 3,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/guitarra-nylon-36-p.wav",
+          "rootMidi": 36,
+          "durationSec": 3,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-nylon-36.wav",
           "rootMidi": 36,
           "durationSec": 3,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-nylon-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 2.817,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-nylon-p.wav",
           "rootMidi": 48,
-          "durationSec": 2.817,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 2.809,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-nylon.wav",
           "rootMidi": 48,
           "durationSec": 2.801,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-nylon-60-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 1.493,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-nylon-60-p.wav",
           "rootMidi": 60,
-          "durationSec": 1.493,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 1.486,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-nylon-60.wav",
           "rootMidi": 60,
           "durationSec": 1.478,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1191,45 +1296,66 @@
       "file": "instrumentos/guitarra-electrica-limpia.wav",
       "samples": [
         {
-          "file": "instrumentos/guitarra-electrica-limpia-36-p.wav",
+          "file": "instrumentos/guitarra-electrica-limpia-36-pp.wav",
           "rootMidi": 36,
           "durationSec": 3.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/guitarra-electrica-limpia-36-p.wav",
+          "rootMidi": 36,
+          "durationSec": 3.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-electrica-limpia-36.wav",
           "rootMidi": 36,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-electrica-limpia-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 3.251,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-electrica-limpia-p.wav",
           "rootMidi": 48,
-          "durationSec": 3.251,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 3.244,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-electrica-limpia.wav",
           "rootMidi": 48,
           "durationSec": 3.236,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-electrica-limpia-60-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.031,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-electrica-limpia-60-p.wav",
           "rootMidi": 60,
-          "durationSec": 2.031,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 2.015,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-electrica-limpia-60.wav",
           "rootMidi": 60,
           "durationSec": 2.004,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1251,45 +1377,66 @@
       "file": "instrumentos/guitarra-muted.wav",
       "samples": [
         {
-          "file": "instrumentos/guitarra-muted-36-p.wav",
+          "file": "instrumentos/guitarra-muted-36-pp.wav",
           "rootMidi": 36,
           "durationSec": 1.437,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/guitarra-muted-36-p.wav",
+          "rootMidi": 36,
+          "durationSec": 1.426,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-muted-36.wav",
           "rootMidi": 36,
           "durationSec": 1.426,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-muted-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 0.854,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-muted-p.wav",
           "rootMidi": 48,
-          "durationSec": 0.854,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 0.847,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-muted.wav",
           "rootMidi": 48,
           "durationSec": 0.831,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-muted-60-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 0.442,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-muted-60-p.wav",
           "rootMidi": 60,
-          "durationSec": 0.442,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 0.434,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-muted-60.wav",
           "rootMidi": 60,
           "durationSec": 0.431,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1311,45 +1458,66 @@
       "file": "instrumentos/guitarra-acustica-brillante.wav",
       "samples": [
         {
-          "file": "instrumentos/guitarra-acustica-brillante-36-p.wav",
+          "file": "instrumentos/guitarra-acustica-brillante-36-pp.wav",
           "rootMidi": 36,
           "durationSec": 3.5,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/guitarra-acustica-brillante-36-p.wav",
+          "rootMidi": 36,
+          "durationSec": 3.5,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-acustica-brillante-36.wav",
           "rootMidi": 36,
           "durationSec": 3.5,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-acustica-brillante-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 3.328,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-acustica-brillante-p.wav",
           "rootMidi": 48,
-          "durationSec": 3.328,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 3.313,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-acustica-brillante.wav",
           "rootMidi": 48,
           "durationSec": 3.305,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/guitarra-acustica-brillante-60-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 1.76,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/guitarra-acustica-brillante-60-p.wav",
           "rootMidi": 60,
-          "durationSec": 1.76,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 1.73,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/guitarra-acustica-brillante-60.wav",
           "rootMidi": 60,
           "durationSec": 1.721,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1371,45 +1539,66 @@
       "file": "instrumentos/bajo-fingered.wav",
       "samples": [
         {
-          "file": "instrumentos/bajo-fingered-24-p.wav",
+          "file": "instrumentos/bajo-fingered-24-pp.wav",
           "rootMidi": 24,
           "durationSec": 2.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/bajo-fingered-24-p.wav",
+          "rootMidi": 24,
+          "durationSec": 2.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-fingered-24.wav",
           "rootMidi": 24,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-fingered-pp.wav",
+          "rootMidi": 36,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-fingered-p.wav",
           "rootMidi": 36,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-fingered.wav",
           "rootMidi": 36,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-fingered-48-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-fingered-48-p.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-fingered-48.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1431,45 +1620,66 @@
       "file": "instrumentos/bajo-pick.wav",
       "samples": [
         {
-          "file": "instrumentos/bajo-pick-24-p.wav",
+          "file": "instrumentos/bajo-pick-24-pp.wav",
           "rootMidi": 24,
           "durationSec": 2.2,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/bajo-pick-24-p.wav",
+          "rootMidi": 24,
+          "durationSec": 2.2,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-pick-24.wav",
           "rootMidi": 24,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-pick-pp.wav",
+          "rootMidi": 36,
+          "durationSec": 2.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-pick-p.wav",
           "rootMidi": 36,
           "durationSec": 2.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-pick.wav",
           "rootMidi": 36,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-pick-48-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 2.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-pick-48-p.wav",
           "rootMidi": 48,
           "durationSec": 2.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-pick-48.wav",
           "rootMidi": 48,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1491,45 +1701,66 @@
       "file": "instrumentos/bajo-redondo.wav",
       "samples": [
         {
-          "file": "instrumentos/bajo-redondo-24-p.wav",
+          "file": "instrumentos/bajo-redondo-24-pp.wav",
           "rootMidi": 24,
           "durationSec": 2.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/bajo-redondo-24-p.wav",
+          "rootMidi": 24,
+          "durationSec": 2.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-redondo-24.wav",
           "rootMidi": 24,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-redondo-pp.wav",
+          "rootMidi": 36,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-redondo-p.wav",
           "rootMidi": 36,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-redondo.wav",
           "rootMidi": 36,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-redondo-48-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-redondo-48-p.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-redondo-48.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1551,45 +1782,66 @@
       "file": "instrumentos/bajo-growl.wav",
       "samples": [
         {
-          "file": "instrumentos/bajo-growl-24-p.wav",
+          "file": "instrumentos/bajo-growl-24-pp.wav",
           "rootMidi": 24,
           "durationSec": 2.6,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/bajo-growl-24-p.wav",
+          "rootMidi": 24,
+          "durationSec": 2.6,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-growl-24.wav",
           "rootMidi": 24,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-growl-pp.wav",
+          "rootMidi": 36,
+          "durationSec": 2.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-growl-p.wav",
           "rootMidi": 36,
           "durationSec": 2.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-growl.wav",
           "rootMidi": 36,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/bajo-growl-48-pp.wav",
+          "rootMidi": 48,
+          "durationSec": 2.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/bajo-growl-48-p.wav",
           "rootMidi": 48,
           "durationSec": 2.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/bajo-growl-48.wav",
           "rootMidi": 48,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1611,45 +1863,66 @@
       "file": "instrumentos/organo-suave.wav",
       "samples": [
         {
-          "file": "instrumentos/organo-suave-48-p.wav",
+          "file": "instrumentos/organo-suave-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/organo-suave-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-suave-48.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-suave-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-suave-p.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-suave.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-suave-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-suave-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-suave-72.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1671,45 +1944,66 @@
       "file": "instrumentos/organo-full.wav",
       "samples": [
         {
-          "file": "instrumentos/organo-full-48-p.wav",
+          "file": "instrumentos/organo-full-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.6,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/organo-full-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.6,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-full-48.wav",
           "rootMidi": 48,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-full-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-full-p.wav",
           "rootMidi": 60,
           "durationSec": 2.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-full.wav",
           "rootMidi": 60,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-full-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-full-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-full-72.wav",
           "rootMidi": 72,
           "durationSec": 2.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1731,45 +2025,66 @@
       "file": "instrumentos/organo-percusivo.wav",
       "samples": [
         {
-          "file": "instrumentos/organo-percusivo-48-p.wav",
+          "file": "instrumentos/organo-percusivo-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.2,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/organo-percusivo-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.2,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-percusivo-48.wav",
           "rootMidi": 48,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-percusivo-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-percusivo-p.wav",
           "rootMidi": 60,
           "durationSec": 2.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-percusivo.wav",
           "rootMidi": 60,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/organo-percusivo-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.2,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/organo-percusivo-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.2,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/organo-percusivo-72.wav",
           "rootMidi": 72,
           "durationSec": 2.2,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1791,45 +2106,66 @@
       "file": "instrumentos/strings-ensemble.wav",
       "samples": [
         {
-          "file": "instrumentos/strings-ensemble-48-p.wav",
+          "file": "instrumentos/strings-ensemble-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3.6,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/strings-ensemble-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3.6,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/strings-ensemble-48.wav",
           "rootMidi": 48,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/strings-ensemble-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/strings-ensemble-p.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/strings-ensemble.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/strings-ensemble-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/strings-ensemble-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/strings-ensemble-72.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1851,45 +2187,66 @@
       "file": "instrumentos/pad-calido.wav",
       "samples": [
         {
-          "file": "instrumentos/pad-calido-48-p.wav",
+          "file": "instrumentos/pad-calido-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/pad-calido-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-calido-48.wav",
           "rootMidi": 48,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/pad-calido-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/pad-calido-p.wav",
           "rootMidi": 60,
           "durationSec": 3.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-calido.wav",
           "rootMidi": 60,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/pad-calido-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/pad-calido-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-calido-72.wav",
           "rootMidi": 72,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1911,45 +2268,66 @@
       "file": "instrumentos/pad-vidrio.wav",
       "samples": [
         {
-          "file": "instrumentos/pad-vidrio-48-p.wav",
+          "file": "instrumentos/pad-vidrio-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 3.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/pad-vidrio-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 3.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-vidrio-48.wav",
           "rootMidi": 48,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/pad-vidrio-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 3.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/pad-vidrio-p.wav",
           "rootMidi": 60,
           "durationSec": 3.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-vidrio.wav",
           "rootMidi": 60,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/pad-vidrio-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/pad-vidrio-72-p.wav",
           "rootMidi": 72,
           "durationSec": 3.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/pad-vidrio-72.wav",
           "rootMidi": 72,
           "durationSec": 3.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -1971,45 +2349,66 @@
       "file": "instrumentos/campana-pura.wav",
       "samples": [
         {
-          "file": "instrumentos/campana-pura-60-p.wav",
+          "file": "instrumentos/campana-pura-60-pp.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/campana-pura-60-p.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campana-pura-60.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/campana-pura-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/campana-pura-p.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campana-pura.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/campana-pura-84-pp.wav",
+          "rootMidi": 84,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/campana-pura-84-p.wav",
           "rootMidi": 84,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campana-pura-84.wav",
           "rootMidi": 84,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -2031,45 +2430,66 @@
       "file": "instrumentos/campanita-musica.wav",
       "samples": [
         {
-          "file": "instrumentos/campanita-musica-60-p.wav",
+          "file": "instrumentos/campanita-musica-60-pp.wav",
           "rootMidi": 60,
           "durationSec": 2.172,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/campanita-musica-60-p.wav",
+          "rootMidi": 60,
+          "durationSec": 2.155,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campanita-musica-60.wav",
           "rootMidi": 60,
           "durationSec": 2.148,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/campanita-musica-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.17,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/campanita-musica-p.wav",
           "rootMidi": 72,
-          "durationSec": 2.17,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 2.154,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campanita-musica.wav",
           "rootMidi": 72,
           "durationSec": 2.148,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/campanita-musica-84-pp.wav",
+          "rootMidi": 84,
+          "durationSec": 2.168,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/campanita-musica-84-p.wav",
           "rootMidi": 84,
-          "durationSec": 2.168,
-          "velLow": 0,
-          "velHigh": 0.5
+          "durationSec": 2.154,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/campanita-musica-84.wav",
           "rootMidi": 84,
           "durationSec": 2.149,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -2091,45 +2511,66 @@
       "file": "instrumentos/vibrafono.wav",
       "samples": [
         {
-          "file": "instrumentos/vibrafono-60-p.wav",
+          "file": "instrumentos/vibrafono-60-pp.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/vibrafono-60-p.wav",
+          "rootMidi": 60,
+          "durationSec": 3.6,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/vibrafono-60.wav",
           "rootMidi": 60,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/vibrafono-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/vibrafono-p.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/vibrafono.wav",
           "rootMidi": 72,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/vibrafono-84-pp.wav",
+          "rootMidi": 84,
+          "durationSec": 3.6,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/vibrafono-84-p.wav",
           "rootMidi": 84,
           "durationSec": 3.6,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/vibrafono-84.wav",
           "rootMidi": 84,
           "durationSec": 3.6,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -2151,45 +2592,66 @@
       "file": "instrumentos/lead-cuadrada.wav",
       "samples": [
         {
-          "file": "instrumentos/lead-cuadrada-48-p.wav",
+          "file": "instrumentos/lead-cuadrada-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/lead-cuadrada-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-cuadrada-48.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/lead-cuadrada-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/lead-cuadrada-p.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-cuadrada.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/lead-cuadrada-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/lead-cuadrada-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-cuadrada-72.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -2211,45 +2673,66 @@
       "file": "instrumentos/flauta.wav",
       "samples": [
         {
-          "file": "instrumentos/flauta-48-p.wav",
+          "file": "instrumentos/flauta-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.7,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/flauta-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.7,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/flauta-48.wav",
           "rootMidi": 48,
           "durationSec": 2.7,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/flauta-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.7,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/flauta-p.wav",
           "rootMidi": 60,
           "durationSec": 2.7,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/flauta.wav",
           "rootMidi": 60,
           "durationSec": 2.7,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/flauta-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.7,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/flauta-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.7,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/flauta-72.wav",
           "rootMidi": 72,
           "durationSec": 2.7,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],
@@ -2271,45 +2754,66 @@
       "file": "instrumentos/lead-saw.wav",
       "samples": [
         {
-          "file": "instrumentos/lead-saw-48-p.wav",
+          "file": "instrumentos/lead-saw-48-pp.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
           "velLow": 0,
-          "velHigh": 0.5
+          "velHigh": 0.3333333333333333
+        },
+        {
+          "file": "instrumentos/lead-saw-48-p.wav",
+          "rootMidi": 48,
+          "durationSec": 2.4,
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-saw-48.wav",
           "rootMidi": 48,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/lead-saw-pp.wav",
+          "rootMidi": 60,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/lead-saw-p.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-saw.wav",
           "rootMidi": 60,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
+        },
+        {
+          "file": "instrumentos/lead-saw-72-pp.wav",
+          "rootMidi": 72,
+          "durationSec": 2.4,
+          "velLow": 0,
+          "velHigh": 0.3333333333333333
         },
         {
           "file": "instrumentos/lead-saw-72-p.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0,
-          "velHigh": 0.5
+          "velLow": 0.3333343333333333,
+          "velHigh": 0.6666666666666666
         },
         {
           "file": "instrumentos/lead-saw-72.wav",
           "rootMidi": 72,
           "durationSec": 2.4,
-          "velLow": 0.500001,
+          "velLow": 0.6666676666666667,
           "velHigh": 1
         }
       ],

@@ -27,8 +27,15 @@ const MANIFEST = path.join(PACK, 'manifest.json');
  * instalador, así que es la promesa de que descargarse Orbit sigue siendo
  * rápido. Subirlo es una decisión, y por eso está aquí escrito y no solo en el
  * generador — tocarlo obliga a tocar un test.
+ *
+ * Subido de 80 a 115 al entrar la tercera capa de fuerza de los instrumentos
+ * (72 grabaciones más: 144 → 216). El pack real mide 98,87 MB medidos —no
+ * estimados— al regenerar; 115 deja el mismo margen (~16 %) que tenía el
+ * tope de 80 sobre los 70 MB reales de antes. Tiene que coincidir con el
+ * tope del generador (`generate.ts`): si uno cambia y el otro no, este test
+ * es el que avisa.
  */
-const TOPE_MB = 80;
+const TOPE_MB = 115;
 
 const hayPack = fs.existsSync(MANIFEST);
 
@@ -109,10 +116,10 @@ describe.skipIf(!hayPack)('los instrumentos son multisample de verdad', () => {
   const manifest = loadManifest(fs.readFileSync(MANIFEST, 'utf8'));
   const instrumentos = manifest.entries.filter((e) => e.category === 'instrumentos');
 
-  it('hay veinticuatro y todos traen varias tomas', () => {
+  it('hay veinticuatro y todos traen sus nueve tomas (3 alturas × 3 capas)', () => {
     expect(instrumentos.length).toBe(24);
     for (const entry of instrumentos) {
-      expect(entry.samples?.length ?? 0, entry.id).toBeGreaterThanOrEqual(6);
+      expect(entry.samples?.length ?? 0, entry.id).toBe(9);
     }
   });
 
@@ -147,7 +154,7 @@ describe.skipIf(!hayPack)('los instrumentos son multisample de verdad', () => {
       }
       for (const [nota, capas] of porNota) {
         const donde = `${entry.id} en la nota ${nota}`;
-        expect(capas.length, donde).toBeGreaterThanOrEqual(2);
+        expect(capas.length, donde).toBe(3);
         capas.sort((a, b) => a.velLow - b.velLow);
         expect(capas[0]!.velLow, `${donde}: nadie cubre la velocidad 0`).toBe(0);
         expect(

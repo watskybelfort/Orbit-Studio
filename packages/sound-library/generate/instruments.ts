@@ -103,23 +103,30 @@ export function rootsFor(spec: InstrumentSpec): number[] {
 }
 
 /**
- * Las pulsaciones a las que se graba cada altura: floja y entera.
+ * Las pulsaciones a las que se graba cada altura: floja, media y entera.
  *
  * Dos y no una porque un instrumento cambia de TIMBRE con la fuerza, y bajar
- * el fader no cambia el timbre. Dos y no cinco porque cada capa más multiplica
- * el pack ENTERO —otras setenta y dos grabaciones— y el salto que se gana de
- * dos a tres es ya más pequeño que el que se gana de una a dos.
+ * el fader no cambia el timbre. Con solo dos, el salto de floja a fuerte caía
+ * en un único punto del recorrido y se podía oír si se buscaba — de ahí la
+ * tercera, que reparte ese salto en dos escalones más pequeños. Tres y no
+ * cinco porque cada capa más multiplica el pack ENTERO —otras setenta y dos
+ * grabaciones— y el salto que se gana de tres a cuatro es ya más pequeño que
+ * el que se gana de dos a tres.
  *
  * El 1 es el sonido de SIEMPRE, bit a bit: la capa fuerte de este pack es la
  * grabación única del pack anterior. Por eso un proyecto guardado ayer suena
  * hoy exactamente igual, y por eso el generador puede comprobarlo — si algún
  * WAV de la capa fuerte cambia al regenerar, algo se ha movido donde no debía.
  *
- * El 0,35 no es el centro de la franja floja (0,25) sino algo por encima: a
- * 0,25 el piano sale ya con el martillo casi apagado y una nota de relleno se
- * pierde en la mezcla.
+ * El 0,35 no es el centro de la franja floja de antes (0,25) sino algo por
+ * encima: a 0,25 el piano sale ya con el martillo casi apagado y una nota de
+ * relleno se pierde en la mezcla. Se conserva tal cual al añadir la capa de
+ * en medio —sigue siendo la más floja del catálogo, solo que ahora cubre un
+ * tercio del mástil de velocidad y no la mitad— y el 0,675 de en medio es el
+ * punto aritmético exacto entre 0,35 y 1: parte en dos tramos IGUALES el
+ * camino que antes se cruzaba de un salto.
  */
-export const DYNAMICS = [0.35, 1] as const;
+export const DYNAMICS = [0.35, 0.675, 1] as const;
 
 /** Nota MIDI de una frecuencia (la 440 = 69). */
 export function midiDeHz(hz: number): number {
