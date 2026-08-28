@@ -21,6 +21,7 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
 import { isBlockedIp, pathWithin } from './path-guard';
+import { fetchLatestRelease } from './update-check';
 import { cleanServerUrl, isLanAddress, type Peer } from './discovery-protocol';
 import { isValidRoomCode, normalizeRoomCode } from '@orbit/collab';
 import {
@@ -1499,6 +1500,14 @@ function registerIpc(): void {
     await mkdir(dir, { recursive: true });
     await shell.openPath(dir);
   });
+
+  // ── Aviso de versión nueva (sin autoUpdater: solo mirar y avisar) ──────────
+  // El renderer no tiene red (CSP), así que la consulta a la API de GitHub la
+  // hace el main; el resultado baja por este canal. Sin caché ni throttle
+  // aquí: cuándo tocaba volver a mirar ya lo decidió el renderer antes de
+  // llamar (guarda `updateLastCheckedAt` en settings.json), y fetchLatestRelease
+  // ya falla en silencio (null) ante cualquier problema de red.
+  ipcMain.handle('update:check', () => fetchLatestRelease());
 
   // ── Versiones del proyecto ─────────────────────────────────────────────────
   // Instantáneas con nombre en userData/versions/<id del proyecto>/. No son el

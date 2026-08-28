@@ -3,8 +3,11 @@ import {
   CURRENT_KEY,
   compareDirection,
   compareHint,
+  compareSemver,
   compareTitle,
   defaultPair,
+  isNewerVersion,
+  parseVersionParts,
   resolvePick,
   type ComparableVersion,
 } from '../src/state/version-compare';
@@ -92,5 +95,62 @@ describe('defaultPair', () => {
 
   it('sin versiones, los dos lados son el proyecto de ahora', () => {
     expect(defaultPair([])).toEqual({ from: CURRENT_KEY, to: CURRENT_KEY });
+  });
+});
+
+describe('parseVersionParts', () => {
+  it('trocea una versión normal en números', () => {
+    expect(parseVersionParts('3.4.0')).toEqual([3, 4, 0]);
+  });
+
+  it('acepta el prefijo "v" (como etiquetan los tags de GitHub)', () => {
+    expect(parseVersionParts('v3.4.0')).toEqual([3, 4, 0]);
+  });
+
+  it('ignora el sufijo de prerelease/build', () => {
+    expect(parseVersionParts('3.4.0-beta.1')).toEqual([3, 4, 0]);
+    expect(parseVersionParts('3.4.0+build5')).toEqual([3, 4, 0]);
+  });
+
+  it('un trozo que no es número cuenta como 0 sin reventar', () => {
+    expect(parseVersionParts('3.x.0')).toEqual([3, 0, 0]);
+  });
+});
+
+describe('compareSemver / isNewerVersion — la app instalada contra la última release', () => {
+  it('detecta un patch nuevo', () => {
+    expect(compareSemver('3.4.1', '3.4.0')).toBe(1);
+    expect(isNewerVersion('3.4.1', '3.4.0')).toBe(true);
+  });
+
+  it('detecta un minor o un major nuevo aunque el resto sea menor', () => {
+    expect(isNewerVersion('3.5.0', '3.4.9')).toBe(true);
+    expect(isNewerVersion('4.0.0', '3.9.9')).toBe(true);
+  });
+
+  it('la misma versión no es "más nueva"', () => {
+    expect(compareSemver('3.4.0', '3.4.0')).toBe(0);
+    expect(isNewerVersion('3.4.0', '3.4.0')).toBe(false);
+  });
+
+  it('una versión vieja no es "más nueva" que la instalada', () => {
+    expect(isNewerVersion('3.3.9', '3.4.0')).toBe(false);
+    expect(compareSemver('3.3.9', '3.4.0')).toBe(-1);
+  });
+
+  it('el "v" de los tags de GitHub no rompe la comparación', () => {
+    expect(isNewerVersion('v3.5.0', '3.4.0')).toBe(true);
+  });
+
+  it('quince releases seguidas: cada una es más nueva que la anterior', () => {
+    const releases = [
+      '2.0.0', '2.1.0', '2.2.0', '2.3.0', '2.4.0', '2.5.0', '2.6.0', '3.0.0',
+      '3.1.0', '3.2.0', '3.3.0', '3.3.1', '3.4.0',
+    ];
+    for (let i = 1; i < releases.length; i++) {
+      expect(isNewerVersion(releases[i]!, releases[i - 1]!), `${releases[i]} > ${releases[i - 1]}`).toBe(
+        true,
+      );
+    }
   });
 });

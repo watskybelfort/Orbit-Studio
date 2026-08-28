@@ -236,6 +236,14 @@ interface OrbitApi {
   readonly gallery: {
     fetch(url: string): Promise<string>;
   };
+  /**
+   * Aviso de versión nueva (sin autoUpdater). El renderer no sale a la red;
+   * el main consulta la API de releases de GitHub y devuelve la última
+   * publicada, o null si no se pudo saber (falla en silencio).
+   */
+  readonly update: {
+    check(): Promise<{ version: string; url: string } | null>;
+  };
   readonly autosave: {
     /** Guarda el estado como pendiente y rota el anillo de backups. */
     write(json: string): Promise<void>;

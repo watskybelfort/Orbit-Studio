@@ -33,6 +33,7 @@ import { refreshRecents, saveProject, useProjectFile } from './state/project-fil
 import { useBounceStore } from './state/bounce';
 import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
+import { dismissUpdate, initUpdateCheck, useUpdateCheck } from './state/update-check';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
 // browser lateral, workspace con ventanas internas y panel de Claude.
@@ -52,6 +53,8 @@ export function App() {
   const bounceNotice = useBounceStore((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
   const recoveryError = useAutosave((s) => s.error);
+  const updateAvailable = useUpdateCheck((s) => s.available);
+  const updateRelease = useUpdateCheck((s) => s.release);
 
   useShortcuts();
 
@@ -77,6 +80,11 @@ export function App() {
       if (alive && offer) setRecovery(offer);
       initAutosave();
     });
+    // Aviso de versión nueva: sin red desde aquí (CSP), la consulta la hace
+    // el main y esto solo decide si toca preguntarle y si toca enseñar el
+    // cartel. Silencioso si no hay nada nuevo, si está apagado en Ajustes, o
+    // si no hay red — no hay nada que reintentar en caliente en este efecto.
+    void initUpdateCheck();
     loadThemeFromSettings()
       .then(({ overrides }) => {
         if (alive) useUiStore.setState({ trafficLights: overrides.trafficLights ?? false });
@@ -144,6 +152,49 @@ export function App() {
       <CommandPalette />
       {aboutOpen && <AboutDialog />}
       {shortcutsOpen && <ShortcutsDialog />}
+      {/*
+        Cartel discreto de versión nueva. Esquina superior derecha para no
+        pisar el aviso de recuperación (arriba, centrado) ni el `app-notice`
+        (abajo, centrado). `.popup` da la superficie/blur del tema; el resto
+        son solo medidas — el color sale todo de variables del tema.
+      */}
+      {updateAvailable && updateRelease && (
+        <div
+          className="popup"
+          style={{
+            position: 'fixed',
+            top: 'calc(var(--titlebar-h) + 10px)',
+            right: 14,
+            zIndex: 1001,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '8px 12px',
+            fontSize: 12,
+            color: 'var(--text)',
+          }}
+        >
+          <span>Hay una versión nueva: v{updateRelease.version}</span>
+          <a href={updateRelease.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+            Ver la release
+          </a>
+          <button
+            onClick={dismissUpdate}
+            title="Cerrar"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-dim)',
+              cursor: 'pointer',
+              fontSize: 14,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
       {(bounceBusy ?? bounceNotice ?? notice) && (
         <div className="app-notice popup">{bounceBusy ?? bounceNotice ?? notice}</div>

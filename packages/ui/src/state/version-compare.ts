@@ -81,3 +81,47 @@ export function defaultPair(entries: ComparableVersion[]): { from: string; to: s
   const newest = [...entries].sort((a, b) => b.at - a.at)[0];
   return { from: newest?.file ?? CURRENT_KEY, to: CURRENT_KEY };
 }
+
+/**
+ * ── Comparación de VERSIONES DE LA APP (semver-ish) ──────────────────────
+ *
+ * Esto es otra cosa que lo de arriba: ahí "versión" es una instantánea del
+ * proyecto (un .orbit guardado con nombre); aquí es el número de release de
+ * la propia app ("3.4.0" vs lo que diga la última release de GitHub). Vive en
+ * el mismo archivo porque sigue siendo "comparar dos versiones y decir en qué
+ * dirección", y para no duplicar una tercera vez la lógica de comparar — pero
+ * las dos mitades del archivo no comparten datos entre sí.
+ */
+
+/**
+ * Trocea "3.4.0", "v3.4.0" o "3.4.0-beta.1" en sus números. El sufijo tras
+ * `-` o `+` no cuenta para el orden (una "3.4.0-beta.1" y una "3.4.0" se
+ * consideran la misma versión a efectos de "¿hay algo más nuevo?"). Un trozo
+ * que no es un número cuenta como 0: una versión rara no revienta la
+ * comparación, simplemente no gana ni pierde por ese trozo.
+ */
+export function parseVersionParts(version: string): number[] {
+  const core = version.trim().replace(/^v/i, '').split(/[-+]/)[0] ?? '';
+  return core.split('.').map((part) => {
+    const n = Number.parseInt(part, 10);
+    return Number.isFinite(n) ? n : 0;
+  });
+}
+
+/** Compara dos versiones: -1 si `a` es más vieja, 0 igual, 1 si es más nueva. */
+export function compareSemver(a: string, b: string): number {
+  const pa = parseVersionParts(a);
+  const pb = parseVersionParts(b);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] ?? 0;
+    const y = pb[i] ?? 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/** ¿`remote` es estrictamente más nueva que `local`? La pregunta del aviso. */
+export function isNewerVersion(remote: string, local: string): boolean {
+  return compareSemver(remote, local) > 0;
+}

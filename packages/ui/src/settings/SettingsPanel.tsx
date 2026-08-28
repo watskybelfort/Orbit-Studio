@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { GallerySection } from './GallerySection';
 import { InputSection } from './InputSection';
 import { MidiSection } from './MidiSection';
+import { UpdateSection } from './UpdateSection';
 
 import {
   commitAppearance,
@@ -406,6 +407,8 @@ export function SettingsPanel() {
       <MidiSection />
 
       <GallerySection />
+
+      <UpdateSection />
 
       <h3 className="set-heading">Audio</h3>
 
