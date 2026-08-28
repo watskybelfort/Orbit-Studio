@@ -3,6 +3,13 @@ export const ENGINE_VERSION = '0.1.0';
 
 export * from './protocol';
 export { compileProject, topoOrder, type PlayMode } from './compile';
+export {
+  countSampleRefs,
+  sampleIsUsed,
+  sampleKeepSet,
+  type KeepSetOptions,
+  type SampleRefCount,
+} from './compile';
 export { KernelCore, MAX_BLOCK } from './kernel-core';
 export { AudioEngine } from './engine';
 export { renderProject, renderStems, type RenderOptions, type RenderResult } from './render/offline';

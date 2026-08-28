@@ -258,6 +258,28 @@ export class AudioEngine {
     this.send({ type: 'previewSample', sampleId, gain });
   }
 
+  /**
+   * Olvida lo que ya no hace falta: `keep` es la lista COMPLETA de samples que
+   * siguen en uso (sale de `sampleKeepSet`), y todo lo demás sale de la caché.
+   *
+   * Es la mitad de arriba de la recolección — la de abajo es el mensaje
+   * `collectSamples`, que suelta el audio en el worklet. Las dos van juntas y
+   * por el mismo motivo que documenta `dispose()`: `loadSample` devuelve la
+   * duración cacheada SIN volver a subir el audio, así que soltar el buffer en
+   * el kernel sin olvidarlo aquí dejaría al sampler y a los clips pidiendo un
+   * sample que ya no está, y sonando a nada.
+   *
+   * De ahí la asimetría que conviene tener presente al tocar esto: olvidar de
+   * MÁS es inofensivo (se vuelve a leer y a subir), olvidar de MENOS deja mudo.
+   */
+  keepOnlySamples(keep: readonly string[]): void {
+    const alive = new Set(keep);
+    for (const id of [...this.loadedSamples]) if (!alive.has(id)) this.loadedSamples.delete(id);
+    for (const id of [...this.sampleDurations.keys()]) {
+      if (!alive.has(id)) this.sampleDurations.delete(id);
+    }
+  }
+
   async dispose(): Promise<void> {
     this.node?.disconnect();
     this.node = null;

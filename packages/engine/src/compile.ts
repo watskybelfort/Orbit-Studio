@@ -471,3 +471,139 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     mixerOrder: topoOrder(mixer),
   };
 }
+
+// ── Referencias de sample ────────────────────────────────────────────────────
+
+/**
+ * De dónde tira cada sample, contado sobre el proyecto EDITABLE.
+ *
+ * Sobre el editable y no sobre el compilado, y esa es la diferencia que decide
+ * si esto es seguro: `compileProject` deja fuera media verdad a propósito —en
+ * modo patrón no compila ni un clip de audio, y en modo canción se salta los
+ * clips muteados, los de pistas muteadas y los de los otros arreglos—. Contar
+ * ahí soltaría el audio de un clip por tenerlo muteado, y volvería del mute
+ * mudo.
+ */
+export interface SampleRefCount {
+  /** Canales que lo tienen como sample base (sampler, o cualquier otro kind). */
+  channels: number;
+  /** Canales Slicer: sus cortes (`slicePoints`) son de ESTE sample. */
+  slicers: number;
+  /** Zonas de keymap multisample que lo nombran. */
+  keymapZones: number;
+  /** Clips de audio de la playlist, TODOS: muteados, de otro arreglo y de freeze. */
+  audioClips: number;
+  /** Está en el registro `project.samples` (lo que se guarda en el .orbit). */
+  registered: boolean;
+}
+
+function emptyCount(): SampleRefCount {
+  return { channels: 0, slicers: 0, keymapZones: 0, audioClips: 0, registered: false };
+}
+
+/** ¿Lo nombra algo que suena (o que puede volver a sonar con un undo)? */
+export function sampleIsUsed(c: SampleRefCount, keepRegistered = true): boolean {
+  return (
+    c.channels > 0 ||
+    c.slicers > 0 ||
+    c.keymapZones > 0 ||
+    c.audioClips > 0 ||
+    (keepRegistered && c.registered)
+  );
+}
+
+/**
+ * Cuenta, para cada sample, cuántas veces lo nombra el proyecto y desde dónde.
+ *
+ * Olvidarse de una fuente aquí no da un error: da SILENCIO en un instrumento
+ * concreto dentro de la mezcla, que es de lo último que se mira. Las fuentes
+ * son estas cinco y no hay más en el modelo (`grep sampleId packages/core/src`):
+ *
+ *  1. `channel.sampleId`   — sampler de un solo sonido.
+ *  2. `channel.sampleId` con `kind === 'slicer'` — los cortes son de ese audio.
+ *  3. `channel.keymap[].sampleId` — multisample; el keymap manda sobre el (1),
+ *     pero el (1) sigue puesto para que quitar el keymap devuelva el sonido.
+ *  4. `clip.sampleId` de los clips de audio — TODOS los del proyecto, sin
+ *     filtrar por arreglo, por mute ni por carril: un clip congelado guarda
+ *     debajo los originales muteados y descongelar los devuelve a sonar.
+ *  5. `project.samples` — el registro del proyecto. Cuenta como referencia
+ *     porque es lo que sobrevive a borrar un clip: deshacer el borrado tiene
+ *     que devolver el audio, no un clip mudo.
+ *
+ * Se recorren los `Record` enteros (`Object.values`) y no los órdenes
+ * (`channelOrder`): un canal fuera del orden sigue existiendo en el modelo.
+ */
+export function countSampleRefs(project: Project): Map<string, SampleRefCount> {
+  const out = new Map<string, SampleRefCount>();
+  const at = (id: string): SampleRefCount => {
+    let c = out.get(id);
+    if (!c) {
+      c = emptyCount();
+      out.set(id, c);
+    }
+    return c;
+  };
+
+  for (const ch of Object.values(project.channels)) {
+    if (!ch) continue;
+    if (ch.sampleId) {
+      const c = at(ch.sampleId);
+      if (ch.kind === 'slicer') c.slicers++;
+      else c.channels++;
+    }
+    for (const zone of ch.keymap ?? []) {
+      if (zone?.sampleId) at(zone.sampleId).keymapZones++;
+    }
+  }
+
+  for (const clip of Object.values(project.clips)) {
+    if (clip?.kind === 'audio' && clip.sampleId) at(clip.sampleId).audioClips++;
+  }
+
+  for (const ref of Object.values(project.samples)) {
+    if (ref?.id) at(ref.id).registered = true;
+  }
+
+  return out;
+}
+
+/** Opciones de `sampleKeepSet`. */
+export interface KeepSetOptions {
+  /**
+   * Ids que hay que conservar aunque el proyecto no los nombre: el preview del
+   * Explorador sonando, un bounce a medio hacer, una toma que aún no se ha
+   * registrado. Todo lo que esté EN VUELO entre `loadSample` y su comando.
+   */
+  pinned?: Iterable<string>;
+  /**
+   * `false` suelta también lo registrado en el proyecto que no use nadie (el
+   * bounce cuyo clip se borró). Gana memoria y pierde el undo instantáneo: al
+   * deshacer, ese clip está mudo hasta que se vuelva a subir el sample.
+   * Por defecto `true`, que es no perder audio nunca.
+   */
+  keepRegistered?: boolean;
+}
+
+/**
+ * La lista de ids que el worklet tiene que conservar: lo que el proyecto usa
+ * más lo que esté en vuelo. Es el `keep` del mensaje `collectSamples`.
+ *
+ * Se calcula FUERA del hilo de audio (de eso va todo esto) y no incluye lo que
+ * el kernel protege por su cuenta —su proyecto compilado, el preview y las
+ * voces vivas—: eso lo pone el kernel encima, que es el único que lo sabe.
+ */
+export function sampleKeepSet(project: Project, opts: KeepSetOptions = {}): string[] {
+  const keepRegistered = opts.keepRegistered !== false;
+  const keep: string[] = [];
+  for (const [id, count] of countSampleRefs(project)) {
+    if (sampleIsUsed(count, keepRegistered)) keep.push(id);
+  }
+  const seen = new Set(keep);
+  for (const id of opts.pinned ?? []) {
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      keep.push(id);
+    }
+  }
+  return keep;
+}

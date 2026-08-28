@@ -313,6 +313,29 @@ export type ToKernel =
       mix: number;
     }
   | { type: 'loadSample'; sampleId: string; left: Float32Array; right: Float32Array; sampleRate: number }
+  /**
+   * Recolección de samples del worklet: `keep` es la lista COMPLETA de ids que
+   * todavía hacen falta, y el kernel SUELTA todo lo demás que tenga cargado.
+   *
+   * Va con la lista de los que se quedan y no con la de los que sobran por una
+   * razón concreta: quien manda el mensaje (la UI) sabe qué usa el proyecto,
+   * pero NO sabe qué tiene cargado el worklet —nadie lleva esa cuenta fuera
+   * del kernel—, así que la resta solo la puede hacer el que tiene el mapa.
+   *
+   * Quién decide es el hilo de la UI, contando referencias contra el proyecto
+   * editable (`sampleKeepSet` en compile.ts). Dentro de `process()` no se
+   * recorre ningún mapa buscando huérfanos: la lista llega hecha.
+   *
+   * El kernel no obedece a ciegas. Protege por su cuenta lo que el proyecto
+   * compilado que tiene puesto (y el que tenga en cola) referencia, el preview
+   * de sample en marcha y lo que esté leyendo una voz viva — eso último no se
+   * suelta, se APLAZA hasta que la voz muere.
+   *
+   * Es una descarga LOCAL del worklet, no un borrado del asset: el sample
+   * sigue en el proyecto, en el disco y en la sala de colaboración, y volver a
+   * usarlo es volver a subirlo con `loadSample`.
+   */
+  | { type: 'collectSamples'; keep: readonly string[] }
   | { type: 'previewNote'; channelIndex: number; key: number; on: boolean }
   /**
    * Rueda de tono de un canal, en SEMITONOS (bipolar).

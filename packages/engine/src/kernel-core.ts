@@ -38,9 +38,38 @@ interface ActiveVoice {
   previewKey: string | null;
   /** Pan de la NOTA (-1..1, 0 = centro). Se combina con el pan del canal. */
   pan: number;
+  /**
+   * Sample(s) que esta voz puede estar leyendo: el id suelto (sampler, slicer),
+   * la lista del keymap, o null si el instrumento no toca ningún sample.
+   *
+   * Se copia del canal al nacer la voz —del array que `setSnapshot` dejó ya
+   * hecho, así que no se aloca nada aquí— y se guarda TAL COMO ESTABA el canal
+   * entonces: una voz nacida con el sample A sigue protegiendo A aunque el
+   * canal haya pasado a B mientras su cola termina de sonar.
+   */
+  sampleRef: string | readonly string[] | null;
 }
 
 const MAX_VOICES = 64;
+
+/**
+ * Los samples que una voz de este canal puede acabar leyendo.
+ *
+ * El keymap devuelve TODAS sus zonas y además el `sampleId` del canal: elegir
+ * zona por tecla y velocidad es cosa de la voz, y adivinarlo aquí para afinar
+ * la cuenta sería duplicar esa lógica en dos sitios que se desincronizan. De
+ * más protege; de menos suelta audio que alguien está leyendo.
+ */
+function channelSampleRef(ch: CompiledChannel): string | readonly string[] | null {
+  const keymap = ch.keymap;
+  if (keymap && keymap.length > 0) {
+    const ids: string[] = [];
+    if (ch.sampleId) ids.push(ch.sampleId);
+    for (const zone of keymap) if (!ids.includes(zone.sampleId)) ids.push(zone.sampleId);
+    return ids;
+  }
+  return ch.sampleId ?? null;
+}
 
 /** Instancia creada por la fábrica `createEffect(sampleRate)` de un plugin JS. */
 interface PluginInstance {
@@ -77,6 +106,23 @@ export class KernelCore {
   private project: CompiledProject | null = null;
   private samples = new Map<string, SampleData>();
   private voiceCtx: VoiceContext;
+
+  // ── Recolección de samples (ver el mensaje `collectSamples`) ──
+  /**
+   * Sample(s) que puede leer cada canal, resueltos UNA vez por snapshot.
+   *
+   * Existe para que nacer una voz no cueste una alocación: `spawnVoice` corre
+   * dentro de `process()` y lo único que hace es copiar esta referencia.
+   */
+  private channelSampleIds: (string | readonly string[] | null)[] = [];
+  /**
+   * Ids que sobran pero que todavía lee alguna voz: se sueltan en cuanto la
+   * última muera. Borrar el buffer bajo los pies de una voz viva es, en el
+   * mejor caso, un clic.
+   */
+  private pendingRelease: string[] = [];
+  /** Set de trabajo de la recolección; se reutiliza, no se aloca por mensaje. */
+  private keepSet = new Set<string>();
 
   // Buffers por pista de mixer
   private bufL: Float32Array[] = [];
@@ -412,6 +458,13 @@ export class KernelCore {
           right: msg.right,
           rate: msg.sampleRate,
         });
+        // Subir un sample lo saca de la lista de espera de la recolección: si
+        // no, el aplazamiento de la versión ANTERIOR (una voz que aún sonaba)
+        // borraría la que se acaba de cargar en cuanto esa voz muriese.
+        this.unpend(msg.sampleId);
+        break;
+      case 'collectSamples':
+        this.collectSamples(msg.keep);
         break;
       case 'previewNote':
         if (msg.on) this.previewOn(msg.channelIndex, msg.key);
@@ -467,6 +520,11 @@ export class KernelCore {
       const declarado = p.channels[i]!.bend;
       if (declarado !== undefined) this.setPitchBend(i, declarado);
     }
+    // Sample(s) que puede leer cada canal. Se resuelve aquí, una vez por
+    // snapshot, para que `spawnVoice` —que corre dentro de process()— solo
+    // tenga que copiar la referencia.
+    this.channelSampleIds.length = nCh;
+    for (let i = 0; i < nCh; i++) this.channelSampleIds[i] = channelSampleRef(p.channels[i]!);
     if (this.chBufOf.length !== nCh) this.chBufOf = new Int32Array(nCh);
     this.chBufOf.fill(-1);
     this.fxChannels.length = 0;
@@ -759,7 +817,16 @@ export class KernelCore {
     // portamento que nadie pidió.
     const bend = this.bendByChannel[channelIndex] ?? 0;
     if (bend !== 0) voice.setBend(bend, true);
-    this.voices.push({ voice, offBeat, pendingOffset, released: false, previewKey, pan });
+    this.voices.push({
+      voice,
+      offBeat,
+      pendingOffset,
+      released: false,
+      previewKey,
+      pan,
+      // Copiar, no calcular: la lista la dejó hecha `setSnapshot`.
+      sampleRef: this.channelSampleIds[channelIndex] ?? null,
+    });
   }
 
   /**
@@ -892,6 +959,147 @@ export class KernelCore {
     this.previewSampleId = this.samples.has(sampleId) ? sampleId : null;
     this.previewSamplePos = 0;
     this.previewSampleGain = gain;
+    // Escuchar algo que estaba en la cola de descarga lo saca de ella: mientras
+    // suena es una referencia viva como cualquier otra.
+    if (this.previewSampleId) this.unpend(this.previewSampleId);
+  }
+
+  // ── Recolección de samples ────────────────────────────────────────────────
+  //
+  // Quién decide que un sample sobra vive FUERA del hilo de audio: la UI cuenta
+  // referencias contra el proyecto editable (`sampleKeepSet`) y manda la lista
+  // de los que se quedan. Aquí solo se resta y se comprueban las referencias
+  // que la UI no puede ver: el proyecto compilado que está puesto, el que
+  // espera en cola, el preview y las voces vivas.
+
+  /** Cuántos samples tiene cargados el worklet ahora mismo. */
+  get sampleCount(): number {
+    return this.samples.size;
+  }
+
+  hasSample(id: string): boolean {
+    return this.samples.has(id);
+  }
+
+  /** Ids que sobran pero esperan a que muera la voz que los está leyendo. */
+  get pendingSampleRelease(): readonly string[] {
+    return this.pendingRelease;
+  }
+
+  /**
+   * Suelta todo lo cargado que no esté en `keep` ni proteja el kernel.
+   *
+   * Corre en el handler de mensajes —entre bloques, como el snapshot—, nunca
+   * dentro de `process()`.
+   */
+  private collectSamples(keep: readonly string[]): void {
+    // La lista de espera se rehace entera en cada recolección: lo que aplazó la
+    // anterior puede haber vuelto a hacer falta, y arrastrarlo sería soltar más
+    // tarde algo que ahora suena.
+    this.pendingRelease.length = 0;
+    if (this.samples.size === 0) return;
+    const set = this.keepSet;
+    set.clear();
+    for (let i = 0; i < keep.length; i++) set.add(keep[i]!);
+    this.addKernelRoots(set);
+    // Borrar dentro del recorrido del mapa es seguro: un Map salta las entradas
+    // que se borran antes de visitarlas.
+    for (const id of this.samples.keys()) {
+      if (set.has(id)) continue;
+      // Lo que suena AHORA no se refuta, se espera: sale de la lista y se
+      // suelta en cuanto deje de sonar.
+      if (this.busyWithSample(id)) this.pendingRelease.push(id);
+      else this.samples.delete(id);
+    }
+  }
+
+  /**
+   * Lo que el kernel protege por su cuenta, diga lo que diga la UI.
+   *
+   * No es desconfianza gratuita: el proyecto COMPILADO puede ir por delante o
+   * por detrás del editable —un `queueSnapshot` que aún no entró, una vista de
+   * patrón que no compila ni un clip de audio—, así que una lista de la UI a
+   * la que le falte algo no puede dejar mudo lo que el motor tiene puesto.
+   */
+  private addKernelRoots(set: Set<string>): void {
+    this.addProjectRoots(this.project, set);
+    this.addProjectRoots(this.pendingProject, set);
+  }
+
+  /** ¿Se está oyendo ahora mismo? (voz viva o preview del Explorador.) */
+  private busyWithSample(id: string): boolean {
+    return this.previewSampleId === id || this.heldByVoice(id);
+  }
+
+  private addProjectRoots(p: CompiledProject | null, set: Set<string>): void {
+    if (!p) return;
+    for (const ch of p.channels) {
+      if (ch.sampleId) set.add(ch.sampleId);
+      for (const zone of ch.keymap ?? []) set.add(zone.sampleId);
+    }
+    for (const clip of p.audioClips) set.add(clip.sampleId);
+  }
+
+  /** ¿Alguna voz viva puede estar leyendo este sample? */
+  private heldByVoice(id: string): boolean {
+    for (let i = 0; i < this.voices.length; i++) {
+      const ref = this.voices[i]!.sampleRef;
+      if (ref === null) continue;
+      if (typeof ref === 'string') {
+        if (ref === id) return true;
+      } else {
+        for (let z = 0; z < ref.length; z++) if (ref[z] === id) return true;
+      }
+    }
+    return false;
+  }
+
+  /** Saca un id de la lista de espera (volvió a hacer falta). */
+  private unpend(id: string): void {
+    for (let i = this.pendingRelease.length - 1; i >= 0; i--) {
+      if (this.pendingRelease[i] !== id) continue;
+      this.pendingRelease[i] = this.pendingRelease[this.pendingRelease.length - 1]!;
+      this.pendingRelease.length--;
+    }
+  }
+
+  /**
+   * Reintenta los aplazados. La llama `process()` cuando hay algo pendiente —
+   * una comparación de enteros por bloque en el caso normal, que es que no hay
+   * nada— porque las voces solo mueren ahí dentro.
+   *
+   * No aloca: recorrido por índice, borrado por intercambio y `Map.delete`.
+   */
+  private flushPendingRelease(): void {
+    for (let i = this.pendingRelease.length - 1; i >= 0; i--) {
+      const id = this.pendingRelease[i]!;
+      const rooted = this.isRooted(id);
+      if (!rooted && this.busyWithSample(id)) continue; // todavía suena
+      if (!rooted) this.samples.delete(id);
+      this.pendingRelease[i] = this.pendingRelease[this.pendingRelease.length - 1]!;
+      this.pendingRelease.length--;
+    }
+  }
+
+  /** Versión de `addKernelRoots` para UN id, sin construir el set. */
+  private isRooted(id: string): boolean {
+    return this.projectHasSample(this.project, id) || this.projectHasSample(this.pendingProject, id);
+  }
+
+  private projectHasSample(p: CompiledProject | null, id: string): boolean {
+    if (!p) return false;
+    for (let i = 0; i < p.channels.length; i++) {
+      const ch = p.channels[i]!;
+      if (ch.sampleId === id) return true;
+      const keymap = ch.keymap;
+      if (keymap) {
+        for (let z = 0; z < keymap.length; z++) if (keymap[z]!.sampleId === id) return true;
+      }
+    }
+    for (let i = 0; i < p.audioClips.length; i++) {
+      if (p.audioClips[i]!.sampleId === id) return true;
+    }
+    return false;
   }
 
   /**
@@ -1236,6 +1444,11 @@ export class KernelCore {
     inR?: Float32Array,
   ): void {
     const p = this.project;
+    // Samples que esperaban a que muriese la voz que los leía. Las voces solo
+    // mueren aquí dentro, así que el reintento tiene que vivir aquí; en el caso
+    // normal —nada pendiente— es una comparación de enteros por bloque y no se
+    // toca el mapa ni se aloca nada.
+    if (this.pendingRelease.length > 0) this.flushPendingRelease();
     outL.fill(0, 0, n);
     outR.fill(0, 0, n);
     // Antes que nada: la cuenta puede ENCENDER el transporte en este bloque.
