@@ -5,6 +5,17 @@ const ALLPASS_TUNING = [556, 441, 341, 225];
 const STEREO_SPREAD = 23;
 const REF_SR = 44100;
 
+// Flush de denormales: cuando la cola decae hacia cero sin llegar nunca, el
+// estado entra en rango denormal y cada operación de punto flotante cuesta un
+// orden de magnitud más — justo cuando la música PARA y menos se espera que
+// suba la CPU. Con 8 combs por canal por reverb (16 en total) el costo se
+// nota. Un DC de ~1e-20 sumado al estado recursivo lo mantiene siempre muy
+// por encima del umbral denormal (float32 ~1.18e-38, float64 ~2.2e-308) y muy
+// por debajo de cualquier piso de ruido audible (24 bits ≈ 6e-8): el punto
+// fijo al que converge (eps / (1 - damp) en el comb, eps / (1 - 0.5) en el
+// allpass) sigue siendo silencio a todo efecto práctico, pero nunca denormal.
+const ANTI_DENORMAL = 1e-20;
+
 class Comb {
   private buf: Float32Array;
   private idx = 0;
@@ -18,7 +29,7 @@ class Comb {
 
   tick(x: number): number {
     const out = this.buf[this.idx]!;
-    this.filterStore = out * (1 - this.damp) + this.filterStore * this.damp;
+    this.filterStore = out * (1 - this.damp) + this.filterStore * this.damp + ANTI_DENORMAL;
     this.buf[this.idx] = x + this.filterStore * this.feedback;
     this.idx = (this.idx + 1) % this.buf.length;
     return out;
@@ -41,7 +52,7 @@ class AllpassFV {
   tick(x: number): number {
     const bufOut = this.buf[this.idx]!;
     const out = bufOut - x;
-    this.buf[this.idx] = x + bufOut * 0.5;
+    this.buf[this.idx] = x + bufOut * 0.5 + ANTI_DENORMAL;
     this.idx = (this.idx + 1) % this.buf.length;
     return out;
   }
