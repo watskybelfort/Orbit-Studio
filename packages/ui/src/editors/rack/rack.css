@@ -453,6 +453,13 @@
   color: var(--text);
 }
 
+/* El canal no tiene pista propia y sale por el bus de su carpeta: se marca para
+   que "B7" no se lea como una pista más. */
+.rack-mix.via-bus {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
 .rack-mix-input {
   flex: none;
   width: 36px;
@@ -726,8 +733,8 @@
 }
 
 /* ── Carpetas del rack ──
-   Organización pura: una cabecera con su color, el plegado y el mute/solo que
-   se le hace a los canales de dentro (no hay bus de carpeta). */
+   Una cabecera con su color, el plegado, el mute/solo de la carpeta entera y —si
+   tiene bus— la pista de mixer donde suma la sección, con su fader al lado. */
 
 .rack-group {
   border-left: 3px solid transparent;
@@ -808,6 +815,37 @@
 .rack-group-btn.on {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* Chip del bus: apagado es un hueco discreto ("Bus —"), encendido enseña la
+   pista donde suma. Ningún color propio: todo sale de los tokens del tema. */
+.rack-group-bus {
+  padding: 1px 6px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.rack-group-bus:hover {
+  color: var(--text);
+}
+
+.rack-group-bus.on {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* La lista de pistas del menú del bus tiene 25 entradas: scroll propio para que
+   el menú no se salga de la ventana. */
+.rack-bus-list {
+  max-height: 240px;
+  overflow-y: auto;
 }
 
 /* ── Arrastrar canales ──

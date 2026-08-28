@@ -29,6 +29,7 @@ import {
   noteToMidi,
   spreadKeymapRanges,
   spreadKeymapVelocities,
+  trackOfChannel,
   type AutomationPoint,
 
   type Channel,
@@ -416,8 +417,11 @@ export class ToolExecutor {
     // Mixer: solo las pistas "en uso" para mantener el resumen compacto.
     const used = new Set<number>([0]);
     for (const id of p.channelOrder) {
-      const ch = p.channels[id];
-      if (ch) used.add(ch.mixerTrack);
+      // Por `trackOfChannel` y no por `ch.mixerTrack`: un canal dentro de una
+      // carpeta con bus se compila en la pista del BUS, así que leer el campo
+      // crudo le daría a Claude una pista que ese canal no usa — y le dejaría
+      // fuera del resumen la que de verdad lleva el sonido del grupo.
+      if (p.channels[id]) used.add(trackOfChannel(p, id));
     }
     p.mixer.forEach((t, i) => {
       const nonDefault =
@@ -1180,9 +1184,12 @@ export class ToolExecutor {
     }
     for (const id of p.channelOrder) {
       const ch = p.channels[id];
-      if (!ch || ch.mixerTrack === 0) continue;
+      if (!ch) continue;
+      // Igual que arriba: la pista efectiva, que con carpeta-bus no es la suya.
+      const track = trackOfChannel(p, id);
+      if (track === 0) continue;
       if (nameRe.test(ch.name) || channelKinds.includes(ch.kind)) {
-        return this.trackSlots(ch.mixerTrack);
+        return this.trackSlots(track);
       }
     }
     return undefined;

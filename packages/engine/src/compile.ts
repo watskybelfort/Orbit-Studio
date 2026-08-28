@@ -2,14 +2,21 @@
  * Compilador de proyecto: modelo editable → CompiledProject para el kernel.
  * Aquí se resuelven solo/mute, swing, clips → eventos absolutos y curvas de
  * automatización desnormalizadas a valores reales.
+ *
+ * Y las carpetas del rack con bus: se resuelven AQUÍ a enrutado normal (número
+ * de pista del canal + `routeTo` de la pista), así que el protocolo y el kernel
+ * no saben que existen. Ver `model/groups.ts` en @orbit/core.
  */
 
 import {
   LFO_SHAPES,
+  anyChannelSoloOn,
+  channelAudible,
   clampFades,
   findNovaPreset,
   findPrismaPreset,
   paramRefKey,
+  resolveGroupBuses,
   resolveSend,
   paramRefNorm,
   paramRefValue,
@@ -224,8 +231,17 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
   const channelIds = project.channelOrder;
   const channelIndexOf = new Map(channelIds.map((id, i) => [id, i]));
 
-  // Solo/mute de canales
-  const anyChannelSolo = channelIds.some((id) => project.channels[id]?.solo);
+  /**
+   * Carpetas con bus → enrutado normal, resuelto UNA vez para todo el compilado.
+   *
+   * Aquí se acaba el concepto de carpeta: lo que sale son números de pista y
+   * `routeTo`, o sea lo que el kernel lleva sabiendo hacer desde el primer día.
+   * El protocolo no cambia y el motor no se entera de que existen las carpetas.
+   */
+  const groupRouting = resolveGroupBuses(project);
+
+  // Solo/mute de canales, con el de su carpeta encima (ver model/groups.ts).
+  const anyChannelSolo = anyChannelSoloOn(project);
   const channels: CompiledChannel[] = channelIds.map((id) => {
     const ch = project.channels[id]!;
     const compiled: CompiledChannel = {
@@ -234,8 +250,8 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
       params: { ...ch.params },
       volume: ch.volume,
       pan: ch.pan,
-      audible: anyChannelSolo ? ch.solo : !ch.mute,
-      mixerTrack: ch.mixerTrack,
+      audible: channelAudible(project, ch, anyChannelSolo),
+      mixerTrack: groupRouting.channels.get(id) ?? ch.mixerTrack,
       sampleId: ch.sampleId,
       // Rueda de tono: solo viaja si está doblada. Mandar un 0 explícito
       // costaría lo mismo, pero deja el canal compilado distinto del de un
@@ -301,7 +317,9 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     eqHigh: t.eqHigh ?? 0,
     audible: i === 0 ? true : anyMixerSolo ? t.solo : !t.mute,
     slots: t.slots.map((s) => (s ? compileEffect(s) : null)),
-    routeTo: t.routeTo,
+    // La pista de un canal que vive en una carpeta con bus desemboca en el bus
+    // en vez de en el Master: conserva su cadena y encima pasa por la del grupo.
+    routeTo: groupRouting.routes.get(i) ?? t.routeTo,
     // Resueltos AQUÍ y una sola vez: el kernel recibe envíos completos y no
     // tiene que conocer los valores por defecto del modelo.
     sends: t.sends.map((s) => resolveSend(s)),

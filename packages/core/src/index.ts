@@ -14,6 +14,7 @@ export * from './model/keymap-automap';
 
 export * from './model/input-routing';
 export * from './model/channel-drop';
+export * from './model/groups';
 export * from './model/routing';
 export * from './model/sends';
 export * from './model/diff';

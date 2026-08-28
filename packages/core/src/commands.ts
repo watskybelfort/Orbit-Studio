@@ -201,6 +201,26 @@ function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
 }
 
 /**
+ * Los tres campos opcionales de una carpeta (`busTrack`, `mute`, `solo`) tienen
+ * un valor NEUTRO explícito, y el inverso de un patch lo usa en vez del
+ * `undefined` que devuelve `pickOld` cuando la carpeta no traía el campo.
+ *
+ * No es cosmética: el inverso viaja a la sala serializado, y `JSON.stringify`
+ * borra las claves que valen `undefined`. Sin esto, deshacer "dale un bus a la
+ * batería" quitaba el bus aquí y no lo quitaba en el resto de clientes — el
+ * comando llegaba con el patch vacío.
+ */
+function neutralizeGroupPatch(
+  patch: Partial<Omit<ChannelGroup, 'id'>>,
+): Partial<Omit<ChannelGroup, 'id'>> {
+  const out = { ...patch };
+  if ('busTrack' in out && out.busTrack === undefined) out.busTrack = 0;
+  if ('mute' in out && out.mute === undefined) out.mute = false;
+  if ('solo' in out && out.solo === undefined) out.solo = false;
+  return out;
+}
+
+/**
  * Array de inserts del canal, creándolo si el proyecto viene de antes de la
  * v1.1. Se materializa solo cuando alguien va a escribir en él: un canal sin
  * efectos sigue guardándose sin el campo.
@@ -310,7 +330,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const inverse: Command = {
         type: 'patchChannelGroup',
         groupId: cmd.groupId,
-        patch: pickOld(group, cmd.patch),
+        patch: neutralizeGroupPatch(pickOld(group, cmd.patch)),
       };
       Object.assign(group, cmd.patch);
       return inverse;

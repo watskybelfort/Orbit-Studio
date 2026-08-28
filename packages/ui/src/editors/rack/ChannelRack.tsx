@@ -11,7 +11,13 @@
  * Una fila por canal: LED de mute (Ctrl+clic = solo), perillas mini de
  * volumen/pan, nombre (clic = seleccionar, doble clic = editor de sonido,
  * mantener pulsado = preview, ARRASTRAR = moverlo de sitio o meterlo en una
- * carpeta), número de pista de mixer y los pasos agrupados de 4 en 4. Un
+ * carpeta), número de pista de mixer y los pasos agrupados de 4 en 4.
+ *
+ * Cabecera de carpeta: plegar, nombre, cuántos canales tiene, su BUS (la pista
+ * de mixer donde suma la sección, con su fader al lado), mute/solo de la
+ * carpeta entera —flags de la carpeta, no de sus canales: volver del mute deja
+ * a cada uno como estaba—, color y deshacerla. El bus no es un concepto nuevo
+ * del motor: el compilador lo resuelve a enrutado normal (model/groups.ts). Un
  * canal con melodía del Piano Roll (notas fuera de rejilla o
  * duration > 1/16) muestra una franja mini-preview EN VEZ de los pasos, que
  * abre el Piano Roll — como hace FL.
@@ -40,8 +46,13 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
+  anyChannelSoloOn,
+  channelAudible,
+  busOfChannel,
   createChannel,
+  freeBusTrack,
   gainToDb,
+  groupBusTrack,
   INSTRUMENT_LABELS,
   newId,
   planChannelDrop,
@@ -90,6 +101,7 @@ import {
   RACK_FILTERS,
 } from './filters';
 import { getChannelDrag, isChannelDrag, setChannelDrag } from './channel-drag';
+import { asSingleCommand, createGroupBusCommands, setGroupBusCommands } from './group-bus';
 import { humanizeStepsCommand, randomizeStepsCommand } from './step-tools';
 import { DEFAULT_VELOCITY, defaultKey, isMelodic, STEP, stepIndexOf } from './steps';
 import { VelocityGraph } from './VelocityGraph';
@@ -156,6 +168,8 @@ export function ChannelRack() {
   const [renamingId, setRenamingId] = useState<Id | null>(null);
   /** Carpeta cuyo nombre se está editando en el sitio (recién creada o F2). */
   const [renamingGroupId, setRenamingGroupId] = useState<Id | null>(null);
+  /** Menú del bus de una carpeta (elegir pista, estrenar una, quitarlo). */
+  const [busMenu, setBusMenu] = useState<(MenuAt & { groupId: Id }) | null>(null);
   /** Canal que se está arrastrando ahora mismo (null = no hay arrastre). */
   const [dragId, setDragId] = useState<Id | null>(null);
   /** Dónde caería si se soltara aquí: solo para pintar la guía. */
@@ -186,7 +200,10 @@ export function ChannelRack() {
 
   const steps = Math.max(1, Math.round(pattern.length / STEP));
   const patternIndex = project.patternOrder.indexOf(patternId);
-  const anySolo = project.channelOrder.some((id) => project.channels[id]?.solo === true);
+  // El solo de una CARPETA cuenta como solo de sus canales (ver model/groups.ts
+  // en @orbit/core): el LED del rack tiene que enseñar lo mismo que compila el
+  // motor, o el canal se pinta encendido mientras suena el silencio.
+  const anySolo = anyChannelSoloOn(project);
 
   // ── Vista filtrada ────────────────────────────────────────────────────────
   // Se conserva el índice ORIGINAL del canal: previewNote va por
@@ -464,38 +481,59 @@ export function ChannelRack() {
   const patchGroup = (groupId: Id, patch: Partial<Omit<ChannelGroup, 'id'>>, label: string) =>
     store.dispatch({ type: 'patchChannelGroup', groupId, patch }, { label, mergeKey: `group:${groupId}:${label}` });
 
-  /** Canales de una carpeta, en el orden del rack. */
-  const membersOf = (groupId: Id): Id[] =>
-    project.channelOrder.filter((id) => project.channels[id]?.groupId === groupId);
-
-  /** ¿La carpeta entera lleva ese flag? (para encender su botón). */
-  const groupFlagOn = (groupId: Id, flag: 'mute' | 'solo'): boolean => {
-    const ids = membersOf(groupId);
-    return ids.length > 0 && ids.every((id) => project.channels[id]?.[flag] === true);
-  };
+  /** ¿La carpeta lleva ese flag? (para encender su botón). */
+  const groupFlagOn = (groupId: Id, flag: 'mute' | 'solo'): boolean =>
+    project.channelGroups[groupId]?.[flag] === true;
 
   /**
-   * Mute/solo de la carpeta entera: NO es un bus, así que se le hace a cada
-   * canal en un solo paso de undo. Si queda alguno sin marcar, se marcan todos;
-   * si ya lo estaban todos, se quitan.
+   * Mute/solo de la CARPETA, no de sus canales.
+   *
+   * Antes se le marcaba el flag a cada canal en un lote: apagabas la percusión,
+   * volvías, y el canal que ya estaba muteado a mano se había desmuteado solo.
+   * Ahora el flag vive en la carpeta y el compilador lo suma al de cada canal,
+   * así que volver del mute devuelve a cada uno exactamente como estaba.
    */
   const toggleGroupFlag = (groupId: Id, flag: 'mute' | 'solo') => {
-    const ids = membersOf(groupId);
-    if (ids.length === 0) return;
-    const next = !ids.every((id) => project.channels[id]?.[flag] === true);
     const group = project.channelGroups[groupId];
-    const label = `${next ? 'Activar' : 'Quitar'} ${flag} en "${group?.name ?? 'carpeta'}"`;
+    if (!group) return;
+    const next = group[flag] !== true;
+    const label = `${next ? 'Activar' : 'Quitar'} ${flag} en "${group.name}"`;
+    store.dispatch({ type: 'patchChannelGroup', groupId, patch: { [flag]: next } }, { label });
+  };
+
+  // ── Bus de la carpeta ─────────────────────────────────────────────────────
+  // La carpeta declara en qué pista de mixer desemboca y el compilador lo
+  // resuelve a enrutado normal (ver model/groups.ts en @orbit/core): desde aquí
+  // solo se apunta el número. Los comandos se arman en `group-bus.ts`.
+
+  /** Deja el bus de la carpeta en la pista dada (null = quitarlo). */
+  const setGroupBus = (groupId: Id, busTrack: number | null) => {
+    const group = project.channelGroups[groupId];
+    if (!group) return;
+    const change = setGroupBusCommands(project, group, busTrack);
+    if (!change) return;
+    const command = asSingleCommand(change.commands, change.label);
+    if (command) store.dispatch(command, { label: change.label });
+  };
+
+  /** Estrena el bus en la primera pista libre del mixer. */
+  const createGroupBus = (groupId: Id) => {
+    const group = project.channelGroups[groupId];
+    if (!group) return;
+    const change = createGroupBusCommands(project, group);
+    if (!change) {
+      notifyBanner('No queda ninguna pista de mixer libre para el bus');
+      return;
+    }
+    const command = asSingleCommand(change.commands, change.label);
+    if (command) store.dispatch(command, { label: change.label });
+  };
+
+  /** Volumen del bus: es el fader de toda la sección. */
+  const setGroupBusVolume = (busTrack: number, volume: number) => {
     store.dispatch(
-      {
-        type: 'batch',
-        label,
-        commands: ids.map((id) => ({
-          type: 'patchChannel' as const,
-          channelId: id,
-          patch: { [flag]: next },
-        })),
-      },
-      { label },
+      { type: 'patchMixerTrack', trackIndex: busTrack, patch: { volume } },
+      { mergeKey: `mixer:${busTrack}:vol`, label: 'Volumen del bus' },
     );
   };
 
@@ -521,7 +559,8 @@ export function ChannelRack() {
       steps={steps}
       patternLength={pattern.length}
       selected={selectedChannelId === id}
-      audible={!channel.mute && (!anySolo || channel.solo)}
+      busTrack={busOfChannel(project, id)}
+      audible={channelAudible(project, channel, anySolo)}
       playStep={playStep}
       renaming={renamingId === id}
       onRenameDone={() => setRenamingId(null)}
@@ -772,7 +811,10 @@ export function ChannelRack() {
             </button>
           </div>
         )}
-        {groupedRows.map(({ group, rows }) => (
+        {groupedRows.map(({ group, rows }) => {
+          const bus = groupBusTrack(project, group);
+          const busTrack = bus === null ? undefined : project.mixer[bus];
+          return (
           <div className="rack-group" key={group.id}>
             <div
               className={`rack-group-head${
@@ -819,6 +861,41 @@ export function ChannelRack() {
                 </button>
               )}
               <span className="rack-group-count">{rows.length}</span>
+              {/* Bus de la carpeta: la pista de mixer donde suma la sección. Con
+                  bus se pinta además su fader, que es "bajar toda la percusión"
+                  sin abrir el mixer. */}
+              <button
+                className={`rack-group-bus${bus !== null ? ' on' : ''}`}
+                title={
+                  bus !== null
+                    ? `Suma en la pista ${bus} (${busTrack?.name ?? ''}) — clic para cambiarla`
+                    : 'Sin bus: la carpeta solo organiza. Clic para darle una pista de mixer'
+                }
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  const el = e.currentTarget;
+                  const r = el.getBoundingClientRect();
+                  setBusMenu((open) =>
+                    open && open.groupId === group.id
+                      ? null
+                      : { x: r.left, y: r.bottom + 4, anchor: el, groupId: group.id },
+                  );
+                }}
+              >
+                {bus !== null ? `Bus ${bus}` : 'Bus —'}
+              </button>
+              {bus !== null && busTrack && (
+                <Knob
+                  value={busTrack.volume}
+                  min={0}
+                  max={2}
+                  defaultValue={1}
+                  size={20}
+                  format={(v) => `${gainToDb(v) <= -96 ? '-∞' : gainToDb(v).toFixed(1)} dB`}
+                  onChange={(v) => setGroupBusVolume(bus, v)}
+                  paramRef={{ kind: 'mixer', trackIndex: bus, param: 'volume' }}
+                />
+              )}
               <button
                 className={`rack-group-btn${groupFlagOn(group.id, 'mute') ? ' on' : ''}`}
                 title="Mute de toda la carpeta"
@@ -861,7 +938,8 @@ export function ChannelRack() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {/* Zona de sueltos: además de alojar los canales sin carpeta, es donde
             se suelta uno para SACARLO de la suya, así que se deja una franja
             viva debajo de la última fila aunque no haya nada. */}
@@ -1111,6 +1189,70 @@ export function ChannelRack() {
         </MenuPortal>
       )}
 
+      {busMenu && project.channelGroups[busMenu.groupId] && (
+        <MenuPortal
+          anchor={busMenu.anchor}
+          x={busMenu.x}
+          y={busMenu.y}
+          className="rack-bus-menu"
+          onClose={() => setBusMenu(null)}
+        >
+          <div className="rack-add-sep">
+            Bus de «{project.channelGroups[busMenu.groupId]!.name}»
+          </div>
+          {(() => {
+            const groupId = busMenu.groupId;
+            const current = groupBusTrack(project, project.channelGroups[groupId]);
+            const free = freeBusTrack(project);
+            return (
+              <>
+                {free !== null && (
+                  <button
+                    className="menu-item"
+                    title="Le da la primera pista de mixer libre y la bautiza con el nombre de la carpeta"
+                    onClick={() => {
+                      createGroupBus(groupId);
+                      setBusMenu(null);
+                    }}
+                  >
+                    Estrenar la pista {free}
+                  </button>
+                )}
+                {current !== null && (
+                  <button
+                    className="menu-item"
+                    title="La carpeta vuelve a ser solo organización; los canales siguen sonando donde estaban"
+                    onClick={() => {
+                      setGroupBus(groupId, null);
+                      setBusMenu(null);
+                    }}
+                  >
+                    Sin bus
+                  </button>
+                )}
+                <div className="rack-add-sep">Pistas del mixer</div>
+                <div className="rack-bus-list">
+                  {project.mixer.map((track, i) =>
+                    i === 0 ? null : (
+                      <button
+                        key={track.id}
+                        className={`menu-item${current === i ? ' on' : ''}`}
+                        onClick={() => {
+                          setGroupBus(groupId, i);
+                          setBusMenu(null);
+                        }}
+                      >
+                        {i} · {track.name}
+                      </button>
+                    ),
+                  )}
+                </div>
+              </>
+            );
+          })()}
+        </MenuPortal>
+      )}
+
       <div className="rack-addrow">
         <div className="rack-add">
           <button
@@ -1131,7 +1273,7 @@ export function ChannelRack() {
           </button>
           <button
             className="rack-add-btn"
-            title="Agrupa canales para no perderte (no toca el audio)"
+            title="Agrupa canales para no perderte; dale un bus y además se mezclan juntos"
             onClick={() => addGroup()}
           >
             + Carpeta
@@ -1184,6 +1326,12 @@ interface ChannelRowProps {
   steps: number;
   patternLength: number;
   selected: boolean;
+  /**
+   * Bus de la carpeta del canal, o null si no está en una con bus. Sirve para
+   * que la chapa de pista no mienta: un canal sin pista propia dentro de una
+   * carpeta con bus NO sale por el Master, sale por el bus.
+   */
+  busTrack: number | null;
   /** Suena ahora mismo (mute/solo resueltos): enciende el LED. */
   audible: boolean;
   playStep: number;
@@ -1212,6 +1360,7 @@ function ChannelRow({
   steps,
   patternLength,
   selected,
+  busTrack,
   audible,
   playStep,
   renaming,
@@ -1227,6 +1376,8 @@ function ChannelRow({
   const [editingMix, setEditingMix] = useState(false);
   const cancelMix = useRef(false);
   const cancelRename = useRef(false);
+  /** Va al bus por no tener pista propia: la chapa enseña el bus, no la M. */
+  const viaBus = busTrack !== null && channel.mixerTrack === 0;
 
   const commitRename = (raw: string) => {
     onRenameDone();
@@ -1445,11 +1596,17 @@ function ChannelRow({
         />
       ) : (
         <button
-          className="rack-mix"
-          title="Pista de mixer (clic para cambiar)"
+          className={`rack-mix${viaBus ? ' via-bus' : ''}`}
+          title={
+            busTrack === null
+              ? 'Pista de mixer (clic para cambiar)'
+              : viaBus
+                ? `Sin pista propia: sale por el bus ${busTrack} de su carpeta (clic para darle una)`
+                : `Pista ${channel.mixerTrack}, y de ahí al bus ${busTrack} de su carpeta`
+          }
           onClick={() => setEditingMix(true)}
         >
-          {channel.mixerTrack === 0 ? 'M' : channel.mixerTrack}
+          {viaBus ? `B${busTrack}` : channel.mixerTrack === 0 ? 'M' : channel.mixerTrack}
         </button>
       )}
 

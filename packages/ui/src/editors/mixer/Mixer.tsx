@@ -28,6 +28,7 @@ import {
   SEND_PART_SHORT,
   SEND_TAPS,
   SEND_TAP_LABELS,
+  busTracks,
   defaultEffectParams,
   describeSend,
   resolveSend,
@@ -225,6 +226,12 @@ interface StripProps {
   sendActive: boolean;
   /** Esta pista es el routeTo de la seleccionada. */
   isRouteTarget: boolean;
+  /**
+   * Carpeta del rack que suma aquí, si esta pista es su bus. Se enseña porque
+   * si no, el compresor de la batería vive en un "Insert 7" que no dice de
+   * dónde le llega la señal: los canales no la declaran, la declara la carpeta.
+   */
+  busOf?: { name: string; color: string };
   onSelect: (index: number) => void;
   onToggleSend: (index: number) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>, index: number) => void;
@@ -237,6 +244,7 @@ function Strip({
   showDot,
   sendActive,
   isRouteTarget,
+  busOf,
   onSelect,
   onToggleSend,
   onContextMenu,
@@ -293,6 +301,15 @@ function Strip({
       </label>
       <div className="strip-num">{index === 0 ? 'M' : index}</div>
       <StripName index={index} name={track.name} />
+      {busOf && (
+        <div
+          className="strip-bus"
+          style={{ borderColor: busOf.color }}
+          title={`Bus de la carpeta "${busOf.name}" del Channel Rack`}
+        >
+          {busOf.name}
+        </div>
+      )}
       <Knob
         value={track.pan}
         min={-1}
@@ -1280,6 +1297,8 @@ export function Mixer() {
   } | null>(null);
 
   const mixer = project.mixer;
+  /** Pista → carpeta del rack que suma en ella (ver model/groups.ts en core). */
+  const buses = busTracks(project);
   const selIndex = selectedRaw >= 0 && selectedRaw < mixer.length ? selectedRaw : 0;
   const selTrack = mixer[selIndex];
 
@@ -1345,6 +1364,7 @@ export function Mixer() {
             showDot={i !== selIndex && selIndex !== 0}
             sendActive={i !== selIndex && selTrack.sends.some((s) => s.target === i)}
             isRouteTarget={i !== selIndex && selTrack.routeTo === i}
+            busOf={buses.get(i)}
             onSelect={onSelect}
             onToggleSend={onToggleSend}
             onContextMenu={onStripContext}

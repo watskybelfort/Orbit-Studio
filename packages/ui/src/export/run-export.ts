@@ -27,7 +27,7 @@
  */
 
 import { create } from 'zustand';
-import { encodeMidi, type Project } from '@orbit/core';
+import { encodeMidi, trackOfChannel, type Project } from '@orbit/core';
 import {
   analyzeMix,
   compileProject,
@@ -217,14 +217,28 @@ function applyGain(res: RenderResult, db: number): void {
   }
 }
 
-/** Pistas de mixer usadas: las que reciben al menos un canal del rack. */
+/**
+ * Pistas de mixer usadas: las que reciben al menos un canal del rack.
+ *
+ * Va por `trackOfChannel` y no por `ch.mixerTrack` crudo porque un canal dentro
+ * de una carpeta con bus **no se compila en su pista**, sino en la del bus. Leer
+ * el campo directo dejaría la pista del bus fuera de la lista, y el export de
+ * stems se saltaría justo la que lleva el sonido del grupo entero.
+ */
 export function usedMixerTracks(project: Project): { idx: number; name: string }[] {
   const used = new Set<number>();
   for (const id of project.channelOrder) {
     const ch = project.channels[id];
-    if (ch && ch.mixerTrack >= 0 && ch.mixerTrack < project.mixer.length) {
-      used.add(ch.mixerTrack);
-    }
+    if (!ch) continue;
+    const track = trackOfChannel(project, id);
+    // `trackOfChannel` manda a Master (0) lo que apunta a una pista BORRADA,
+    // porque para enrutar eso es lo correcto. Aquí no: convertiría un canal roto
+    // en un stem del Master que nadie pidió —y que sería la mezcla otra vez—,
+    // así que ese caso se sigue descartando como siempre. Con bus de por medio
+    // sí cuenta, porque entonces el 0 no es "roto" sino la pista del grupo.
+    const ownValid = ch.mixerTrack >= 0 && ch.mixerTrack < project.mixer.length;
+    if (!ownValid && track === 0) continue;
+    if (track >= 0 && track < project.mixer.length) used.add(track);
   }
   return [...used]
     .sort((a, b) => a - b)

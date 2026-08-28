@@ -63,6 +63,26 @@ export function parseProject(json: string): Project {
   // Carpetas del rack (v1.5): aditivas, los archivos anteriores no las traen.
   p.channelGroups ??= {};
   p.channelGroupOrder ??= [];
+  // Bus de carpeta (v3.6): también aditivo. Una carpeta sin `busTrack` es la de
+  // siempre —organización pura— así que un .orbit anterior abre y SUENA igual.
+  // El número llega del disco y acaba siendo un índice de pista con el que se
+  // compila un canal, así que se sanea aquí: fuera de rango, no entero o el
+  // Master (que no es un bus) se borra en vez de viajar al motor. Los flags se
+  // normalizan a booleano por lo mismo.
+  for (const group of Object.values(p.channelGroups ?? {})) {
+    const bus = group.busTrack;
+    const valid =
+      typeof bus === 'number' &&
+      Number.isInteger(bus) &&
+      bus > 0 &&
+      bus < (p.mixer?.length ?? 0);
+    if (valid) group.busTrack = bus;
+    else delete group.busTrack;
+    if (group.mute === true) group.mute = true;
+    else delete group.mute;
+    if (group.solo === true) group.solo = true;
+    else delete group.solo;
+  }
   // Enrutado de entrada (v3.5): aditivo. Un .orbit anterior abre sin rutas y
   // se resuelve a la implícita —el par 1-2— que es como grabó siempre. Y las
   // que vengan se sanean aquí: cada número de una ruta acaba siendo un índice

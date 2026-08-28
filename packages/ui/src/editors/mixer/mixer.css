@@ -96,6 +96,24 @@
   white-space: nowrap;
 }
 
+/* Chapa de "esta pista es el bus de la carpeta X": el borde toma el color de la
+   carpeta (que viene inline desde el proyecto); el resto, tokens del tema. */
+.strip-bus {
+  max-width: 58px;
+  margin-top: 1px;
+  padding: 0 4px;
+  font-size: 9px;
+  line-height: 13px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .strip-name-input {
   width: 58px;
   font: inherit;

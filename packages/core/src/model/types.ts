@@ -62,9 +62,17 @@ export const CHANNEL_SLOTS = 4;
 
 /**
  * Carpeta del Channel Rack: agrupa canales para no perderse en un proyecto de
- * cuarenta. NO es un bus de audio (para eso está la pista de mixer): plegar,
- * silenciar o soltar la carpeta es hacérselo a sus canales, uno por uno, en un
- * solo paso de undo.
+ * cuarenta y —desde v3.6— para MEZCLARLOS juntos.
+ *
+ * La carpeta no es un nodo de audio nuevo: sigue siendo organización. Lo que
+ * hace `busTrack` es declarar en qué pista de mixer desemboca el grupo, y el
+ * compilador lo resuelve a enrutado normal (ver `model/groups.ts`). Así el
+ * kernel no aprende ningún concepto: ve canales en una pista y pistas que
+ * desembocan en otra, exactamente como si los cables se hubieran puesto a mano.
+ *
+ * `mute`/`solo` son de la CARPETA y no de sus canales: apagar la sección entera
+ * y volver deja a cada canal con el mute que tenía, que es lo que se pierde
+ * cuando el mute de grupo se implementa marcando uno por uno.
  */
 export interface ChannelGroup {
   id: Id;
@@ -72,6 +80,17 @@ export interface ChannelGroup {
   color: string;
   /** Plegada: sus canales no se pintan en el rack (siguen sonando igual). */
   collapsed: boolean;
+  /**
+   * Pista de mixer que hace de bus del grupo (v3.6). Ausente o 0 = sin bus:
+   * la carpeta es solo organización, como fue hasta ahora. Se guarda el 0 —y
+   * no un `undefined`— al quitar el bus, porque el inverso del comando viaja
+   * por la sala serializado y un `undefined` se pierde por el camino.
+   */
+  busTrack?: number;
+  /** Mute de la carpeta entera. Ausente = false. */
+  mute?: boolean;
+  /** Solo de la carpeta entera. Ausente = false. */
+  solo?: boolean;
 }
 
 export interface Channel {
@@ -501,9 +520,10 @@ export interface Project {
   channels: Record<Id, Channel>;
   channelOrder: Id[];
   /**
-   * Carpetas del Channel Rack (v1.5): pura organización, no tocan el audio —
-   * un canal suena igual dentro que fuera. Los .orbit anteriores no las traen
-   * y arrancan vacías.
+   * Carpetas del Channel Rack (v1.5): organización, y desde v3.6 también bus
+   * de mezcla si la carpeta declara `busTrack`. Los .orbit anteriores no las
+   * traen y arrancan vacías; una carpeta sin bus suena exactamente igual que
+   * antes (ver `model/groups.ts`).
    */
   channelGroups: Record<Id, ChannelGroup>;
   channelGroupOrder: Id[];

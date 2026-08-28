@@ -154,6 +154,10 @@ export function renderProject(
  * también llevan su audio hasta el master. Silenciarlas dejaba el stem mudo (por
  * bus) o seco (sin la cola del send). Se mantiene audible el cierre "aguas abajo"
  * de la pista: su cadena de routeTo y los destinos de sus sends, transitivamente.
+ *
+ * Y también el de aguas ARRIBA, o el stem de una pista de bus —la de la carpeta
+ * de batería, por ejemplo— saldría en silencio: el bus no genera nada, solo suma
+ * lo que le llega. Ver `audibleTracksForStem`.
  */
 export function renderStems(
   project: CompiledProject,
@@ -179,26 +183,67 @@ export function renderStems(
 
 /**
  * Pistas que deben seguir audibles para aislar el stem de `idx`: la propia, el
- * master y todo lo que transporta su audio hacia el master (routeTo + destinos
- * de sends, transitivamente). Las demás pistas quedan mudas: los buses que se
- * conservan solo llevan lo de `idx`, porque el resto de fuentes están a cero.
+ * master, todo lo que transporta su audio hacia el master (aguas ABAJO: routeTo
+ * + destinos de sends, transitivamente) y todo lo que desemboca en ella (aguas
+ * ARRIBA). Las demás quedan mudas.
+ *
+ * Lo de aguas arriba es lo que hace que un BUS tenga stem. Sin ello, el stem de
+ * la pista de bus de la batería salía en silencio absoluto: el bus no genera
+ * nada por sí mismo y las seis pistas que lo alimentan estaban muteadas. Lo
+ * mismo le pasaba a un retorno de reverb (su stem salía sin nada que reverberar)
+ * y al propio Master, cuyo "stem" era solo lo que entra directo en él. Aguas
+ * arriba, el stem de una pista es todo lo que suena EN esa pista, que es lo que
+ * quiere decir la palabra.
+ *
+ * Y no rompe el aislamiento de una pista normal: de una hoja del grafo —una
+ * pista de instrumento— no cuelga nada aguas arriba, así que su stem sale
+ * exactamente igual que antes.
  */
-function audibleTracksForStem(project: CompiledProject, idx: number): Set<number> {
+export function audibleTracksForStem(project: CompiledProject, idx: number): Set<number> {
   const keep = new Set<number>([0, idx]);
-  const stack = [idx];
-  while (stack.length > 0) {
-    const t = stack.pop()!;
+
+  // Aguas abajo: por dónde sale lo de `idx` camino del master.
+  const down = [idx];
+  while (down.length > 0) {
+    const t = down.pop()!;
     const track = project.mixer[t];
     if (!track) continue;
     if (track.routeTo !== null && !keep.has(track.routeTo)) {
       keep.add(track.routeTo);
-      stack.push(track.routeTo);
+      down.push(track.routeTo);
     }
     for (const send of track.sends) {
       if (!keep.has(send.target)) {
         keep.add(send.target);
-        stack.push(send.target);
+        down.push(send.target);
       }
+    }
+  }
+
+  // Aguas arriba: quién alimenta a `idx`. Se hace sobre el grafo INVERSO, que
+  // se construye una vez; seguirlo desde el master traería todo el proyecto,
+  // pero eso es precisamente el stem del master (la mezcla).
+  const feeders = new Map<number, number[]>();
+  project.mixer.forEach((track, i) => {
+    const targets = new Set<number>();
+    if (track.routeTo !== null) targets.add(track.routeTo);
+    for (const send of track.sends) targets.add(send.target);
+    targets.delete(i);
+    for (const target of targets) {
+      const list = feeders.get(target);
+      if (list) list.push(i);
+      else feeders.set(target, [i]);
+    }
+  });
+  const up = [idx];
+  const seenUp = new Set<number>([idx]);
+  while (up.length > 0) {
+    const t = up.pop()!;
+    for (const from of feeders.get(t) ?? []) {
+      if (seenUp.has(from)) continue;
+      seenUp.add(from);
+      keep.add(from);
+      up.push(from);
     }
   }
   return keep;
