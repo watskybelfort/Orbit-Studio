@@ -23,9 +23,10 @@ por ffmpeg y comparadas con el original. La distancia media pasó de **−2,06 a
 Lo que hay que saber para seguir:
 
 - **El agujero que queda es lo TONAL** (−7,9 dB en el peor caso, y peor en
-  estéreo). Ahí lo que ayuda es el postfiltro, que es la pieza cara: pide
-  correr el decodificador dentro del encoder para no perder la sincronía del
-  estado.
+  estéreo). Ahí ayuda el postfiltro — que resultó NO ser la pieza cara que
+  aquí se daba por hecha: no pide correr el decodificador dentro del encoder,
+  porque el prefiltro es un lazo abierto (FIR en el encoder sobre la entrada,
+  IIR en el decodificador sobre su salida). Ver README.
 - **En ruido y en mezcla salimos POR DELANTE de libopus**, y eso no es una
   buena noticia: quiere decir que gastamos bits donde libopus ya sabe que no
   hacen falta.

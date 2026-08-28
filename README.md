@@ -334,7 +334,7 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Seguir afinando el encoder Opus** | El banco ya tiene una medida **perceptual** además de la SNR, y con ella el orden cambió: el agujero grande son los **transitorios** (−19,57 dB en percusión mono 64k, donde la SNR decía −3,15), no lo tonal (−7,9 dB). `isTransient` está clavado a 0, así que una trama con un ataque dentro reparte el error por toda su duración y el ruido aparece *antes* del golpe. Detrás va el **postfiltro**, que pide correr el decodificador dentro del encoder para no perder la sincronía del estado, y luego la intensidad estéreo y el VBR por trama. La dispersión adaptativa ya entró: llevaba fuera por medirse neutra en SNR, y con el patrón vale +0,40 dB. (La trama de silencio desincroniza la energía en teoría, pero se midió contra ffmpeg: ~0,2 dB durante <50 ms y se auto-corrige) |
+| **Seguir afinando el encoder Opus** | Queda el **reparto de bits**: VBR por trama e intensidad estéreo. La medida perceptual del banco reordenó todo lo demás y ya entró: la dispersión adaptativa (que llevaba fuera por medirse neutra en SNR), los **transitorios** —con un bug de sincronía del silencio que arrastraba desde siempre— y el **postfiltro**, que resultó no necesitar el decodificador embebido que este roadmap daba por hecho. Con eso la distancia media pasó de −3,59 a **−0,79 dB** de patrón. El peor caso sigue siendo tonal (−10,88, acorde estéreo 128k) pero **ya no por falta de predicción de tono**: el peine acierta el período 75/75, así que lo que queda ahí es justamente reparto entre bandas |
 | **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
 
 ### Más adelante
@@ -390,17 +390,24 @@ ffmpeg.**
 
 ### Lo que todavía no hace
 
-Le faltan dos decisiones: **postfiltro** y **detección de transitorios**. Eso
-son *decisiones*, no sintaxis — dan un archivo válido que suena algo peor que el
-de libopus a igualdad de bits, no uno roto.
+Le queda una decisión: el **reparto de bits** — VBR por trama e intensidad
+estéreo. Eso es una *decisión*, no sintaxis: da un archivo válido que suena algo
+peor que el de libopus a igualdad de bits, no uno roto.
 
 Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus vecinas,
 sin el cual un tono puro suena sucio a bitrate medio), la elección intra/inter
 de la energía —que se decide **codificando las dos y quedándose con la que
 menos recorta**—, la **inclinación del reparto**, que sale de la pendiente del
-espectro en vez de estar fija en neutro, y la **dispersión adaptativa**, que
+espectro en vez de estar fija en neutro, la **dispersión adaptativa** —que
 estuvo un tiempo fuera por no poder demostrarse y entró en cuanto hubo con qué
-medirla (abajo).
+medirla (abajo)—, la **detección de transitorios** y el **postfiltro**.
+
+Del postfiltro conviene desmentir algo que este README llegó a afirmar: **no
+hace falta correr el decodificador dentro del encoder**. El encoder es un FIR
+sobre la entrada (`y[n] = x[n] − g·x[n−T]`) y el decodificador un IIR sobre su
+propia salida (`z[n] = ŷ[n] + g·z[n−T]`) — lazo abierto, y si `ŷ = y` entonces
+`z = x`. Lo que sí hay que mantener en sintonía son los parámetros de la trama
+anterior, y para eso el encoder guarda lo *transmitido*, nunca lo medido.
 
 ### Cuánto se pierde por bit
 
@@ -415,8 +422,8 @@ medidas por cada una**, y no miden lo mismo:
 
 | | Orbit | libopus | distancia | la peor |
 |---|---|---|---|---|
-| **Patrón** (perceptual) | 26,68 dB | 30,27 dB | **−3,59 dB** | −19,57 dB · percusión mono 64k |
-| SNR (error) | 15,51 dB | 16,74 dB | −1,23 dB | −7,90 dB · tonal estéreo 96k |
+| **Patrón** (perceptual) | 29,48 dB | 30,27 dB | **−0,79 dB** | −10,88 dB · acorde estéreo 128k |
+| SNR (error) | 16,25 dB | 16,74 dB | −0,49 dB | −6,28 dB · tonal estéreo 96k |
 
 **Para decidir manda el patrón.** Es un PEAQ simplificado sobre el modelo de
 oído de la BS.1387 —109 celdas de 0,25 Bark, oído externo y medio, ruido
