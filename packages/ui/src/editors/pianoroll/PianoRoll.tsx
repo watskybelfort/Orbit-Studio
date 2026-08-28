@@ -34,6 +34,7 @@ import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { ArpDialog } from './ArpDialog';
 import { RiffDialog } from './RiffDialog';
+import { affectedNoteIds, quantizePatches, transposePatches } from './note-tools';
 import { TOOLS, applySliceCuts, occupied, sliceCuts, type PianoRollTool } from './tools';
 import './pianoroll.css';
 
@@ -1075,24 +1076,18 @@ export function PianoRoll() {
 
   // ── Herramientas de la toolbar ────────────────────────────────────────────
 
-  const affectedIds = useCallback(() => {
-    if (selection.size > 0) {
-      // La selección puede traer ids muertos (p. ej. tras deshacer una
-      // herramienta): se poda contra las notas vivas y, si no queda nada,
-      // se cae a todas — nunca un no-op silencioso.
-      const alive = notes.filter((n) => selection.has(n.id)).map((n) => n.id);
-      if (alive.length > 0) return alive;
-    }
-    return notes.map((n) => n.id);
-  }, [selection, notes]);
+  // La regla —a qué notas afecta un botón de la toolbar, y qué parche produce—
+  // vive en `note-tools.ts`, sin React delante y con sus tests. Aquí queda el
+  // cableado: leer el estado, llamar, despachar.
+  const affectedIds = useCallback(
+    () => affectedNoteIds(notes, selection),
+    [selection, notes],
+  );
 
   const quantize = useCallback(() => {
     // Con snap magnético la Q cuantiza a la rejilla fija (snapStep = 0.25).
     if (!activePatternId || !channelId || snapStep === null) return;
-    const ids = new Set(affectedIds());
-    const patches = notes
-      .filter((n) => ids.has(n.id))
-      .map((n) => ({ id: n.id, start: Math.round(n.start / snapStep) * snapStep }));
+    const patches = quantizePatches(notes, new Set(affectedIds()), snapStep);
     store.dispatch(
       { type: 'patchNotes', patternId: activePatternId, channelId, patches },
       { label: 'Cuantizar' },
@@ -1102,10 +1097,7 @@ export function PianoRoll() {
   const transpose = useCallback(
     (semis: number) => {
       if (!activePatternId || !channelId) return;
-      const ids = new Set(affectedIds());
-      const patches = notes
-        .filter((n) => ids.has(n.id))
-        .map((n) => ({ id: n.id, key: Math.min(KEYS - 1, Math.max(0, n.key + semis)) }));
+      const patches = transposePatches(notes, new Set(affectedIds()), semis, KEYS - 1);
       store.dispatch(
         { type: 'patchNotes', patternId: activePatternId, channelId, patches },
         { label: semis > 0 ? 'Subir octava' : 'Bajar octava' },

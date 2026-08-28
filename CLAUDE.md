@@ -27,6 +27,24 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
   terminar cada pieza**. Muchos commits pequeños > uno gigante.
 - Release (tag + GitHub release) solo al cerrar una versión, no por commit.
 - `npm run typecheck && npm run build` debe pasar antes de cada commit.
+- **Tests de `packages/ui`: extraer lógica a módulos puros y probar eso, sin
+  jsdom ni `@testing-library/react`.** Es lo que ya hace el repo (`selection.ts`,
+  `filters.ts`, `plugin-parse.ts`): un componente `.tsx` se queda con el dibujo
+  y los gestos, y la aritmética/las reglas que puede romper una regresión
+  silenciosa viven en un módulo hermano sin React, importable desde Vitest tal
+  cual (`environment: 'node'`, el que ya usa todo el repo — no hay `vitest.config`
+  ni dependencia de DOM en ningún paquete). Cuando la regla que hay que cubrir
+  vive en el propio JSX de un `.tsx` (un manejador de evento, el orden de un
+  `await`), en vez de montar el componente se lee su código fuente de verdad
+  con `fs.readFileSync` y se comprueba la propiedad sobre el texto (ver
+  `packages/ui/test/drop-handlers-sync.test.ts`), o se ejercitan sus estados
+  internos (zustand, `store.dispatch`, un `window`/`navigator` de mentira con
+  `vi.stubGlobal`) sin DOM real (ver `packages/ui/test/live-input-bend.test.ts`,
+  `run-export.test.ts`). Añadir jsdom sería la vía obvia para probar un
+  componente montado, pero arrastra una dependencia nueva y una clase de test
+  (snapshots de render, `act()`, timers de React) que envejece peor que la
+  aritmética aislada — se prefiere extraer salvo que la lógica sea inseparable
+  de un ciclo de render real.
 
 ## Comandos
 
