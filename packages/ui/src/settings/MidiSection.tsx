@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react';
 import {
   MAX_INPUT_ROUTES,
   describeParamRef,
+  gainToDb,
   projectInputRoutes,
   resolveInputRoutes,
 } from '@orbit/core';
@@ -368,6 +369,22 @@ export function MidiSection() {
                     patchInputRoute(declared.id, { mixerTrack: Number(e.target.value) })
                   }
                 />
+              </label>
+              <label className="input-route-gain" title="Ganancia de esta entrada, antes de llegar a la pista">
+                <input
+                  type="range"
+                  min={0}
+                  max={4}
+                  step={0.05}
+                  value={route.gain}
+                  disabled={!declared}
+                  onChange={(e) =>
+                    declared && patchInputRoute(declared.id, { gain: Number(e.target.value) })
+                  }
+                />
+                <span className="input-route-gain-value">
+                  {route.gain <= 0 ? '−∞' : `${gainToDb(route.gain).toFixed(1)} dB`}
+                </span>
               </label>
               <label className="input-route-flag" title="Graba cuando se pulse Rec">
                 <input

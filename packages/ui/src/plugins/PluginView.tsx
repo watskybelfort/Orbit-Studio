@@ -279,6 +279,43 @@ export function EffectPluginView({
 }
 
 /**
+ * Envoltorio para el INSTRUMENTO de un canal (Channel Rack): el plugin que
+ * sustituye a la voz, no un insert de su cadena. Los valores salen de
+ * `channel.params` directamente —el mismo sitio de donde los lee `SoundTab`
+ * para sus perillas— y el tap del scope va por la pista de mixer del canal,
+ * que es donde se oye lo que suena.
+ */
+export function InstrumentPluginView({
+  pluginId,
+  source,
+  view,
+  paramKeys,
+  defaults,
+  channelId,
+  trackIndex,
+}: {
+  pluginId: string;
+  source: string;
+  view: ParsedView;
+  paramKeys: readonly string[];
+  defaults: Readonly<Record<string, number>>;
+  channelId: string;
+  trackIndex?: number;
+}) {
+  return (
+    <PluginView
+      pluginId={pluginId}
+      source={source}
+      view={view}
+      paramKeys={paramKeys}
+      defaults={defaults}
+      readParams={() => store.project.channels[channelId]?.params ?? {}}
+      trackIndex={trackIndex}
+    />
+  );
+}
+
+/**
  * Envoltorio para un insert PROPIO de un canal (pestaña "Efectos" del Channel
  * Rack). Misma vista, otra procedencia de los valores; el tap del scope va por
  * la pista de mixer del canal, que es donde se oye lo que sale de la cadena.

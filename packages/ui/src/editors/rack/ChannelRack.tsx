@@ -72,6 +72,8 @@ import {
   SOUND_MIME,
 } from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
+import { defaultPluginParams } from '../../state/plugin-parse';
+import { InstrumentPluginView } from '../../plugins/PluginView';
 import { reportActivity } from '../../collab/presence';
 // Las acciones de patrón viven en un solo sitio a propósito: el guard del
 // último patrón, el realineo del patrón activo y el aviso de cuántos clips se
@@ -1390,6 +1392,20 @@ function ChannelRow({
   /** Va al bus por no tener pista propia: la chapa enseña el bus, no la M. */
   const viaBus = busTrack !== null && channel.mixerTrack === 0;
 
+  // Vista propia del plugin de INSTRUMENTO (no de un insert de su cadena):
+  // solo si el archivo declara `createView`, igual que en el mixer y en la
+  // pestaña "Efectos" del editor de canal. El código no se ejecuta aquí — cruza
+  // como texto al worker de la vista (ver `view-session.ts`).
+  const plugins = usePluginsStore((s) => s.plugins);
+  const sources = usePluginsStore((s) => s.sources);
+  const instrumentPlugin = channel.instrumentPluginId
+    ? plugins.find((p) => p.id === channel.instrumentPluginId)
+    : undefined;
+  const instrumentPluginSource = instrumentPlugin?.view
+    ? sources.get(instrumentPlugin.id)
+    : undefined;
+  const [viewMenu, setViewMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
+
   const commitRename = (raw: string) => {
     onRenameDone();
     if (cancelRename.current) {
@@ -1514,6 +1530,7 @@ function ChannelRow({
   };
 
   return (
+    <>
     <div
       className={`rack-row${selected ? ' sel' : ''}${dragging ? ' dragging' : ''}${
         dropSide ? ` drop-${dropSide}` : ''
@@ -1621,6 +1638,21 @@ function ChannelRow({
         </button>
       )}
 
+      {instrumentPlugin?.view && instrumentPluginSource && (
+        <button
+          className={`rack-view-btn${viewMenu ? ' on' : ''}`}
+          title={`Ver «${instrumentPlugin.name}»`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setViewMenu((open) =>
+              open ? null : { x: e.clientX, y: e.clientY, anchor: e.currentTarget },
+            );
+          }}
+        >
+          ⧉
+        </button>
+      )}
+
       {melodic ? (
         <MiniPreview
           notes={notes}
@@ -1674,6 +1706,29 @@ function ChannelRow({
         </div>
       )}
     </div>
+    {viewMenu && instrumentPlugin?.view && instrumentPluginSource && (
+      <MenuPortal
+        anchor={viewMenu.anchor}
+        x={viewMenu.x}
+        y={viewMenu.y}
+        className="rack-plugin-view-menu"
+        onClose={() => setViewMenu(null)}
+      >
+        <div className="rack-add-sep">{instrumentPlugin.name}</div>
+        <div className="rack-plugin-view-body">
+          <InstrumentPluginView
+            pluginId={instrumentPlugin.id}
+            source={instrumentPluginSource}
+            view={instrumentPlugin.view}
+            paramKeys={instrumentPlugin.params.map((p) => p.key)}
+            defaults={defaultPluginParams(instrumentPlugin.params)}
+            channelId={channel.id}
+            trackIndex={channel.mixerTrack}
+          />
+        </div>
+      </MenuPortal>
+    )}
+    </>
   );
 }
 

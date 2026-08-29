@@ -474,6 +474,39 @@
   outline: none;
 }
 
+/* Vista del plugin de instrumento (⧉): solo aparece si el archivo declara
+   `createView`. Abre un popover con el mismo componente que usan el mixer y
+   la pestaña "Efectos" del editor de canal — ver PluginView.tsx. */
+.rack-view-btn {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rack-view-btn:hover {
+  color: var(--text);
+}
+
+.rack-view-btn.on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.rack-plugin-view-menu {
+  width: 240px;
+}
+
+.rack-plugin-view-body {
+  padding: 6px;
+}
+
 /* ── Steps ── */
 
 .rack-steps {

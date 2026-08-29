@@ -514,6 +514,23 @@ input[type='range'] {
   font-size: 11px;
 }
 
+.input-route-gain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.input-route-gain input[type='range'] {
+  width: 70px;
+}
+
+.input-route-gain-value {
+  flex: none;
+  width: 46px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .input-route-flag {
   display: flex;
   align-items: center;
