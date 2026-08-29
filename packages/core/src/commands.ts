@@ -29,6 +29,7 @@ import type {
 import { CHANNEL_SLOTS, MIXER_SLOTS } from './model/types';
 import type { InputRoute } from './model/input-routing';
 import { MAX_INPUT_ROUTES } from './model/input-routing';
+import { wouldLoop } from './model/routing';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -807,6 +808,24 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setRoute': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
+      // Guardia contra ciclos: enrutar A → B cuando B ya vuelve a A (directo, por
+      // sends, o los dos) deja el compilador (`topoOrder` en @orbit/engine)
+      // tolerando el bucle y la mezcla entera en silencio digital, sin aviso ni
+      // excepción. Se reusa `wouldLoop` — el MISMO detector que ya usa el editor
+      // de nodos (`GraphEditor.tsx`) para bloquear el arrastre antes de soltarlo
+      // — para que el menú del mixer, MCP o un comando remoto de colaboración no
+      // puedan colar por otro camino lo que el editor de nodos ya impide a mano.
+      // Política: RECHAZAR y dejar la ruta anterior intacta (no se rompe el otro
+      // extremo del ciclo en automático): es la opción que no sorprende tocando
+      // una pista que el usuario no seleccionó, y dispara desde el mismo sitio
+      // que ya usa el resto de invariantes de este archivo (ver `addInputRoute`).
+      if (cmd.routeTo !== null && wouldLoop(project.mixer, cmd.trackIndex, cmd.routeTo)) {
+        throw new Error(
+          `Enrutar la pista ${cmd.trackIndex} a la ${cmd.routeTo} cerraría un ciclo ` +
+            `(la señal de ${cmd.routeTo} ya vuelve a ${cmd.trackIndex}): dejaría la mezcla ` +
+            'en silencio. Se mantiene la ruta anterior.',
+        );
+      }
       const inverse: Command = {
         type: 'setRoute',
         trackIndex: cmd.trackIndex,

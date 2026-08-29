@@ -29,6 +29,7 @@ import {
   type SoundEntry,
   type SoundSample,
 } from '@orbit/sound-library';
+import { countSampleRefs, sampleIsUsed } from '@orbit/engine';
 import { engine, store } from '../state/app';
 import { collectWorkletSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
@@ -603,4 +604,63 @@ export async function rehydrateSamples(): Promise<SampleRef[]> {
   // dos proyectos se soltaría para volver a leerse del disco a continuación.
   collectWorkletSamples(engine, store.project);
   return missing;
+}
+
+/**
+ * Recolección EN SESIÓN: además de pedirle al worklet que suelte lo que
+ * sobra, DESREGISTRA los samples que ya no usa ningún canal, slicer, zona de
+ * keymap ni clip de audio — pero solo los que además ningún undo, redo ni
+ * rama archivada puede volver a nombrar. Sin esa segunda condición,
+ * `unregisterSample` justo después de `removeChannel` desregistraría el
+ * sample que ese mismo borrado acaba de dejar suelto, y deshacerlo devolvería
+ * un canal mudo (ver auditoría v3.5, tarea db8986f2 / ac6c9c8f).
+ *
+ * Es la mitad que le faltaba a `rehydrateSamples()`: aquella libera memoria
+ * al REEMPLAZAR el proyecto entero (abrir un `.orbit`, plantilla, autosave,
+ * restaurar versión), donde el proyecto anterior ya no tiene historial que
+ * proteger nada — su undo se tiró con él. Esta libera memoria DENTRO de la
+ * MISMA sesión —borrar un canal, deshacer, rehacer—, donde sí hay que
+ * respetar la ventana de undo: el sample que se acaba de soltar sigue vivo en
+ * el inverso de ESE mismo cambio (`restoreChannel` guarda el canal entero,
+ * `sampleId` incluido) hasta que esa entrada cae del historial (tope de 500)
+ * o de la rama en la que quedó archivada.
+ *
+ * El desregistro se despacha como un comando normal —así llega igual a los
+ * demás clientes de una sala en vez de que cada uno decida por su cuenta y
+ * los registros de samples diverjan entre ellos— pero con origin `'gc'` y NO
+ * `'local'`: el bus archiva el futuro (`redoStack`) de un origen entero cada
+ * vez que dispatch ve un comando nuevo de ESE origen, para poder ofrecerlo
+ * luego como rama. Despachar esto como `'local'` justo después de un
+ * Ctrl+Z archivaría el propio redo que el usuario acaba de dejar pendiente
+ * SOLO por la casualidad de que hubiera un huérfano de sesiones anteriores
+ * esperando su turno — rompería "deshacer y volver a rehacer" sin que el
+ * usuario hiciera nada más. `'gc'` no es `'local'` (no le toca su redo) y no
+ * es `remote:*` (sí se re-anexa al log de colaboración, ver `command-log.ts`).
+ */
+export function collectSessionSamples(): void {
+  const project = store.project;
+  const orphaned: string[] = [];
+  for (const [id, count] of countSampleRefs(project)) {
+    // `sampleIsUsed(count, false)` ignora el registro: cuenta solo canales,
+    // slicers, zonas de keymap y clips. `registered` aparte, porque un
+    // sample sin ninguna de esas referencias pero SIN registrar no es un
+    // huérfano de este caso — no hay nada que desregistrar.
+    if (count.registered && !sampleIsUsed(count, false)) orphaned.push(id);
+  }
+  const releasable = store.unreachableIds(orphaned);
+  if (releasable.length > 0) {
+    const commands: Command[] = releasable.map((sampleId) => ({
+      type: 'unregisterSample',
+      sampleId,
+    }));
+    const label =
+      releasable.length === 1
+        ? 'Liberar sample sin uso'
+        : `Liberar ${releasable.length} samples sin uso`;
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label, origin: 'gc' },
+    );
+  }
+  collectWorkletSamples(engine, store.project);
 }

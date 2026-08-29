@@ -1,6 +1,7 @@
 /** Atajos globales de teclado (catálogo en docs/FEATURES.md §15). */
 
 import { useEffect } from 'react';
+import { collectSessionSamples } from '../browser/sound-actions';
 import { repeatLastExport } from '../export';
 import { usePaletteStore } from '../palette';
 import { removeActivePattern } from '../palette/default-commands';
@@ -38,11 +39,17 @@ export function useShortcuts(): void {
       if (e.ctrlKey && !e.shiftKey && e.code === 'KeyZ') {
         e.preventDefault();
         store.undo();
+        // Deshacer puede dejar un sample sin nadie que lo nombre (el borrado
+        // de un canal que a su vez se deshace) o devolver uno que sí hacía
+        // falta: la recolección en sesión vuelve a correr en los dos sentidos
+        // (ver auditoría v3.5, tarea db8986f2 / ac6c9c8f).
+        collectSessionSamples();
         return;
       }
       if ((e.ctrlKey && e.code === 'KeyY') || (e.ctrlKey && e.shiftKey && e.code === 'KeyZ')) {
         e.preventDefault();
         store.redo();
+        collectSessionSamples();
         return;
       }
       // Ctrl+Shift+Supr: borra el patrón activo (con sus notas y sus clips).

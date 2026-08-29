@@ -65,7 +65,12 @@ import {
   type Note,
 } from '@orbit/core';
 import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
-import { addSamplerChannels, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
+import {
+  addSamplerChannels,
+  collectSessionSamples,
+  getDragEntries,
+  SOUND_MIME,
+} from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
 import { reportActivity } from '../../collab/presence';
 // Las acciones de patrón viven en un solo sitio a propósito: el guard del
@@ -351,6 +356,11 @@ export function ChannelRack() {
     if (useUiStore.getState().channelEditorId === channelId) {
       useUiStore.setState({ channelEditorId: null });
     }
+    // Borrar un canal es justo el momento en que su sample puede quedarse sin
+    // nadie que lo nombre: que el worklet suelte lo que de verdad sobra (ver
+    // auditoría v3.5, tarea db8986f2 / ac6c9c8f — antes esto solo pasaba al
+    // reemplazar el proyecto entero, nunca en mitad de una sesión de trabajo).
+    collectSessionSamples();
   };
 
   /** Editor de sonido del canal (lo mismo que el doble clic en su nombre). */

@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { notifyBanner } from '../../state/bounce';
 import {
   EQ_MAX,
   EQ_MIN,
@@ -1395,12 +1396,23 @@ export function Mixer() {
             disabled={!canRoute}
             title={routeHint}
             onClick={() => {
-              store.dispatch(
-                { type: 'setRoute', trackIndex: selIndex, routeTo: menuTarget },
-                {
-                  label: `Enrutar ${trackLabel(selIndex, mixer)} → ${trackLabel(menuTarget, mixer)}`,
-                },
-              );
+              // `setRoute` RECHAZA con una excepción la ruta que cerraría un
+              // ciclo (ver la guarda de `wouldLoop` en @orbit/core): sin este
+              // catch el menú se cerraría en silencio y la ruta simplemente no
+              // pasaría, que es la misma clase de mudez que la guarda vino a
+              // evitar. El editor de nodos no lo necesita porque ya bloquea el
+              // arrastre antes de soltarlo; acá el clic siempre está permitido
+              // hasta que el comando decide.
+              try {
+                store.dispatch(
+                  { type: 'setRoute', trackIndex: selIndex, routeTo: menuTarget },
+                  {
+                    label: `Enrutar ${trackLabel(selIndex, mixer)} → ${trackLabel(menuTarget, mixer)}`,
+                  },
+                );
+              } catch (e) {
+                notifyBanner(e instanceof Error ? e.message : String(e));
+              }
               setStripMenu(null);
             }}
           >

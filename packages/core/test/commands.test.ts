@@ -206,6 +206,57 @@ describe('comandos: apply + inverso = identidad', () => {
     expectInvertible(p, { type: 'setRoute', trackIndex: 1, routeTo: 3 });
   });
 
+  it('setRoute rechaza un ciclo directo (A → B → A) y deja la ruta anterior', () => {
+    const p = createEmptyProject();
+    applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: 3 }); // 1 → 3
+    expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 3, routeTo: 1 })).toThrow(
+      /ciclo/,
+    );
+    // La ruta de la pista 3 no cambió: seguía apuntando al Master (0).
+    expect(p.mixer[3]!.routeTo).toBe(0);
+    // Y la de la 1 tampoco se tocó.
+    expect(p.mixer[1]!.routeTo).toBe(3);
+  });
+
+  it('setRoute rechaza un ciclo indirecto (A → B → C → A)', () => {
+    const p = createEmptyProject();
+    applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: 2 }); // 1 → 2
+    applyCommand(p, { type: 'setRoute', trackIndex: 2, routeTo: 3 }); // 2 → 3
+    expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 3, routeTo: 1 })).toThrow(
+      /ciclo/,
+    );
+    expect(p.mixer[3]!.routeTo).toBe(0); // sin cambios
+    expect(p.mixer[1]!.routeTo).toBe(2);
+    expect(p.mixer[2]!.routeTo).toBe(3);
+  });
+
+  it('setRoute rechaza enrutar una pista a sí misma', () => {
+    const p = createEmptyProject();
+    expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 5, routeTo: 5 })).toThrow(
+      /ciclo/,
+    );
+    expect(p.mixer[5]!.routeTo).toBe(0);
+  });
+
+  it('setRoute sigue admitiendo una cadena larga sin ciclo', () => {
+    const p = createEmptyProject();
+    expectInvertible(p, { type: 'setRoute', trackIndex: 1, routeTo: 2 });
+    applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: 2 });
+    expectInvertible(p, { type: 'setRoute', trackIndex: 2, routeTo: 3 });
+    applyCommand(p, { type: 'setRoute', trackIndex: 2, routeTo: 3 });
+    // 3 → 0 (Master) cierra la cadena en el Master, no en un ciclo: es válido.
+    expectInvertible(p, { type: 'setRoute', trackIndex: 3, routeTo: 0 });
+  });
+
+  it('setRoute detecta el ciclo también cuando el camino de vuelta es un send', () => {
+    const p = createEmptyProject();
+    applyCommand(p, { type: 'setSend', trackIndex: 3, target: 1, level: 0.5 }); // 3 →(send)→ 1
+    expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: 3 })).toThrow(
+      /ciclo/,
+    );
+    expect(p.mixer[1]!.routeTo).toBe(0);
+  });
+
   it('arrangements', () => {
     const p = createEmptyProject();
     const arr = { id: newId(), name: 'B-side' };

@@ -17,7 +17,8 @@ import {
 import { saveVersion } from './versions';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
-import { setActivePattern, store } from './app';
+import { engine, setActivePattern, store } from './app';
+import { collectWorkletSamples } from './sample-gc';
 import { confirmDiscard, markClean, markCleanAt } from './autosave';
 import {
   describeTemplateLoad,
@@ -57,6 +58,12 @@ export function newProject(): void {
   store.replaceProject(createEmptyProject());
   useProjectFile.setState({ path: null });
   markClean();
+  // El proyecto anterior se fue entero y con él su historial, así que ningún
+  // undo puede reclamar ya sus samples: es el momento en que de verdad sobran
+  // en el worklet. Los otros caminos de reemplazo total (abrir un .orbit,
+  // plantilla, autosave, restaurar versión) ya recolectan al rehidratar; este
+  // no rehidrata nada —arranca vacío— y se quedaba sin soltar nada.
+  collectWorkletSamples(engine, store.project);
   notify('Proyecto nuevo.');
 }
 

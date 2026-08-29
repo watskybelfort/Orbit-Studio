@@ -207,6 +207,54 @@ export class ProjectStore {
     return this.undoStack;
   }
 
+  /**
+   * De esta lista de ids, ¿cuáles ya NO aparecen en ningún comando del
+   * historial —pasado, futuro o archivado en una rama— ni en su inverso?
+   *
+   * Es la pregunta que hace falta para soltar de verdad un sample huérfano
+   * (o cualquier otro id que un comando lleve embebido) sin romper undo: uno
+   * que el usuario borró hace un momento sigue vivo en el `inverse` de esa
+   * misma entrada (`restoreChannel` guarda el canal entero, `sampleId`
+   * incluido), así que sigue siendo recuperable y esto NO lo devuelve. Uno
+   * cuya entrada ya cayó del historial (tope de 500, o su rama se podó) deja
+   * de aparecer en cualquier lado y esto sí lo devuelve — ahí es cuando
+   * "deshacer" ya no puede resucitarlo, así que es seguro dejar de contarlo
+   * como registrado.
+   *
+   * Genérico a propósito: no sabe qué es un "sample" ni ningún otro concepto
+   * del modelo, solo busca el texto exacto (entre comillas, para que un id
+   * no cuente como encontrado por ser prefijo de otro). Un id que aparece de
+   * casualidad en OTRO campo del mismo comando solo alarga su vida — nunca lo
+   * pierde antes de tiempo — así que el único error posible cae del lado
+   * seguro.
+   */
+  unreachableIds(ids: Iterable<string>): string[] {
+    const candidates = new Set(ids);
+    if (candidates.size === 0) return [];
+    const strike = (cmd: Command) => {
+      if (candidates.size === 0) return;
+      const text = JSON.stringify(cmd);
+      for (const id of candidates) {
+        if (text.includes(JSON.stringify(id))) candidates.delete(id);
+      }
+    };
+    for (const e of this.undoStack) {
+      strike(e.command);
+      strike(e.inverse);
+    }
+    for (const e of this.redoStack) {
+      strike(e.command);
+      strike(e.inverse);
+    }
+    for (const b of this.branches) {
+      for (const e of b.entries) {
+        strike(e.command);
+        strike(e.inverse);
+      }
+    }
+    return [...candidates];
+  }
+
   // ── Historial navegable (panel de historial) ──────────────────────────────
 
   /**
