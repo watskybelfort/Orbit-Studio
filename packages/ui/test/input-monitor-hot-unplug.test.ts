@@ -14,6 +14,27 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * `rig()` (más abajo) hace `vi.resetModules()` y reimporta `../src/state/app`
+ * entero en CADA test — hace falta porque `input-monitor.ts` guarda `stream`,
+ * `deviceChangeWired` y `unsubscribeProject` en variables de módulo, y sin un
+ * módulo nuevo un test heredaría el "micro abierto" o el "ya enganchado" del
+ * anterior (ver el comentario de `rig()`). Ese reimport reevalúa el grafo de
+ * `app.ts` —el motor, el store, todo lo que arrastra— y el primero de la
+ * tanda paga la transformación de Vite en frío.
+ *
+ * En una máquina en reposo eso es barato (los 15 tests de este archivo y de
+ * `input-monitor-recording-guard.test.ts` corren en ~200 ms cada uno). Bajo
+ * carga real de varios agentes a la vez se midió el primer test de cada
+ * archivo en varios segundos, y con carga sintética más severa (40 procesos
+ * quemando CPU en una máquina de 20 núcleos) ese primer `import()` llegó a
+ * 34 s por sí solo — muy por encima de los 5000 ms por defecto de Vitest, que
+ * es justo el timeout que se vio caer en CI. 60 s deja un margen de casi 2×
+ * sobre ese peor caso medido sin convertir esto en un test lento de verdad
+ * (con la máquina libre sigue terminando en milisegundos).
+ */
+vi.setConfig({ testTimeout: 60_000 });
+
 interface FakeTrack {
   stop: ReturnType<typeof vi.fn>;
   onended: (() => void) | null;

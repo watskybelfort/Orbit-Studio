@@ -16,6 +16,15 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+/**
+ * Mismo `rig()` —y el mismo costo— que `input-monitor-hot-unplug.test.ts`:
+ * ver el comentario de allá para el porqué del `vi.resetModules()` por test y
+ * de los 60 s (medido: primer `import()` de `../src/state/app` en varios
+ * segundos bajo carga real de agentes en paralelo, hasta 34 s con carga
+ * sintética severa; en reposo este archivo corre en ~200 ms por test).
+ */
+vi.setConfig({ testTimeout: 60_000 });
+
 interface FakeTrack {
   stop: ReturnType<typeof vi.fn>;
   onended: (() => void) | null;

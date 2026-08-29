@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PluginViewSession, type ViewPort } from '../src/plugins/view-session';
+import { pumpWithFakeClock } from './fake-clock-pump';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (p: string): string => resolve(here, '../src', p);
@@ -100,6 +101,7 @@ describe('un instrumento cuya vista se cuelga sigue sonando', () => {
       },
     };
     const deaths: string[] = [];
+    const HANG_DEADLINE_MS = 150;
     const session = new PluginViewSession({
       port,
       source: 'function createInstrument(){} function createView(){}',
@@ -107,27 +109,26 @@ describe('un instrumento cuya vista se cuelga sigue sonando', () => {
       labelCount: 0,
       sampleRate: 48000,
       fps: 60,
-      deadlineMs: 150,
+      deadlineMs: HANG_DEADLINE_MS,
       onDeath: (r) => deaths.push(r),
     });
     worker.on('message', (data: unknown) => session.handleMessage(data, performance.now()));
 
     // El "motor de audio": un contador que NO oye una palabra del worker
-    // colgado ni de la sesión. Si el hilo del host se bloqueara esperando al
-    // worker (que es justo lo que NO tiene que pasar), este contador se
-    // congelaría igual que el dibujo.
+    // colgado ni de la sesión, y que corre con timers de verdad —no con el
+    // reloj de mentira de `pumpWithFakeClock`, de abajo—. Si el hilo del host
+    // se bloqueara esperando al worker (que es justo lo que NO tiene que
+    // pasar), este contador se congelaría igual que el dibujo.
     let engineTicks = 0;
     const engineClock = setInterval(() => {
       engineTicks++;
     }, 5);
 
-    const t0 = performance.now();
-    let hostTicks = 0;
-    while (performance.now() - t0 < 2000 && session.alive) {
-      session.tick(performance.now(), () => {});
-      hostTicks++;
-      await new Promise((r) => setTimeout(r, 8));
-    }
+    // `pumpWithFakeClock` (compartida con `plugin-view-hang.test.ts`, misma
+    // prueba de fuego sobre `PluginViewSession` a secas) le da vueltas a
+    // `session.tick()` con un reloj de mentira: ver el porqué largo en
+    // `fake-clock-pump.ts`.
+    const hostTicks = await pumpWithFakeClock(session, HANG_DEADLINE_MS);
     clearInterval(engineClock);
 
     // 1) La sesión se dio cuenta del cuelgue y mató al worker de verdad.
@@ -137,11 +138,15 @@ describe('un instrumento cuya vista se cuelga sigue sonando', () => {
     expect(terminated).toBe(1);
 
     // 2) Mientras tanto, "el audio" siguió corriendo: no es un adorno que dio
-    // una vuelta y se paró, dio VARIAS —independientes del worker colgado. El
-    // número exacto no importa (depende de cuánto tarde la máquina en notar
-    // el timeout de 150 ms); que sea mayor que un puñado es lo que separa
-    // "corrió de verdad" de "se congeló con todo lo demás".
-    expect(engineTicks).toBeGreaterThan(5);
-    expect(hostTicks).toBeGreaterThan(3);
+    // una vuelta y se paró, dio VARIAS —independientes del worker colgado.
+    // `hostTicks` ya no depende de la máquina (reloj de mentira en
+    // `pumpWithFakeClock`), así que basta pedirle más de una vuelta.
+    // `engineTicks` SÍ sigue midiendo tiempo real —es justo su punto, un
+    // reloj ajeno al watchdog—, así que aquí el margen es flojo a propósito:
+    // más de cero es lo que separa "corrió de verdad" de "se congeló con
+    // todo lo demás", sin que decidir CUÁNTAS vueltas cuentan dependa de
+    // cuánta CPU hubiera libre en ese instante.
+    expect(engineTicks).toBeGreaterThan(0);
+    expect(hostTicks).toBeGreaterThan(1);
   }, 10_000);
 });

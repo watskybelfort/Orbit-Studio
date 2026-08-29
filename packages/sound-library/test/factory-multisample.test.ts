@@ -435,5 +435,10 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
         }
       }
     }
-  });
+    // 30 s, mismo motivo y misma cifra que el test de arriba ("la zona que
+    // suena..."): en reposo este tarda ~1,2 s, pero renderiza por el kernel
+    // instrumentos × 9 teclas × 3 fuerzas, y bajo carga real (varios agentes a
+    // la vez) se midió pasar de los 9 s — de sobra para tumbar el timeout de
+    // 5 s por defecto y muy por debajo de este margen.
+  }, 30_000);
 });
