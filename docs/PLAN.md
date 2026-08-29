@@ -6,6 +6,64 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 29-08-2026: v3.7.0
+
+**La ronda que cierra el árbol de tareas de la revisión.** La v3.6 salió con
+cuatro tareas todavía abiertas porque los arreglos que destapó la auditoría se
+comieron la ronda; esta las cierra.
+
+### La deuda más vieja, saldada
+
+`packages/engine/test/golden` **existe**. La regla dura 5 llevaba tiempo
+apuntando al vacío y nueve cambios de sonido habían entrado sin fijar.
+
+Lo que hay que saber para trabajar con ella:
+
+- **Dos capas a propósito.** El hash sha256 dice QUE algo cambió; la matriz de
+  medidas perceptuales (LUFS, peak, cuatro bandas, correlación, del total y de
+  ocho ventanas, con 0,01 dB de tolerancia) dice QUÉ cambió. Multiplicar por
+  diez una constante anti-denormal mueve el hash de siete fixtures y no mueve
+  ni una medida — el test lo dice con esas palabras.
+- **El hash se compara sin condicional**, y eso está medido: el mismo bundle en
+  cinco entornos con Docker sale bit a bit idéntico en x64 aguantando cambio de
+  SO y tres versiones mayores de V8. La matriz de la CI cae dentro. Poner un
+  `skip` por plataforma habría sido el camino fácil y habría dejado de proteger.
+- **En arm64 difieren dos fixtures por FMA** (1,9e-13 dB de diferencia sonora).
+  Ahí el test DEBE ponerse rojo, y `golden:update` bloquea regenerar la línea
+  base desde arm64: hacerlo rompería el hash de toda la CI.
+- **Actualizar pide un gesto**: `npm run golden:update` enseña el diff y no
+  escribe; escribir pide `--accept "<motivo>"`. Nunca un `--update-snapshots`.
+
+Tres cosas quedaron escritas en `docs/GOLDEN.md` en vez de tapadas: por qué se
+quitó el fixture de percusión Opus (fijaba la versión de V8 y no el encoder, y
+además no cubría nada), por qué `fx-delay` no fija el flush de denormales de
+`DelayUnit` pese a lo que sugiere su nombre (línea de retardo en Float32, pierde
+el 1e-20 en el redondeo), y por qué comparar el Opus por perfil de tamaños de
+paquete sería portable pero no muerde.
+
+### Lo demás de la ronda
+
+- **El `sampleCache` del render** ya no crece sin freno: de 6460 a 1292 MiB en
+  el escenario de cinco proyectos con tomas largas. Se desaloja al final de
+  `collectSamples()`, nunca antes, así que jamás tira algo que la propia llamada
+  necesita.
+- **Seis de los once avisos de `exhaustive-deps` eran bugs reales** —manejadores
+  del piano roll y la playlist leyendo valores rancios—, cinco sobran a
+  propósito y ahora lo dicen. La regla sube de aviso a error.
+- **Ganancia por ruta de entrada** (faltaba solo el mando: modelo, comando y
+  kernel ya la aplicaban) y **vista de instrumento en el Channel Rack**,
+  reusando el worker aislado del mixer en vez de un segundo camino de dibujo.
+
+### Lo que sigue abierto
+
+Lo que necesita manos y oídos: escuchar los cambios de sonido de las dos últimas
+rondas —la cola de reverb con el piso nuevo, el pluck que perdió punch, el
+`.opus` del acorde— y el hardware (interfaz de más de dos canales, bucle físico
+de latencia). Más el punch del pluck, cuya solución de verdad pide que SVF y
+Biquad sepan saltarse su suavizado interno, y la cancelación de un export.
+
+---
+
 ## Estado — 29-08-2026: v3.6.0
 
 **La ronda de revisar lo entregado.** Se auditaron las diecinueve tareas de la

@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.6.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2197%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.7.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2250%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -83,6 +83,41 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.7.0 — "la red que la regla daba por hecha".** La ronda que cierra lo que
+la v3.6 dejó a medias, y que empieza por la deuda más vieja del repo.
+
+**Los golden tests existen.** La regla dura 5 de `CLAUDE.md` mandaba desde hacía
+tiempo actualizar los hashes de `engine/test/golden` ante cualquier cambio de
+sonido, y ese directorio no existía: nueve cambios de sonido habían entrado sin
+nada que los fijara. Ahora son 24 renders deterministas y dos flujos Opus, con
+**dos capas**: el hash bit a bit y una matriz de medidas perceptuales que dice
+*qué* se movió. La utilidad de tener las dos se demostró sola — multiplicar por
+diez una constante anti-denormal mueve el hash de siete fixtures y no mueve ni
+una medida.
+
+Y lo difícil, la estabilidad entre plataformas, se **midió** en vez de suponerse:
+el mismo bundle en cinco entornos con Docker sale bit a bit idéntico en x64
+aguantando cambio de sistema operativo y tres versiones mayores de V8. Por eso el
+hash se compara sin condicional, que es la única forma de que no acabe en un
+`skip` y deje de proteger. Muerde, comprobado ocho veces perturbando coeficientes
+reales.
+
+**La otra fuga de audio, cerrada.** El `sampleCache` del render vivía en el hilo
+de la UI y no lo vaciaba nadie: cinco proyectos de dieciséis tomas largas
+acumulaban **6460 MiB**. Ahora quedan **1292** — lo que registra el proyecto
+abierto, y nada más.
+
+**Los once avisos de dependencias, uno a uno — y seis eran bugs.** Faltaban
+dependencias en manejadores del piano roll y la playlist, así que leían valores
+rancios. Los cinco que sobran a propósito ahora dicen por qué. Con eso,
+`exhaustive-deps` sube de aviso a error: uno nuevo rompe la CI en vez de sumarse
+a la pila.
+
+**Las dos puntas sueltas de la v3.5**: la ganancia de una ruta de entrada ya
+tiene mando (el modelo, el comando y el kernel ya la aplicaban; faltaba el
+deslizador), y **un instrumento pinta su propia interfaz en el Channel Rack**,
+reusando el mismo worker aislado que ya usaba el mixer.
 
 **v3.6.0 — "revisar lo que ya se dio por hecho".** Una ronda entera dedicada a
 comprobar que las diecinueve tareas de la v3.5 de verdad hacían lo que decían.
