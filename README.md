@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.4.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-1661%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.5.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2131%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
