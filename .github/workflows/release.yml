@@ -15,16 +15,20 @@
 # en esa ruta paralela en el único job que produce el artefacto que se publica
 # es un riesgo innecesario: acá se corre `npm ci` a secas.
 #
-# Firma de editor: NO hay certificado de firma de código configurado en este
-# repo. El instalador sale sin firmar — electron-builder no falla por esto,
-# simplemente omite el paso de firma si no encuentra CSC_LINK/CSC_KEY_PASSWORD
-# en el entorno. El README ya avisa que SmartScreen muestra la advertencia de
-# editor no reconocido la primera vez ("Más información → Ejecutar de todas
-# formas"). Para firmarlo de verdad hace falta comprar un certificado
-# Authenticode (idealmente EV, para que SmartScreen no acumule reputación
-# desde cero) y guardar como secrets del repo CSC_LINK (el .pfx en base64, o
-# una URL a él) + CSC_KEY_PASSWORD — hoy no existen y este workflow no los
-# inventa ni asume que están.
+# Firma de editor: el paso de abajo ya pasa CSC_LINK/CSC_KEY_PASSWORD como env
+# vars desde secrets del repo, pero HOY esos secrets no existen — no hay
+# certificado de firma de código comprado. Cuando el secret no existe, GitHub
+# Actions lo resuelve como cadena vacía, y electron-builder trata
+# CSC_LINK === "" igual que "no seteado": omite la firma sin fallar el build
+# (confirmado leyendo node_modules/app-builder-lib/out/codeSign/
+# windowsSignToolManager.js: `if (cscLink == null || cscLink === "") return null`).
+# O sea: el instalador sale sin firmar hasta que alguien cargue esos dos
+# secrets, y ese día sale firmado sin tocar una línea de este archivo. El
+# README ya avisa que SmartScreen muestra la advertencia de editor no
+# reconocido la primera vez ("Más información → Ejecutar de todas formas").
+# Qué certificado comprar, dónde, y el nombre exacto de cada secret:
+# docs/FIRMA.md — no repetido acá para no tener dos fuentes que puedan
+# desalinearse.
 name: Release
 
 on:
@@ -54,6 +58,12 @@ jobs:
       - run: npm ci
 
       - name: Compilar + empaquetar (electron-vite build && electron-builder --win --x64)
+        env:
+          # Vacíos hoy (no hay certificado). Ver el comentario de arriba del
+          # archivo y docs/FIRMA.md — cargar estos dos secrets alcanza para
+          # que este mismo step empiece a firmar, sin más cambios acá.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: npm run dist -w @orbit/desktop
 
       - name: Smoke test del paquete (pack de sonidos en resources/sound-library)
