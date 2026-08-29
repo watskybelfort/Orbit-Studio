@@ -6,6 +6,82 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 29-08-2026: v3.6.0
+
+**La ronda de revisar lo entregado.** Se auditaron las diecinueve tareas de la
+v3.5 contrastando lo prometido en cada tarjeta contra el código que quedó, y
+además **se abrió la app de verdad**. Veredicto: 13 cumplían, 5 con reparos, 1
+no cumplía nada.
+
+### El hallazgo de método, que vale más que los arreglos
+
+**La v3.5 se cerró casi entera diciendo «no se pudo ver funcionando: no hay
+pantalla ni tarjeta de sonido». La mitad de eso era falso.** La máquina tiene
+pantalla. Orbit se levanta con `ORBIT_DEBUG_PORT=9223 npm run dev` y se conduce
+con `tools/qa/cdp.mjs` (`eval` y `shot`), que ya existía en el repo.
+
+Con eso se comprobó de verdad, y en los tres temas: el espectro por pista, el
+LUFS en vivo, el cartel de versión nueva, los buses y —lo más difícil de
+falsear— **las ramas del historial**, divergiendo a mano y viendo aparecer «1
+rama guardada · 1 cambio que el undo normal habría borrado». Y las tools MCP de
+`orbit-studio` escriben en la app viva por el bus de comandos, así que montar un
+proyecto real para probarlo cuesta segundos. También sirve para MEDIR sin oír:
+subiendo y bajando el fader de un bus, `analyze_mix` dio los 20 dB clavados.
+
+**Regla para las próximas rondas: no volver a cerrar una tarea diciendo que no
+se pudo ver.** Lo que sigue necesitando manos humanas es oír (ningún sustituto
+numérico es escuchar) y el hardware.
+
+### Lo que la revisión encontró roto
+
+1. **El GC de samples no cumplía nada de lo que decía** (era la única «NO
+   CUMPLE»). Solo disparaba al reemplazar el proyecto entero, y aunque hubiera
+   disparado no habría liberado: un sample cuenta como vivo mientras esté en
+   `project.samples`, `removeChannel` no lo quita —a propósito, para que el undo
+   devuelva el audio— y `unregisterSample` tenía cero llamadas en la UI.
+   La pieza que faltaba era saber **cuándo deja de ser recuperable**:
+   `ProjectStore.unreachableIds()` responde qué ids ya no aparecen en ningún
+   comando del historial —ni pasado, ni futuro, ni archivado en una rama— ni en
+   sus inversos. Cuando duda, conserva.
+   Ojo con el detalle que costó un bug: despachar la limpieza con `origin:
+   'local'` justo tras Ctrl+Z **archiva el redo del usuario en una rama** vía
+   `stashRedo`. Va con `origin: 'gc'`.
+2. **Se tapó un archivo, no la clase de problema.** El anti-denormal estaba solo
+   en `reverb.ts`. Faltaba en `filters.ts` (Biquad, SVF, Allpass1) y en delay,
+   flanger y phaser. Y Biquad es `StripEq`, que corre en cada canal del mixer.
+   Medido: un Biquad resonante tras el silencio entra en un **ciclo límite
+   permanente** en rango subnormal —confirmado a 8 millones de muestras— a 73
+   ns/muestra contra 9-12 de referencia.
+3. **Un ciclo de enrutado enmudecía la mezcla entera sin avisar** (−240 dBFS).
+   El detector `wouldLoop` ya existía y el editor de nodos lo usaba; el menú del
+   mixer y el puente MCP entraban por otra puerta. Ahora `setRoute` lo rechaza
+   antes de mutar y el menú enseña el motivo.
+4. Cuatro bugs de UI, un stem que se llevaba a sus hermanos de lote, y el
+   roadmap del README listando como pendiente casi todo lo ya entregado.
+
+### Lo que se midió y NO funcionó (para no repetir el camino)
+
+- **La guarda de umbral no recupera el punch del pluck.** Se añadió el 0,2% que
+  ya usaba `prisma-voice.ts` al suavizado por muestra de `voices.ts`, y se midió:
+  durante los 5 ms de ataque el corte cambia más de ese 0,2% en el 90-100% de las
+  muestras, así que dispara casi igual. Tiempo hasta el 90% de brillo: 6,76 ms
+  con guarda y sin ella, contra 3,70 sin suavizar. Arreglarlo pide que SVF y
+  Biquad sepan saltarse su suavizado interno para quien ya los modula de forma
+  continua — cambia el sonido, es decisión aparte.
+- **Apagar el detector de transitorios por tonalidad no arregla el acorde.**
+  Reduce los falsos positivos de 5-6 a 1 de cada 75 tramas y **la cifra objetivo
+  no se mueve** (la empeora una décima). Lo que queda del acorde es la sombra
+  del VBR en el fundido de salida, no el detector. Queda implementado y apagado.
+
+### Lo que sigue abierto
+
+- **Los golden tests siguen sin existir**, y ahora hay más cambios de sonido sin
+  fijar: los denormales tocaron cinco unidades más. Es la tarea número uno.
+- Ganancia por ruta, vista de instrumento en el rack, el `sampleCache` del
+  render, los 11 avisos de exhaustive-deps y firmar el instalador.
+
+---
+
 ## Estado — 28-08-2026: v3.5.0
 
 **Diecinueve tareas de una auditoría del árbol entero**, ejecutadas en paralelo

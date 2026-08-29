@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.5.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2131%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.6.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2197%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -84,10 +84,43 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.5.0 — "medir antes de decidir".** Diecinueve tareas de una auditoría del
-árbol entero. Lo que las une no es un tema, es un método: **casi todo lo que
-salió bien empezó por construir con qué medirlo**, y tres veces lo medido
-contradijo lo que la documentación daba por sabido.
+**v3.6.0 — "revisar lo que ya se dio por hecho".** Una ronda entera dedicada a
+comprobar que las diecinueve tareas de la v3.5 de verdad hacían lo que decían.
+Cinco auditorías independientes contrastaron lo prometido en cada tarjeta
+contra el código que quedó, y **la app se abrió y se condujo de verdad** — algo
+que la ronda anterior dio por imposible.
+
+El veredicto honesto: **trece cumplían, cinco cumplían con reparos, y una no
+cumplía nada de lo que decía.** Lo que salió:
+
+- **La recolección de samples no liberaba nada** mientras trabajas. Solo corría
+  al reemplazar el proyecto entero, y aunque hubiera corrido tampoco habría
+  soltado nada: un sample cuenta como vivo mientras esté registrado, y nadie lo
+  desregistraba nunca. El problema original —la RAM del worklet solo crece—
+  seguía intacto. Ahora se pregunta si algún undo puede volver a nombrarlo antes
+  de soltarlo, y cuando duda, conserva.
+- **Los denormales se taparon en la reverb y en ningún otro sitio.** El delay
+  con feedback, el flanger, el phaser y el EQ que corre en *cada canal del
+  mixer* tenían el mismo lazo sin arreglar. Un Biquad resonante tras el silencio
+  entraba en un ciclo límite permanente en rango subnormal, a 73 ns/muestra
+  contra 9-12 de referencia, para siempre.
+- **Un ciclo de enrutado dejaba la mezcla en silencio absoluto sin avisar.**
+  Esto salió de abrir la app y probar: rutar 1→3 y luego 3→1 tiraba la salida a
+  −240 dBFS sin error, sin aviso y sin marca. El detector de ciclos ya existía
+  —el editor de nodos lo usaba— pero el menú del mixer entraba por otra puerta.
+- **Cuatro bugs de UI**, el peor: cambiar de dispositivo grabando truncaba la
+  toma en silencio, y no te enterabas hasta escucharla.
+- **Un stem que fallaba se llevaba por delante** hasta tres hermanos ya
+  renderizados de su lote.
+- **El acorde**, que era la última cifra en rojo del encoder, pasó de −10,99 a
+  **−10,61 dB** pesando el Viterbi por importancia espectral — con la percusión
+  idéntica dígito a dígito.
+
+Y lo que se aprendió del método: **la mitad de "no se pudo comprobar" era
+falso.** Orbit se levanta con `ORBIT_DEBUG_PORT=9223` y se conduce por CDP;
+con eso se vio el espectro, el LUFS, el cartel de versión, los buses y las
+ramas del historial en los tres temas. Lo que sigue necesitando manos humanas
+es **oír** y el **hardware**.
 
 **El encoder Opus dejó de decidirse a ciegas.** La v3.4 implementó la dispersión
 adaptativa, midió −0,02 dB —ruido— y la tiró, porque sin demostrar la mejora no
