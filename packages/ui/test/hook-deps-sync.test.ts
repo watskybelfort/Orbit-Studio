@@ -1,17 +1,25 @@
 /**
- * Regresión para tres `exhaustive-deps` que FALTABAN de verdad (v3.6, revisión
- * de los once avisos de la v3.5): un manejador de puntero que llama a una
- * función definida con `useCallback` más abajo, pero esa función no estaba en
- * su lista de dependencias — cerradura vieja sobre lo que esa función lee
- * (`laneMode`, `selection`, `clipsByTrack`...). El síntoma real es del tipo
- * "el primer clic tras cambiar de modo usa el modo anterior": no se reproduce
- * a mano de forma fiable y no hay aritmética que probar (es puro cableado de
- * React), así que en vez de montar el componente (jsdom, fuera del repo — ver
- * CLAUDE.md) esto lee el CÓDIGO FUENTE de verdad de cada manejador y comprueba
- * la propiedad: si el cuerpo LLAMA a la función, el array de deps la LISTA.
+ * Regresión para tres `exhaustive-deps` que faltaban de las listas (v3.6,
+ * revisión de los once avisos de la v3.5): un manejador de puntero llama a una
+ * función definida con `useCallback` más abajo, y esa función no estaba en su
+ * array de dependencias.
  *
- * Sin este test, alguien podría "limpiar" el array (o el propio
- * `eslint-disable`) sin darse cuenta de que la dependencia era real.
+ * **Lo que este test NO afirma**, porque al verificarlo no se sostuvo: que la
+ * ausencia produjera un fallo visible. Este docblock decía que el síntoma era
+ * "el primer clic tras cambiar de modo usa el modo anterior", y eso nunca se
+ * demostró. En los tres casos la dependencia ausente ya estaba cubierta
+ * transitivamente por otra de la misma lista (`paintAt` arrastra `draw`, que
+ * depende de `laneMode`; `deps(fadeHandleAt)` ⊆ `deps(clipAt)`) o apunta a una
+ * identidad estable (`setLoopRegion` es `useCallback(..., [])` y no lee nada del
+ * render). Hoy no hay ninguna cerradura vieja.
+ *
+ * La razón de listarlas igual, y de que este test exista, es que esa cobertura
+ * es **accidental**: depende de que otra función siga dependiendo de lo mismo.
+ * El día que alguien "limpie" esas deps (o el `eslint-disable`) el bug pasa a
+ * ser real. Eso es lo que se vigila: si el cuerpo LLAMA a la función, el array
+ * de deps la LISTA. Se comprueba leyendo el CÓDIGO FUENTE de cada manejador, en
+ * vez de montar el componente (jsdom está fuera del repo — ver CLAUDE.md),
+ * porque esto es puro cableado de React y no hay aritmética que probar.
  */
 
 import { readFileSync } from 'node:fs';

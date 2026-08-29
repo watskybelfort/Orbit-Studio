@@ -735,10 +735,12 @@ export function PianoRoll() {
       drag.current = { mode: 'create', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
       previewNote(channelIndex, key, true);
     },
-    // `applyVelocityAt` falta en la lista original: sin ella, tras cambiar
-    // `laneMode` (velocity/pan) sin tocar el resto de estas deps, el primer
-    // clic en la lane usaba el modo viejo (cerradura vieja sobre `laneMode`
-    // sacada de `applyVelocityAt`'s propias deps: [selection, laneMode, xToBeat, draw]).
+    // `applyVelocityAt` faltaba en la lista original. Ojo con el porqué, que la
+    // verificación de la v3.7 corrigió: NO producía un fallo visible. `laneMode`
+    // no puede cambiar sin recrear `draw` → `paintAt` → este manejador, y
+    // `paintAt` ya estaba listado, así que la cerradura nunca llegaba a ser vieja.
+    // Se lista igual porque esa cobertura es ACCIDENTAL: el día que `paintAt`
+    // deje de arrastrar `draw`, el bug aparece de verdad y nadie se entera.
     [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt, applyVelocityAt],
   );
 
