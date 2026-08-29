@@ -119,7 +119,7 @@ Con eso a la vista cayeron cuatro cosas:
   propia salida en el decodificador—, así que si lo reconstruido coincide con lo
   codificado, sale la señal original por inducción.
 
-La distancia media a libopus pasa de **−3,59 a −0,26 dB** de patrón — y el
+La distancia media a libopus pasa de **−3,59 a −0,22 dB** de patrón — y el
 reparto de bits (VBR por trama, intensidad estéreo y estéreo dual), que este
 README llegó a listar como lo que faltaba, entró en la misma versión.
 
@@ -343,7 +343,7 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 | Qué | Por qué |
 |---|---|
 | **Hashes de sonido en el motor** | `CLAUDE.md` manda actualizar conscientemente los golden tests ante cualquier cambio de sonido, y `packages/engine/test/golden` **no existe**. La v3.5 entró con cuatro cambios de sonido sin ningún hash que los fijara: hoy nada distingue una mejora deliberada de una regresión silenciosa |
-| **Cerrar el reparto de bits del Opus** | El peor caso sigue siendo tonal (acorde estéreo 128k) y ya se sabe por qué: el detector de transitorios da falsos positivos en el 5–8% de las tramas porque los cinco parciales del acorde **baten entre sí** y la energía de 2,5 ms fluctúa de verdad. No es un fallo del port —libopus hace lo mismo— así que arreglarlo es alejarse de la referencia a conciencia, y hay que medirlo señal por señal |
+| **La sombra del VBR en el fundido de salida** | El peor caso sigue siendo el acorde estéreo a 128k (−10,61 dB). Pesar el Viterbi por importancia espectral se llevó parte —de −10,99 a −10,61— pero lo que queda **no lo causa el detector de transitorios**: se midió apagándolo por tonalidad, los falsos positivos bajan de 5-6 a 1 de cada 75 tramas y la cifra no se mueve. Lo que queda es cómo reparte bits el VBR en el fundido |
 | **Probarlo con manos y oídos** | Lo que se ve ya se comprobó conduciendo la app por CDP; lo que falta es **hardware**: una interfaz de más de dos canales entregando los 8 de verdad, y la calibración de latencia con el bucle físico altavoz→micro |
 
 ### Más adelante
@@ -430,7 +430,7 @@ medidas por cada una**, y no miden lo mismo:
 
 | | Orbit | libopus | distancia | la peor |
 |---|---|---|---|---|
-| **Patrón** (perceptual) | 30,01 dB | 30,27 dB | **−0,26 dB** | −10,99 dB · acorde estéreo 128k |
+| **Patrón** (perceptual) | 30,05 dB | 30,27 dB | **−0,22 dB** | −10,61 dB · acorde estéreo 128k |
 | SNR (error) | 16,83 dB | 16,74 dB | +0,09 dB | −6,27 dB · tonal estéreo 96k |
 
 **Para decidir manda el patrón.** Es un PEAQ simplificado sobre el modelo de
