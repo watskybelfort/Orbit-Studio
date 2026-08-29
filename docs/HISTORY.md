@@ -92,10 +92,13 @@ rama). Los demás no ven tu árbol; ven el resultado, que es lo único que un
 documento compartido puede significar. Y convergen byte a byte, porque han
 recibido los mismos comandos por el mismo log.
 
-> `docs/ARCHITECTURE.md` y `docs/COLLAB.md` hablan de `Y.UndoManager` con
-> `trackedOrigins`. Eso **no** es lo que hace el código: el scoping por origen
-> vive en `ProjectStore` (`undo(origin)` / `redo(origin)`), no en Yjs, y no hay
-> ningún `UndoManager` en el repo.
+> Durante un tiempo `docs/ARCHITECTURE.md` y `docs/COLLAB.md` decían que esto
+> era un `Y.UndoManager` con `trackedOrigins`. No lo es, y ya está corregido en
+> los dos: el scoping por origen vive en `ProjectStore` (`undo(origin)` /
+> `redo(origin)`), no en Yjs, y no hay ningún `UndoManager` en el repo. Queda
+> anotado porque esa creencia equivocada llegó a cambiar un diseño: en Orbit un
+> undo **emite** un comando nuevo en vez de rebobinar, y el árbol de ramas se
+> construye sobre eso.
 
 ### Las ramas ajenas NO se archivan
 

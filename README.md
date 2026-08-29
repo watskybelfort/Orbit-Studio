@@ -119,7 +119,9 @@ Con eso a la vista cayeron cuatro cosas:
   propia salida en el decodificador—, así que si lo reconstruido coincide con lo
   codificado, sale la señal original por inducción.
 
-La distancia media a libopus pasa de **−3,59 a −0,79 dB** de patrón.
+La distancia media a libopus pasa de **−3,59 a −0,26 dB** de patrón — y el
+reparto de bits (VBR por trama, intensidad estéreo y estéreo dual), que este
+README llegó a listar como lo que faltaba, entró en la misma versión.
 
 **Y el DAW también.** La reverb gastaba **34× más CPU en silencio** —al decaer
 sin llegar a cero el estado entra en rango denormal— con la máquina calentándose
@@ -340,19 +342,19 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Seguir afinando el encoder Opus** | Queda el **reparto de bits**: VBR por trama e intensidad estéreo. La medida perceptual del banco reordenó todo lo demás y ya entró: la dispersión adaptativa (que llevaba fuera por medirse neutra en SNR), los **transitorios** —con un bug de sincronía del silencio que arrastraba desde siempre— y el **postfiltro**, que resultó no necesitar el decodificador embebido que este roadmap daba por hecho. Con eso la distancia media pasó de −3,59 a **−0,79 dB** de patrón. El peor caso sigue siendo tonal (−10,88, acorde estéreo 128k) pero **ya no por falta de predicción de tono**: el peine acierta el período 75/75, así que lo que queda ahí es justamente reparto entre bandas |
-| **Entradas de más de dos canales** | La entrada del kernel es estéreo fija: con una interfaz de 8 entradas se coge el par que el sistema ponga primero. Elegir el canal —o grabar varios a la vez— pide un nodo con más entradas y un enrutado por pista |
+| **Hashes de sonido en el motor** | `CLAUDE.md` manda actualizar conscientemente los golden tests ante cualquier cambio de sonido, y `packages/engine/test/golden` **no existe**. La v3.5 entró con cuatro cambios de sonido sin ningún hash que los fijara: hoy nada distingue una mejora deliberada de una regresión silenciosa |
+| **Cerrar el reparto de bits del Opus** | El peor caso sigue siendo tonal (acorde estéreo 128k) y ya se sabe por qué: el detector de transitorios da falsos positivos en el 5–8% de las tramas porque los cinco parciales del acorde **baten entre sí** y la energía de 2,5 ms fluctúa de verdad. No es un fallo del port —libopus hace lo mismo— así que arreglarlo es alejarse de la referencia a conciencia, y hay que medirlo señal por señal |
+| **Probarlo con manos y oídos** | Lo que se ve ya se comprobó conduciendo la app por CDP; lo que falta es **hardware**: una interfaz de más de dos canales entregando los 8 de verdad, y la calibración de latencia con el bucle físico altavoz→micro |
 
 ### Más adelante
 
 | Qué | Por qué |
 |---|---|
-| **Una tercera capa de fuerza en el pack** | Con dos, el salto de flojo a fuerte cae en un sitio y se puede oír si buscas: una capa de en medio lo repartiría en dos escalones más pequeños. Son otras 72 grabaciones y otros 28 MB de instalador, y el salto que se gana de dos a tres es más pequeño que el que se ganó de una a dos — por eso está aquí y no arriba |
-| **Buses y grupos de mezcla de verdad** | Carpetas del rack que sumen a un bus con su propia cadena, además del enrutado por cables que ya hay |
-| **Analizador de espectro por pista y medidor de LUFS integrado** | Ver el espectro y la sonoridad de cada strip, y normalizar el export a un objetivo (−14 LUFS y compañía) sin salir de la app |
-| **Historial en árbol y biblioteca de plantillas** | Deshacer que no pierda ramas al divergir, y arrancar proyectos desde plantillas con nombre |
-| **Optimizaciones del motor medidas en la auditoría** | Descargar samples que ya no usa nadie (hoy la RAM del worklet solo crece), export de stems en UNA petición al worker (hoy clona los samples por stem), suavizado de coeficientes al automatizar EQ/filtros, y flush de denormales en las colas de reverb |
-| **Compensación de latencia de la toma** | La toma entra por el mismo reloj de audio que el transporte, pero entre el micro y el kernel hay el buffer del sistema. Medirlo (bucle de calibración) y correr el clip esa cantidad dejaría la voz clavada sin tocar nada a mano |
+| **Vista de instrumento en el Channel Rack** | Un plugin ya puede pintar su propia interfaz en el mixer; en el rack todavía no |
+| **Ganancia por ruta** | Hoy una ruta a un bus lleva la señal entera; poder atenuar en el envío es lo que falta para usar los buses como envíos de verdad |
+| **La otra fuga de audio** | El `sampleCache` del render vive en el hilo de la UI y no lo suelta nadie — el mismo problema que se atacó en el worklet, en el otro lado |
+| **Firmar el instalador** | Sin firma de editor, SmartScreen avisa a todo el que lo baja. El camino queda preparado en el workflow: falta el certificado |
+| **Cancelar un export a medias** | Hoy un export de doce stems que tarda minutos no se puede parar |
 
 ### Horizonte
 
@@ -428,8 +430,8 @@ medidas por cada una**, y no miden lo mismo:
 
 | | Orbit | libopus | distancia | la peor |
 |---|---|---|---|---|
-| **Patrón** (perceptual) | 29,48 dB | 30,27 dB | **−0,79 dB** | −10,88 dB · acorde estéreo 128k |
-| SNR (error) | 16,25 dB | 16,74 dB | −0,49 dB | −6,28 dB · tonal estéreo 96k |
+| **Patrón** (perceptual) | 30,01 dB | 30,27 dB | **−0,26 dB** | −10,99 dB · acorde estéreo 128k |
+| SNR (error) | 16,83 dB | 16,74 dB | +0,09 dB | −6,27 dB · tonal estéreo 96k |
 
 **Para decidir manda el patrón.** Es un PEAQ simplificado sobre el modelo de
 oído de la BS.1387 —109 celdas de 0,25 Bark, oído externo y medio, ruido
