@@ -24,6 +24,7 @@ import {
   renderFixture,
   type Baseline,
 } from '../../packages/engine/test/golden/run';
+import { textoDeFlag, tieneFlag, valorDeFlag } from './cli-args';
 import {
   describeRuntime,
   isBitExactVerified,
@@ -35,11 +36,7 @@ const BASELINE_PATH = fileURLToPath(
   new URL('../../packages/engine/test/golden/baseline.json', import.meta.url),
 );
 
-function arg(name: string): string | undefined {
-  const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
-}
-const has = (name: string): boolean => process.argv.includes(`--${name}`);
+
 
 function readBaseline(): Baseline | null {
   try {
@@ -55,8 +52,9 @@ function orbitVersion(): string {
 }
 
 function main(): void {
-  const only = arg('only');
-  const accept = arg('accept');
+  const only = valorDeFlag(process.argv, 'only');
+  const accept = textoDeFlag(process.argv, 'accept');
+  const pidioAccept = tieneFlag(process.argv, 'accept');
   const previous = readBaseline();
 
   console.log(
@@ -158,6 +156,20 @@ function main(): void {
   );
 
   if (!accept) {
+    if (pidioAccept) {
+      // Se pidió escribir pero sin motivo utilizable: ni un espacio en blanco ni el
+      // flag siguiente sirven. El motivo va DENTRO de la línea base y es lo único
+      // que le explica el cambio de sonido a quien lo lea dentro de seis meses.
+      console.error('');
+      console.error('`--accept` necesita un motivo de verdad, y no lo tiene.');
+      console.error('');
+      console.error('  npm run golden:update -- --accept "qué cambió y por qué"');
+      console.error('');
+      console.error('No vale un espacio en blanco, ni dejar que se coma el flag siguiente:');
+      console.error('el motivo se guarda dentro de la línea base y sobrevive al commit.');
+      process.exitCode = 2;
+      return;
+    }
     console.log('');
     console.log('No se ha escrito nada. Si este diff de sonido es el que buscabas:');
     console.log('');
@@ -176,7 +188,7 @@ function main(): void {
 
   // Una línea base grabada donde la reproducibilidad bit a bit no está medida
   // rompería el hash para toda la CI (que corre en x64). Ver platform.ts.
-  if (!isBitExactVerified() && !has('force')) {
+  if (!isBitExactVerified() && !tieneFlag(process.argv, 'force')) {
     console.error('');
     console.error(unverifiedArchWarning());
     console.error('');

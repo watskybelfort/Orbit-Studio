@@ -31,16 +31,10 @@ import {
 } from '../../packages/engine/test/golden/fingerprint';
 import { renderProject } from '../../packages/engine/src/render/offline';
 import { describeRuntime } from '../../packages/engine/test/golden/platform';
-
-function arg(name: string, fallback: number): number {
-  const i = process.argv.indexOf(`--${name}`);
-  if (i < 0) return fallback;
-  const v = Number(process.argv[i + 1]);
-  return Number.isFinite(v) && v > 0 ? v : fallback;
-}
+import { numeroDeFlag } from './cli-args';
 
 function main(): void {
-  const ppm = arg('ppm', 1000); // 1000 ppm = 0,1 %
+  const ppm = numeroDeFlag(process.argv, 'ppm', 1000); // 1000 ppm = 0,1 %
   const gain = 1 + ppm / 1e6;
   console.log(`Golden — ¿muerde? Perturbación: ${ppm} ppm de ganancia (×${gain}).`);
   console.log(`Runtime: ${describeRuntime()}`);
