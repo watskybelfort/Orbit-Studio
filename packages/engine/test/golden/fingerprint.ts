@@ -143,8 +143,9 @@ export function fingerprint(left: Float32Array, right: Float32Array, sr: number)
  *   perturbación                          hash        peor métrica
  *   ------------------------------------- ----------  ------------------
  *   ANTI_DENORMAL 1e-20 → 1e-19            7 fixtures  0 dB (nada)
- *   COEF_SMOOTH 5 ms → 6 ms                7 fixtures  0.017 dB
- *   guarda 0,2 % → 1 %                     2 fixtures  0.906 dB (33 medidas)
+ *   COEF_SMOOTH 5 ms → 6 ms                3 fixtures  0.017 dB
+ *   guarda 0,2 % → 1 %                     2 fixtures  0.999 dB (37 medidas)
+ *   AutofilterUnit sin su cutoffLive       1 fixture   14.694 dB (35 medidas)
  *
  * Eso deja claro el reparto de papeles, y conviene no confundirlo: **el hash
  * es la capa sensible y las métricas son la capa que explica.** La primera
@@ -156,9 +157,17 @@ export function fingerprint(left: Float32Array, right: Float32Array, sr: number)
  * Y sí, la segunda fila (0,017 dB) está a menos de dos veces la tolerancia:
  * un cambio de sonido pequeño de verdad la roza. Bajarla no ayudaría —el
  * margen contra el ruido de arm64 sobra tanto que se podría bajar mil veces—
- * pero tampoco hace falta: ese cambio ya lo caza el hash con siete fixtures.
+ * pero tampoco hace falta: ese cambio ya lo caza el hash, con tres fixtures.
  * La tolerancia no está para detectar, está para no mentir sobre lo que
  * detectó el hash.
+ *
+ * Esa fila decía SIETE fixtures hasta la v3.8, y bajó a tres por diseño: los
+ * tres llamantes que movían el corte muestra a muestra dejaron de pagar ese
+ * suavizado (`CoefSource` en `filters.ts`). La última fila es lo que se añadió
+ * para que la bajada no dejara un hueco — sin ella, quitar el deslizado propio
+ * del autofiltro no lo notaba NADIE del banco. Moraleja para quien lea esta
+ * tabla dentro de un año: cuando una fila baja, la pregunta no es si el motor
+ * mejoró, es si el banco dejó de mirar.
  */
 export const METRIC_TOLERANCE_DB = 0.01;
 

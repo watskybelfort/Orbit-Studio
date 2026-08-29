@@ -1,7 +1,7 @@
 /**
  * Los golden tests que la regla dura 5 de CLAUDE.md da por hechos.
  *
- * Fijan el sonido de la v3.6 renderizando 24 proyectos deterministas —uno por
+ * Fijan el sonido renderizando 25 proyectos deterministas —uno por
  * familia de sonido— y comparándolos contra `baseline.json` de DOS maneras a
  * la vez: el hash de las muestras crudas y una matriz de medidas
  * perceptuales por ventana de tiempo. El porqué de cada una está en
@@ -18,7 +18,12 @@ import { describe, expect, it } from 'vitest';
 import { GOLDEN_FIXTURES, GOLDEN_OPUS_FIXTURES } from './fixtures';
 import { compare, explain, METRIC_TOLERANCE_DB } from './fingerprint';
 import { BASELINE_FORMAT_VERSION, encodeFixture, renderFixture, type Baseline } from './run';
-import { describeRuntime, isBitExactVerified, unverifiedArchWarning } from './platform';
+import {
+  BIT_EXACT_ARCHS,
+  describeRuntime,
+  isBitExactVerified,
+  unverifiedArchWarning,
+} from './platform';
 
 const baseline = JSON.parse(
   readFileSync(new URL('./baseline.json', import.meta.url), 'utf8'),
@@ -49,7 +54,7 @@ describe('golden: la línea base es legible y está completa', () => {
   });
 });
 
-describe('golden: el sonido de la v3.6', () => {
+describe('golden: el sonido', () => {
   for (const fixture of GOLDEN_FIXTURES) {
     const expected = baseline.fixtures[fixture.name];
 
@@ -86,7 +91,7 @@ describe('golden: el sonido de la v3.6', () => {
   }
 });
 
-describe('golden: el encoder Opus de la v3.6', () => {
+describe('golden: el encoder Opus', () => {
   // Aquí NO hay tolerancia y no es un descuido: el `.opus` es un bitstream
   // codificado con rango. Un bit distinto no es «un poco distinto», es un
   // archivo que se decodifica a otra cosa a partir de ese punto. La única
@@ -128,6 +133,14 @@ describe('golden: el propio banco es determinista', () => {
     // que se haya tocado el motor.
     expect(baseline.recordedOn.arch).toBeTruthy();
     expect(baseline.recordedOn.node).toBeTruthy();
-    expect(describeRuntime()).toContain(process.arch);
+    // Y tiene que venir de una arquitectura donde la reproducibilidad bit a bit
+    // está MEDIDA. Hay un `--force` para saltarse esa negativa, así que esto es
+    // lo único que se entera si alguien lo usó: una línea base grabada fuera de
+    // x64 deja el hash roto para toda la CI, y el síntoma sería un rojo masivo
+    // sin que nadie haya tocado el motor.
+    // (Aquí antes había `expect(describeRuntime()).toContain(process.arch)`,
+    // que no afirmaba nada: `describeRuntime()` construye ese string CON
+    // `process.arch`.)
+    expect(BIT_EXACT_ARCHS).toContain(baseline.recordedOn.arch);
   });
 });

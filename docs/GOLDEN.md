@@ -121,7 +121,7 @@ corrió el golden:
 | `filters.ts` `ANTI_DENORMAL` 1e-20 → 1e-19 | v3.6, Biquad/SVF/Allpass1 | **7** | 0 dB |
 | `filters.ts` `COEF_SMOOTH_SECONDS` 5 → 6 ms | v3.5, suavizado de coeficientes | **3** | 0,017 dB (2 de los 3 por métricas) |
 | `AutofilterUnit` sin su `cutoffLive` | v3.8, el deslizado propio del autofiltro | **1** (`fx-autofilter-sweep`) | **14,694 dB** (35 medidas) |
-| `voices.ts` guarda 0,2 % → 1 % | v3.6, `SynthVoice` | **2** | 0,906 dB (33 medidas) |
+| `voices.ts` guarda 0,2 % → 1 % | v3.6, `SynthVoice` | **2** | **0,999 dB** (37 medidas) |
 | `reverb.ts` `ANTI_DENORMAL` ×10 | v3.5, denormales de la reverb | **1** (`fx-reverb`) | 0 dB |
 | `effects.ts` `ANTI_DENORMAL` ×10 | v3.6, delay/flanger/phaser | **2** (flanger, phaser) | 0 dB |
 | `transient.ts` umbral 200 → 220 | v3.5, transitorios del Opus | **1** (`opus-sub`) | — |
