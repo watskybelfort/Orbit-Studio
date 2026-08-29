@@ -411,7 +411,14 @@ describe.skipIf(!hayPack)('el pack de fábrica, tocado', () => {
         }
       }
     }
-  });
+    // 30 s, no los 5 por defecto. Este test renderiza por el kernel las 3
+    // alturas × 3 capas de varios instrumentos: sobre una máquina en reposo
+    // tarda unos 9 s, pero con el resto de la suite corriendo en paralelo se
+    // pasaba de los 5 y fallaba UNA de cada N pasadas, siempre por timeout y
+    // nunca por la aserción. Es el mismo tropiezo que ya costó una tarde en la
+    // v3.4 con el render de cuatro minutos: un test que falla a veces hace que
+    // se deje de mirar la CI, que es peor que no tenerlo.
+  }, 30_000);
 
   it('el teclado entero suena: ninguna tecla cae en un hueco', () => {
     // `spreadKeymapRanges` estira la zona más grave hacia abajo y la más aguda

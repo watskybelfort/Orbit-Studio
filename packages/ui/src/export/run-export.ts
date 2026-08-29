@@ -378,7 +378,10 @@ async function renderAndWrite(
   } catch (e) {
     if (!config.allowDialogFallback || !isPathDenied(e)) throw e;
     const chosen = await orbit.file.saveDialog(fileNameOf(target));
-    if (!chosen) throw new Error('Export cancelado.');
+    // Con `cause`: cancelar el diálogo no es el fallo original, pero el fallo
+    // original —la ruta denegada— es justo lo que hay que poder mirar si
+    // alguien pregunta por qué apareció un diálogo que no pidió.
+    if (!chosen) throw new Error('Export cancelado.', { cause: e });
     target = chosen;
     await orbit.file.write(target, wav);
     warnings.push('Esa carpeta no estaba autorizada: se ha pedido la ruta una vez.');

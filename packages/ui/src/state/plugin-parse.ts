@@ -347,6 +347,10 @@ function sanitizeLabels(raw: unknown): string[] {
     if (out.length >= VIEW_MAX_LABELS) break;
     if (typeof entry !== 'string') continue;
     const clean = entry
+      // Los caracteres de control son EL objetivo, no un descuido: esta
+      // cadena viene de un plugin del usuario y acaba dibujándose, así que
+      // un NUL o un escape sueltos ahí son justo lo que hay que quitar.
+      // eslint-disable-next-line no-control-regex
       .replace(/[\u0000-\u001f\u007f]/gu, ' ')
       .trim()
       .slice(0, VIEW_MAX_LABEL_CHARS);

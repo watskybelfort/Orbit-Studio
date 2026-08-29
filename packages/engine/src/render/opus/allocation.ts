@@ -314,7 +314,7 @@ function interpBitsToPulses(input: InterpInput): AllocationResult {
     }
 
     let left = total - psum;
-    let percoeff = Math.trunc(left / (ebands[codedBands]! - ebands[start]!));
+    const percoeff = Math.trunc(left / (ebands[codedBands]! - ebands[start]!));
     left -= (ebands[codedBands]! - ebands[start]!) * percoeff;
     const rem = Math.max(left - (ebands[j]! - ebands[start]!), 0);
     const bandWidth = ebands[codedBands]! - ebands[j]!;

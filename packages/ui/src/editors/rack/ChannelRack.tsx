@@ -87,6 +87,7 @@ import {
   stopPlayback,
   store,
 } from '../../state/app';
+import { CHANNEL_COLOR_DEFAULT } from '../../theme/palette';
 import { previewNote } from '../../state/active-notes';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
 import { useProject } from '../../state/useProject';
@@ -380,7 +381,7 @@ export function ChannelRack() {
     const group: ChannelGroup = {
       id: newId(),
       name: `Carpeta ${project.channelGroupOrder.length + 1}`,
-      color: project.channels[channelId ?? '']?.color ?? '#5aa9e6',
+      color: project.channels[channelId ?? '']?.color ?? CHANNEL_COLOR_DEFAULT,
       collapsed: false,
     };
     const commands: Command[] = [{ type: 'addChannelGroup', group }];

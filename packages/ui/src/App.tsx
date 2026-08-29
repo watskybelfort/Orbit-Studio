@@ -122,7 +122,7 @@ export function App() {
    * que hay cambios sin guardar. Antes ponía "Orbit Studio" y nada más, así que
    * con dos proyectos abiertos en dos ventanas no se sabía cuál era cuál.
    */
-  const projectName = project.meta.title || (projectPath ? projectPath.split(/[\/]/).pop() : '') || 'Sin título';
+  const projectName = project.meta.title || (projectPath ? projectPath.split(/[/\\]/).pop() : '') || 'Sin título';
   const windowTitle = `${dirty ? '● ' : ''}${projectName} — Orbit Studio`;
 
   return (

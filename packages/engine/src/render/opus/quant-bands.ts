@@ -674,8 +674,8 @@ export function quantAllBands(
     }
 
     const tfChange = input.tfRes[i]!;
-    let xSlice: Slice = { data: input.x, at: atBand };
-    let ySlice: Slice | null = input.y ? { data: input.y, at: atBand } : null;
+    const xSlice: Slice = { data: input.x, at: atBand };
+    const ySlice: Slice | null = input.y ? { data: input.y, at: atBand } : null;
 
     // Estimación conservadora de las máscaras de las bandas de las que se va a
     // plegar: así nunca se repite contenido dentro de una misma banda.

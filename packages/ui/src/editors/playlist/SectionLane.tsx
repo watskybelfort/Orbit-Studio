@@ -33,6 +33,7 @@ import {
 } from '@orbit/core';
 import { SHAPE_COUNT, planSections } from '@orbit/sound-library';
 import { store } from '../../state/app';
+import { SECTION_COLOR_DEFAULT, SECTION_COLORS } from '../../theme/palette';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
@@ -41,15 +42,10 @@ import { MenuPortal } from '../../widgets/MenuPortal';
 const SECTION_LANE_H = 22;
 /** Tolerancia del tirador del borde derecho. */
 const EDGE_PX = 6;
-/** Colores por papel; una sección dibujada a mano nace con el neutro. */
-const KIND_COLORS: Record<string, string> = {
-  intro: '#5aa9e6',
-  build: '#e6c95a',
-  drop: '#e6675a',
-  break: '#7ce65a',
-  outro: '#b45ae6',
-};
-const DEFAULT_COLOR = '#5aa9e6';
+/** Colores por papel; una sección dibujada a mano nace con el neutro.
+ *  Los valores viven en theme/palette.ts (regla 4 de CLAUDE.md). */
+const KIND_COLORS = SECTION_COLORS;
+const DEFAULT_COLOR = SECTION_COLOR_DEFAULT;
 
 /** Nombre visible de cada papel (el modelo guarda el papel, no la etiqueta). */
 const KIND_LABELS: Record<string, string> = {

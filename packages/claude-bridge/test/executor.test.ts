@@ -174,7 +174,7 @@ describe('ToolExecutor', () => {
         slug: 'hats-de-drill',
         name: 'Hats de drill',
         count: request.count ?? 8,
-        dir: 'C:\fake\packs\hats-de-drill',
+        dir: 'C:\\fake\\packs\\hats-de-drill',
         seconds: 1.2,
         added: opts.addChannels ? 6 : 0,
       };

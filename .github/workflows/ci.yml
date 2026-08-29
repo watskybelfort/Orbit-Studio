@@ -32,6 +32,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      # El linter vigila las reglas duras de CLAUDE.md que `tsc` no puede ver:
+      # cero alocaciones en el hilo de audio, colores solo por variables del
+      # tema, y las fronteras entre paquetes. Va antes del typecheck porque es
+      # el más rápido de los dos y falla más barato.
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

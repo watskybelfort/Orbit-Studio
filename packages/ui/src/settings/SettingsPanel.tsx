@@ -35,15 +35,14 @@ import {
   parseThemeFile,
   pickThemeFile,
 } from '../theme/theme-file';
+import { ACCENT_DEFAULT, ACCENT_PRESETS, GLASS_TINT_DEFAULT } from '../theme/palette';
 import { UI_SCALE_MAX, UI_SCALE_MIN } from '../theme/ui-scale';
 import { useUiStore } from '../state/ui';
 import { forgetWorkspace, setWorkspaceMemory, workspaceMemoryOn } from '../state/workspace-memory';
 import './settings.css';
 
-const ACCENT_PALETTE = [
-  '#5aa9e6', '#e6675a', '#7ce65a', '#e6c95a',
-  '#b45ae6', '#5ae6c9', '#e65aa9', '#e6935a',
-];
+/** Las ocho propuestas viven en theme/palette.ts (regla 4 de CLAUDE.md). */
+const ACCENT_PALETTE = ACCENT_PRESETS;
 
 const THEME_LABEL: Record<ThemeId, string> = {
   dark: 'Oscuro',
@@ -216,7 +215,7 @@ export function SettingsPanel() {
           {ACCENT_PALETTE.map((c) => (
             <button
               key={c}
-              className={`swatch${(overrides.accent ?? '#5aa9e6') === c ? ' selected' : ''}`}
+              className={`swatch${(overrides.accent ?? ACCENT_DEFAULT) === c ? ' selected' : ''}`}
               style={{ background: c }}
               onClick={() => commit(theme, { ...overrides, accent: c })}
             />
@@ -224,7 +223,7 @@ export function SettingsPanel() {
           <input
             type="color"
             className="color-input"
-            value={overrides.accent ?? '#5aa9e6'}
+            value={overrides.accent ?? ACCENT_DEFAULT}
             onChange={(e) => commit(theme, { ...overrides, accent: e.target.value })}
             title="Color personalizado"
           />
@@ -253,7 +252,7 @@ export function SettingsPanel() {
           type="color"
           className="color-input"
           disabled={theme !== 'acrylic'}
-          value={overrides.glassTint ?? '#101114'}
+          value={overrides.glassTint ?? GLASS_TINT_DEFAULT}
           onChange={(e) => commit(theme, { ...overrides, glassTint: e.target.value })}
         />
       </div>
@@ -362,7 +361,7 @@ export function SettingsPanel() {
         {Object.entries(customThemes).map(([name, t]) => (
           <div key={name} className="custom-theme">
             <button className="custom-apply" onClick={() => applyCustom(t)}>
-              <span className="swatch" style={{ background: t.overrides.accent ?? '#5aa9e6' }} />
+              <span className="swatch" style={{ background: t.overrides.accent ?? ACCENT_DEFAULT }} />
               {name}
             </button>
             <button className="custom-del" title="Borrar" onClick={() => deleteCustom(name)}>

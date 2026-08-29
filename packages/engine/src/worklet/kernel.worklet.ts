@@ -36,6 +36,13 @@ class OrbitKernelProcessor extends AudioWorkletProcessor {
 
     if (++this.blocks >= METER_INTERVAL_BLOCKS) {
       this.blocks = 0;
+      // La ÚNICA alocación que se permite en este `process()`, y va firmada:
+      // los medidores se emiten por el puerto, y el puerto serializa —
+      // `meterFrame()` ya construye su cuadro (peaks.slice(), rms nuevos) para
+      // poder mandarlo. Reutilizar aquí el objeto envoltorio no ahorraría
+      // nada. Ocurre una vez cada METER_INTERVAL_BLOCKS (≈46 ms), no por
+      // bloque, y es lo que hace visible el nivel en la interfaz.
+      // eslint-disable-next-line orbit/no-audio-thread-alloc
       this.port.postMessage({ type: 'meters', frame: this.core.meterFrame() });
     }
     return true;

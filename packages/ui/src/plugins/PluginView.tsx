@@ -26,6 +26,7 @@ import { SpectrumAnalyzer } from '../scope/spectrum';
 import type { ParsedView } from '../state/plugin-parse';
 import { fillViewInput, levelOfFrame } from './view-input';
 import { replayDisplayList, type Canvas2DLike } from './view-replay';
+import { CANVAS_FALLBACK_INK, CANVAS_FALLBACK_MUTED } from '../theme/palette';
 import { PALETTE_VARS, VIEW_MAX_HEIGHT, VIEW_MIN_HEIGHT } from './view-protocol';
 import { PluginViewSession, type DeathReason, type ViewPort } from './view-session';
 import './plugin-view.css';
@@ -114,7 +115,7 @@ export function PluginView({
 
     // Buffers de trabajo del host: preasignados una vez, reutilizados siempre.
     const level = new Float32Array(2);
-    const palette: string[] = PALETTE_VARS.map(() => '#000');
+    const palette: string[] = PALETTE_VARS.map(() => CANVAS_FALLBACK_INK);
     const spectrum = view.needs.spectrum ? new SpectrumAnalyzer() : null;
 
     const port: ViewPort = {
@@ -143,7 +144,7 @@ export function PluginView({
         if (w === 0 || h === 0) return;
         const css = getComputedStyle(cv);
         for (let i = 0; i < PALETTE_VARS.length; i++) {
-          palette[i] = css.getPropertyValue(PALETTE_VARS[i]!).trim() || '#888';
+          palette[i] = css.getPropertyValue(PALETTE_VARS[i]!).trim() || CANVAS_FALLBACK_MUTED;
         }
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         const dpr = window.devicePixelRatio || 1;
