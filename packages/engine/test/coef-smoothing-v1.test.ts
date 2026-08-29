@@ -8,6 +8,13 @@
  * que el coeficiente VIVO se desliza hacia el objetivo en vez de saltar, y
  * que un barrido con automatización por bloque no deja una firma de "borde
  * de bloque" en la señal de salida.
+ *
+ * Y la otra mitad, que es la que se rompe sin que nadie se entere: hay un
+ * SEGUNDO tipo de llamante —el que ya calcula el valor muestra a muestra— para
+ * el que este mismo suavizado es solo retraso. Ese pide `'per-sample'` al
+ * construir el filtro (ver `CoefSource` en filters.ts) y aquí se comprueba que
+ * de verdad no desliza, que el modo por defecto NO cambió, y que `copyFrom` no
+ * le devuelve el suavizado a un biquad `'per-sample'` por la puerta de atrás.
  */
 import { describe, expect, it } from 'vitest';
 import { Allpass1, Biquad, SVF } from '../src/dsp/filters';
@@ -174,5 +181,65 @@ describe('Allpass1: coeficientes suavizados', () => {
     ref.set(9000, SR);
     expect(ap.a).toBeCloseTo(ref.a, 4);
     expect(Math.abs(ap.a)).toBeLessThan(1); // nunca sale del rango estable
+  });
+});
+
+describe('CoefSource: los dos tipos de llamante, y que no se contagien', () => {
+  it("SVF 'per-sample': el objetivo es el valor vivo desde el primer tick, sin rampa", () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const svf = new SVF('per-sample') as any;
+    svf.set(500, 0.3, SR);
+    for (let i = 0; i < 50; i++) svf.tick(0, 0);
+    svf.set(6000, 0.3, SR); // el salto que en modo por bloque tardaría ~5 ms
+    svf.tick(0, 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ref = new SVF('per-sample') as any;
+    ref.set(6000, 0.3, SR);
+    ref.tick(0, 0);
+    expect(svf.g).toBe(ref.g);
+    expect(svf.k).toBe(ref.k);
+  });
+
+  it('el modo por defecto sigue siendo el de por bloque (nadie hereda el atajo sin pedirlo)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const svf = new SVF() as any;
+    svf.set(500, 0.3, SR);
+    for (let i = 0; i < 50; i++) svf.tick(0, 0);
+    svf.set(6000, 0.3, SR);
+    svf.tick(0, 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ref = new SVF('per-sample') as any;
+    ref.set(6000, 0.3, SR);
+    ref.tick(0, 0);
+    // Todavía muy lejos del objetivo: está deslizando, que es lo que tiene que
+    // hacer cuando el valor viene en escalones de bloque.
+    expect(svf.g).toBeLessThan(ref.g * 0.5);
+  });
+
+  it("Biquad 'per-sample': el coeficiente vivo es el objetivo desde el primer tick", () => {
+    const bq = new Biquad('per-sample');
+    bq.lowpass(500, 0.707, SR);
+    for (let i = 0; i < 50; i++) bq.tick(0);
+    bq.lowpass(8000, 0.707, SR);
+    bq.tick(0);
+    const ref = new Biquad('per-sample').lowpass(8000, 0.707, SR);
+    ref.tick(0);
+    expect(bq.b0).toBe(ref.b0);
+    expect(bq.a1).toBe(ref.a1);
+  });
+
+  it("copyFrom no le devuelve el suavizado a un biquad 'per-sample'", () => {
+    // El par L/R se sincroniza con copyFrom, y copiar el `smoothCoef` de un
+    // hermano por bloque volvería a meter la rampa sin que se note en ningún
+    // sitio: el bug silencioso exacto que este modo viene a evitar.
+    const porBloque = new Biquad().lowpass(500, 0.707, SR);
+    for (let i = 0; i < 50; i++) porBloque.tick(0);
+    const porMuestra = new Biquad('per-sample');
+    porMuestra.copyFrom(porBloque);
+    porMuestra.lowpass(8000, 0.707, SR);
+    porMuestra.tick(0);
+    const ref = new Biquad('per-sample').lowpass(8000, 0.707, SR);
+    ref.tick(0);
+    expect(porMuestra.b0).toBe(ref.b0);
   });
 });

@@ -517,6 +517,10 @@ class FormantOsc implements PrismaOsc {
   tick(dt: number, wave: number): number {
     // Recalcular las tres campanas por sample sería tirar CPU: la vocal solo
     // se mueve cuando alguien la mueve, y con paso de 1/64 no se oye escalón.
+    // Estos biquads se quedan a propósito en `'per-block'` (ver `CoefSource`
+    // en filters.ts): lo que reciben NO es un valor continuo por muestra, es
+    // una escalera de 1/64 — exactamente el caso que el suavizado existe para
+    // rellenar. Aquí quitarlo devolvería el escalón, no punch.
     const step = (wave * 64) | 0;
     if (step !== this.lastStep) {
       this.lastStep = step;
@@ -635,8 +639,12 @@ export class PrismaVoice extends Voice {
   private readonly sr: number;
   private readonly layers: LiveLayer[] = [];
   private readonly modEnv = new ADSR();
-  private readonly filtL = new SVF();
-  private readonly filtR = new SVF();
+  // 'per-sample': el corte lo mueven la envolvente de modulación y el LFO
+  // muestra a muestra, ya continuos, y `cutoff`/`resonance` son readonly (se
+  // fijan al nacer la voz). Mismo caso que SynthVoice; ver `CoefSource` en
+  // filters.ts.
+  private readonly filtL = new SVF('per-sample');
+  private readonly filtR = new SVF('per-sample');
   private readonly toneLowL = new Biquad();
   private readonly toneLowR = new Biquad();
   private readonly toneHighL = new Biquad();
@@ -983,7 +991,10 @@ export class PrismaVoice extends Voice {
           shift === 0
             ? this.cutoff * this.keytrackMul
             : clamp(this.cutoff * this.keytrackMul * semiRatio(shift * 72), 20, 20000);
-        // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %).
+        // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %). Es
+        // la MISMA guarda que voices.ts y AutofilterUnit, y ahorra el
+        // `Math.tan` de `set()`; el retraso del suavizado lo quita el
+        // `'per-sample'` del filtro, no esto.
         if (target > this.lastCutoff * 1.002 || target < this.lastCutoff * 0.998) {
           this.lastCutoff = target;
           this.filtL.set(target, this.resonance, sr);

@@ -106,7 +106,13 @@ export class SynthVoice extends Voice {
   private detunes: number[] = [];
   private ampEnv = new ADSR();
   private filtEnv = new ADSR();
-  private svfL = new SVF();
+  // 'per-sample': el corte lo mueve `filtEnv` muestra a muestra, ya continuo.
+  // El one-pole de 5 ms de filters.ts está pensado para el otro llamante (el
+  // que empuja un escalón por bloque) y aquí solo sumaba retraso encima del
+  // ADSR. `cutoff`/`resonance` se fijan al nacer la voz y no vuelven a
+  // moverse, así que esta voz no tiene ningún parámetro por bloque del que
+  // hacerse cargo. Ver `CoefSource` en filters.ts.
+  private svfL = new SVF('per-sample');
   private wave: number;
   private cutoff: number;
   private resonance: number;
@@ -164,18 +170,13 @@ export class SynthVoice extends Voice {
       const fe = this.filtEnv.tick();
       const fc = this.cutoff * Math.pow(2, this.envAmount * 4 * fe);
       // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %), igual
-      // que prisma-voice.ts:987: set() recalcula smoothCoef con un Math.exp
-      // por muestra aunque sr no cambie. Esto SÍ ahorra ese cálculo cuando
-      // `fc` está quieto (release, sustain con envAmount chico), pero NO
-      // recupera el punch del ataque por defecto: medido con este mismo
-      // umbral, durante los primeros 5 ms (ataque lineal por defecto) `fc`
-      // se mueve más de 0.2% en casi todas las muestras, así que la guarda
-      // dispara casi igual de seguido que sin ella y el one-pole de 5 ms de
-      // filters.ts (pensado para llamadas por bloque) sigue apilado sobre el
-      // ADSR. Arreglar eso de verdad pediría que `set()` pudiera saltar el
-      // suavizado cuando quien llama ya entrega un valor continuo por
-      // muestra — un cambio de diseño de filters.ts que no entra en esta
-      // tarea; queda anotado en el handoff.
+      // que prisma-voice.ts y AutofilterUnit. La guarda ahorra el `Math.tan`
+      // de `set()` cuando `fc` está quieto (release, sustain con envAmount
+      // chico), y nada más: está MEDIDO que durante los 5 ms de ataque por
+      // defecto `fc` se mueve más de 0.2 % en casi todas las muestras, así que
+      // no era —ni podía ser— lo que le devolviera el punch al pluck. Eso lo
+      // arregla el `'per-sample'` del SVF de arriba. Son dos cosas distintas y
+      // las dos hacen falta.
       if (fc > this.lastCutoff * 1.002 || fc < this.lastCutoff * 0.998) {
         this.lastCutoff = fc;
         this.svfL.set(fc, this.resonance, this.sr);

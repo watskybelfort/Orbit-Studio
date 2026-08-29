@@ -7,7 +7,7 @@
 import type { EffectKind } from '@orbit/core';
 import { OrbitConvolver } from './convolver';
 import { DelayLine } from './delayline';
-import { Allpass1, Biquad, EnvFollower, SVF, timeCoef } from './filters';
+import { Allpass1, Biquad, COEF_SMOOTH_SECONDS, EnvFollower, SVF, timeCoef } from './filters';
 import { TWO_PI } from './osc';
 import { Reverb } from './reverb';
 import { Vinyl } from './vinyl';
@@ -462,6 +462,12 @@ class PhaserUnit implements EffectUnit {
     for (let i = 0; i < n; i++) {
       const lfo = 0.5 + 0.5 * Math.sin(TWO_PI * this.phase);
       const f = 300 * Math.pow(10, this.depth * lfo);
+      // Estos allpass se quedan a propósito en el suavizado por bloque (ver
+      // `CoefSource` en filters.ts). Sí, el LFO los mueve por muestra, pero
+      // aquí el one-pole de 5 ms no le quita punch a nada: el barrido dura del
+      // orden del segundo y 5 ms de retraso sobre la posición de la muesca no
+      // se oyen, mientras que `depth`/`stages` sí llegan por bloque. Quitarlo
+      // movería el sonido del phaser a cambio de nada.
       for (let s = 0; s < this.stages; s++) {
         this.apsL[s]!.set(f * (1 + s * 0.15), this.sr);
         this.apsR[s]!.set(f * (1 + s * 0.15) * 1.03, this.sr);
@@ -560,8 +566,12 @@ class BitcrushUnit implements EffectUnit {
 // ── Autofilter ───────────────────────────────────────────────────────────────
 
 class AutofilterUnit implements EffectUnit {
-  private svfL = new SVF();
-  private svfR = new SVF();
+  // 'per-sample': el corte lo mueven el LFO y el seguidor de envolvente
+  // muestra a muestra, ya continuos. Ver `CoefSource` en filters.ts — y con
+  // ello esta unidad se hace cargo de suavizar sus DOS parámetros por bloque
+  // (`cutoffLive`/`resLive` más abajo), que es la otra mitad del trato.
+  private svfL = new SVF('per-sample');
+  private svfR = new SVF('per-sample');
   private follower = new EnvFollower();
   private phase = 0;
   private type = 0;
@@ -573,10 +583,24 @@ class AutofilterUnit implements EffectUnit {
   private attackCoef: number;
   private releaseCoef: number;
   private lastCutoff = -1;
+  private lastRes = -1;
+  /**
+   * `cutoff` y `resonance` llegan por `setParams()`, o sea una vez por bloque
+   * (automatización, LFO de proyecto, la perilla girando): son una ESCALERA.
+   * Antes esos escalones se los tragaba el suavizado interno del SVF; ahora
+   * que el SVF aplica de una, el escalón hay que rellenarlo aquí o vuelve el
+   * zipper por el único camino que de verdad lo tenía. Estos dos son la copia
+   * VIVA, deslizada con el mismo tau de 5 ms; lo que se multiplica por la
+   * modulación continua es la copia, no el objetivo.
+   */
+  private cutoffLive = -1;
+  private resLive = -1;
+  private readonly baseCoef: number;
 
   constructor(private sr: number) {
     this.attackCoef = timeCoef(0.005, sr);
     this.releaseCoef = timeCoef(0.12, sr);
+    this.baseCoef = timeCoef(COEF_SMOOTH_SECONDS, sr);
   }
 
   setParams(p: Record<string, number>): void {
@@ -586,26 +610,46 @@ class AutofilterUnit implements EffectUnit {
     this.lfoRate = p['lfoRate'] ?? 2;
     this.lfoAmount = p['lfoAmount'] ?? 0;
     this.envAmount = p['envAmount'] ?? 0;
+    // El primer setParams() no es automatización: no hay "antes" del que
+    // deslizar, y arrancar la copia viva desde -1 metería un barrido de
+    // entrada en cada efecto recién creado.
+    if (this.cutoffLive < 0) {
+      this.cutoffLive = this.cutoff;
+      this.resLive = this.resonance;
+    }
   }
 
   process(l: Float32Array, r: Float32Array, n: number): void {
     const inc = this.lfoRate / this.sr;
+    const c = this.baseCoef;
     for (let i = 0; i < n; i++) {
+      // Los dos parámetros por bloque, deslizados (ver `cutoffLive`). Cuando
+      // nadie los mueve, `live === target` EXACTO y estas dos líneas son la
+      // identidad: el preset por defecto sigue sin recalcular un coeficiente.
+      this.cutoffLive = this.cutoff + c * (this.cutoffLive - this.cutoff);
+      this.resLive = this.resonance + c * (this.resLive - this.resonance);
       const det = Math.max(Math.abs(l[i]!), Math.abs(r[i]!));
       const env = this.follower.tick(det, this.attackCoef, this.releaseCoef);
       const lfo = Math.sin(TWO_PI * this.phase);
       // Modulación en octavas alrededor del cutoff base.
       const octaves = this.lfoAmount * 2 * lfo + this.envAmount * 3 * Math.min(1, env * 2);
-      const fc = this.cutoff * Math.pow(2, octaves);
-      // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %), igual
-      // que prisma-voice.ts:987: set() recalcula smoothCoef con un Math.exp
-      // aunque sr no cambie, y con lfoAmount=envAmount=0 (el preset por
-      // defecto) `fc` es constante — sin esta guarda se repite ese cálculo
-      // en CADA muestra sin necesidad.
-      if (fc > this.lastCutoff * 1.002 || fc < this.lastCutoff * 0.998) {
+      const fc = this.cutoffLive * Math.pow(2, octaves);
+      const res = this.resLive;
+      // Coeficientes solo cuando el punto de operación se mueve de verdad
+      // (> 0.2 %), igual que voices.ts y prisma-voice.ts: `set()` cuesta un
+      // `Math.tan`, y con lfoAmount=envAmount=0 (el preset por defecto) `fc`
+      // es constante — sin esta guarda se repetiría ese cálculo en CADA
+      // muestra sin necesidad. La RESONANCIA entra en la guarda por derecho
+      // propio: mirando solo el corte, automatizarla con el corte quieto no
+      // llegaba nunca al filtro.
+      if (
+        fc > this.lastCutoff * 1.002 || fc < this.lastCutoff * 0.998 ||
+        res > this.lastRes * 1.002 || res < this.lastRes * 0.998
+      ) {
         this.lastCutoff = fc;
-        this.svfL.set(fc, this.resonance, this.sr);
-        this.svfR.set(fc, this.resonance, this.sr);
+        this.lastRes = res;
+        this.svfL.set(fc, res, this.sr);
+        this.svfR.set(fc, res, this.sr);
       }
       l[i] = this.svfL.tick(l[i]!, this.type);
       r[i] = this.svfR.tick(r[i]!, this.type);

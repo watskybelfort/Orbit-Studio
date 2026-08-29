@@ -8,7 +8,59 @@
 // bastante rápido para seguir un barrido de mano y sobra para tapar el
 // escalón de un bloque (~2.9 ms a 44.1 kHz); es el mismo orden que ya usan
 // AutofilterUnit/GateUnit para su ataque (timeCoef(0.005, sr) en effects.ts).
-const COEF_SMOOTH_SECONDS = 0.005;
+export const COEF_SMOOTH_SECONDS = 0.005;
+
+/**
+ * De dónde viene el valor nuevo de un coeficiente. Son DOS clases de llamante
+ * con necesidades OPUESTAS, y por eso hay que declararlo al construir el
+ * filtro en vez de decidirlo llamada a llamada:
+ *
+ * - `'per-block'` (por defecto) — el kernel empuja `setParams()` UNA vez por
+ *   bloque (MAX_BLOCK = 128 muestras): automatización, LFO sobre un EQ, la
+ *   perilla girando. Lo que llega es una escalera, y el suavizado de arriba es
+ *   el que rellena los escalones. Sin él: zipper noise. Aquí el suavizado NO
+ *   se toca.
+ * - `'per-sample'` — el llamante ya calcula el valor muestra a muestra desde
+ *   algo continuo (el ADSR de filtro de SynthVoice/PrismaVoice, el LFO + el
+ *   seguidor de envolvente de AutofilterUnit). No hay escalón que rellenar: lo
+ *   único que aporta el one-pole de 5 ms es RETRASO, apilado encima de una
+ *   envolvente cuyo ataque por defecto también son 5 ms. Es lo que le comía el
+ *   punch al pluck del Orbit Synth: medido a 44,1 kHz, el corte llegaba al
+ *   90 % del brillo en 6,37 ms en vez de los 3,42 ms de la referencia sin
+ *   suavizar, y en el render del fixture `inst-synth-sweep` en 8,03 ms en vez
+ *   de 5,42 (ver `test/dsp-per-sample-smoothing.test.ts`, que lo mide con
+ *   estas mismas clases).
+ *
+ * Ojo, y es la parte que se pierde si no queda escrita: un filtro
+ * `'per-sample'` deja de amortiguar a SU llamante, así que el llamante se hace
+ * cargo de suavizar los parámetros que SÍ le llegan por bloque. SynthVoice y
+ * PrismaVoice no tienen ninguno (su cutoff/resonancia se fijan al nacer la voz
+ * y no se vuelven a tocar: `pushInstrumentParams` de kernel-core.ts solo
+ * alcanza a PluginVoice), pero AutofilterUnit sí —su `cutoff`/`resonance`
+ * salen de `setParams()`— y por eso desliza esos dos él mismo antes de
+ * multiplicarlos por su modulación. Ver `AutofilterUnit.process` en effects.ts.
+ *
+ * Lo que NO es esto: la guarda de umbral del 0,2 % que rodea a esas llamadas.
+ * Esa ahorra CPU cuando el corte está quieto y está bien puesta, pero está
+ * medido que durante un ataque de 5 ms el corte se mueve más del 0,2 % en
+ * casi todas las muestras, así que no quitaba ni un microsegundo de retraso.
+ * Son cosas distintas y las dos siguen ahí.
+ *
+ * El mecanismo, a propósito, es que `smoothCoef` se quede en 0: la línea de
+ * `tick()` que desliza (`v = target + coef * (v - target)`) pasa a ser la
+ * identidad `v = target`, sin ramas nuevas en el bucle de audio ni una
+ * segunda copia de las fórmulas de coeficientes que mantener en sincronía.
+ *
+ * Quién lo pide hoy: los tres SVF de SynthVoice, PrismaVoice y AutofilterUnit.
+ * `Biquad` acepta el modo por simetría y porque el próximo llamante por
+ * muestra no tiene por qué redescubrir esto, pero HOY no lo usa nadie, y no es
+ * un descuido: los dos biquads que parecen candidatos no lo son. Los del
+ * `FormantOsc` de prisma-voice.ts reciben la vocal cuantizada a 1/64 —una
+ * escalera, justo lo que el suavizado rellena— y los `Allpass1` del phaser los
+ * mueve un LFO de ~1 s, donde 5 ms de retraso sobre la muesca no se oyen
+ * mientras que `depth`/`stages` sí llegan por bloque.
+ */
+export type CoefSource = 'per-block' | 'per-sample';
 
 // Flush de denormales (mismo mecanismo que reverb.ts, y por la misma razón:
 // el estado recursivo de estos tres filtros decae hacia cero sin llegar
@@ -42,6 +94,12 @@ export class SVF {
   private kTarget = 1;
   private smoothCoef = 0;
   private primed = false;
+  /** Ver `CoefSource`: false = el llamante ya modula por muestra, no suavizar. */
+  private readonly smooths: boolean;
+
+  constructor(source: CoefSource = 'per-block') {
+    this.smooths = source !== 'per-sample';
+  }
 
   /** res 0..1 → Q 0.5..10. */
   set(cutoff: number, res: number, sr: number): void {
@@ -49,6 +107,10 @@ export class SVF {
     this.gTarget = Math.tan(Math.PI * (fc / sr));
     const q = 0.5 + res * 9.5;
     this.kTarget = 1 / q;
+    // Con un llamante por muestra `smoothCoef` se queda en 0 y `tick()` copia
+    // el objetivo tal cual; de paso se ahorra este `Math.exp` por MUESTRA, que
+    // es justo el que la guarda del 0,2 % venía esquivando a duras penas.
+    if (!this.smooths) return;
     this.smoothCoef = timeCoef(COEF_SMOOTH_SECONDS, sr);
     // La primera vez que se configura, aplica de una: no hay "antes" del que
     // deslizar, y así un filtro recién creado responde desde la muestra 0
@@ -67,6 +129,8 @@ export class SVF {
 
   /** type: 0 LP, 1 HP, 2 BP, 3 notch. */
   tick(x: number, type: number): number {
+    // `smoothCoef` = 0 (llamante por muestra) deja estas dos líneas en la
+    // identidad: g = gTarget, k = kTarget, sin rama que predecir.
     this.g = this.gTarget + this.smoothCoef * (this.g - this.gTarget);
     this.k = this.kTarget + this.smoothCoef * (this.k - this.kTarget);
     const { g, k } = this;
@@ -106,6 +170,12 @@ export class Biquad {
   private z2 = 0;
   private smoothCoef = 0;
   private primed = false;
+  /** Ver `CoefSource`: false = el llamante ya modula por muestra, no suavizar. */
+  private readonly smooths: boolean;
+
+  constructor(source: CoefSource = 'per-block') {
+    this.smooths = source !== 'per-sample';
+  }
 
   reset(): void {
     this.z1 = 0;
@@ -113,6 +183,8 @@ export class Biquad {
   }
 
   tick(x: number): number {
+    // c = 0 (llamante por muestra) deja las cinco líneas de abajo en la
+    // identidad: el coeficiente vivo ES el objetivo.
     const c = this.smoothCoef;
     this.b0 = this.b0T + c * (this.b0 - this.b0T);
     this.b1 = this.b1T + c * (this.b1 - this.b1T);
@@ -127,6 +199,7 @@ export class Biquad {
 
   /** Fija el objetivo (y, la primera vez, el valor vivo) y arma el deslizamiento. */
   private commit(sr: number): this {
+    if (!this.smooths) return this;
     this.smoothCoef = timeCoef(COEF_SMOOTH_SECONDS, sr);
     if (!this.primed) {
       this.b0 = this.b0T; this.b1 = this.b1T; this.b2 = this.b2T;
@@ -143,7 +216,10 @@ export class Biquad {
     this.a1 = o.a1; this.a2 = o.a2;
     this.b0T = o.b0T; this.b1T = o.b1T; this.b2T = o.b2T;
     this.a1T = o.a1T; this.a2T = o.a2T;
-    this.smoothCoef = o.smoothCoef;
+    // El ritmo de deslizamiento SÍ se copia, pero no el permiso: si este
+    // biquad se declaró `'per-sample'`, copiar el `smoothCoef` de un hermano
+    // por bloque le devolvería el suavizado por la puerta de atrás.
+    this.smoothCoef = this.smooths ? o.smoothCoef : 0;
     this.primed = o.primed;
   }
 
