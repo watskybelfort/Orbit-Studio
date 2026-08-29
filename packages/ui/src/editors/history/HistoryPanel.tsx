@@ -19,6 +19,10 @@ import './history.css';
 
 export function HistoryPanel() {
   const version = useProjectVersion();
+  // `version` no se lee dentro de historyView(): es la señal de invalidación.
+  // El store muta el proyecto/historial EN SITIO (ver useProject.ts) y solo
+  // bumpa `version`; sin esta dependencia el memo nunca se recalcularía.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const view = useMemo(() => store.historyView(), [version]);
   const listRef = useRef<HTMLDivElement | null>(null);
 

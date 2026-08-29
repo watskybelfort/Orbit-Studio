@@ -21,6 +21,10 @@ import './history-branches.css';
 
 export function HistoryBranches() {
   const version = useProjectVersion();
+  // `version` no se lee dentro de historyTree(): es la señal de invalidación.
+  // El store muta el historial EN SITIO (ver useProject.ts) y solo bumpa
+  // `version`; sin esta dependencia el memo nunca se recalcularía.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const tree = useMemo(() => store.historyTree(), [version]);
   const rows = useMemo(() => branchRows(tree), [tree]);
   const summary = branchesSummary(tree);

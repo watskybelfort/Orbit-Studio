@@ -277,15 +277,21 @@ export default [
   // react-hooks/exhaustive-deps` escritos a mano, así que la regla se esperaba
   // aquí desde antes de que existiera este archivo.
   //
-  // `exhaustive-deps` va como AVISO, no como error: acierta mucho pero no
-  // siempre, y un CI en rojo por una dependencia que a propósito no está en la
-  // lista acaba con alguien apagando la regla entera.
+  // `exhaustive-deps` entró como AVISO mientras se revisaban a mano los once
+  // que trajo la v3.5: acierta mucho pero no siempre, y un CI en rojo por una
+  // dependencia que a propósito no está en la lista acaba con alguien
+  // apagando la regla entera. Con los once ya resueltos (arreglados los que
+  // faltaban de verdad, silenciados con el motivo escrito los deliberados —
+  // ver PianoRoll.tsx, Playlist.tsx, HistoryPanel.tsx, HistoryBranches.tsx,
+  // Browser.tsx) pasa a ERROR: lo que se cuela nuevo sin un
+  // `eslint-disable-next-line` razonado ahora rompe el build en vez de
+  // acumularse en silencio.
   {
     files: ['packages/ui/src/**/*.tsx', 'packages/ui/src/**/*.ts'],
     plugins: { 'react-hooks': reactHooks },
     rules: {
       'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
 

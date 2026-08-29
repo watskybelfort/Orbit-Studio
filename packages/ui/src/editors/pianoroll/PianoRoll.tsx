@@ -146,8 +146,14 @@ export function PianoRoll() {
 
   const pattern = activePatternId ? project.patterns[activePatternId] : undefined;
   const channel = channelId ? project.channels[channelId] : undefined;
+  // `project` no se lee dentro del cuerpo: es la señal de invalidación. Los
+  // comandos mutan `pattern.notes[channelId]` EN SITIO (push/Object.assign en
+  // commands.ts) sin siempre reemplazar el array ni el objeto `pattern`; sin
+  // `project` (nueva referencia por versión, ver useProject.ts) el memo podría
+  // no recalcular tras un `addNotes`/`patchNotes` que no cambia esas referencias.
   const notes = useMemo(
     () => (pattern && channelId ? pattern.notes[channelId] ?? [] : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [pattern, channelId, project],
   );
   const channelIndex = channelId ? project.channelOrder.indexOf(channelId) : -1;
@@ -429,7 +435,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, scrollY, zoomX, scaleRoot, scale, showGhosts, project.timeSig.num, beatToX, keyToY, themeVersion]);
+  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, zoomX, scaleRoot, scale, showGhosts, project.timeSig.num, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -550,6 +556,37 @@ export function PianoRoll() {
       }
     },
     [noteAt, draw],
+  );
+
+  // Declarado ANTES de `onPointerDown` a propósito: éste la llama (lane de
+  // velocity/pan) y necesita tenerla en sus deps para no quedarse con una
+  // cerradura vieja de `laneMode`/`selection` — y una `const` no puede
+  // aparecer en el array de deps de un hook declarado más arriba.
+  const applyVelocityAt = useCallback(
+    (x: number, y: number, canvasH: number) => {
+      const g = ghost.current;
+      if (!g) return;
+      const beat = xToBeat(x);
+      // Ajusta las seleccionadas; sin selección (o con ids muertos), la más cercana en X.
+      let targets = selection.size > 0
+        ? [...g.values()].filter((n) => selection.has(n.id))
+        : [];
+      if (targets.length === 0) {
+        targets = [...g.values()]
+          .sort((a, b) => Math.abs(a.start - beat) - Math.abs(b.start - beat))
+          .slice(0, 1);
+      }
+      if (laneMode === 'velocity') {
+        const vel = Math.min(1, Math.max(0.05, (canvasH - y - 4) / (VEL_LANE_H - 10)));
+        for (const t of targets) g.set(t.id, { ...t, velocity: vel });
+      } else {
+        const raw = ((canvasH - y - 4) / (VEL_LANE_H - 10)) * 2 - 1;
+        const pan = Math.min(1, Math.max(-1, raw));
+        for (const t of targets) g.set(t.id, { ...t, pan });
+      }
+      draw();
+    },
+    [selection, laneMode, xToBeat, draw],
   );
 
   const onPointerDown = useCallback(
@@ -698,34 +735,11 @@ export function PianoRoll() {
       drag.current = { mode: 'create', startX: x, startY: y, orig, createdId: created[0]!.id, moved: false, lastPreviewKey: key };
       previewNote(channelIndex, key, true);
     },
-    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt],
-  );
-
-  const applyVelocityAt = useCallback(
-    (x: number, y: number, canvasH: number) => {
-      const g = ghost.current;
-      if (!g) return;
-      const beat = xToBeat(x);
-      // Ajusta las seleccionadas; sin selección (o con ids muertos), la más cercana en X.
-      let targets = selection.size > 0
-        ? [...g.values()].filter((n) => selection.has(n.id))
-        : [];
-      if (targets.length === 0) {
-        targets = [...g.values()]
-          .sort((a, b) => Math.abs(a.start - beat) - Math.abs(b.start - beat))
-          .slice(0, 1);
-      }
-      if (laneMode === 'velocity') {
-        const vel = Math.min(1, Math.max(0.05, (canvasH - y - 4) / (VEL_LANE_H - 10)));
-        for (const t of targets) g.set(t.id, { ...t, velocity: vel });
-      } else {
-        const raw = ((canvasH - y - 4) / (VEL_LANE_H - 10)) * 2 - 1;
-        const pan = Math.min(1, Math.max(-1, raw));
-        for (const t of targets) g.set(t.id, { ...t, pan });
-      }
-      draw();
-    },
-    [selection, laneMode, xToBeat, draw],
+    // `applyVelocityAt` falta en la lista original: sin ella, tras cambiar
+    // `laneMode` (velocity/pan) sin tocar el resto de estas deps, el primer
+    // clic en la lane usaba el modo viejo (cerradura vieja sobre `laneMode`
+    // sacada de `applyVelocityAt`'s propias deps: [selection, laneMode, xToBeat, draw]).
+    [activePatternId, channelId, channelIndex, notes, selection, noteAt, doSnap, xToBeat, yToKey, lastDuration, scaleLock, snapToScale, chordIdx, tool, paintAt, eraseAt, applyVelocityAt],
   );
 
   const onPointerMove = useCallback(

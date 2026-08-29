@@ -933,6 +933,7 @@ export function Browser() {
     // `userTemplates` no se lee dentro (allTemplates() ya vuelve a leer el
     // store), pero SÍ tiene que estar en las deps: es la señal de que hay que
     // recalcular tras guardar o borrar una plantilla propia.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateQuery, userTemplates]);
 
   /** Nombres de los canales que trae, para la ficha (nunca se guarda, se lee al abrir). */

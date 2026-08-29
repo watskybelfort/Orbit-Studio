@@ -919,6 +919,13 @@ export function Playlist() {
       ctx.fill();
       if (ui.playing) ctx.fillRect(px, RULER_H, 1.5, h - RULER_H);
     }
+    // `idlePos` no se lee arriba (el caret usa `useUiStore.getState().positionBeats`
+    // al vuelo): es la señal de invalidación para el `useEffect(() => draw(), [draw])`
+    // de más abajo. Sin ella, mover el caret parado (clic en la regla, nudge)
+    // no redibuja hasta que cambie alguna otra dep — el RAF que sí redibuja
+    // el playhead está gateado a `playing`, así que en pausa esto es lo único
+    // que dispara el repintado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection]);
 
   useEffect(() => {
@@ -964,7 +971,7 @@ export function Playlist() {
     // entero (enabled=true, sin región). Con `false` el patrón sonaba una sola
     // vez y el transporte se quedaba muerto.
     engine.setLoop(0, 0, true);
-  }, []);
+  }, [setLoopRegion]);
 
   /** Corta un clip en el beat dado (dos clips, con offsets coherentes). */
   const sliceClip = useCallback(
@@ -1181,7 +1188,7 @@ export function Playlist() {
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove, fadeHandleAt],
   );
 
   const onPointerMove = useCallback(
@@ -1408,7 +1415,7 @@ export function Playlist() {
         }
       }
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw, selection, selectedIds, trackIndexOf, tracks, zoom, scrollX],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw, selection, selectedIds, trackIndexOf, tracks, zoom, scrollX, fadeHandleAt, setLoopRegion],
   );
 
   // Doble clic: en la regla crea/renombra marcadores; en un clip de
@@ -1462,7 +1469,7 @@ export function Playlist() {
         useUiStore.getState().openWindow('audioEditor');
       }
     },
-    [clipAt, markerAt, beatToX, xToBeat, snapOf, project],
+    [clipAt, markerAt, xToBeat, snapOf, project, fadeHandleAt],
   );
 
   const onPointerUp = useCallback(() => {
