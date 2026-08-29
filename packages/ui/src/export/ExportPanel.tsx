@@ -16,7 +16,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { type WavDepth } from '@orbit/engine';
 import {
+  cancelExport,
   DEFAULT_EXPORT_OPTIONS,
+  ExportCancelledError,
   fileNameOf,
   loadLastExport,
   nextExportPath,
@@ -27,6 +29,7 @@ import {
   suggestedExportName,
   useLastExportStore,
   usedMixerTracks,
+  type ExportCancelledSummary,
   type ExportOptions,
   type ExportSummary,
 } from './run-export';
@@ -39,6 +42,7 @@ type ExportStatus =
   | { kind: 'idle' }
   | { kind: 'busy'; label: string }
   | { kind: 'done'; summary: ExportSummary }
+  | { kind: 'cancelled'; partial: ExportCancelledSummary }
   | { kind: 'error'; message: string };
 
 function errorText(e: unknown): string {
@@ -66,6 +70,10 @@ export function ExportPanel() {
 
   const [opts, setOpts] = useState<ExportOptions>(DEFAULT_EXPORT_OPTIONS);
   const [status, setStatus] = useState<ExportStatus>({ kind: 'idle' });
+  // Distinto de `status`: una vez pedida la cancelación se deshabilita el
+  // botón (no tiene sentido pedirla dos veces) mientras se espera a que el
+  // checkpoint en curso —o el worker, si `cancelExport` lo tiró— la note.
+  const [cancelling, setCancelling] = useState(false);
 
   // El último export vive en settings.json: se lee una vez para poder ofrecer
   // "Repetir" nada más abrir el panel.
@@ -114,7 +122,7 @@ export function ExportPanel() {
     try {
       // Snapshot del proyecto en el momento del clic (no del render de React).
       const path = await orbit.file.saveDialog(suggestedExportName(store.project, effective));
-      if (!path) return; // cancelado por el usuario
+      if (!path) return; // cancelado por el usuario (el diálogo, no el export)
 
       setStatus({ kind: 'busy', label: 'Renderizando…' });
       const summary = await runExport(path, effective, {
@@ -124,7 +132,16 @@ export function ExportPanel() {
       await rememberExport(summary.path, effective, 1);
       setStatus({ kind: 'done', summary });
     } catch (e) {
-      setStatus({ kind: 'error', message: errorText(e) });
+      if (e instanceof ExportCancelledError) {
+        // Sin rememberExport: un export a medias no debe ser lo que repite
+        // Ctrl+E. Los archivos que sí llegaron a escribirse (e.partial) se
+        // quedan en disco — runExport() no los borra, ver su comentario.
+        setStatus({ kind: 'cancelled', partial: e.partial });
+      } else {
+        setStatus({ kind: 'error', message: errorText(e) });
+      }
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -360,6 +377,19 @@ export function ExportPanel() {
         >
           Repetir (Ctrl+E)
         </button>
+        {busy && (
+          <button
+            className="exp-cancel"
+            disabled={cancelling}
+            title="Corta el export ya: los stems y formatos que ya se escribieron se quedan en disco."
+            onClick={() => {
+              setCancelling(true);
+              cancelExport();
+            }}
+          >
+            {cancelling ? 'Cancelando…' : 'Cancelar'}
+          </button>
+        )}
         {busy && <span className="exp-status">{status.label}</span>}
       </div>
 
@@ -372,6 +402,17 @@ export function ExportPanel() {
       {!isDesktop && <p className="exp-note">Exportar requiere la app de escritorio.</p>}
 
       {status.kind === 'error' && <p className="exp-error">Error al exportar: {status.message}</p>}
+
+      {status.kind === 'cancelled' && (
+        <p className="exp-cancelled">
+          Export cancelado.{' '}
+          {status.partial.path
+            ? `El WAV principal (${fileNameOf(status.partial.path)}) ya se había escrito y se queda.`
+            : 'El WAV principal no llegó a escribirse.'}
+          {status.partial.totalStems > 0 &&
+            ` Stems: ${status.partial.stemsWritten}/${status.partial.totalStems} escritos antes de cortar.`}
+        </p>
+      )}
 
       {status.kind === 'done' && (
         <div className="exp-summary">

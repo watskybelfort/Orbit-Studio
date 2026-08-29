@@ -81,6 +81,27 @@ function killWorker(reason: string): void {
   worker = null;
 }
 
+/**
+ * Corta YA lo que el worker esté haciendo, sea lo que sea. Es la única forma
+ * real de cancelar un render A MITAD de camino cuando corre en el worker: el
+ * bucle de `renderProject` (packages/engine/src/render/offline.ts) es
+ * síncrono y no cede el hilo, así que un `postMessage` de cancelación se
+ * quedaría en la cola de eventos del worker sin procesarse hasta que ese
+ * bucle termine solo — exactamente el problema que se quiere resolver.
+ *
+ * Tirar el worker entero SÍ interrumpe de inmediato, y a coste CERO en el
+ * bucle caliente: no hay nada que comprobar ahí dentro para este camino (a
+ * diferencia de `RenderOptions.isCancelled`, que es el mecanismo equivalente
+ * para cuando no hay worker — Node/tests, o quien llame a `renderProject`
+ * directo). `killWorker` ya reserva lo pendiente y limpia `worker` a null
+ * para que la siguiente petición cree uno nuevo: reutilizarlo aquí evita
+ * duplicar esa lógica de "no dejar un cadáver colgado".
+ */
+export function cancelActiveRenderWorker(): void {
+  if (pending.size === 0) return; // nada corriendo ahora mismo: no hay nada que cortar
+  killWorker('Export cancelado por el usuario.');
+}
+
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' });

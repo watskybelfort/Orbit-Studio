@@ -46,7 +46,12 @@ import {
 } from '@orbit/engine';
 import { encodeMp3 } from './mp3';
 import { collectPluginSources, collectSamples } from './render-inputs';
-import { canUseRenderWorker, renderProjectInWorker, renderStemsInWorker } from './render-in-worker';
+import {
+  canUseRenderWorker,
+  cancelActiveRenderWorker,
+  renderProjectInWorker,
+  renderStemsInWorker,
+} from './render-in-worker';
 import { store } from '../state/app';
 import { useBounceStore } from '../state/bounce';
 import { nextPaint } from '../state/next-paint';
@@ -260,12 +265,84 @@ export interface RunExportConfig {
   onProgress?: ExportProgress;
 }
 
+// ── Cancelación ──────────────────────────────────────────────────────────────
+//
+// Un solo flag module-level (`cancelRequested`), igual que `running`: solo hay
+// un export a la vez, así que no hace falta un token por-export. Se lee en
+// cada punto seguro de la escritura (ver `renderAndWrite`) y se pasa como
+// `isCancelled` a los renders DIRECTOS (Node/tests, sin worker); para el
+// worker real, `cancelExport` además tira el worker en marcha con
+// `cancelActiveRenderWorker` — es la única manera de cortar un render a
+// mitad de camino ahí, porque su bucle es síncrono y no atiende mensajes
+// hasta que termina solo (ver el comentario de esa función).
+//
+// Dónde se comprueba, y por qué eso basta para "nada a medio escribir": el
+// flag SOLO se lee ANTES de arrancar la siguiente escritura (el próximo
+// `orbit.file.write`), nunca se corre una ya en marcha — no hay ningún
+// `Promise.race` entre un `await orbit.file.write(...)` y la cancelación. Un
+// archivo que ya se empezó a escribir SIEMPRE se deja terminar; lo único que
+// cambia es que no se arranca el siguiente. Eso es lo que garantiza que todo
+// lo que aparece en disco es un archivo completo — no hace falta escribir a
+// temporal y renombrar (que además pediría una API de borrado/rename en el
+// proceso main que hoy `file:write`/`file:save-dialog` no exponen).
+let cancelRequested = false;
+
+/** Qué se sabe del export en el momento de cancelarlo, para avisar sin adivinar. */
+export interface ExportCancelledSummary {
+  /** Ruta del WAV principal si llegó a escribirse antes de cancelar. */
+  path: string | null;
+  stemsWritten: number;
+  /** 0 si nunca se llegó a pedir stems o si se canceló antes de esa fase. */
+  totalStems: number;
+  warnings: string[];
+}
+
+/**
+ * El export se paró porque lo pidió el usuario, no porque algo fallara. Se
+ * lanza en vez de devolver un resumen con `cancelled: true` porque el WAV
+ * principal puede ni haber llegado a escribirse (`partial.path === null`):
+ * no hay un `ExportSummary` honesto que devolver en ese caso, y el llamante
+ * (el panel, `repeatLastExport`) necesita un `catch` que NO confunda esto con
+ * un export completo — en particular, no debe llamar a `rememberExport` con
+ * un export a medias, o "Repetir" repetiría algo que nunca terminó.
+ */
+export class ExportCancelledError extends Error {
+  constructor(public readonly partial: ExportCancelledSummary) {
+    super('Export cancelado.');
+    this.name = 'ExportCancelledError';
+  }
+}
+
+/** ¿Hay un export en marcha ahora mismo? (para deshabilitar el botón Cancelar cuando no aplica). */
+export function isExporting(): boolean {
+  return running;
+}
+
+/**
+ * Pide cortar el export en marcha. No hace nada si no hay ninguno: llamarla
+ * de más (doble clic en Cancelar) es inofensivo.
+ *
+ * Los stems/formatos ya escritos en disco se QUEDAN — no se borran al
+ * cancelar. Ver el comentario largo en `renderAndWrite` (sección de stems)
+ * para el porqué; es la misma decisión que ya tomó la v3.6 para el stem que
+ * revienta a mitad de lote, aplicada ahora a "el usuario cortó el resto".
+ */
+export function cancelExport(): void {
+  if (!running) return;
+  cancelRequested = true;
+  cancelActiveRenderWorker();
+}
+
 /** Un export a la vez: el render bloquea el hilo del renderer. */
 let running = false;
 
 /**
  * Renderiza y escribe. `path` es la ruta del WAV principal; el resto de
  * archivos (stems, .mid, .mp3, .flac) son rutas hermanas derivadas de ella.
+ *
+ * Lanza `ExportCancelledError` si el usuario cancela con `cancelExport()`
+ * mientras corre — no una excepción genérica, para que el llamante pueda
+ * distinguir "cancelado a propósito" de "falló de verdad".
  */
 export async function runExport(
   path: string,
@@ -276,10 +353,15 @@ export async function runExport(
   if (!orbit) throw new Error('Exportar requiere la app de escritorio.');
   if (running) throw new Error('Ya hay un export en marcha.');
   running = true;
+  cancelRequested = false;
   try {
     return await renderAndWrite(orbit, path, opts, config);
   } finally {
     running = false;
+    // Reset también aquí (no solo al empezar): si quedara en `true` tras un
+    // export cancelado, el PRÓXIMO export se cortaría solo en su primer
+    // checkpoint sin que nadie hubiera pedido cancelar ESE.
+    cancelRequested = false;
   }
 }
 
@@ -298,6 +380,30 @@ async function renderAndWrite(
   const proj = store.project;
   const warnings: string[] = [];
 
+  // Cancelación: qué se sabe del export en el momento de cortar. `stemTracks`
+  // vive aquí (no donde estaba antes, pegado al bucle de stems) porque
+  // `partialSummary` puede llamarse desde un checkpoint ANTERIOR a esa fase
+  // (mientras se renderiza la mezcla principal, por ejemplo) y `totalStems`
+  // tiene que existir ya en ese momento — es un cálculo puro sobre `proj`
+  // (`usedMixerTracks`), así que adelantarlo no cambia nada más.
+  const stemTracks = opts.stems ? usedMixerTracks(proj) : [];
+  const totalStems = stemTracks.length;
+  /** Ruta del WAV principal una vez escrita (null hasta entonces). */
+  let mainPathWritten: string | null = null;
+  let stemsWritten = 0;
+  const partialSummary = (): ExportCancelledSummary => ({
+    path: mainPathWritten,
+    stemsWritten,
+    totalStems,
+    warnings: [...warnings],
+  });
+  /** Único punto de lectura del flag: SIEMPRE antes de arrancar una escritura
+   * nueva, nunca en medio de una ya empezada — ver el comentario de
+   * `cancelRequested` más arriba para por qué eso basta. */
+  const throwIfCancelled = (): void => {
+    if (cancelRequested) throw new ExportCancelledError(partialSummary());
+  };
+
   const patternId =
     opts.source === 'pattern' && opts.patternId && proj.patterns[opts.patternId]
       ? opts.patternId
@@ -311,6 +417,7 @@ async function renderAndWrite(
   }
 
   await report('Renderizando…');
+  throwIfCancelled();
 
   const playMode = patternId ? ({ mode: 'pattern', patternId } as const) : ({ mode: 'song' } as const);
   const compiled = compileProject(proj, playMode);
@@ -335,9 +442,25 @@ async function renderAndWrite(
   };
   // El render (donde se ejecutan los plugins JS) va en un worker aislado; en
   // Node/tests, donde no hay Worker, cae al render directo.
-  let mix = canUseRenderWorker()
-    ? await renderProjectInWorker(compiled, renderOpts)
-    : renderProject(compiled, renderOpts);
+  //
+  // `isCancelled` solo se le pasa al camino DIRECTO: es una función, y una
+  // función no sobrevive un `postMessage` (structured clone la tiraría con
+  // DataCloneError), así que mandársela al worker no tiene sentido. Ahí la
+  // cancelación de verdad la hace `cancelExport` tirando el worker entero
+  // (`cancelActiveRenderWorker`), que por eso se ve aquí como una excepción
+  // que rechaza la promesa — de ahí el try/catch: distingue "el worker murió
+  // porque lo cancelaron" ('cancelRequested' ya en true cuando eso pasa) de
+  // "el worker murió de verdad".
+  const isCancelled = (): boolean => cancelRequested;
+  let mix: RenderResult;
+  try {
+    mix = canUseRenderWorker()
+      ? await renderProjectInWorker(compiled, renderOpts)
+      : renderProject(compiled, { ...renderOpts, isCancelled });
+  } catch (e) {
+    if (cancelRequested) throw new ExportCancelledError(partialSummary());
+    throw e;
+  }
   // El recorte convierte beats a segundos con el MAPA de tempo, que es con el
   // que se renderizó. Con el tempo plano del proyecto, un marcador que cambie
   // el tempo sacaba la región por otro sitio (en un 120 con marcador a 75, los
@@ -371,6 +494,12 @@ async function renderAndWrite(
   // El main solo autoriza lo elegido en un diálogo y las carpetas de usuario
   // (música, descargas, documentos…). Al repetir un export con sufijo nuevo la
   // ruta puede caer fuera de esa lista: entonces se pregunta una vez.
+  //
+  // El checkpoint va ANTES de `orbit.file.write`, nunca durante: una vez que
+  // esa promesa arranca se deja terminar siempre (por eso `mainPathWritten`
+  // solo se marca DESPUÉS de que la escritura ya resolvió). Cancelar aquí
+  // corta antes de generar el archivo — no lo interrumpe a medias.
+  throwIfCancelled();
   let target = path;
   const wav = encodeWav(mix.left, mix.right, mix.sampleRate, opts.depth);
   try {
@@ -386,6 +515,7 @@ async function renderAndWrite(
     await orbit.file.write(target, wav);
     warnings.push('Esa carpeta no estaba autorizada: se ha pedido la ruta una vez.');
   }
+  mainPathWritten = target;
 
   // MP3 al lado del WAV (para pasar demos rápido).
   let mp3Path: string | null = null;
@@ -394,6 +524,7 @@ async function renderAndWrite(
       `MP3 solo admite hasta 48 kHz: exporta a 44.1/48 kHz si lo quieres (WAV escrito a ${(mix.sampleRate / 1000).toFixed(1)} kHz).`,
     );
   } else if (opts.mp3) {
+    throwIfCancelled();
     mp3Path = `${splitExtension(target).base}.mp3`;
     try {
       await report('Codificando MP3…');
@@ -407,6 +538,7 @@ async function renderAndWrite(
   // FLAC sin pérdida al lado del WAV (float 32 se escribe a 24 bits).
   let flacPath: string | null = null;
   if (opts.flac) {
+    throwIfCancelled();
     flacPath = `${splitExtension(target).base}.flac`;
     try {
       await report('Codificando FLAC…');
@@ -424,6 +556,7 @@ async function renderAndWrite(
   // escribirlo (ver render/ogg.ts).
   let oggPath: string | null = null;
   if (opts.ogg) {
+    throwIfCancelled();
     oggPath = `${splitExtension(target).base}.ogg`;
     try {
       await report('Empaquetando OGG…');
@@ -446,6 +579,7 @@ async function renderAndWrite(
       `Opus trabaja a 48 kHz: exporta a esa frecuencia si lo quieres (WAV escrito a ${(mix.sampleRate / 1000).toFixed(1)} kHz).`,
     );
   } else if (opts.opus) {
+    throwIfCancelled();
     opusPath = `${splitExtension(target).base}.opus`;
     try {
       await report('Codificando Opus…');
@@ -477,6 +611,7 @@ async function renderAndWrite(
   // MIDI multipista al lado del WAV (flujo FL de Orbit: .mid + wav).
   let midiPath: string | null = null;
   if (opts.midi) {
+    throwIfCancelled();
     midiPath = `${splitExtension(target).base}.mid`;
     try {
       await orbit.file.write(midiPath, encodeMidi(proj, playMode));
@@ -524,12 +659,12 @@ async function renderAndWrite(
   // secundario que falla al escribir, más abajo) dice exactamente qué faltó
   // sin tirar lo demás.
   const STEM_BATCH_SIZE = 4;
-  let stemsWritten = 0;
-  const stemTracks = opts.stems ? usedMixerTracks(proj) : [];
-  const totalStems = stemTracks.length;
   if (totalStems > 0) {
     const usedSlugs = new Set<string>();
     for (let start = 0; start < totalStems; start += STEM_BATCH_SIZE) {
+      // Checkpoint ENTRE lotes: el fácil, el que ya alcanzaba para el caso
+      // común (12 stems ⇒ como mucho 3 peticiones de por medio).
+      throwIfCancelled();
       const batch = stemTracks.slice(start, start + STEM_BATCH_SIZE);
       const batchIndices = batch.map((t) => t.idx);
       const reportStem = (localIndex: number): void => {
@@ -537,9 +672,39 @@ async function renderAndWrite(
         if (t) void report(`Renderizando stem ${start + localIndex + 1}/${totalStems} (${t.name})…`);
       };
       reportStem(0);
-      const { results, errors } = canUseRenderWorker()
-        ? await renderStemsInWorker(compiled, batchIndices, renderOpts, (idx) => reportStem(idx))
-        : renderStems(compiled, batchIndices, renderOpts);
+
+      // Checkpoint DENTRO del lote — el que hace falta cuando una sola pista
+      // de una canción larga ya tarda por sí sola:
+      //   · Worker (el camino real de la app): `isCancelled` no viaja (una
+      //     función no sobrevive `postMessage`), así que aquí no hay nada que
+      //     comprobar dentro del bucle de render — es gratis. La cancelación
+      //     la hace `cancelExport` tirando el worker con
+      //     `cancelActiveRenderWorker`, que interrumpe YA lo que sea que esté
+      //     computando; eso llega aquí como el `catch` de abajo.
+      //   · Directo (Node/tests, sin Worker): `isCancelled` SÍ viaja (mismo
+      //     realm), y `renderStems` la comprueba antes de cada pista del lote
+      //     y `renderProject` la comprueba dentro de su propio bucle (cada 64
+      //     bloques, ver `packages/engine/src/render/offline.ts`) — se corta
+      //     el lote ahí mismo y `results` vuelve con lo que ya se había
+      //     renderizado de pistas anteriores de ESTE lote, sin descartarlo.
+      let results: Map<number, RenderResult>;
+      let errors: Map<number, string>;
+      try {
+        if (canUseRenderWorker()) {
+          ({ results, errors } = await renderStemsInWorker(
+            compiled,
+            batchIndices,
+            renderOpts,
+            (idx) => reportStem(idx),
+          ));
+        } else {
+          ({ results, errors } = renderStems(compiled, batchIndices, { ...renderOpts, isCancelled }));
+        }
+      } catch (e) {
+        if (cancelRequested) throw new ExportCancelledError(partialSummary());
+        throw e;
+      }
+
       for (const t of batch) {
         let res = results.get(t.idx);
         // Ya escrito o por escribir: fuera del Map en cuanto se usa, para que
@@ -547,8 +712,16 @@ async function renderAndWrite(
         // retener el lote entero hasta que termine el bucle interno.
         results.delete(t.idx);
         if (!res) {
-          const reason = errors.get(t.idx) ?? 'motivo desconocido';
-          warnings.push(`No se pudo renderizar el stem "${t.name}": ${reason}. Se sigue con el resto.`);
+          // Falta por dos motivos bien distintos: reventó de verdad (aviso,
+          // como siempre) o el lote se cortó por cancelación (nunca se llegó
+          // a pedir esa pista — avisar "no se pudo renderizar" sería mentir,
+          // ya se sabe por qué falta y el resumen de la cancelación lo dice).
+          if (!cancelRequested) {
+            const reason = errors.get(t.idx) ?? 'motivo desconocido';
+            warnings.push(
+              `No se pudo renderizar el stem "${t.name}": ${reason}. Se sigue con el resto.`,
+            );
+          }
           continue;
         }
         res = cut(res);
@@ -567,6 +740,12 @@ async function renderAndWrite(
           warnings.push(`No se pudo escribir ${stemPath}: ${errorText(e)}`);
         }
       }
+
+      // Si el lote se cortó por cancelación (el `break` de `renderStems`, sin
+      // pasar por el `catch` de arriba porque no rechazó ninguna promesa): lo
+      // que salió bien de ESTE lote ya se escribió justo encima; ahora sí se
+      // corta el export entero, sin arrancar el próximo lote.
+      throwIfCancelled();
     }
   }
 
@@ -729,7 +908,12 @@ export async function repeatLastExport(): Promise<void> {
     const extra = summary.warnings.length > 0 ? ` (${summary.warnings.length} aviso(s))` : '';
     notify(`Exportado ${fileNameOf(summary.path)}${extra}`);
   } catch (e) {
-    notify(`No se pudo exportar: ${errorText(e)}`);
+    // Cancelado a propósito ('cancelExport()', aunque Ctrl+E no tenga botón
+    // propio: comparte el mismo `runExport` que el panel) no es un fallo —
+    // `rememberExport` de todas formas nunca se llega a llamar aquí arriba
+    // porque queda dentro del `try`, así que un export a medias no se
+    // convierte en "el último" para el próximo Ctrl+E.
+    notify(e instanceof ExportCancelledError ? 'Export cancelado.' : `No se pudo exportar: ${errorText(e)}`);
   } finally {
     useBounceStore.setState({ busy: null });
   }

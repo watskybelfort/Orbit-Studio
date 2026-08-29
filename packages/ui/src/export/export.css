@@ -142,10 +142,40 @@
   cursor: default;
 }
 
+/* Cancelar un export en marcha: mismo tono que los avisos de error (--meter-clip),
+   para que se lea como una acción que corta algo, no como una opción más. */
+.exp-cancel {
+  padding: 7px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--meter-clip);
+  background: var(--surface-2);
+  color: var(--meter-clip);
+  cursor: pointer;
+}
+
+.exp-cancel:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px var(--meter-clip);
+}
+
+.exp-cancel:disabled {
+  border-color: var(--border);
+  color: var(--text-dim);
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* Estado / resumen */
 .exp-status {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+.exp-cancelled {
+  margin: 0;
+  font-size: 12px;
+  color: var(--meter-clip);
 }
 
 .exp-summary {

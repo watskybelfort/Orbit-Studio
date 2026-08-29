@@ -24,6 +24,33 @@ export interface RenderOptions {
   startBeat?: number;
   endBeat?: number;
   onProgress?: (fraction: number) => void;
+  /**
+   * Punto de comprobación de cancelación DENTRO del render, no solo entre
+   * pistas. Se lee con la MISMA cadencia que `onProgress` (cada 64 bloques,
+   * ver el bucle de abajo) para no añadir coste al bucle caliente: es la
+   * comprobación de `onProgress` la que ya paga el `written % ... === 0`, así
+   * que colgar `isCancelled` del mismo `if` no cuesta un branch más por
+   * bloque, solo uno más cada ~8192 muestras (~186 ms a 44,1 kHz). Sin esto,
+   * cancelar un export solo podía cortar ENTRE pistas (`renderStems` en
+   * `run-export.ts`): para una sola pista de una canción larga, eso no basta
+   * — el usuario espera esa pista entera igual.
+   *
+   * No sirve para el worker (una función no sobrevive un `postMessage`): ahí
+   * la cancelación de verdad la hace `cancelActiveRenderWorker` tirando el
+   * worker entero (ver `packages/ui/src/export/render-in-worker.ts`), que
+   * además es gratis en el bucle caliente porque no comprueba nada dentro.
+   * Este flag es el mecanismo para Node/tests (sin `Worker`) y para quien
+   * llame a `renderProject`/`renderStems` directo.
+   */
+  isCancelled?: () => boolean;
+}
+
+/** Señal de que un render se cortó porque lo pidió quien llama, no un fallo del DSP. */
+export class RenderCancelledError extends Error {
+  constructor() {
+    super('Render cancelado.');
+    this.name = 'RenderCancelledError';
+  }
 }
 
 export interface RenderResult {
@@ -124,8 +151,15 @@ export function renderProject(
       tailLeft -= MAX_BLOCK;
       if (tailLeft <= 0) break;
     }
-    if (opts.onProgress && written % (MAX_BLOCK * 64) === 0) {
-      opts.onProgress(Math.min(0.99, written / estTotal));
+    // Mismo guard que antes (`opts.onProgress &&`, ahora + `opts.isCancelled`):
+    // sin ninguno de los dos registrado, el módulo ni se calcula — no pagar
+    // nada en el caso común (bounce/consolidar, que no pasa ninguno de los dos).
+    if ((opts.onProgress || opts.isCancelled) && written % (MAX_BLOCK * 64) === 0) {
+      if (opts.isCancelled?.()) {
+        core.dispose();
+        throw new RenderCancelledError();
+      }
+      opts.onProgress?.(Math.min(0.99, written / estTotal));
     }
   }
 
@@ -181,6 +215,14 @@ export interface StemBatchResult {
  * (run-export.ts): aquí solo se garantiza no perder lo que ya salió bien. Ver
  * `errors` para el motivo de cada pista que faltó — el llamante decide si eso
  * es aviso o excepción, pero nunca borra un `Map` entero por una sola entrada.
+ *
+ * Cancelación (`opts.isCancelled`): se comprueba ANTES de cada pista del lote
+ * —parada entre pistas, barata— y si `renderProject` la corta A MITAD de una
+ * pista con `RenderCancelledError`, ese `break` también corta el lote ahí
+ * mismo. En los dos casos se conserva `results` con lo que YA se había
+ * renderizado de pistas anteriores del mismo lote (nada se descarta, nada se
+ * escribe todavía: eso lo hace `run-export.ts`), y la pista cortada no entra
+ * en `errors` — cancelar no es un fallo de esa pista, es que dejó de pedirse.
  */
 export function renderStems(
   project: CompiledProject,
@@ -190,6 +232,7 @@ export function renderStems(
   const results = new Map<number, RenderResult>();
   const errors = new Map<number, string>();
   for (const idx of trackIndices) {
+    if (opts.isCancelled?.()) break;
     try {
       const keep = audibleTracksForStem(project, idx);
       const solo: CompiledProject = {
@@ -203,6 +246,7 @@ export function renderStems(
       };
       results.set(idx, renderProject(solo, opts));
     } catch (e) {
+      if (e instanceof RenderCancelledError) break;
       // `renderProject` puede reventar a mitad de render (tras haber llamado ya
       // a `opts.onProgress` con fracciones intermedias) sin llegar nunca a su
       // `onProgress(1)` de cierre incondicional. `trackStemProgress` (en

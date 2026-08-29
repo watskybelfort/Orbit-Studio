@@ -15,6 +15,7 @@ export { AudioEngine } from './engine';
 export {
   renderProject,
   renderStems,
+  RenderCancelledError,
   type RenderOptions,
   type RenderResult,
   type StemBatchResult,
