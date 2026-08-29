@@ -16,7 +16,7 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
    (tokens en `packages/ui/src/theme/`). El acrílico sigue la arquitectura A del
    skill `acrylic-theming` (alfa de ventana + DWM; `backdrop-filter` solo en
    popups). Apagar el acrílico es un teardown real.
-5. **Golden tests**: `engine/test/golden` fija el sonido con 24 renders
+5. **Golden tests**: `engine/test/golden` fija el sonido con 25 renders
    deterministas y 2 flujos Opus. Cualquier cambio de sonido tiene que
    actualizar su línea base **conscientemente**: `npm run golden:update` enseña
    el diff y NO escribe; escribir pide `--accept "<motivo>"`, y el commit debe

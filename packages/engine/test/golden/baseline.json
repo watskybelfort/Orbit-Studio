@@ -1,14 +1,14 @@
 {
   "formatVersion": 1,
   "orbitVersion": "3.7.0",
-  "recordedAt": "2026-08-29T21:02:36.008Z",
+  "recordedAt": "2026-08-29T21:22:22.810Z",
   "recordedOn": {
     "platform": "win32",
     "arch": "x64",
     "node": "24.18.0",
     "v8": "13.6.233.17-node.50"
   },
-  "accepted": "SVF en modo per-sample para SynthVoice, PrismaVoice y AutofilterUnit: quien ya modula el corte muestra a muestra deja de pagar el one-pole de 5 ms de filters.ts, que estaba puesto para el llamante por bloque y solo le sumaba retraso al ataque. Medido: 90 % del brillo a 3,42 ms en vez de 6,37 (banco ADSR+SVF, exactamente la referencia sin suavizar) y a 5,42 ms en vez de 8,03 en el render de inst-synth-sweep. Se acepta: inst-synth-sweep, 46 medidas, peor 0,764 dB — high +0,269 dB en total y +0,453 en la ventana fuerte (el brillo del ataque que faltaba), peakDb -0,764 dB y LUFS dentro de 0,16 dB (menos pico resonante, misma sonoridad); fx-autofilter, 36 medidas, peor 1,634 dB — el barrido del LFO deja de llegar 5 ms tarde: high sube en 5 de 6 ventanas (+0,658 dB en total) y la energia se corre de highMid a high; inst-prisma-default, 3 medidas, peor 0,100 dB y solo en peakDb (su preset por defecto es un Rhodes: casi no usa envolvente de filtro); inst-nova-default, solo el hash, ninguna medida se movio. NO se movieron fx-phaser, fx-eq-smoothing, fx-vinyl ni ningun biquad por bloque, y es a proposito: a esos el valor les llega en escalones y el suavizado es justo lo que los rellena. La guarda del 0,2 % sigue en su sitio (ahorra CPU, nunca fue el retraso) y AutofilterUnit desliza el mismo cutoff/resonance, que si le llegan por bloque.",
+  "accepted": "fixture nuevo fx-autofilter-sweep: automatiza el cutoff del autofiltro POR BLOQUE, que es el camino que el banco no cubria. Desde la v3.7 el SVF del autofiltro es per-sample y no suaviza, asi que quien desliza el escalon es la propia AutofilterUnit (cutoffLive/resLive); sin esa pieza vuelve el zipper (18,4 dB de basura por encima de 6 kHz, medido). Ningun otro fixture se movio al anadirlo.",
   "fixtures": {
     "inst-sub808-glide": {
       "covers": "Sub808Voice: glide, pitch env, SVF de tone, saturación",
@@ -1671,6 +1671,95 @@
           "highMid": -20.42268420668728,
           "high": -37.12335476524898,
           "corr": 0.9999999999800427
+        },
+        {
+          "lufs": -120.691,
+          "peakDb": -240,
+          "low": 0,
+          "lowMid": 0,
+          "highMid": 0,
+          "high": 0,
+          "corr": 1
+        },
+        {
+          "lufs": -120.691,
+          "peakDb": -240,
+          "low": 0,
+          "lowMid": 0,
+          "highMid": 0,
+          "high": 0,
+          "corr": 1
+        },
+        {
+          "lufs": -120.691,
+          "peakDb": -240,
+          "low": 0,
+          "lowMid": 0,
+          "highMid": 0,
+          "high": 0,
+          "corr": 1
+        }
+      ]
+    },
+    "fx-autofilter-sweep": {
+      "covers": "v3.7: cutoff del autofiltro automatizado POR BLOQUE — el deslizado propio de AutofilterUnit",
+      "hash": "88f4ea0cc2580dff9e512b3ec3d43746c724116a64d07cd274d8301563d627f0",
+      "samples": 141696,
+      "sampleRate": 44100,
+      "total": {
+        "lufs": -10.765993640912463,
+        "peakDb": 8.533245949311624,
+        "low": -1.6149445810295306,
+        "lowMid": -5.593746910953089,
+        "highMid": -17.04648470679601,
+        "high": -18.268413690517875,
+        "corr": 0.9999999999999999
+      },
+      "windows": [
+        {
+          "lufs": -7.118493599445906,
+          "peakDb": 8.533245949311624,
+          "low": -2.1045883850289053,
+          "lowMid": -4.515165278652502,
+          "highMid": -15.326186211185071,
+          "high": -47.635270605612405,
+          "corr": 0.9999999999999997
+        },
+        {
+          "lufs": -17.63931323614771,
+          "peakDb": -4.849546002650501,
+          "low": -0.2896581242484598,
+          "lowMid": -11.936234537669426,
+          "highMid": -34.16564674177738,
+          "high": -46.221055153775296,
+          "corr": 0.9999999999999978
+        },
+        {
+          "lufs": -6.888925677278784,
+          "peakDb": 5.635649693885952,
+          "low": -1.6725000732390691,
+          "lowMid": -5.760882623114133,
+          "highMid": -17.736784420391295,
+          "high": -14.486800969105232,
+          "corr": 0.9999999999999997
+        },
+        {
+          "lufs": -16.04928992925158,
+          "peakDb": -4.377436084862333,
+          "low": -0.4707383146785864,
+          "lowMid": -9.925558802737513,
+          "highMid": -30.64433540285694,
+          "high": -44.68003115183825,
+          "corr": 0.9999999999999984
+        },
+        {
+          "lufs": -50.964248478337076,
+          "peakDb": -37.41139025289002,
+          "low": -0.7185105821614772,
+          "lowMid": -8.225075869492713,
+          "highMid": -27.814420541650932,
+          "high": -36.253436139298294,
+          "corr": 0.999999999993907
         },
         {
           "lufs": -120.691,

@@ -71,14 +71,15 @@ Todo lo de abajo se midió de verdad. Se puede rehacer.
 
 ### 1. ¿Es determinista el motor?
 
-Sí. Los 24 fixtures dan el mismo hash en dos renders seguidos del mismo
-proceso, en las cinco plataformas probadas. No hay `Math.random` en el motor
+Sí. Los fixtures dan el mismo hash en dos renders seguidos del mismo proceso,
+en las cinco plataformas probadas — medido sobre los 24 que había entonces; el
+banco son 25 desde que la v3.8 añadió `fx-autofilter-sweep`. No hay `Math.random` en el motor
 (`osc.ts` ya lo avisaba; ahora hay una medida detrás): el ruido va por xorshift32
 con semilla fija, y los ids del proyecto están fijados a mano.
 
 Eso fue el experimento. El test **permanente** de determinismo es más barato a
-propósito y comprueba 2 de los 24 en cada corrida (`golden.test.ts`, con el
-motivo escrito al lado): renderizar los 24 dos veces en cada `npm test` costaría
+propósito y comprueba 2 de los 25 en cada corrida (`golden.test.ts`, con el
+motivo escrito al lado): renderizar los 25 dos veces en cada `npm test` costaría
 el doble del banco entero para volver a demostrar algo que ya se midió. Los 24
 se cubren igual en cada corrida contra la línea base, que es la comparación que
 de verdad importa.
@@ -118,7 +119,8 @@ corrió el golden:
 | perturbación | qué cambio de sonido representa | fixtures rojos | peor métrica |
 | --- | --- | --- | --- |
 | `filters.ts` `ANTI_DENORMAL` 1e-20 → 1e-19 | v3.6, Biquad/SVF/Allpass1 | **7** | 0 dB |
-| `filters.ts` `COEF_SMOOTH_SECONDS` 5 → 6 ms | v3.5, suavizado de coeficientes | **7** | **0,861 dB** (5 de los 7 por métricas) |
+| `filters.ts` `COEF_SMOOTH_SECONDS` 5 → 6 ms | v3.5, suavizado de coeficientes | **3** | 0,017 dB (2 de los 3 por métricas) |
+| `AutofilterUnit` sin su `cutoffLive` | v3.8, el deslizado propio del autofiltro | **1** (`fx-autofilter-sweep`) | **14,694 dB** (35 medidas) |
 | `voices.ts` guarda 0,2 % → 1 % | v3.6, `SynthVoice` | **2** | 0,906 dB (33 medidas) |
 | `reverb.ts` `ANTI_DENORMAL` ×10 | v3.5, denormales de la reverb | **1** (`fx-reverb`) | 0 dB |
 | `effects.ts` `ANTI_DENORMAL` ×10 | v3.6, delay/flanger/phaser | **2** (flanger, phaser) | 0 dB |
@@ -136,12 +138,27 @@ ahí la capa perceptual detecta sola, con 86 veces el margen de la tolerancia.
 Y cambiar la guarda del 0,2 % mueve 33 medidas hasta 0,9 dB, con el informe
 listándolas ordenadas.
 
-> Esta celda decía **0,017 dB** hasta que la verificación de la v3.7 la volvió a
-> medir: era el Δ de `fx-eq-smoothing` solo —el fixture del nombre más parecido—
-> en vez del máximo de la fila. El error iba en dirección segura (el golden es
-> más fuerte de lo que decía), pero es justo el número que alguien citaría el día
-> que quisiera **ensanchar** la tolerancia. Si volvés a tocar esa tabla, tomá el
-> máximo de la fila y no el del fixture que suena parecido.
+> Esa fila tiene una historia que conviene leer entera, porque el mismo número
+> ha significado dos cosas distintas. Decía **0,017 dB** y estaba **mal**: era el
+> Δ de `fx-eq-smoothing` solo —el fixture del nombre más parecido— en vez del
+> máximo de la fila. La verificación de la v3.7 la remidió y daba **7 fixtures y
+> 0,861 dB**. Y entonces la v3.8 la bajó **de verdad**, a 3 fixtures y 0,017 dB,
+> esta vez por diseño y no por descuido: los tres llamantes que movían el corte
+> muestra a muestra —`SynthVoice`, `PrismaVoice` y `AutofilterUnit`— pasaron a
+> construir su SVF en modo `'per-sample'` (ver `CoefSource` en `filters.ts`) y ya
+> no pagan ese one-pole. Lo que sigue apuntando a esa constante son los biquads y
+> allpass por bloque, que es para quien se puso.
+>
+> Esa bajada dejó un hueco, y la fila de debajo es cómo se tapó: al no suavizar
+> el filtro, quien desliza el escalón que llega por bloque es la propia
+> `AutofilterUnit`, y **ningún fixture automatizaba un parámetro del autofiltro**,
+> así que el banco pasaba igual con y sin esa pieza. `fx-autofilter-sweep` existe
+> para eso, y se comprobó quitándola: 35 medidas fuera de tolerancia y 14,694 dB
+> en la banda alta, que es el zipper.
+>
+> Dos lecciones para el que toque esta tabla: tomá el **máximo de la fila**, no el
+> del fixture que suena parecido; y si una fila **baja**, preguntate si bajó
+> porque el motor mejoró o porque el banco dejó de mirar.
 
 ### 4. Lo que el banco NO fija
 

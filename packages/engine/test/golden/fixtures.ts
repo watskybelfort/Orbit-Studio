@@ -456,6 +456,33 @@ export const GOLDEN_FIXTURES: readonly GoldenFixture[] = [
     })],
   ),
 
+  // v3.7: el OTRO camino del suavizado, el que el banco no cubría.
+  // `fx-autofilter` (arriba) mueve su corte con el LFO interno, o sea muestra a
+  // muestra: desde la v3.7 su SVF es 'per-sample' y no suaviza nada. Lo que
+  // ningún fixture tocaba es el `cutoff` que llega POR BLOQUE, en escalones —
+  // el caso para el que el suavizado existe. Ahora que el filtro ya no lo
+  // amortigua, quien lo desliza es la propia AutofilterUnit (`cutoffLive`), y
+  // sin esa pieza vuelve el zipper: medido, 18,4 dB de basura por encima de
+  // 6 kHz. Este fixture es lo único del banco que la fija.
+  effectRig(
+    'fx-autofilter-sweep',
+    'v3.7: cutoff del autofiltro automatizado POR BLOQUE — el deslizado propio de AutofilterUnit',
+    [fx('autofilter', {
+      type: 0, cutoff: 700, resonance: 0.75, lfoRate: 0.05, lfoAmount: 0, envAmount: 0,
+    })],
+    {
+      lfo: (trackIndex) => ({
+        id: buildId('lfo'),
+        target: { kind: 'effect', trackIndex, slotIndex: 0, param: 'cutoff' },
+        shape: 'sine',
+        rateBeats: 2,
+        amount: 0.85,
+        phase: 0,
+        enabled: true,
+      }),
+    },
+  ),
+
   // v3.5: el suavizado de coeficientes (COEF_SMOOTH_SECONDS en filters.ts).
   // Sin un parámetro EN MOVIMIENTO el suavizado es un no-op numérico (el
   // objetivo ya es el valor vivo), así que este fixture automatiza el EQ con
