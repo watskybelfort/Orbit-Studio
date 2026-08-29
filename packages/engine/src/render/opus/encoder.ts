@@ -22,7 +22,13 @@
  * chasquido y duraría de más.
  */
 
-import { celtEncodeFrame, createCeltEncoder, OVERLAP, type CeltEncoderState } from './celt-encoder';
+import {
+  celtEncodeFrame,
+  createCeltEncoder,
+  OVERLAP,
+  type CeltEncoderState,
+  type TfWeightMode,
+} from './celt-encoder';
 import type { SpreadMode } from './spread';
 import type { PostfilterMode } from './postfilter';
 import type { StereoMode } from './stereo';
@@ -110,6 +116,26 @@ export interface EncodeOptions {
    * banco pueda medir una contra otra.
    */
   vbr?: VbrMode;
+  /**
+   * Qué hace `tfAnalysis` con el peso de cada banda en su Viterbi.
+   *
+   * Por defecto `'importancia-larga'`: en tramas de bloque largo, cada banda
+   * pesa según cuánto sobresale del suelo de ruido, para que un parcial
+   * armónico aislado no ceda su resolución de frecuencia sólo por parecerse a
+   * sus vecinas — recupera el acorde en estéreo sin tocar la percusión. Ver el
+   * detalle y los números en `CeltFrameOptions.tfWeight`, en `celt-encoder.ts`.
+   * `'plano'` (todas las bandas igual) e `'importancia'` (sin restringir a
+   * bloque largo) existen para que el banco pueda medir una contra otra.
+   */
+  tfWeight?: TfWeightMode;
+  /**
+   * Si se activa el apagado por tonalidad del detector de transitorios: un
+   * disparo débil en una trama con periodicidad fuerte (la misma ganancia que
+   * ya calcula el postfiltro) no cuenta como transitorio. Por defecto `false`
+   * — medido y descartado, no mueve la peor cifra del banco; ver el detalle en
+   * `CeltFrameOptions.tonalGate`. Se deja disponible para el banco.
+   */
+  tonalGate?: boolean;
 }
 
 /**
@@ -179,6 +205,8 @@ export function encodeOpusPackets(
       transient: options.transient,
       postfilter: options.postfilter,
       stereo: options.stereo,
+      tfWeight: options.tfWeight,
+      tonalGate: options.tonalGate,
     });
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;

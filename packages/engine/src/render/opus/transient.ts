@@ -108,6 +108,43 @@ export interface TransientResult {
 }
 
 /**
+ * Por debajo de esto el disparo se considera DÉBIL: cerca del umbral y no muy
+ * por encima. Adaptado de `mask_metric<600` de `transient_analysis` en la
+ * referencia (ahí sólo se usa en híbrido SILK+CELT, que este encoder no tiene;
+ * aquí sirve para lo mismo que allí — distinguir un ataque de verdad, que se va
+ * muy por encima del umbral, de uno que apenas lo cruza).
+ */
+const UMBRAL_TRANSITORIO_DEBIL = 600;
+/**
+ * Ganancia del postfiltro a partir de la cual la trama se considera tonal.
+ *
+ * Es el mismo 0,4 que usa la referencia (`gain1 > .4f`, en `celt_encoder.c`)
+ * para decidir si vale la pena un análisis de tono exhaustivo en la trama
+ * siguiente: la escala es la misma (el paso de cuantización del peine,
+ * `POSTFILTER_GAIN_STEP = 3/32`, es idéntico al de la referencia), así que el
+ * número se reutiliza tal cual en vez de inventar uno nuevo sin medir.
+ */
+const UMBRAL_GANANCIA_TONAL = 0.4;
+
+export interface TonalGate {
+  /** Ganancia reconstruida del postfiltro de ESTA trama (0 si está apagado). */
+  gain1: number;
+  /**
+   * Si se activa el apagado por tonalidad: un disparo DÉBIL (ver
+   * `UMBRAL_TRANSITORIO_DEBIL`) en una trama con periodicidad fuerte (ver
+   * `UMBRAL_GANANCIA_TONAL`) no se trata como transitorio.
+   *
+   * La idea: el detector dispara por energía de corto plazo, y un acorde
+   * sostenido —varios parciales armónicos batiendo entre sí— fluctúa de verdad
+   * en esa escala sin ser un ataque. El postfiltro ya hizo la búsqueda de
+   * período por otra razón (el predictor de tono); reusar esa ganancia es
+   * gratis y es justo la señal que distingue «energía que sube» de «señal
+   * periódica que bate».
+   */
+  activo: boolean;
+}
+
+/**
  * ¿Lleva esta trama un ataque?
  *
  * `input` son las muestras YA con pre-énfasis, con los canales concatenados: el
@@ -115,11 +152,15 @@ export interface TransientResult {
  * de la trama anterior y luego las de ésta. Ese solape no es opcional: un golpe
  * que cae en las primeras muestras de la trama sólo se ve como salto si se
  * tiene lo de antes con qué compararlo.
+ *
+ * `tonal`, si se pasa, puede REBAJAR un disparo débil a «no transitorio» — ver
+ * `TonalGate`. Nunca sube uno: sólo quita falsos positivos, nunca añade uno.
  */
 export function transientAnalysis(
   input: Float64Array,
   len: number,
   channels: number,
+  tonal?: TonalGate,
 ): TransientResult {
   const len2 = len >> 1;
   // Con menos de 18 grupos el bucle de la media armónica se queda sin muestras
@@ -209,7 +250,17 @@ export function transientAnalysis(
   const tfMax = Math.max(0, Math.sqrt(27 * metric) - 42);
   const tfEstimate = Math.sqrt(Math.max(0, 0.0069 * Math.min(163, tfMax) - 0.139));
 
-  return { isTransient: metric > UMBRAL_TRANSITORIO, tfEstimate, tfChan, metric };
+  let isTransient = metric > UMBRAL_TRANSITORIO;
+  if (
+    isTransient &&
+    tonal?.activo &&
+    metric < UMBRAL_TRANSITORIO_DEBIL &&
+    tonal.gain1 > UMBRAL_GANANCIA_TONAL
+  ) {
+    isTransient = false;
+  }
+
+  return { isTransient, tfEstimate, tfChan, metric };
 }
 
 /**
@@ -249,6 +300,15 @@ export interface TfResult {
  * cada cambio respecto a la banda anterior cuesta un bit. `lambda` es ese
  * precio, y lo que hace es que una banda no se salga del grupo por un margen
  * mínimo.
+ *
+ * `importance`, si se pasa, pesa el desacuerdo de cada banda en el Viterbi: una
+ * banda que sobresale de verdad (un parcial armónico aislado, un tono) pesa más
+ * que una que apenas se distingue del suelo de ruido, así que el camino barato
+ * de saltar de fila para complacerla a costa de sus vecinas cuesta más. Es el
+ * mismo mecanismo que `importance[]` en `tf_analysis` de la referencia
+ * (`celt_encoder.c`), alimentado ahí por `dynalloc_analysis` — ver
+ * `bandImportance` en `celt-encoder.ts`. Sin pasarlo, el peso es 1 para todas
+ * las bandas: el comportamiento de siempre.
  */
 export function tfAnalysis(
   x: Float64Array,
@@ -259,6 +319,7 @@ export function tfAnalysis(
   n0: number,
   tfChan: number,
   tfEstimate: number,
+  importance?: Float64Array,
 ): TfResult {
   const tfRes = new Int32Array(end);
   const row = TF_SELECT_TABLE[lm]!;
@@ -314,18 +375,23 @@ export function tfAnalysis(
     if (narrow && (metric[i] === 0 || metric[i] === -2 * lm)) metric[i] = metric[i]! - 1;
   }
 
+  // El peso de cada banda en el Viterbi. Sin `importance`, 1 para todas: el
+  // comportamiento de siempre, sin sesgo ninguno.
+  const peso = (i: number): number => (importance ? importance[i]! : 1);
+
   // ── Qué fila de la tabla sale más barata ──────────────────────────────────
   let tfSelect = 0;
   const selCoste = [0, 0];
   for (let sel = 0; sel < 2; sel++) {
-    let coste0 = Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * sel + 0]!);
+    let coste0 = peso(0) * Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * sel + 0]!);
     let coste1 =
-      Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * sel + 1]!) + (isTransient ? 0 : lambda);
+      peso(0) * Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * sel + 1]!) +
+      (isTransient ? 0 : lambda);
     for (let i = 1; i < end; i++) {
       const curr0 = Math.min(coste0, coste1 + lambda);
       const curr1 = Math.min(coste0 + lambda, coste1);
-      coste0 = curr0 + Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * sel + 0]!);
-      coste1 = curr1 + Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * sel + 1]!);
+      coste0 = curr0 + peso(i) * Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * sel + 0]!);
+      coste1 = curr1 + peso(i) * Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * sel + 1]!);
     }
     selCoste[sel] = Math.min(coste0, coste1);
   }
@@ -336,9 +402,9 @@ export function tfAnalysis(
   // ── Viterbi de verdad, ahora con la fila elegida ──────────────────────────
   const path0 = new Int32Array(end);
   const path1 = new Int32Array(end);
-  let coste0 = Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * tfSelect + 0]!);
+  let coste0 = peso(0) * Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * tfSelect + 0]!);
   let coste1 =
-    Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * tfSelect + 1]!) +
+    peso(0) * Math.abs(metric[0]! - 2 * row[4 * isTransient + 2 * tfSelect + 1]!) +
     (isTransient ? 0 : lambda);
   for (let i = 1; i < end; i++) {
     const de0a0 = coste0;
@@ -361,8 +427,8 @@ export function tfAnalysis(
       curr1 = de1a1;
       path1[i] = 1;
     }
-    coste0 = curr0 + Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * tfSelect + 0]!);
-    coste1 = curr1 + Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * tfSelect + 1]!);
+    coste0 = curr0 + peso(i) * Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * tfSelect + 0]!);
+    coste1 = curr1 + peso(i) * Math.abs(metric[i]! - 2 * row[4 * isTransient + 2 * tfSelect + 1]!);
   }
   tfRes[end - 1] = coste0 < coste1 ? 0 : 1;
   for (let i = end - 2; i >= 0; i--) {

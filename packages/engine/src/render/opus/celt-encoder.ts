@@ -87,9 +87,10 @@ import {
   stereoAnalysis,
   type StereoMode,
 } from './stereo';
-import { tfAnalysis, transientAnalysis, type TransientMode } from './transient';
+import { tfAnalysis, transientAnalysis, type TonalGate, type TransientMode } from './transient';
 import {
   BITRES,
+  E_MEANS,
   NB_BANDS,
   SPREAD_ICDF,
   TAPSET_ICDF,
@@ -395,7 +396,47 @@ export interface CeltFrameOptions {
   postfilter?: PostfilterMode;
   /** Qué hacer con el estéreo. Por defecto, intensidad y dual por trama. */
   stereo?: StereoMode;
+  /**
+   * Qué hace `tfAnalysis` con el peso de cada banda en su Viterbi.
+   *
+   * Por defecto `'importancia-larga'`: en tramas de bloque largo (no
+   * transitorias), cada banda pesa según cuánto sobresale del suelo de ruido
+   * —ver `bandImportance`—, así que un parcial armónico aislado no cede su
+   * resolución de frecuencia sólo por parecerse a sus vecinas. Es lo que
+   * recupera el acorde en estéreo sin tocar la percusión: medido en el banco
+   * (`opus-tf-recover-ab.ts`), la peor cifra de patrón pasa de −10,99 a
+   * −10,61 dB y la media mejora de −0,26 a −0,22, con la percusión IDÉNTICA
+   * a como estaba (por eso «larga»: en tramas transitorias, isTransient=1, el
+   * peso es siempre 1 — el ataque real no se toca).
+   *
+   * `'plano'` es lo que hacía este encoder antes de esta pieza (todas las
+   * bandas pesan igual) y `'importancia'` aplica el peso también en tramas
+   * transitorias; las tres existen para que el banco pueda medir una contra
+   * otra. `'importancia'` sin restringir SÍ le quita algo a la percusión en
+   * estéreo (hasta −0,4 dB de patrón en algún caso) — por eso no es el valor
+   * por defecto.
+   */
+  tfWeight?: TfWeightMode;
+  /**
+   * Si se activa el apagado por tonalidad del detector de transitorios — ver
+   * `TonalGate` en `transient.ts`. Por defecto `false`: **medido y
+   * descartado** — en el banco no mueve la peor cifra del acorde (de hecho la
+   * empeora una décima, −10,99 a −11,07 dB), porque esa peor cifra no la causan
+   * los falsos positivos del detector —eso ya lo recupera `'importancia-larga'`—
+   * sino las tramas del fundido de salida en sombra del VBR, una causa
+   * distinta y ya medida aparte (ver `vbr.ts`). Se deja el mecanismo
+   * disponible para el banco porque no hace daño (percusión intacta) y por si
+   * sirve para otra señal el día de mañana, pero no se activa por defecto sin
+   * un caso que lo justifique.
+   */
+  tonalGate?: boolean;
 }
+
+/**
+ * Qué hace `tfAnalysis` con el peso de cada banda en su Viterbi. Ver
+ * `CeltFrameOptions.tfWeight`.
+ */
+export type TfWeightMode = 'plano' | 'importancia' | 'importancia-larga';
 
 /**
  * Codifica una trama. Devuelve los bytes de la trama CELT.
@@ -414,6 +455,8 @@ export function celtEncodeFrame(
     transient: transientMode = 'adaptive',
     postfilter: postfilterMode = 'adaptive',
     stereo: stereoMode = 'adaptive',
+    tfWeight: tfWeightMode = 'importancia-larga',
+    tonalGate = false,
   } = options;
   const channels = state.channels;
   const lm = Math.log2(frameSize / SHORT_MDCT_SIZE);
@@ -598,7 +641,8 @@ export function celtEncodeFrame(
   let tfChan = 0;
   if (lm > 0 && enc.tell() + 3 <= totalBits) {
     if (transientMode !== 'off') {
-      const golpe = transientAnalysis(analisis, frameSize + OVERLAP, channels);
+      const tonal: TonalGate = { gain1, activo: tonalGate };
+      const golpe = transientAnalysis(analisis, frameSize + OVERLAP, channels, tonal);
       tfEstimate = golpe.tfEstimate;
       tfChan = golpe.tfChan;
       if (transientMode === 'adaptive') isTransient = golpe.isTransient ? 1 : 0;
@@ -648,6 +692,15 @@ export function celtEncodeFrame(
     frameSize,
     m,
   );
+
+  // El peso por banda para `tfAnalysis`, si toca calcularlo. Tiene que ser
+  // ANTES de `quantCoarseEnergy`: usa `state.oldBandE` de la trama ANTERIOR
+  // (para el caso de 2,5 ms — ver `bandImportance`), y `quantCoarseEnergy` lo
+  // sobrescribe con la energía de ÉSTA para que la siguiente prediga de ahí.
+  const tfImportance =
+    tfWeightMode === 'importancia' || tfWeightMode === 'importancia-larga'
+      ? bandImportance(bandLogE, state.oldBandE, state.logN, channels, lm, bytes)
+      : undefined;
 
   // ── Intra o inter: se prueban las dos y gana la que salga mejor ───────────
   //
@@ -719,6 +772,7 @@ export function celtEncodeFrame(
       frameSize,
       tfChan,
       tfEstimate,
+      tfWeightMode === 'importancia-larga' && isTransient ? undefined : tfImportance,
     );
     tfRes.set(tf.tfRes);
     tfSelect = tf.tfSelect;
@@ -1035,6 +1089,171 @@ export function allocTrimAnalysis(
  * que la bandera de cierre no es opcional. Y el coste de pedir baja a un bit a
  * partir del segundo refuerzo, porque quien pide uno suele querer dos.
  */
+/**
+ * Profundidad de bits asumida para el suelo de ruido de `bandImportance`.
+ *
+ * La referencia la saca de `st->lsb_depth` (la profundidad de la fuente, para
+ * no fingir más resolución de la que hay). Este encoder trabaja siempre en
+ * `Float64Array`: no hay una profundidad de origen que perder, así que se fija
+ * al máximo que admite la referencia (24), que es el mismo valor con el que
+ * arranca `OpusEncoder` antes de que nadie le diga lo contrario.
+ */
+const LSB_DEPTH_ASUMIDA = 24;
+
+function medianDe3(a: number, b: number, c: number): number {
+  return Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
+}
+
+function medianDe5(a: number, b: number, c: number, d: number, e: number): number {
+  const x = [a, b, c, d, e].sort((p, q) => p - q);
+  return x[2]!;
+}
+
+/**
+ * Cuánto sobresale cada banda por encima de lo que se espera de ella, para
+ * PESAR —no para pedir bits, que ya lo hace `dynallocAnalysis`— la decisión de
+ * `tfAnalysis`: una banda que grita por encima de su entorno importa más que
+ * una que apenas se distingue del suelo de ruido, así que ceder su resolución
+ * de frecuencia a cambio de parecerse a las vecinas cuesta más caro.
+ *
+ * Puerto de la parte de `dynalloc_analysis` (`celt_encoder.c`) que calcula
+ * `importance[]`: el suelo de ruido por banda (`noise_floor`, con `E_MEANS` y
+ * `logN` de la referencia) y el «follower» —una envolvente que sigue el
+ * espectro por debajo, suavizada con un filtro de mediana para no disparar por
+ * un valle aislado— de donde sale cuánto sobresale cada banda.
+ *
+ * Simplificaciones declaradas frente a la referencia, las tres inertes en este
+ * puerto (no cambian el resultado, sólo el código que haría falta para no
+ * simplificarlas):
+ *
+ * - Sin sonido envolvente (`energy_mask` de la referencia: sólo existe para
+ *   codificar varios canales de un lecho ambisónico a la vez, y este encoder
+ *   no lo hace), así que el término correspondiente es siempre cero.
+ * - Sin híbrido SILK+CELT (`bandLogE2` de la referencia difiere de `bandLogE`
+ *   sólo cuando `patch_transient_decision` dobla la resolución temporal a
+ *   media trama, un mecanismo que este puerto no tiene: aquí `bandLogE2` y
+ *   `bandLogE` son SIEMPRE el mismo array).
+ * - `lsb_depth` fijo en 24 — ver `LSB_DEPTH_ASUMIDA`.
+ *
+ * ## Una diferencia declarada con la referencia: el peso base es 1, no 13
+ *
+ * La referencia deja `importance[i]` en 13 para una banda que no sobresale
+ * nada (`round(13·2⁰)`) y hasta 208 para la que sobresale al máximo
+ * (`round(13·2⁴)`). Eso está calibrado JUNTO con su propio `lambda` —del orden
+ * de 80 a varios miles, en las mismas unidades— así que la proporción entre
+ * ambos es la que importa, no el 13 en sí.
+ *
+ * Este puerto no tiene ese `lambda`: el de `tfAnalysis` es simplemente `lm`
+ * (0 a 3), calibrado para un peso IMPLÍCITO de 1 —el de antes de que existiera
+ * esta función—. Pegarle el 13-a-208 de la referencia encima de un `lambda` de
+ * esa escala no reescala nada: aplana la diferencia entre bandas de verdad
+ * destacadas y bandas que sólo están en su sitio, y con eso el Viterbi cambia
+ * de fila más de lo que conviene incluso en señales sin ningún tono que
+ * proteger (medido: ruido rosa y la mezcla pierden unas décimas de dB con el
+ * 13-a-208 crudo). Dividir por 13 devuelve el peso NEUTRO a 1 —una banda
+ * corriente pesa exactamente lo que pesaba antes de esta función, cero
+ * sesgo— y deja el rango destacado en 1 a 16, la misma proporción que la
+ * referencia.
+ */
+function bandImportance(
+  bandLogE: Float64Array,
+  oldBandE: Float64Array,
+  logN: Int32Array,
+  channels: number,
+  lm: number,
+  effectiveBytes: number,
+): Float64Array {
+  const end = NB_BANDS;
+  // Por debajo de este presupuesto la referencia ni se molesta: con tan pocos
+  // bytes no hay margen que pesar de un sitio a otro. El mismo umbral que usa
+  // `dynalloc_analysis` (30 + 5·LM), y el resultado es el peso neutro, 1, para
+  // que multiplicar por `importance` no cambie nada.
+  const importance = new Float64Array(end).fill(1);
+  if (effectiveBytes < 30 + 5 * lm) return importance;
+
+  const noiseFloor = new Float64Array(end);
+  for (let i = 0; i < end; i++) {
+    noiseFloor[i] =
+      0.0625 * logN[i]! + 0.5 + (9 - LSB_DEPTH_ASUMIDA) - E_MEANS[i]! + 0.0062 * (i + 5) * (i + 5);
+  }
+
+  const follower = new Float64Array(channels * end);
+  for (let c = 0; c < channels; c++) {
+    // `bandLogE3`: en la referencia puede diferir de `bandLogE` (ver el
+    // comentario de la función); aquí son el mismo array, salvo el caso de
+    // 2,5 ms de abajo, que necesita su propia copia.
+    const bandLogE3 = bandLogE.slice(c * NB_BANDS, c * NB_BANDS + end);
+    if (lm === 0) {
+      // A 2,5 ms las primeras 8 bandas son de un solo bin: su energía es muy
+      // poco fiable, así que se toma el máximo con la de la trama anterior
+      // para que al menos dos muestras hayan pesado en el número.
+      for (let i = 0; i < Math.min(8, end); i++) {
+        bandLogE3[i] = Math.max(bandLogE[c * NB_BANDS + i]!, oldBandE[c * NB_BANDS + i]!);
+      }
+    }
+
+    const f = follower.subarray(c * end, (c + 1) * end);
+    f[0] = bandLogE3[0]!;
+    let last = 0;
+    for (let i = 1; i < end; i++) {
+      // La última banda que sube de verdad respecto a la anterior es la
+      // última que cuenta: más allá de ahí seguir sería sesgar hacia arriba en
+      // señales de ancho de banda limitado.
+      if (bandLogE3[i]! > bandLogE3[i - 1]! + 0.5) last = i;
+      f[i] = Math.min(f[i - 1]! + 1.5, bandLogE3[i]!);
+    }
+    for (let i = last - 1; i >= 0; i--) {
+      f[i] = Math.min(f[i]!, Math.min(f[i + 1]! + 2, bandLogE3[i]!));
+    }
+
+    // Filtro de mediana: sin él, un valle de una sola banda dispararía el
+    // «follower» hacia abajo y de ahí `importance` hacia arriba sin que haya
+    // ningún pico real cerca.
+    const offset = 1;
+    for (let i = 2; i < end - 2; i++) {
+      const m5 = medianDe5(
+        bandLogE3[i - 2]!,
+        bandLogE3[i - 1]!,
+        bandLogE3[i]!,
+        bandLogE3[i + 1]!,
+        bandLogE3[i + 2]!,
+      );
+      f[i] = Math.max(f[i]!, m5 - offset);
+    }
+    let tmp = medianDe3(bandLogE3[0]!, bandLogE3[1]!, bandLogE3[2]!) - offset;
+    f[0] = Math.max(f[0]!, tmp);
+    f[1] = Math.max(f[1]!, tmp);
+    tmp = medianDe3(bandLogE3[end - 3]!, bandLogE3[end - 2]!, bandLogE3[end - 1]!) - offset;
+    f[end - 2] = Math.max(f[end - 2]!, tmp);
+    f[end - 1] = Math.max(f[end - 1]!, tmp);
+
+    for (let i = 0; i < end; i++) f[i] = Math.max(f[i]!, noiseFloor[i]!);
+  }
+
+  if (channels === 2) {
+    const f0 = follower.subarray(0, end);
+    const f1 = follower.subarray(end, 2 * end);
+    for (let i = 0; i < end; i++) {
+      // «Cross-talk» entre canales: si uno de los dos sigue muy por encima,
+      // asumir que algo se cuela en el otro 4 dB por debajo. El orden importa
+      // — `f1` se actualiza con el `f0` de ANTES, y `f0` con el `f1` YA nuevo.
+      f1[i] = Math.max(f1[i]!, f0[i]! - 4);
+      f0[i] = Math.max(f0[i]!, f1[i]! - 4);
+    }
+    for (let i = 0; i < end; i++) {
+      f0[i] = 0.5 * (Math.max(0, bandLogE[i]! - f0[i]!) + Math.max(0, bandLogE[end + i]! - f1[i]!));
+    }
+  } else {
+    for (let i = 0; i < end; i++) follower[i] = Math.max(0, bandLogE[i]! - follower[i]!);
+  }
+
+  for (let i = 0; i < end; i++) {
+    const exceso = Math.min(follower[i]!, 4);
+    importance[i] = Math.pow(2, exceso);
+  }
+  return importance;
+}
+
 /**
  * Qué bandas piden bits de más.
  *
