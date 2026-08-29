@@ -84,71 +84,77 @@ guardables con nombre).
 
 ## Lo último
 
-**v3.4.0 — "lo de fuera entra, y el gesto se queda".** Tres filas del roadmap
-que no se parecen en nada entre sí, y a las tres les pasó algo que no estaba
-previsto.
+**v3.5.0 — "medir antes de decidir".** Diecinueve tareas de una auditoría del
+árbol entero. Lo que las une no es un tema, es un método: **casi todo lo que
+salió bien empezó por construir con qué medirlo**, y tres veces lo medido
+contradijo lo que la documentación daba por sabido.
 
-**Archivos sueltos del Explorador.** Soltar un WAV desde el Explorador de Windows no hacía nada, ni en el keymap, ni
-en el rack, ni en la playlist. La fila venía marcada como decisión de seguridad
-y con razón: el proceso principal desconfía a propósito de las rutas que le
-pasa el renderer —ahí corren los plugins JS del usuario, así que un "lee este
-archivo, te paso la ruta" convertiría un plugin de trémolo en un lector del
-disco entero.
+**El encoder Opus dejó de decidirse a ciegas.** La v3.4 implementó la dispersión
+adaptativa, midió −0,02 dB —ruido— y la tiró, porque sin demostrar la mejora no
+se sube. La medida no decía que no sirviera: decía que **no la veía**. La SNR
+mide error total, y la dispersión *reparte* el error dentro de la banda en vez
+de reducirlo.
 
-**Y resultó que esa puerta no había que abrirla.** Un arrastre de verdad trae
-objetos `File`, que son `Blob`: los bytes se leen en el renderer porque
-Chromium los concede al haber un gesto físico del usuario sobre la ventana. El
-proceso principal no ve una ruta, no lee nada y no se entera. Cero superficie
-nueva donde más caro cuesta.
+Ahora el banco tiene una medida perceptual —PEAQ simplificado sobre el modelo de
+oído de la BS.1387— y para decidir manda ella. Lo que ve y la SNR no, con
+números: ante el mismo error enmascarado o no, **la SNR da 30,0043 por los dos
+lados, idéntica hasta el decimotercer decimal**, y la nueva separa 40,4 dB.
 
-Lo que sí había que resolver era el día siguiente: un `File` se acaba al cerrar
-la app y un proyecto que apuntara a él saldría MUDO al reabrirlo. Así que lo
-soltado se importa a la carpeta de la app —con las tomas y los bounces— y desde
-ahí es un sample más: rehidrata, viaja por hash a una sala y sale en el export.
-Se guarda con el nombre de su contenido (`importado-<sha1>.wav`), porque dos
-`kick.wav` distintos se cruzan todos los días y por nombre el segundo pisaría
-al primero. Una carpeta soltada no se rechaza: se dice por dónde entra.
+Con eso a la vista cayeron cuatro cosas:
 
-**La rueda, grabada.** Desde la v3.2 la rueda dobla la voz viva en los diez instrumentos, pero lo que
-dobló no quedaba en ninguna parte: grabar tocando guardaba las notas y no el
-gesto. El motivo era que la rueda no era un parámetro, era un mensaje suelto al
-motor, y la automatización solo sabe escribir parámetros.
+- **La dispersión adaptativa entró**, y vale +0,40 dB.
+- **Los transitorios**, que resultaron ser el agujero grande y no lo tonal. El
+  pre-eco de un click aislado baja de −12,6 a **−32,5 dB**, por delante de
+  libopus.
+- **Un bug de sincronía que arrastraba desde el primer día**: el encoder
+  marcaba una trama como silencio y **seguía escribiendo**, mientras el
+  decodificador —al leer esa bandera— descartaba el resto y dejaba todas las
+  bandas en silencio. Los dos lados predecían desde sitios distintos y el
+  desfase se amplificaba banda a banda. Se oía justo donde hay silencio digital
+  entre golpes: **en cada golpe del pack de batería**. Lo aisló un piso
+  *inaudible* de −140 dBFS que solo impedía que la bandera se disparara.
+- **El postfiltro, que no era la pieza cara que este README decía.** Llevaba
+  escrito que «pide correr el decodificador dentro del encoder». No lo pide: el
+  prefiltro es un lazo abierto —FIR sobre la entrada en el encoder, IIR sobre su
+  propia salida en el decodificador—, así que si lo reconstruido coincide con lo
+  codificado, sale la señal original por inducción.
 
-Ahora `Channel.bend` existe, en semitonos, y con eso llegan de golpe la curva
-—dibujable a mano, con sus puntos con signo—, el LFO (un vibrato sobre la rueda
-sale gratis), el undo, el viaje a la sala y la grabación al mover la rueda
-tocando. **La rueda va por dos caminos a la vez**: al motor directa en cada
-mensaje, porque es un gesto y entre moverla y oírla no puede haber ni un frame;
-y al proyecto una vez por frame con `mergeKey`, que es lo que la convierte en
-algo que queda sin dejar sesenta pasos de undo por segundo.
+La distancia media a libopus pasa de **−3,59 a −0,79 dB** de patrón.
 
-La decisión que pedía el roadmap —qué pasa cuando conviven el gesto y la
-curva— acabó estando en cómo se lee la AUSENCIA: un canal que no declara `bend`
-significa "no tengo opinión", no "la rueda está centrada". Si significara
-centro, mover una perilla mientras doblas recompilaría el proyecto y soltaría
-la rueda de golpe en mitad del gesto.
+**Y el DAW también.** La reverb gastaba **34× más CPU en silencio** —al decaer
+sin llegar a cero el estado entra en rango denormal— con la máquina calentándose
+justo cuando la música para. El worklet **no soltaba un solo sample** en toda la
+vida de la app: ahora abrir otro proyecto libera el audio del anterior. El export
+de stems clonaba el proyecto entero una vez por pista. Los filtros escalonaban
+al automatizar. Y la regla de «cero alocaciones en el audio thread», que hasta
+hoy era disciplina humana, **tiene por fin un test que la rompe si alguien se
+descuida**: sustituye `Float32Array` por una subclase que cuenta y exige cero.
 
-**El encoder Opus, un poco más fino.** Aquí lo primero fue construir con qué medir, porque afinar sin medir es cambiar
-cosas: `tools/qa/opus-quality.ts` codifica la misma señal con Orbit y con
-libopus al mismo bitrate, decodifica las dos con ffmpeg y las compara con el
-original.
+Entran además el **espectro por pista y el LUFS en vivo** (para ver que vas a
+−14 antes de exportar, no después), **entradas de más de dos canales**,
+**compensación de latencia de la toma** —donde lo difícil no era medir sino **no
+medir mal**, porque un retardo equivocado corre todas las tomas en la dirección
+contraria—, **buses de grupo** en el rack, **historial de undo en árbol**,
+**plantillas de proyecto**, **una tercera capa de fuerza en el pack** (con las
+dos anteriores conservadas bit a bit) y **vistas propias para los plugins**, con
+la frontera hecha de datos y no de DOM.
 
-Con eso a la vista, la `alloc_trim` —la pendiente con la que el asignador
-reparte bits entre bandas— llevaba fija en neutro desde que el encoder existe.
-Un acorde, con toda su energía abajo, recibía el mismo esfuerzo en las bandas
-vacías que en las que llevaban la música. Ahora sale del espectro, y la
-distancia media a libopus pasa de **−2,06 a −1,21 dB**.
+**Las otras dos veces que la doc mentía**: `CLAUDE.md` manda actualizar unos
+golden tests que **no existen**, y `ARCHITECTURE.md` decía que el undo por
+usuario es un `Y.UndoManager` de Yjs — no hay ni uno en todo el repo. Lo segundo
+está corregido; lo primero es tarea de la ronda siguiente.
 
-**Y una decisión que no entró**: la dispersión adaptativa está portada de la
-referencia y funcionaba, pero la medida salió neutra —la SNR no ve lo que hace
-la dispersión, que reparte el error dentro de la banda en vez de reducirlo— y
-sin poder demostrar la mejora no se sube. Queda escrito para el que lo intente
-después: hace falta una medida perceptual, no una de error.
+<details>
+<summary><b>v3.4.0 — "lo de fuera entra, y el gesto se queda"</b></summary>
 
-De regalo, un test que fallaba una de cada tres pasadas de la suite entera y no
-por lo que parecía: no era una aserción, era el límite de 5 s de vitest contra
-un render de cuatro minutos de audio. Y `tools/` entra en el typecheck, que no
-estaba — el mismo agujero por el que el generador del pack llevaba meses roto.
+Archivos sueltos del Explorador al keymap, al rack y a la playlist —y resultó
+que la puerta que parecía haber que abrir en el proceso principal no había que
+abrirla: un arrastre trae `File`, que son `Blob`, y los bytes se leen en el
+renderer. La rueda de tono pasa a ser un parámetro (`Channel.bend`) y con eso
+se graba, se automatiza y viaja a la sala. Y la `alloc_trim` del encoder Opus
+deja de estar fija en neutro.
+
+</details>
 
 <details>
 <summary><b>v3.3.0 — "el piano responde a los dedos"</b></summary>
