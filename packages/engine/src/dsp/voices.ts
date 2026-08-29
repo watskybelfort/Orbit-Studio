@@ -115,6 +115,8 @@ export class SynthVoice extends Voice {
   private baseFreq: number;
   /** Octavas de desplazamiento del canal: la rueda también las respeta. */
   private octave: number;
+  /** Último corte con el que se llamó a `svfL.set()` (ver render). */
+  private lastCutoff = -1;
 
   constructor(
     channelIndex: number,
@@ -161,7 +163,23 @@ export class SynthVoice extends Voice {
     for (let i = from; i < to; i++) {
       const fe = this.filtEnv.tick();
       const fc = this.cutoff * Math.pow(2, this.envAmount * 4 * fe);
-      this.svfL.set(fc, this.resonance, this.sr);
+      // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %), igual
+      // que prisma-voice.ts:987: set() recalcula smoothCoef con un Math.exp
+      // por muestra aunque sr no cambie. Esto SÍ ahorra ese cálculo cuando
+      // `fc` está quieto (release, sustain con envAmount chico), pero NO
+      // recupera el punch del ataque por defecto: medido con este mismo
+      // umbral, durante los primeros 5 ms (ataque lineal por defecto) `fc`
+      // se mueve más de 0.2% en casi todas las muestras, así que la guarda
+      // dispara casi igual de seguido que sin ella y el one-pole de 5 ms de
+      // filters.ts (pensado para llamadas por bloque) sigue apilado sobre el
+      // ADSR. Arreglar eso de verdad pediría que `set()` pudiera saltar el
+      // suavizado cuando quien llama ya entrega un valor continuo por
+      // muestra — un cambio de diseño de filters.ts que no entra en esta
+      // tarea; queda anotado en el handoff.
+      if (fc > this.lastCutoff * 1.002 || fc < this.lastCutoff * 0.998) {
+        this.lastCutoff = fc;
+        this.svfL.set(fc, this.resonance, this.sr);
+      }
       let s = 0;
       for (let o = 0; o < this.unison; o++) {
         const dt = (this.baseFreq * this.detunes[o]!) / this.sr;

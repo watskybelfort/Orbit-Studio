@@ -292,8 +292,15 @@ describe('Orbit Vinyl', () => {
     expect(rms(a.r)).toBeGreaterThan(1e-3);
     // Ruido de superficie, no un muro: sigue siendo un fondo.
     expect(rms(a.l)).toBeLessThan(0.2);
-    // Sin señal y sin ruido, la salida es silencio exacto.
-    expect(peak(b.l)).toBe(0);
+    // Sin señal y sin ruido, la salida es silencio A TODO EFECTO PRÁCTICO,
+    // pero ya no BIT-EXACTO: VinylUnit filtra con Biquad (hissHpL, rumbleLpL,
+    // clickHpL, toneL), y desde el fix de denormales de filters.ts ese
+    // estado recursivo lleva una DC de 1e-20 para no quedarse rondando en
+    // rango denormal cuando la cola decae a silencio (mismo mecanismo que ya
+    // usaba reverb.ts). El punto fijo al que converge está ~11 órdenes de
+    // magnitud por debajo del piso de 24 bits (6e-8): sigue siendo silencio.
+    expect(peak(b.l)).toBeLessThan(6e-8);
+    expect(peak(b.l)).toBeGreaterThanOrEqual(0);
     // L y R son ruidos distintos (semillas distintas).
     let dif = 0;
     for (let i = 0; i < a.l.length; i++) dif = Math.max(dif, Math.abs(a.l[i]! - a.r[i]!));

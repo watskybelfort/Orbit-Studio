@@ -10,6 +10,23 @@
 // AutofilterUnit/GateUnit para su ataque (timeCoef(0.005, sr) en effects.ts).
 const COEF_SMOOTH_SECONDS = 0.005;
 
+// Flush de denormales (mismo mecanismo que reverb.ts, y por la misma razón:
+// el estado recursivo de estos tres filtros decae hacia cero sin llegar
+// nunca cuando la nota suelta o el efecto se queda en silencio). Biquad es
+// StripEq (kernel-core.ts:2469-2499) y corre en CADA canal del mixer todo el
+// tiempo — el peor caso aquí no es un efecto ocasional, es el EQ por
+// defecto de cada pista. Medido (ver packages/engine/test/dsp-denormal.test.ts
+// y el benchmark aparte): un Biquad resonante (Q=8) sin flush, tras soltar la
+// señal, no solo pasa por denormal — con dos polos complejos el estado
+// entra en un CICLO LÍMITE dentro del rango subnormal de float64 y se queda
+// ahí para siempre (jamás llega a 0 exacto), costando ~5-9x el ns/muestra
+// base de forma indefinida. Con esta DC el punto fijo al que converge —
+// eps/(1+a1+a2) en Biquad, eps/(2g) en SVF, eps/(1+a) en Allpass1— se midió
+// numéricamente contra el rango real de frecuencia/Q del motor: el peor caso
+// encontrado (highShelf a 1 Hz con -18 dB, muy por fuera de lo que expone la
+// UI) da ~1.6e-12, 27 000 veces por debajo del piso de 24 bits (~6e-8).
+const ANTI_DENORMAL = 1e-20;
+
 export class SVF {
   private ic1eq = 0;
   private ic2eq = 0;
@@ -55,7 +72,7 @@ export class SVF {
     const { g, k } = this;
     const v1 = (this.ic1eq + g * (x - this.ic2eq)) / (1 + g * (g + k));
     const v2 = this.ic2eq + g * v1;
-    this.ic1eq = 2 * v1 - this.ic1eq;
+    this.ic1eq = 2 * v1 - this.ic1eq + ANTI_DENORMAL;
     this.ic2eq = 2 * v2 - this.ic2eq;
     switch (type | 0) {
       case 1: return x - k * v1 - v2;
@@ -103,7 +120,7 @@ export class Biquad {
     this.a1 = this.a1T + c * (this.a1 - this.a1T);
     this.a2 = this.a2T + c * (this.a2 - this.a2T);
     const y = this.b0 * x + this.z1;
-    this.z1 = this.b1 * x - this.a1 * y + this.z2;
+    this.z1 = this.b1 * x - this.a1 * y + this.z2 + ANTI_DENORMAL;
     this.z2 = this.b2 * x - this.a2 * y;
     return y;
   }
@@ -232,7 +249,7 @@ export class Allpass1 {
   tick(x: number): number {
     this.a = this.aTarget + this.smoothCoef * (this.a - this.aTarget);
     const y = this.a * x + this.z;
-    this.z = x - this.a * y;
+    this.z = x - this.a * y + ANTI_DENORMAL;
     return y;
   }
 }

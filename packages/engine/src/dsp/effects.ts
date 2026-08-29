@@ -26,6 +26,22 @@ export interface EffectUnit {
 
 const dbToLin = (db: number) => Math.pow(10, db / 20);
 
+// Flush de denormales (mismo mecanismo que reverb.ts y filters.ts): DelayUnit,
+// FlangerUnit y PhaserUnit tienen lazos de feedback estructuralmente idénticos
+// a los combs de la reverb (línea de retardo + ganancia < 1 realimentada), así
+// que la cola sin entrada tiene el mismo riesgo de quedarse rondando en rango
+// denormal — o, peor, sin llegar nunca a 0 exacto (medido en Biquad: con dos
+// estados acoplados el sistema puede caer en un ciclo límite DENTRO del rango
+// subnormal que no converge solo, y se queda ahí para siempre en vez de
+// decaer). DelayUnit y PhaserUnit ya heredan un piso no-nulo de su propio
+// Biquad/Allpass1 en el lazo (filters.ts ya lo tapa), pero sumar aquí también
+// deja el fix autocontenido en la línea de retardo misma —no depende de que
+// el filtro de turno nunca cambie— y cubre a FlangerUnit, que no tiene ningún
+// filtro en su lazo. El punto fijo (eps/(1-feedback), feedback máx. 0.95 en
+// delay/0.9 en flanger/phaser por el ParamSpec) da ≤2e-19: muy por debajo del
+// piso de 24 bits (~6e-8).
+const ANTI_DENORMAL = 1e-20;
+
 // ── EQ paramétrico ───────────────────────────────────────────────────────────
 
 class EqUnit implements EffectUnit {
@@ -310,11 +326,11 @@ class DelayUnit implements EffectUnit {
       const tapL = this.fbFilterL.tick(this.dl.read(this.delaySamples));
       const tapR = this.fbFilterR.tick(this.dr.read(this.delaySamples));
       if (this.pingpong) {
-        this.dl.write(l[i]! * 0.5 + r[i]! * 0.5 + tapR * this.feedback);
-        this.dr.write(tapL * this.feedback);
+        this.dl.write(l[i]! * 0.5 + r[i]! * 0.5 + tapR * this.feedback + ANTI_DENORMAL);
+        this.dr.write(tapL * this.feedback + ANTI_DENORMAL);
       } else {
-        this.dl.write(l[i]! + tapL * this.feedback);
-        this.dr.write(r[i]! + tapR * this.feedback);
+        this.dl.write(l[i]! + tapL * this.feedback + ANTI_DENORMAL);
+        this.dr.write(r[i]! + tapR * this.feedback + ANTI_DENORMAL);
       }
       l[i] = tapL;
       r[i] = tapR;
@@ -403,8 +419,8 @@ class FlangerUnit implements EffectUnit {
       const d = (0.001 + 0.007 * this.depth * lfo) * this.sr;
       const tapL = this.dl.read(d);
       const tapR = this.dr.read(d * 1.02);
-      this.dl.write(l[i]! + this.fbL * this.feedback);
-      this.dr.write(r[i]! + this.fbR * this.feedback);
+      this.dl.write(l[i]! + this.fbL * this.feedback + ANTI_DENORMAL);
+      this.dr.write(r[i]! + this.fbR * this.feedback + ANTI_DENORMAL);
       this.fbL = tapL;
       this.fbR = tapR;
       l[i] = l[i]! + tapL;
@@ -456,8 +472,8 @@ class PhaserUnit implements EffectUnit {
         a = this.apsL[s]!.tick(a);
         b = this.apsR[s]!.tick(b);
       }
-      this.fbL = a;
-      this.fbR = b;
+      this.fbL = a + ANTI_DENORMAL;
+      this.fbR = b + ANTI_DENORMAL;
       l[i] = l[i]! + a;
       r[i] = r[i]! + b;
       this.phase = (this.phase + inc) % 1;
@@ -556,6 +572,7 @@ class AutofilterUnit implements EffectUnit {
   private envAmount = 0;
   private attackCoef: number;
   private releaseCoef: number;
+  private lastCutoff = -1;
 
   constructor(private sr: number) {
     this.attackCoef = timeCoef(0.005, sr);
@@ -580,8 +597,16 @@ class AutofilterUnit implements EffectUnit {
       // Modulación en octavas alrededor del cutoff base.
       const octaves = this.lfoAmount * 2 * lfo + this.envAmount * 3 * Math.min(1, env * 2);
       const fc = this.cutoff * Math.pow(2, octaves);
-      this.svfL.set(fc, this.resonance, this.sr);
-      this.svfR.set(fc, this.resonance, this.sr);
+      // Coeficientes solo cuando el corte se mueve de verdad (> 0.2 %), igual
+      // que prisma-voice.ts:987: set() recalcula smoothCoef con un Math.exp
+      // aunque sr no cambie, y con lfoAmount=envAmount=0 (el preset por
+      // defecto) `fc` es constante — sin esta guarda se repite ese cálculo
+      // en CADA muestra sin necesidad.
+      if (fc > this.lastCutoff * 1.002 || fc < this.lastCutoff * 0.998) {
+        this.lastCutoff = fc;
+        this.svfL.set(fc, this.resonance, this.sr);
+        this.svfR.set(fc, this.resonance, this.sr);
+      }
       l[i] = this.svfL.tick(l[i]!, this.type);
       r[i] = this.svfR.tick(r[i]!, this.type);
       this.phase = (this.phase + inc) % 1;
