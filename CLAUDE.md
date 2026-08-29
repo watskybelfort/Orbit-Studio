@@ -16,8 +16,15 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
    (tokens en `packages/ui/src/theme/`). El acrílico sigue la arquitectura A del
    skill `acrylic-theming` (alfa de ventana + DWM; `backdrop-filter` solo en
    popups). Apagar el acrílico es un teardown real.
-5. **Golden tests**: cualquier cambio de sonido en `engine` debe actualizar los
-   hashes de `engine/test/golden` conscientemente (es un diff de sonido).
+5. **Golden tests**: `engine/test/golden` fija el sonido con 24 renders
+   deterministas y 2 flujos Opus. Cualquier cambio de sonido tiene que
+   actualizar su línea base **conscientemente**: `npm run golden:update` enseña
+   el diff y NO escribe; escribir pide `--accept "<motivo>"`, y el commit debe
+   decir qué diff de sonido se aceptó. Nunca un `--update-snapshots`. Se compara
+   el hash bit a bit (medido reproducible en x64 entre win/linux y tres
+   versiones mayores de V8) **y** medidas perceptuales con tolerancia, que son
+   las que dicen QUÉ se movió. El porqué de cada decisión, con sus medidas, en
+   `docs/GOLDEN.md`.
 6. Los paquetes solo se importan así: `ui→core,engine,collab` · `collab→core` ·
    `engine→core` (tipos) · `claude-bridge→core`. Nada circular.
 
@@ -55,6 +62,9 @@ npm run server       # servidor de colaboración local
 npm run typecheck    # TS estricto en todos los paquetes
 npm run test         # unit + golden DSP
 npm run build        # build de producción
+
+npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.md)
+npm run golden:bite     # ¿algún fixture del golden dejó de medir?
 ```
 
 ## Contexto de producto
