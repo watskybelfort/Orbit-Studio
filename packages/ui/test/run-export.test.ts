@@ -21,6 +21,41 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ExportOptions, RunExportConfig } from '../src/export/run-export';
 
+/**
+ * Espía de `renderStems` del engine, para las pruebas de multi-lote más abajo
+ * ("stems: por lotes de 4"): cada llamada real que hace `run-export.ts` a
+ * `renderStems` —una por lote, sea por el worker o directo— es una petición
+ * real al motor de render, así que contarlas cuenta las peticiones de
+ * verdad, no una simulación de ellas. `failStemIndex`, si no es null, hace
+ * que la pista de ese índice "revienta" en el resultado que ve run-export.ts:
+ * se deja correr el render real y se le quita esa entrada de `results` para
+ * ponerla en `errors`, tal como haría un `renderStems` real cuyo kernel
+ * reventó en esa pista (packages/engine/src/render/offline.ts ya prueba,
+ * aparte, que ESE aislamiento por pista funciona; esto prueba que
+ * `run-export.ts` consume bien un lote a medias).
+ */
+const renderStemsSpy = vi.fn();
+let failStemIndex: number | null = null;
+vi.mock('@orbit/engine', async () => {
+  const actual = await vi.importActual<typeof import('@orbit/engine')>('@orbit/engine');
+  return {
+    ...actual,
+    renderStems: (
+      project: Parameters<typeof actual.renderStems>[0],
+      trackIndices: Parameters<typeof actual.renderStems>[1],
+      opts: Parameters<typeof actual.renderStems>[2],
+    ) => {
+      renderStemsSpy(trackIndices);
+      const outcome = actual.renderStems(project, trackIndices, opts);
+      if (failStemIndex !== null && outcome.results.has(failStemIndex)) {
+        outcome.results.delete(failStemIndex);
+        outcome.errors.set(failStemIndex, 'fallo simulado en el render del stem (test)');
+      }
+      return outcome;
+    },
+  };
+});
+
 const BASE_OPTS = {
   source: 'song' as const,
   patternId: null,
@@ -55,6 +90,8 @@ interface Rig {
   writeImpl: (path: string, data: Uint8Array) => Promise<void>;
   saveDialog: ReturnType<typeof vi.fn>;
   channelId: string;
+  /** Añade un canal más, enrutado a la pista de mixer pedida. Devuelve su id. */
+  addChannelOnTrack: (mixerTrack: number) => string;
 }
 
 /**
@@ -90,6 +127,13 @@ async function rig(): Promise<Rig> {
   const channel = core.createChannel('synth', 0, 'Lead');
   store.dispatch({ type: 'addChannel', channel }, { label: 'canal de prueba' });
 
+  const addChannelOnTrack = (mixerTrack: number): string => {
+    const ch = core.createChannel('synth', store.project.channelOrder.length, `Canal ${mixerTrack}`);
+    ch.mixerTrack = mixerTrack;
+    store.dispatch({ type: 'addChannel', channel: ch }, { label: `canal pista ${mixerTrack}` });
+    return ch.id;
+  };
+
   const mod = await import('../src/export/run-export');
 
   return {
@@ -97,12 +141,15 @@ async function rig(): Promise<Rig> {
     writes,
     writeImpl,
     saveDialog,
+    addChannelOnTrack,
     channelId: channel.id,
   };
 }
 
 describe('runExport: orquestación de render, corte y formatos', () => {
   afterEach(() => {
+    renderStemsSpy.mockClear();
+    failStemIndex = null;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -264,6 +311,59 @@ describe('runExport: orquestación de render, corte y formatos', () => {
 
     expect(summary.stemsWritten).toBe(1); // un canal, en Master
     expect(writes.some((w) => /beat-master\.wav$/.test(w.path))).toBe(true);
+  });
+
+  it('stems: 12 pistas piden EXACTAMENTE 3 lotes de 4 al motor de render, no 12 ni 1', async () => {
+    const { runExport, addChannelOnTrack } = await rig();
+    // El canal de rig() ya usa Master (pista 0); se suman las pistas 1..11
+    // para llegar a 12 pistas de stem en total.
+    for (let t = 1; t <= 11; t++) addChannelOnTrack(t);
+
+    const summary = await runExport('/salida/beat.wav', { ...BASE_OPTS, stems: true });
+
+    expect(summary.stemsWritten).toBe(12);
+    // La tarea que introdujo el batching se tituló "una sola petición al
+    // worker": lo que de verdad hace es ceil(12/4) = 3 peticiones reales al
+    // motor de render, contadas aquí — ni una petición por stem ni las 12
+    // juntas de una sola vez.
+    expect(renderStemsSpy).toHaveBeenCalledTimes(3);
+    expect(renderStemsSpy.mock.calls.map((c) => (c[0] as number[]).length)).toEqual([4, 4, 4]);
+  });
+
+  it('stems: 13 pistas piden 4 lotes, el último de una sola pista suelta', async () => {
+    const { runExport, addChannelOnTrack } = await rig();
+    for (let t = 1; t <= 12; t++) addChannelOnTrack(t);
+
+    const summary = await runExport('/salida/beat.wav', { ...BASE_OPTS, stems: true });
+
+    expect(summary.stemsWritten).toBe(13);
+    expect(renderStemsSpy).toHaveBeenCalledTimes(4);
+    expect(renderStemsSpy.mock.calls.map((c) => (c[0] as number[]).length)).toEqual([4, 4, 4, 1]);
+  });
+
+  it('stems: un stem que revienta no se lleva a los hermanos ya renderizados en su mismo lote', async () => {
+    const { runExport, writes, addChannelOnTrack } = await rig();
+    // 4 pistas de stem en UN SOLO lote (Master + 1, 2, 3): la pista 2 revienta.
+    addChannelOnTrack(1);
+    addChannelOnTrack(2);
+    addChannelOnTrack(3);
+    failStemIndex = 2;
+
+    const summary = await runExport('/salida/beat.wav', { ...BASE_OPTS, stems: true });
+
+    // Antes del fix, la excepción de la pista 2 sin capturar tiraba con ella
+    // TODO el lote: los stems de Master, 1 y 3 (ya renderizados con éxito)
+    // también se perdían. Con el fix, los tres se escriben igual.
+    expect(summary.stemsWritten).toBe(3);
+    expect(writes.some((w) => /beat-master\.wav$/.test(w.path))).toBe(true);
+    expect(writes.some((w) => /beat-insert-1\.wav$/.test(w.path))).toBe(true);
+    expect(writes.some((w) => /beat-insert-3\.wav$/.test(w.path))).toBe(true);
+    // La pista rota no se escribe (nada corrupto ni a medias)...
+    expect(writes.some((w) => /beat-insert-2\.wav$/.test(w.path))).toBe(false);
+    // ...pero tampoco desaparece en silencio: queda un aviso con cuál faltó.
+    expect(
+      summary.warnings.some((w) => /insert 2/i.test(w) && /fallo simulado/.test(w)),
+    ).toBe(true);
   });
 });
 

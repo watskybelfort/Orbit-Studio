@@ -59,7 +59,7 @@ function projectWithChannelOn(mixerTrack: number): Project {
 function stemOf(project: Project, idx: number): Float32Array {
   const patternId = project.patternOrder[0]!;
   const compiled = compileProject(project, { mode: 'pattern', patternId });
-  return renderStems(compiled, [idx], { tailSeconds: 0.3, sampleRate: SR }).get(idx)!.left;
+  return renderStems(compiled, [idx], { tailSeconds: 0.3, sampleRate: SR }).results.get(idx)!.left;
 }
 
 describe('renderStems', () => {
@@ -73,7 +73,7 @@ describe('renderStems', () => {
     const patternId = project.patternOrder[0]!;
     const compiled = compileProject(project, { mode: 'pattern', patternId });
     const full = renderProject(compiled, { tailSeconds: 0.3, sampleRate: SR });
-    const stem = renderStems(compiled, [2], { tailSeconds: 0.3, sampleRate: SR }).get(2)!.left;
+    const stem = renderStems(compiled, [2], { tailSeconds: 0.3, sampleRate: SR }).results.get(2)!.left;
 
     expect(rms(full.left)).toBeGreaterThan(1e-3); // sanity: la mezcla suena
     expect(rms(stem)).toBeGreaterThan(1e-3); // y el stem también (antes: 0)
@@ -114,5 +114,68 @@ describe('renderStems', () => {
     expect(rms(stem5)).toBeGreaterThan(1e-3);
     // Los dos stems por separado no son el mismo audio.
     expect(rms(stem2)).not.toBeCloseTo(rms(stem5), 3);
+  });
+});
+
+/** Un canal de sinte por pista de mixer pedida, cada uno con su propia nota. */
+function projectWithChannelsOn(mixerTracks: number[]): Project {
+  const project = createEmptyProject('Stems multi');
+  project.tempo = 240;
+  mixerTracks.forEach((mixerTrack, i) => {
+    const ch = createChannel('synth', i, `Ch${i}`);
+    ch.mixerTrack = mixerTrack;
+    ch.volume = 0.8;
+    Object.assign(ch.params, { attack: 0.002, decay: 0.3, sustain: 0.7, release: 0.05 });
+    applyCommand(project, { type: 'addChannel', channel: ch });
+    applyCommand(project, {
+      type: 'addNotes',
+      patternId: project.patternOrder[0]!,
+      channelId: ch.id,
+      notes: [note(0, 1, 60 + i)],
+    });
+  });
+  return project;
+}
+
+describe('renderStems: una pista rota no se lleva a sus hermanas del lote', () => {
+  it('el fallo de UNA pista deja las demás del mismo lote en `results`, y solo esa en `errors`', () => {
+    const project = projectWithChannelsOn([1, 2, 3]);
+    const patternId = project.patternOrder[0]!;
+    const compiled = compileProject(project, { mode: 'pattern', patternId });
+
+    // No hay forma limpia de forzar una excepción real del kernel a mitad de
+    // render de UNA sola pista sin acoplar el test a su implementación interna
+    // (ver el comentario largo en run-export.ts sobre por qué las 12 pistas NO
+    // van en 12 renders sueltos). En su lugar se usa el mismo `onProgress` que
+    // ya recibe `renderProject` de verdad: revienta justo en su cierre
+    // incondicional (`opts.onProgress?.(1)`, el último paso de un render que
+    // YA terminó de computar) de la SEGUNDA pista del lote. El resultado que
+    // le llega a `renderStems` es idéntico al de una excepción real del
+    // kernel a mitad de proceso: una que se cuela por el mismo `try` de la
+    // pista 2 y nada más.
+    let completed = 0;
+    const onProgress = (fraction: number): void => {
+      if (fraction < 1) return;
+      const isSecondTrack = completed === 1;
+      completed++;
+      if (isSecondTrack) throw new Error('fallo simulado en el render del stem');
+    };
+
+    const { results, errors } = renderStems(compiled, [1, 2, 3], {
+      tailSeconds: 0.3,
+      sampleRate: SR,
+      onProgress,
+    });
+
+    // Las pistas 1 y 3 —renderizadas con éxito antes y después de la rota—
+    // NO se pierden: antes del fix, la excepción sin capturar tiraba con
+    // ellas todo el `Map` de vuelta.
+    expect([...results.keys()].sort()).toEqual([1, 3]);
+    expect(rms(results.get(1)!.left)).toBeGreaterThan(1e-3);
+    expect(rms(results.get(3)!.left)).toBeGreaterThan(1e-3);
+    // La pista 2 queda fuera de `results` y su motivo, en `errors`.
+    expect(results.has(2)).toBe(false);
+    expect(errors.size).toBe(1);
+    expect(errors.get(2)).toMatch(/fallo simulado/);
   });
 });

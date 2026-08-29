@@ -488,14 +488,19 @@ async function renderAndWrite(
 
   // Stems: rutas hermanas <base>-<pista>.wav derivadas de la principal.
   //
-  // Se piden por LOTES de `STEM_BATCH_SIZE` en vez de una petición por stem
-  // (como antes) o una sola con todas: `renderOpts.samples` lleva el audio
-  // entero del proyecto, y pedirlo de a una clonaba esa Map completa por cada
-  // stem al cruzar al worker — con 12 pistas, 12 copias del mismo audio, una
-  // detrás de otra. Medido con structuredClone (el mismo algoritmo que usa
-  // postMessage) sobre ~9,6 MB de samples: 12 clones sueltos, 88,5 ms; un
-  // clone por lote de 4, ~3 clones, ~24 ms — casi todo el ahorro sin pedir
-  // las 12 juntas.
+  // Se piden por LOTES de `STEM_BATCH_SIZE` (4) — NO en una sola petición para
+  // todas ni una por stem. La tarea que introdujo esto se tituló "una sola
+  // petición al worker", pero eso no es lo que hace: con 10 stems son 3
+  // peticiones, con 12 son 3, con 13 son 4. El título prometía más de lo que
+  // el código entrega; lo que sigue es lo que de verdad pasa y por qué.
+  //
+  // Ni una por stem (como antes) ni una sola con las 12 juntas:
+  // `renderOpts.samples` lleva el audio entero del proyecto, y pedirlo de a
+  // una clonaba esa Map completa por cada stem al cruzar al worker — con 12
+  // pistas, 12 copias del mismo audio, una detrás de otra. Medido con
+  // structuredClone (el mismo algoritmo que usa postMessage) sobre ~9,6 MB de
+  // samples: 12 clones sueltos, 88,5 ms; un clone por lote de 4, ~3 clones,
+  // ~24 ms — casi todo el ahorro sin pedir las 12 juntas.
   //
   // Pedirlas TODAS juntas sí tiene un costo real: medido con un proyecto
   // sintético de 12 pistas × 2 min a 44,1 kHz, el Map con las 12 completas
@@ -505,6 +510,19 @@ async function renderAndWrite(
   // pico queda ~4/12 de eso — cerca del "de a una" — y el tiempo total de
   // render no cambia (es el mismo cómputo DSP): ~8,2 s todo junto contra
   // ~8,7 s de a una en la misma medición.
+  //
+  // Qué pasa cuando UN stem del lote revienta: se sigue con el resto, se
+  // escriben los que salieron bien y se avisa cuál faltó — no se aborta el
+  // export entero. `renderStems`/`renderStemsInWorker` ya aíslan el fallo por
+  // pista (ver packages/engine/src/render/offline.ts) y devuelven `results`
+  // (lo que sí se pudo) más `errors` (el motivo de lo que no); acá solo queda
+  // decidir qué avisar con eso. La alternativa —abortar todo el export en
+  // cuanto un stem falla— tira con él los que YA se renderizaron bien en ese
+  // lote y en los lotes anteriores: para un export de 12 stems que tarda
+  // minutos, perder once buenos por uno malo es justo el peor resultado
+  // posible. Un aviso por stem perdido (igual que ya se hace con un formato
+  // secundario que falla al escribir, más abajo) dice exactamente qué faltó
+  // sin tirar lo demás.
   const STEM_BATCH_SIZE = 4;
   let stemsWritten = 0;
   const stemTracks = opts.stems ? usedMixerTracks(proj) : [];
@@ -519,16 +537,20 @@ async function renderAndWrite(
         if (t) void report(`Renderizando stem ${start + localIndex + 1}/${totalStems} (${t.name})…`);
       };
       reportStem(0);
-      const stemMap = canUseRenderWorker()
+      const { results, errors } = canUseRenderWorker()
         ? await renderStemsInWorker(compiled, batchIndices, renderOpts, (idx) => reportStem(idx))
         : renderStems(compiled, batchIndices, renderOpts);
       for (const t of batch) {
-        let res = stemMap.get(t.idx);
+        let res = results.get(t.idx);
         // Ya escrito o por escribir: fuera del Map en cuanto se usa, para que
         // el GC pueda recuperar cada buffer según se va escribiendo en vez de
         // retener el lote entero hasta que termine el bucle interno.
-        stemMap.delete(t.idx);
-        if (!res) continue;
+        results.delete(t.idx);
+        if (!res) {
+          const reason = errors.get(t.idx) ?? 'motivo desconocido';
+          warnings.push(`No se pudo renderizar el stem "${t.name}": ${reason}. Se sigue con el resto.`);
+          continue;
+        }
         res = cut(res);
         if (gainDb !== null) applyGain(res, gainDb); // misma ganancia que el master
         let slug = slugName(t.name);

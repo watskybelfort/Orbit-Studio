@@ -159,26 +159,62 @@ export function renderProject(
  * de batería, por ejemplo— saldría en silencio: el bus no genera nada, solo suma
  * lo que le llega. Ver `audibleTracksForStem`.
  */
+export interface StemBatchResult {
+  /** Stems que sí se pudieron renderizar, por índice de pista. */
+  results: Map<number, RenderResult>;
+  /** Pistas del lote que reventaron al renderizar, con el motivo. */
+  errors: Map<number, string>;
+}
+
+/**
+ * Un `try/catch` POR PISTA: si el render de una revienta (una excepción real
+ * del kernel, no algo que se pueda validar antes), NO tira con ella las demás
+ * pistas del mismo lote que ya se habían renderizado con éxito.
+ *
+ * Antes de esto, la excepción de una sola pista subía sin capturar y `renderStems`
+ * entero fallaba: para un lote de `STEM_BATCH_SIZE` (ver run-export.ts) eso podía
+ * perder hasta 3 stems buenos por uno malo. Con lotes más grandes que 1 —que es
+ * justo lo que se pidió para no clonar `samples` una vez por pista— aislar por
+ * pista dentro del lote pasa de ser un detalle a ser obligatorio.
+ *
+ * La decisión de qué hacer con el resto del export es de quien llama a esto
+ * (run-export.ts): aquí solo se garantiza no perder lo que ya salió bien. Ver
+ * `errors` para el motivo de cada pista que faltó — el llamante decide si eso
+ * es aviso o excepción, pero nunca borra un `Map` entero por una sola entrada.
+ */
 export function renderStems(
   project: CompiledProject,
   trackIndices: number[],
   opts: RenderOptions = {},
-): Map<number, RenderResult> {
-  const out = new Map<number, RenderResult>();
+): StemBatchResult {
+  const results = new Map<number, RenderResult>();
+  const errors = new Map<number, string>();
   for (const idx of trackIndices) {
-    const keep = audibleTracksForStem(project, idx);
-    const solo: CompiledProject = {
-      ...project,
-      mixer: project.mixer.map((t, i) => ({
-        ...t,
-        slots: t.slots.map((s) => (s ? { ...s, params: { ...s.params } } : null)),
-        sends: t.sends.map((s) => ({ ...s })),
-        audible: keep.has(i) ? t.audible : false,
-      })),
-    };
-    out.set(idx, renderProject(solo, opts));
+    try {
+      const keep = audibleTracksForStem(project, idx);
+      const solo: CompiledProject = {
+        ...project,
+        mixer: project.mixer.map((t, i) => ({
+          ...t,
+          slots: t.slots.map((s) => (s ? { ...s, params: { ...s.params } } : null)),
+          sends: t.sends.map((s) => ({ ...s })),
+          audible: keep.has(i) ? t.audible : false,
+        })),
+      };
+      results.set(idx, renderProject(solo, opts));
+    } catch (e) {
+      // `renderProject` puede reventar a mitad de render (tras haber llamado ya
+      // a `opts.onProgress` con fracciones intermedias) sin llegar nunca a su
+      // `onProgress(1)` de cierre incondicional. `trackStemProgress` (en
+      // packages/ui/src/export/stem-progress.ts) numera las pistas siguientes
+      // contando esos cierres: sin este `onProgress(1)` sintético aquí, la
+      // pista rota se queda "abierta" para siempre y el resto del lote se
+      // anuncia con el índice corrido en uno.
+      opts.onProgress?.(1);
+      errors.set(idx, e instanceof Error ? e.message : String(e));
+    }
   }
-  return out;
+  return { results, errors };
 }
 
 /**

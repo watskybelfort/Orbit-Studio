@@ -7,7 +7,7 @@
  * está disponible (test/Node), el llamante debe caer al render directo.
  */
 
-import type { CompiledProject, RenderResult, SampleData } from '@orbit/engine';
+import type { CompiledProject, RenderResult, SampleData, StemBatchResult } from '@orbit/engine';
 
 export interface WorkerRenderOpts {
   samples?: Map<string, SampleData>;
@@ -24,6 +24,8 @@ interface Resp {
   error?: string;
   result?: RenderResult;
   stems?: { idx: number; result: RenderResult }[];
+  /** Pistas del lote que reventaron sin tirar la petición entera. Ver `renderStemsInWorker`. */
+  failed?: { idx: number; error: string }[];
 }
 
 /**
@@ -164,15 +166,23 @@ export async function renderProjectInWorker(
  * clone de `opts.samples`, no uno por pista). `onProgress(index, total)` —si
  * se pasa— se llama una vez al empezar cada pista de `trackIndices`, en su
  * mismo orden, a partir de los mensajes intermedios del worker.
+ *
+ * La petición resuelve igual —`results` con lo que salió, `errors` con lo que
+ * no— tanto si todas las pistas del lote van bien como si alguna revienta: el
+ * worker ya aísla ese fallo por pista (ver `renderStems` en el engine), así
+ * que esto solo rechaza la promesa cuando falla la petición ENTERA (el propio
+ * worker muere, o manda algo ilegible), no cuando una pista del lote fallaba.
  */
 export async function renderStemsInWorker(
   compiled: CompiledProject,
   trackIndices: number[],
   opts: WorkerRenderOpts,
   onProgress?: (index: number, total: number) => void,
-): Promise<Map<number, RenderResult>> {
+): Promise<StemBatchResult> {
   const resp = await request({ kind: 'stems', compiled, trackIndices, opts }, onProgress);
-  const out = new Map<number, RenderResult>();
-  for (const s of resp.stems ?? []) out.set(s.idx, s.result);
-  return out;
+  const results = new Map<number, RenderResult>();
+  for (const s of resp.stems ?? []) results.set(s.idx, s.result);
+  const errors = new Map<number, string>();
+  for (const f of resp.failed ?? []) errors.set(f.idx, f.error);
+  return { results, errors };
 }

@@ -12,7 +12,13 @@ export {
 } from './compile';
 export { KernelCore, MAX_BLOCK } from './kernel-core';
 export { AudioEngine } from './engine';
-export { renderProject, renderStems, type RenderOptions, type RenderResult } from './render/offline';
+export {
+  renderProject,
+  renderStems,
+  type RenderOptions,
+  type RenderResult,
+  type StemBatchResult,
+} from './render/offline';
 export { encodeWav, type WavDepth } from './render/wav';
 export { secondsAtBeat, type TempoSegment } from './tempo';
 export { encodeOggFlac, lacing, oggCrc, type OggFlacOptions } from './render/ogg';

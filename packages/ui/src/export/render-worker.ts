@@ -56,14 +56,22 @@ ctx.onmessage = (e: MessageEvent<Req>) => {
     // `samples`, por stem), así que el progreso viaja por mensajes
     // intermedios casados por el mismo `id`: uno al empezar cada pista,
     // derivado del onProgress de `renderStems` (ver stem-progress.ts).
+    //
+    // `renderStems` aísla el fallo por pista (packages/engine/src/render/offline.ts):
+    // una que revienta no tira las demás del mismo lote. Esta petición sigue
+    // resolviendo `ok: true` con lo que salió bien en `stems` y lo que falló
+    // en `failed` — un lote a medias no es lo mismo que la petición entera
+    // fallando (eso sí sería `ok: false`, para un error que no es de una
+    // pista sino del propio worker).
     const total = msg.trackIndices.length;
     const onProgress = trackStemProgress(total, (index) => {
       ctx.postMessage({ id: msg.id, progress: { index, total } });
     });
-    const map = renderStems(msg.compiled, msg.trackIndices, { ...msg.opts, onProgress });
-    const stems = [...map.entries()].map(([idx, result]) => ({ idx, result }));
+    const { results, errors } = renderStems(msg.compiled, msg.trackIndices, { ...msg.opts, onProgress });
+    const stems = [...results.entries()].map(([idx, result]) => ({ idx, result }));
+    const failed = [...errors.entries()].map(([idx, error]) => ({ idx, error }));
     const transfer = stems.flatMap((s) => transferOf(s.result));
-    ctx.postMessage({ id: msg.id, ok: true, stems }, transfer);
+    ctx.postMessage({ id: msg.id, ok: true, stems, failed }, transfer);
   } catch (err) {
     ctx.postMessage({
       id: msg.id,

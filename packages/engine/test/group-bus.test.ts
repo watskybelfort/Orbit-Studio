@@ -81,7 +81,8 @@ function mixOf(project: Project): Float32Array {
 }
 
 function stemOf(project: Project, idx: number): Float32Array {
-  return renderStems(compile(project), [idx], { tailSeconds: 0.3, sampleRate: SR }).get(idx)!.left;
+  return renderStems(compile(project), [idx], { tailSeconds: 0.3, sampleRate: SR }).results.get(idx)!
+    .left;
 }
 
 /** Mete canales en una carpeta nueva con el bus pedido. */

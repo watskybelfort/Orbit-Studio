@@ -79,7 +79,7 @@ it('el export headless produce un WAV válido a -14 LUFS', async () => {
   const finalLufs = analysis.lufsIntegrated + gainDb;
   expect(Math.abs(finalLufs - -14)).toBeLessThan(0.5);
 
-  const stem = renderStems(compiled, [0]).get(0);
+  const stem = renderStems(compiled, [0]).results.get(0);
   expect(stem && stem.left.length).toBe(mix.left.length);
 
   console.log(
