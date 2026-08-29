@@ -30,6 +30,7 @@ import {
 } from '@orbit/core';
 import { create } from 'zustand';
 import { engine, ensureAudioReady, store } from './app';
+import { abortRecordingForLostDevice, useRecorderStore } from './recorder';
 
 export interface InputDevice {
   id: string;
@@ -252,11 +253,107 @@ async function openStream(deviceId: string): Promise<{ media: MediaStream; chann
   return { media, channels };
 }
 
+// ── Guarda: no tocar el micro ni el dispositivo con una toma en curso ──────
+//
+// Cambiar de dispositivo o cerrar el micro cierra el stream (`stopInputMonitor`,
+// abajo) y la captura del grabador —anidada dentro de `if (inputListening…)`
+// en el kernel— deja de acumular muestras SIN excepción ni aviso: la toma
+// sale corta y desincronizada, y nadie se entera hasta escucharla (ver
+// `recorder.ts`: ni `pushInputChunk` ni `stopRecording` se enteran de que el
+// micro se cerró a medio camino).
+//
+// La regla vive AQUÍ —en `toggleInputListening` y `setInputDevice`, las
+// funciones que de verdad cierran el stream— y no en el componente: un atajo
+// de teclado, la paleta de comandos o una acción de MCP que las llamara
+// directo se saltaría un bloqueo puesto solo en el JSX. `InputSection.tsx` no
+// repite la condición ni el texto: llama a `useInputGuardReason()` (más abajo)
+// y pinta lo que le devuelve.
+
+/**
+ * Por qué no se puede tocar el micro ni el dispositivo ahora mismo, o `null`
+ * si sí se puede. ÚNICA fuente de la regla — la aplican las funciones de
+ * abajo y la lee la UI, nunca al revés.
+ */
+export function inputGuardReason(): string | null {
+  if (useRecorderStore.getState().phase === 'idle') return null;
+  return 'Hay una toma en curso: cambiar el micro o el dispositivo la cortaría en silencio. Para de grabar antes.';
+}
+
+/**
+ * Versión reactiva de `inputGuardReason()` para componentes: se suscribe a
+ * `useRecorderStore` (la fase de grabación es de lo único que depende la
+ * regla) y la vuelve a evaluar en cada cambio, así `InputSection.tsx` se
+ * repinta solo sin tener que importar `useRecorderStore` ni conocer la
+ * condición — la lee, no la repite.
+ */
+export function useInputGuardReason(): string | null {
+  return useRecorderStore(inputGuardReason);
+}
+
+// ── Hot-unplug y cambio de dispositivo del sistema ──────────────────────────
+//
+// Lo de arriba bloquea que ALGUIEN cierre el stream a propósito en pleno REC.
+// Esto es distinto: el hardware se va SOLO —se desconecta la interfaz, o el
+// sistema operativo cambia de dispositivo por defecto y el que estaba sonando
+// deja de estar disponible— y eso no se puede bloquear, el cable ya se fue.
+// La única respuesta honesta es parar y avisar CLARO de que la toma se cortó
+// ahí, para que quien cantó sepa que tiene que repetirla, en vez de
+// descubrirlo al escuchar un clip corto sin ninguna pista de por qué.
+
+/**
+ * El stream se fue por una causa ajena a `stopInputMonitor` explícito. Cierra
+ * lo que quede (idempotente si ya se había cerrado) y, si había una toma en
+ * curso, la para también con un motivo que lo dice claro.
+ */
+function handleStreamLost(cause: string): void {
+  if (!stream) return; // ya se cerró por otro camino (o por este mismo evento, dos veces)
+  const wasRecording = useRecorderStore.getState().phase === 'recording';
+  stopInputMonitor();
+  const reason = wasRecording ? `${cause} La toma se cortó ahí: repítela.` : cause;
+  useInputMonitorStore.setState({ error: reason });
+  if (wasRecording) void abortRecordingForLostDevice(reason);
+}
+
+/**
+ * El cambio de dispositivo por defecto del sistema no tiene un evento propio
+ * en la Web Audio API: `ondevicechange` es lo más cerca que hay, y dispara
+ * para CUALQUIER cambio en la lista de dispositivos, no solo el nuestro. Por
+ * eso se relee la lista y solo se actúa si el dispositivo que está sonando
+ * AHORA MISMO ya no aparece en ella — así enchufar un segundo micro sin
+ * tocar el que está grabando no hace nada, y quedarse sin el que sí está
+ * grabando sí.
+ */
+async function handleDeviceChange(): Promise<void> {
+  await refreshInputDevices();
+  if (!stream) return;
+  const activeId = streamDeviceId(stream, useInputMonitorStore.getState().deviceId);
+  const stillThere = useInputMonitorStore.getState().devices.some((d) => d.id === activeId);
+  if (!stillThere) {
+    handleStreamLost(
+      'El dispositivo de entrada dejó de estar disponible (cambió el dispositivo del sistema).',
+    );
+  }
+}
+
+/** Se engancha una sola vez, igual que `watchProject`. */
+let deviceChangeWired = false;
+function watchDeviceChanges(): void {
+  if (deviceChangeWired || !navigator.mediaDevices) return;
+  deviceChangeWired = true;
+  navigator.mediaDevices.ondevicechange = () => void handleDeviceChange();
+}
+
 /** Cierra el micro y lo desengancha del kernel. */
 export function stopInputMonitor(): void {
   source?.disconnect();
   source = null;
-  stream?.getTracks().forEach((t) => t.stop());
+  stream?.getTracks().forEach((t) => {
+    // Se limpia ANTES de parar: un `stop()` explícito no dispara `onended`
+    // por spec, pero si algún runtime se desviara de eso, cerrar el micro a
+    // propósito no puede disparar el aviso de "se fue solo".
+    t.onended = null;
+    t.stop();
+  });
   stream = null;
   useInputMonitorStore.setState({
     listening: false,
@@ -279,6 +376,14 @@ export async function startInputMonitor(): Promise<boolean> {
     const { deviceId } = useInputMonitorStore.getState();
     const opened = await openStream(deviceId);
     stream = opened.media;
+    // Hot-unplug: si el hardware se va a mitad de una toma, la captura se
+    // queda muda sin que nada lo explique (ver `handleStreamLost` arriba).
+    // `onended` es el aviso de verdad — un `stop()` nuestro no lo dispara (se
+    // limpia en `stopInputMonitor`), así que esto solo salta cuando el stream
+    // se va SOLO.
+    stream.getAudioTracks().forEach((t) => {
+      t.onended = () => handleStreamLost('El micro se desconectó.');
+    });
     // El nodo del kernel se ensancha a las entradas del aparato: sin esto el
     // grafo mezclaría la interfaz de ocho a dos canales y los otros seis se
     // perderían antes de que nadie pudiera elegirlos.
@@ -293,6 +398,7 @@ export async function startInputMonitor(): Promise<boolean> {
     // enrutado se remanda entero (su firma es otra).
     push();
     watchProject();
+    watchDeviceChanges();
     return true;
   } catch (err) {
     stream?.getTracks().forEach((t) => t.stop());
@@ -322,10 +428,25 @@ export async function toggleInputMonitor(): Promise<void> {
   push();
 }
 
-/** Enciende/apaga solo la escucha (medir sin oírse). */
-export async function toggleInputListening(): Promise<void> {
-  if (useInputMonitorStore.getState().listening) stopInputMonitor();
-  else await startInputMonitor();
+/**
+ * Enciende/apaga solo la escucha (medir sin oírse).
+ *
+ * Rechaza con `false` (dejando el motivo en `error`) si hay una toma en
+ * curso — mismo patrón que `startInputMonitor`, que ya rechaza así cuando
+ * `getUserMedia` falla: nunca una excepción, así que quien llama no necesita
+ * un try/catch para un rechazo esperable.
+ */
+export async function toggleInputListening(): Promise<boolean> {
+  const reason = inputGuardReason();
+  if (reason) {
+    useInputMonitorStore.setState({ error: reason });
+    return false;
+  }
+  if (useInputMonitorStore.getState().listening) {
+    stopInputMonitor();
+    return true;
+  }
+  return startInputMonitor();
 }
 
 export function setInputTrack(trackIndex: number): void {
@@ -338,16 +459,30 @@ export function setInputGain(gain: number): void {
   push();
 }
 
-/** Cambia de dispositivo; si el micro estaba abierto, se reabre con el nuevo. */
-export async function setInputDevice(deviceId: string): Promise<void> {
+/**
+ * Cambia de dispositivo; si el micro estaba abierto, se reabre con el nuevo.
+ *
+ * Rechaza con `false` si hay una toma en curso, mismo patrón que
+ * `toggleInputListening`. (En la práctica esto solo importa con el micro ya
+ * abierto: mientras se graba, `listening` siempre es `true` — lo abre
+ * `startRecording` antes de que la fase deje de ser `idle` — así que elegir
+ * dispositivo con el micro cerrado nunca compite con una toma.)
+ */
+export async function setInputDevice(deviceId: string): Promise<boolean> {
+  const reason = inputGuardReason();
+  if (reason) {
+    useInputMonitorStore.setState({ error: reason });
+    return false;
+  }
   const was = useInputMonitorStore.getState();
   useInputMonitorStore.setState({ deviceId });
-  if (!was.listening) return;
+  if (!was.listening) return true;
   stopInputMonitor();
   if (await startInputMonitor()) {
     useInputMonitorStore.setState({ monitor: was.monitor });
     push();
   }
+  return true;
 }
 
 // ── Enrutado de entrada: acciones ───────────────────────────────────────────

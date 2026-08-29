@@ -8,10 +8,19 @@
  * `MidiSection.tsx`, que sí lo hace para deshabilitar el botón de calibrar
  * latencia mientras se graba.
  *
- * La decisión (documentada en el propio `InputSection.tsx`) es BLOQUEAR los
- * dos controles que de verdad cierran el stream —el toggle de Micro y el
- * select de Dispositivo— mientras `useRecorderStore().phase !== 'idle'`, con
- * un aviso VISIBLE (no un bloqueo silencioso) explicando por qué.
+ * La decisión (documentada en `input-monitor.ts`) es BLOQUEAR los dos
+ * controles que de verdad cierran el stream —el toggle de Micro y el select
+ * de Dispositivo— mientras hay una toma en curso, con un aviso VISIBLE (no un
+ * bloqueo silencioso) explicando por qué.
+ *
+ * **Remate de la v3.7**: la guarda de verdad vive ahora en las funciones
+ * (`toggleInputListening`/`setInputDevice`, ver
+ * `input-monitor-recording-guard.test.ts`), no en este componente — eso ya lo
+ * cubre otro archivo. Lo que este test comprueba es la otra mitad de la regla
+ * "no dos copias de una invariante": `InputSection.tsx` no debe volver a
+ * traerse su propia condición `phase !== 'idle'` ni su propio texto, sino
+ * LEER `useInputGuardReason()` (que exporta `input-monitor.ts`) y pintar lo
+ * que devuelve.
  *
  * Por qué este test lee el CÓDIGO FUENTE en vez de montar el componente: es
  * la convención del repo para lógica que vive en el JSX de un `.tsx` sin
@@ -19,8 +28,8 @@
  * CLAUDE.md). Montar `InputSection` de verdad exigiría un DOM, un
  * `AudioContext` y un `store` de proyecto completos solo para leer un
  * atributo `disabled` — el texto fuente ya es la fuente de verdad de esa
- * propiedad, y una regresión (alguien borra el `disabled={recording}`, o dos
- * clics permiten truncar la toma) rompe este test igual.
+ * propiedad, y una regresión (alguien borra el `disabled={recording}`, o
+ * vuelve a escribir `phase !== 'idle'` a mano) rompe este test igual.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -46,23 +55,33 @@ function rowContaining(marker: string): string {
 }
 
 describe('InputSection: no truncar una toma en curso al cambiar de dispositivo o cerrar el micro', () => {
-  it('lee useRecorderStore, igual que MidiSection.tsx para el botón de calibrar', () => {
-    expect(file).toContain("import { useRecorderStore } from '../state/recorder';");
-    expect(file).toMatch(/const recPhase = useRecorderStore\(\(s\) => s\.phase\);/);
-    expect(file).toMatch(/const recording = recPhase !== 'idle';/);
+  it('lee la regla de input-monitor.ts (useInputGuardReason), no se trae su propia condición', () => {
+    expect(file).toContain(
+      "  useInputGuardReason,\n  useInputMonitorStore,\n} from '../state/input-monitor';",
+    );
+    expect(file).toMatch(/const guardReason = useInputGuardReason\(\);/);
+    expect(file).toMatch(/const recording = guardReason !== null;/);
+    // Que no vuelva a importar `useRecorderStore` ni a leer su fase a mano:
+    // eso es justo la duplicación que causó el bug (el throttle del aviso de
+    // versión, citado en la tarjeta de esta tarea) — dos copias de la misma
+    // condición que se desincronizan sin que ningún test lo note.
+    expect(file).not.toContain("from '../state/recorder'");
+    expect(file).not.toMatch(/const recPhase = useRecorderStore/);
+    expect(file).not.toMatch(/const recording = recPhase/);
   });
 
   it('el toggle de "Micro" (cierra el stream) se deshabilita en pleno REC', () => {
     const row = rowContaining('<span className="set-label">Micro</span>');
     expect(row).toContain('disabled={recording}');
-    // Y el motivo se ve, no solo se bloquea a ciegas.
-    expect(row).toMatch(/toma en curso/i);
+    // Y el motivo se ve, no solo se bloquea a ciegas — leído de guardReason,
+    // no un texto propio.
+    expect(row).toContain('guardReason');
   });
 
   it('el select de "Dispositivo" (reabre el stream con otro aparato) se deshabilita en pleno REC', () => {
     const row = rowContaining('<span className="set-label">Dispositivo</span>');
     expect(row).toContain('disabled={recording}');
-    expect(row).toMatch(/toma en curso/i);
+    expect(row).toContain('guardReason');
   });
 
   it('controles que NO cierran el stream (Pista, Ganancia, Monitor) siguen libres durante la toma', () => {
@@ -79,9 +98,15 @@ describe('InputSection: no truncar una toma en curso al cambiar de dispositivo o
     expect(monitor).not.toContain('disabled={recording}');
   });
 
-  it('hay un aviso visible de por qué (no es un bloqueo mudo)', () => {
-    expect(file).toMatch(/\{recording && \(/);
-    expect(file).toMatch(/cortaría en silencio/i);
+  it('hay un aviso visible de por qué (no es un bloqueo mudo), con el mismo texto que la regla', () => {
+    expect(file).toMatch(/\{recording && <p className="set-error">\{guardReason\}<\/p>\}/);
+  });
+
+  it('el error de input-monitor.ts (hot-unplug / cambio de dispositivo del sistema) también se pinta', () => {
+    // Ese aviso no se puede bloquear —el cable ya se fue—, así que llega por
+    // `useInputMonitorStore().error`, no por la guarda de arriba.
+    expect(file).toMatch(/const error = useInputMonitorStore\(\(s\) => s\.error\);/);
+    expect(file).toMatch(/\{error && <p className="set-error">\{error\}<\/p>\}/);
   });
 
   it('la propia comprobación de fila sabe fallar si el marcador no existe', () => {

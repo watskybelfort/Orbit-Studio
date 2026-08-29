@@ -646,6 +646,23 @@ async function stopRecording(): Promise<void> {
   }
 }
 
+/**
+ * Para la grabación por una causa AJENA a quien graba: el micro desapareció a
+ * mitad de la toma (hot-unplug, o el dispositivo activo dejó de estar
+ * disponible tras un cambio de dispositivo del sistema — ver
+ * `input-monitor.ts:handleStreamLost`, quien es el único que llama a esto).
+ * Eso no se puede bloquear —el cable ya se fue—, así que se guarda lo que se
+ * alcanzó a capturar, igual que cualquier `stopRecording` normal, y se
+ * sobreescribe el motivo con uno que dice CLARO que la toma se cortó ahí, para
+ * que quien cantó sepa que tiene que repetirla en vez de descubrirlo al
+ * escuchar un clip corto sin ninguna pista de por qué.
+ */
+export async function abortRecordingForLostDevice(reason: string): Promise<void> {
+  if (!capturing) return;
+  await stopRecording();
+  useRecorderStore.setState({ error: reason });
+}
+
 // Gancho de QA solo-dev: inyectar una fuente sintética en vez del micro real.
 const env = (import.meta as { env?: { DEV?: boolean } }).env;
 if (env?.DEV === true && typeof window !== 'undefined') {

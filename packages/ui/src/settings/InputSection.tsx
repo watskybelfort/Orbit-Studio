@@ -15,9 +15,9 @@ import {
   setInputTrack,
   toggleInputListening,
   toggleInputMonitor,
+  useInputGuardReason,
   useInputMonitorStore,
 } from '../state/input-monitor';
-import { useRecorderStore } from '../state/recorder';
 import { useProject } from '../state/useProject';
 
 export function InputSection() {
@@ -31,12 +31,13 @@ export function InputSection() {
   const peak = useInputMonitorStore((s) => s.peak);
   const error = useInputMonitorStore((s) => s.error);
 
-  // Cambiar de dispositivo o cerrar el micro cierra el stream
-  // (`stopInputMonitor`, en `input-monitor.ts`) y la captura del grabador
-  // —anidada dentro de `if (inputListening…)` en el kernel— deja de acumular
-  // muestras SIN excepción ni aviso: la toma sale corta y desincronizada, y
-  // nadie se entera hasta escucharla (ver `recorder.ts`: ni `pushInputChunk`
-  // ni `stopRecording` se enteran de que el micro se cerró a medio camino).
+  // Cambiar de dispositivo o cerrar el micro cierra el stream, y eso a mitad
+  // de una toma la corta en silencio (ver el comentario largo encima de
+  // `inputGuardReason` en `input-monitor.ts`). La regla —CUÁNDO se bloquea y
+  // CON QUÉ texto— vive solo ahí: `toggleInputListening`/`setInputDevice` ya
+  // la aplican de verdad (rechazan aunque algo que no sea este componente los
+  // llame), y acá solo se LEE con `useInputGuardReason()` para pintar el
+  // mismo motivo, sin repetir la condición `phase !== 'idle'` ni el texto.
   //
   // Decisión: BLOQUEAR, no parar-y-avisar. Parar la toma como efecto
   // colateral de tocar un select sería su propia sorpresa (el usuario pierde
@@ -45,8 +46,13 @@ export function InputSection() {
   // se termine de grabar. Mismo patrón que ya sigue `MidiSection.tsx` con el
   // botón de "Medir latencia" (deshabilitado + título con el motivo mientras
   // `useRecorderStore().phase !== 'idle'`).
-  const recPhase = useRecorderStore((s) => s.phase);
-  const recording = recPhase !== 'idle';
+  //
+  // (El hot-unplug y el cambio de dispositivo del sistema son distintos: ahí
+  // no se puede bloquear —el cable ya se fue— así que `input-monitor.ts` para
+  // la toma sola y avisa por `useInputMonitorStore().error`, que ya se pinta
+  // más abajo.)
+  const guardReason = useInputGuardReason();
+  const recording = guardReason !== null;
 
   useEffect(() => {
     void refreshInputDevices();
@@ -64,11 +70,7 @@ export function InputSection() {
           className={`set-toggle${listening ? ' on' : ''}`}
           disabled={recording}
           title={
-            recording
-              ? 'Hay una toma en curso: para de grabar antes de cerrar el micro'
-              : listening
-                ? 'Cerrar el micro'
-                : 'Abrir el micro y medir su nivel'
+            guardReason ?? (listening ? 'Cerrar el micro' : 'Abrir el micro y medir su nivel')
           }
           onClick={() => void toggleInputListening()}
         >
@@ -98,7 +100,7 @@ export function InputSection() {
           className="set-select"
           value={deviceId}
           disabled={recording}
-          title={recording ? 'Hay una toma en curso: para de grabar antes de cambiar de dispositivo' : undefined}
+          title={guardReason ?? undefined}
           onChange={(e) => void setInputDevice(e.target.value)}
         >
           <option value="">El del sistema</option>
@@ -161,12 +163,7 @@ export function InputSection() {
         <span className="set-value">{monitor ? 'Sonando' : 'Apagado'}</span>
       </div>
 
-      {recording && (
-        <p className="set-error">
-          Hay una toma en curso: el dispositivo y el micro se quedan quietos hasta que pares de
-          grabar. Cambiarlos a mitad de la toma la cortaría en silencio.
-        </p>
-      )}
+      {recording && <p className="set-error">{guardReason}</p>}
       {monitor && (
         <p className="set-error">
           Con altavoces esto es un acople: el micro coge lo que sale y vuelve a entrar. Cascos.
