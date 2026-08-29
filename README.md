@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.7.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2250%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.8.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2301%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -83,6 +83,58 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.8.0 — "cuando la red deja de mirar".** La ronda empezó comprobando que lo
+que la v3.7 prometió es real, y eso solo ya destapó tres cosas que el verde de
+los tests no contaba.
+
+**El pluck recupera su punch, y de paso enseñó cómo se pierde una red.** El
+filtro suavizaba sus coeficientes en 5 ms para matar el zipper al automatizar,
+pero eso vale para quien lo mueve **por bloque**; el sintetizador y el
+autofiltro lo movían por MUESTRA, con una envolvente que ya es continua, y se
+comían un one-pole de 5 ms encima de un ataque de 5 ms. Ahora el filtro sabe de
+qué clase es su llamante (`CoefSource`, en el constructor) y el que modula por
+muestra no paga nada: el 90 % del brillo llega a **3,42 ms en vez de 6,37**, que
+es exactamente la referencia sin suavizar. El one-pole no se acelera, desaparece.
+
+Lo interesante vino después. Al quitarles el suavizado a los tres grandes
+consumidores, **el golden perdió mordida sobre esa constante**: de 7 fixtures a
+3. No es un descuido, es la consecuencia lógica — pero dejaba sin fijar justo la
+pieza que ahora impide que vuelva el zipper (el autofiltro deslizando él mismo
+lo que le llega por bloque). El banco pasaba igual con esa pieza y sin ella.
+Existe por eso `fx-autofilter-sweep`, el fixture 25, y se comprobó quitándole la
+pieza a propósito: **14,694 dB** de basura en la banda alta. La lección quedó
+escrita en `docs/GOLDEN.md`: si una fila de la tabla de mordida **baja**,
+preguntate si bajó porque el motor mejoró o porque el banco dejó de mirar.
+
+**Un export se puede cancelar.** Doce stems tardan minutos y hasta ahora solo
+podías esperar o matar la app —lo que deja archivos a medias—. Hay botón, y la
+cancelación se atiende también DENTRO del render de una pista, que era el punto
+que faltaba. El checkpoint no cuesta nada en el bucle caliente: cuelga del mismo
+`if` que ya pagaba el progreso, medido en −3,79 %, o sea dentro del ruido. Lo ya
+escrito se conserva, y nada queda a medio escribir porque el corte se lee antes
+de empezar cada archivo, nunca contra uno en marcha.
+
+**La guarda del micro baja al sitio donde no se puede esquivar.** Estaba en el
+componente, así que el primer atajo de teclado o acción de MCP que alguien
+añadiera resucitaba el bug entero. Ahora vive en las funciones y la UI **lee** el
+motivo en vez de repetirlo. Y se cubren los dos caminos que nadie había mirado:
+desconectar la interfaz a mitad de una toma ya no deja la captura muda en
+silencio — para la grabación y avisa de que la toma se cortó ahí.
+
+**Y las dos cosas que la verificación encontró y que no eran verdad.** El
+`--accept` de los golden tests, que es lo que hace que aceptar un cambio de
+sonido cueste un gesto deliberado, se tragaba el flag siguiente como motivo:
+`--accept --force` guardaba `"--force"` como explicación **y** saltaba la guarda
+de arquitectura, de una sola vez. Y «seis de los once avisos de dependencias
+eran bugs de verdad» no se sostuvo al verificar los seis: en todos, la
+dependencia que faltaba ya estaba cubierta por otra de la misma lista. Los
+cambios valen igual y se quedan; la frase, corregida en los cuatro sitios donde
+estaba escrita.
+
+Cinco tests que medían la CPU de la máquina en vez del código dejan de
+parpadear, comprobado con veinte procesos quemando CPU en paralelo.
+
 
 **v3.7.0 — "la red que la regla daba por hecha".** La ronda que cierra lo que
 la v3.6 dejó a medias, y que empieza por la deuda más vieja del repo.

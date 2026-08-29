@@ -6,6 +6,88 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 29-08-2026: v3.8.0
+
+**"Cuando la red deja de mirar".** La ronda arrancó por el paso 0 del ciclo
+—comprobar que lo que la v3.7 prometió es real— y ese paso solo ya destapó tres
+cosas que el verde de los tests no contaba. Luego cerró las cuatro tareas
+ejecutables que quedaban en el tablero.
+
+### Lo que la verificación encontró
+
+Tres auditorías independientes contrastaron lo prometido en cada tarjeta de la
+v3.7 contra el código que quedó:
+
+- **La fuga de audio del hilo de UI sigue viva.** El arreglo de la v3.7 es real
+  y está bien hecho, pero tapó un archivo y no la clase: hay una **tercera**
+  caché idéntica en `AudioEditor.tsx:29` (`pcmCache`) sin `delete`, `clear` ni
+  tope, y crece *garantizado* — cada Normalizar/Reverse/Fade hace `newId()`, el
+  clip repunta al sample nuevo y la entrada vieja queda retenida para siempre.
+  Y la cota real no es «el proyecto abierto» sino «el último proyecto que se
+  exportó», porque el barrido solo corre dentro de `collectSamples()`. Abierto
+  en tarea aparte.
+- **«Seis de los once avisos eran bugs de verdad» no se sostiene.** Se
+  verificaron los seis y en todos la dependencia ausente ya estaba cubierta
+  transitivamente por otra de la misma lista, o apuntaba a una identidad
+  estable. Los cambios valen igual —dejan de depender de una cobertura
+  accidental— pero la frase describía un fallo de usuario que nadie demostró.
+  Corregida en los cuatro sitios donde estaba escrita.
+- **Los golden tests muerden de verdad**, comprobado perturbando coeficientes
+  reales del motor. Pero su `--accept` se tragaba el flag siguiente como motivo:
+  `--accept --force` guardaba `"--force"` como explicación y saltaba la guarda
+  de arquitectura a la vez. Arreglado, con la regla en un módulo compartido.
+
+### Lo que se entregó
+
+- **El pluck recupera su punch.** `CoefSource` en el constructor de `SVF` y
+  `Biquad`: quien ya modula por muestra no paga el one-pole de 5 ms que existe
+  para el llamante por bloque. 90 % del brillo a **3,42 ms en vez de 6,37**,
+  exactamente la referencia sin suavizar. Y la otra mitad del trato:
+  `AutofilterUnit` desliza ella misma el `cutoff`/`resonance` que sí le llegan
+  por bloque — buscándolo apareció un bug latente, su guarda miraba solo el
+  corte, así que automatizar la resonancia no llegaba nunca al filtro.
+- **El fixture 25.** Ese cambio bajó la mordida del banco sobre
+  `COEF_SMOOTH_SECONDS` de 7 fixtures a 3, y dejó sin fijar justo la pieza
+  anti-zipper recién construida. `fx-autofilter-sweep` la fija: comprobado
+  quitándola, 14,694 dB de basura en la banda alta.
+- **Cancelar un export**, con la cancelación atendida dentro del render de una
+  pista y sin coste en el bucle caliente.
+- **La guarda del micro** en las funciones, y el hot-unplug avisando de que la
+  toma se cortó.
+- **Cinco tests** que medían la CPU de la máquina dejan de parpadear.
+- **Nueve sitios** de documentación que no decían la verdad.
+
+### Lo que queda abierto
+
+- **Escuchar y probar con hardware.** Sigue siendo lo único que necesita al
+  usuario: la cola de reverb y el piso de los anti-denormal, el barrido de
+  filtro, el pluck (ahora que cambió), el `.opus` del acorde y del pack de
+  batería, las entradas multicanal con la interfaz real y la calibración de
+  latencia con el bucle físico.
+- **Las cachés de audio del hilo de UI** (`pcmCache`, picos, y cablear el
+  barrido a abrir proyecto).
+- **Las dos reglas duras que no describen el repo**: la 6 (el grafo de imports
+  real tiene doce dependencias que la regla no permite) y la 4 (colores
+  literales fuera de `theme/`, y tres editores con su propia paleta). Las dos
+  piden una decisión antes que un arreglo: o se corrige la regla, o se corrige
+  el código.
+- **El deslizador de ganancia de entrada** dispara sin `mergeKey`: hasta 80
+  entradas de historial por arrastre.
+- **El tap del scope** de la vista de instrumento ignora el bus de la carpeta.
+- **Más tests sensibles a carga** fuera del alcance de esta ronda:
+  `engine/test/dsp-denormal.test.ts:121`, `engine/test/engine.test.ts:138`,
+  `ui/test/plugin-parse.test.ts:87-89`, y los que comparten el patrón caro de
+  `resetModules()` + reimport de `state/app`.
+- **Firmar el instalador**: el camino está preparado en el workflow, falta el
+  certificado.
+
+### Números
+
+179 archivos de test, **2301 tests**, lint sin avisos, typecheck limpio, build
+en verde. Golden: 25 renders + 2 flujos Opus, 33 tests, mordida 25/25.
+
+---
+
 ## Estado — 29-08-2026: v3.7.0
 
 **La ronda que cierra el árbol de tareas de la revisión.** La v3.6 salió con
