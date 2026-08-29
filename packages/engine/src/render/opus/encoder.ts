@@ -25,7 +25,9 @@
 import { celtEncodeFrame, createCeltEncoder, OVERLAP, type CeltEncoderState } from './celt-encoder';
 import type { SpreadMode } from './spread';
 import type { PostfilterMode } from './postfilter';
+import type { StereoMode } from './stereo';
 import type { TransientMode } from './transient';
+import { vbrPlan, type VbrMode } from './vbr';
 import { encodeOggOpus, type OpusPacket } from '../ogg-opus';
 
 /** Configuraciones de CELT en banda completa, por duración de trama. */
@@ -87,7 +89,36 @@ export interface EncodeOptions {
    * enciende nunca; existe para que el banco pueda medir una contra otra.
    */
   postfilter?: PostfilterMode;
+  /**
+   * Qué hace el codificador con el estéreo.
+   *
+   * Por defecto `'adaptive'`: por encima de una banda que sale del bitrate, los
+   * dos canales comparten forma y se separan sólo por nivel (intensidad); y
+   * cuando los canales se parecen tan poco que suma/diferencia sale más cara
+   * que L/R, se manda cada uno por su cuenta (estéreo dual). `'off'` paga los
+   * dos canales completos siempre, que es lo que hacía antes; existe para que
+   * el banco pueda medir una contra otra.
+   */
+  stereo?: StereoMode;
+  /**
+   * Qué hace el codificador con el presupuesto de cada trama.
+   *
+   * Por defecto `'adaptive'`: el presupuesto se mueve entre tramas —una cola
+   * tapada por lo que acaba de sonar pide menos, y una trama de silencio digital
+   * pide el mínimo del formato— y el plan se normaliza, así que el archivo mide
+   * lo mismo que en plano y nunca más. `'off'` reparte plano; existe para que el
+   * banco pueda medir una contra otra.
+   */
+  vbr?: VbrMode;
 }
+
+/**
+ * Bytes mínimos de una trama CELT.
+ *
+ * Con dos le llega al codificador de rango para escribir la bandera de silencio
+ * y cerrar, que es todo lo que una trama muda necesita.
+ */
+const MIN_CELT_BYTES = 2;
 
 /** Bytes por trama para un bitrate dado, con los topes del formato. */
 function bytesPerFrame(bitrate: number, frameSize: number): number {
@@ -111,13 +142,22 @@ export function encodeOpusPackets(
   const bitrate = options.bitrate ?? 96000;
   const bytes = bytesPerFrame(bitrate, frameSize);
   const toc = tocByte(frameSize, channels);
+  // El reparto plano de la trama CELT: el paquete menos el byte TOC.
+  const base = bytes - 1;
+  // Por debajo de 8 bytes por trama no hay presupuesto que mover: lo que cabe es
+  // la cabecera y poco más, y el suelo del VBR chocaría con el mínimo.
+  const vbrOn = (options.vbr ?? 'adaptive') === 'adaptive' && base >= 8;
+  // El plan sale de una pasada de análisis sobre el PCM crudo —sólo energías por
+  // sub-bloque— y ya viene normalizado: la suma es la misma que en plano.
+  const plan = vbrOn ? vbrPlan(pcm, frameSize, channels, base, MIN_CELT_BYTES) : null;
 
   const state: CeltEncoderState = createCeltEncoder(channels);
   const total = Math.floor(pcm.length / channels);
   const packets: OpusPacket[] = [];
   const block = new Float64Array(frameSize * channels);
 
-  for (let start = 0; start < total; start += frameSize) {
+  let indice = 0;
+  for (let start = 0; start < total; start += frameSize, indice++) {
     // La última trama se rellena con silencio hasta frameSize (Opus solo codifica
     // tamaños fijos), pero se REPORTAN solo las muestras reales: el granulado de
     // la última página suma esas y no el frame entero, y el decoder recorta el
@@ -127,12 +167,18 @@ export function encodeOpusPackets(
     const available = Math.min(frameSize, total - start);
     for (let i = 0; i < available * channels; i++) block[i] = pcm[start * channels + i]!;
 
+    // Cuántos bytes le tocan a ESTA trama. No toca el formato: el paquete lleva
+    // su longitud en el contenedor y el decodificador calcula `totalBits` de
+    // ahí, así que las dos partes siguen contando sobre el mismo número.
+    const bytesTrama = plan ? plan[indice]! : base;
+
     const frame = celtEncodeFrame(state, block, {
       frameSize,
-      bytes: bytes - 1,
+      bytes: bytesTrama,
       spread: options.spread,
       transient: options.transient,
       postfilter: options.postfilter,
+      stereo: options.stereo,
     });
     const data = new Uint8Array(frame.length + 1);
     data[0] = toc;

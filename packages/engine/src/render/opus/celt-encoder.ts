@@ -29,8 +29,14 @@
  *   tomadas el dynalloc, la elección intra/inter de la energía, la inclinación
  *   del reparto (que sale de la pendiente del espectro), la dispersión (que
  *   sale de la planitud de cada banda), el transitorio —con su reparto de
- *   resolución tiempo/frecuencia por banda, en `transient.ts`— y el postfiltro
- *   —el predictor de tono, en `postfilter.ts`—.
+ *   resolución tiempo/frecuencia por banda, en `transient.ts`—, el postfiltro
+ *   —el predictor de tono, en `postfilter.ts`— y el estéreo —dónde empieza la
+ *   intensidad y si conviene el estéreo dual, en `stereo.ts`—.
+ *
+ * Y hay una tercera que no es ni una cosa ni la otra porque no viaja en la
+ * trama: **cuántos bytes mide la trama**. La decide `vbr.ts` desde fuera, en
+ * `encoder.ts`, y llega aquí como `bytes`; el decodificador la saca de la
+ * longitud del paquete, que se la da el contenedor.
  *
  * El resultado es un archivo **válido y decodificable** que suena algo peor que
  * el de libopus, no uno roto. Afinar las decisiones es trabajo posterior y no
@@ -75,6 +81,12 @@ import {
   type SpreadMode,
   type SpreadState,
 } from './spread';
+import {
+  intensityBand,
+  intensityBandForFrame,
+  stereoAnalysis,
+  type StereoMode,
+} from './stereo';
 import { tfAnalysis, transientAnalysis, type TransientMode } from './transient';
 import {
   BITRES,
@@ -381,6 +393,8 @@ export interface CeltFrameOptions {
   transient?: TransientMode;
   /** Qué hacer con el postfiltro. Por defecto, decidido por trama. */
   postfilter?: PostfilterMode;
+  /** Qué hacer con el estéreo. Por defecto, intensidad y dual por trama. */
+  stereo?: StereoMode;
 }
 
 /**
@@ -399,6 +413,7 @@ export function celtEncodeFrame(
     spread: spreadMode = 'adaptive',
     transient: transientMode = 'adaptive',
     postfilter: postfilterMode = 'adaptive',
+    stereo: stereoMode = 'adaptive',
   } = options;
   const channels = state.channels;
   const lm = Math.log2(frameSize / SHORT_MDCT_SIZE);
@@ -766,6 +781,50 @@ export function celtEncodeFrame(
     enc.icdf(allocTrim, TRIM_ICDF, 7);
   }
 
+  // ── Estéreo: intensidad y dual ────────────────────────────────────────────
+  //
+  // Las dos son reparto de bits entre canales, no síntesis nueva, y las dos
+  // entran en el asignador como una PETICIÓN: lo que se transmite y lo que se
+  // usa después es lo que él devuelve, porque puede recortar la intensidad a
+  // `codedBands`. Ver `stereo.ts`.
+  //
+  // Aquí no hay trampa de formato —los dos símbolos se escriben dentro de su
+  // `if` en `interpBitsToPulses`, y cuando no caben el asignador devuelve los
+  // valores por defecto que el decodificador da por hechos— pero sí la hay de
+  // ORDEN: la petición tiene que estar decidida antes de llamar al asignador,
+  // porque la intensidad cambia el grado de libertad de más del estéreo
+  // acoplado y con él el reparto entre nivel y forma de todas las bandas.
+  let intensity = NB_BANDS;
+  let dualStereo = 0;
+  if (channels === 2) {
+    if (stereoMode === 'adaptive' || stereoMode === 'intensity') {
+      intensity = intensityBandForFrame(
+        shape,
+        bandE,
+        OPUS_EBANDS,
+        NB_BANDS,
+        NB_BANDS,
+        lm,
+        frameSize,
+        intensityBand(bytes, lm, 0, NB_BANDS),
+      );
+    }
+    // El estéreo dual no se enciende NUNCA en las cuatro señales del banco —el
+    // canal derecho de todas es el izquierdo retrasado, y para eso el mid/side
+    // sigue saliendo más barato—, así que ahí mide exactamente cero. Entra igual
+    // porque donde sí se enciende gana mucho: con dos fuentes distintas, una en
+    // cada canal, son +3,80 dB de patrón (control `repartidos` de
+    // `opus-stereo-ab.ts`). En tramas de 2,5 ms no se mira: no hay ángulos que
+    // ahorrar porque las bandas graves no se parten.
+    if (
+      (stereoMode === 'adaptive' || stereoMode === 'dual') &&
+      lm !== 0 &&
+      stereoAnalysis(shape, OPUS_EBANDS, lm, frameSize)
+    ) {
+      dualStereo = 1;
+    }
+  }
+
   // ── Asignación de bits ────────────────────────────────────────────────────
   let bits = ((bytes * 8) << BITRES) - enc.tellFrac() - 1;
   // El anti-colapso: un bit reservado que sólo existe en tramas cortas.
@@ -794,8 +853,8 @@ export function celtEncodeFrame(
       total: bits,
       channels,
       lm,
-      intensity: NB_BANDS,
-      dualStereo: 0,
+      intensity,
+      dualStereo,
       prev: state.lastCodedBands,
     },
     { encode: true, enc },
