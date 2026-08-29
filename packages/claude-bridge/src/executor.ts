@@ -371,8 +371,12 @@ export class ToolExecutor {
       const ch = p.channels[id];
       if (!ch) continue;
       const flags = [ch.mute ? 'mute' : '', ch.solo ? 'solo' : ''].filter(Boolean).join(' ');
+      // Por `trackOfChannel` y no por `ch.mixerTrack` crudo: un canal sin
+      // pista propia dentro de una carpeta con bus compila en el BUS, no en
+      // lo que diga el campo — mismo motivo que ya documenta el resumen del
+      // mixer, unas líneas más abajo.
       lines.push(
-        `  - "${ch.name}" [${ch.kind}] id=${ch.id} · vol ${f(gainToDb(ch.volume), 1)} dB · pan ${f(ch.pan)} · mixer ${ch.mixerTrack}${flags ? ' · ' + flags : ''}`,
+        `  - "${ch.name}" [${ch.kind}] id=${ch.id} · vol ${f(gainToDb(ch.volume), 1)} dB · pan ${f(ch.pan)} · mixer ${trackOfChannel(p, ch.id)}${flags ? ' · ' + flags : ''}`,
       );
     }
 

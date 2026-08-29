@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ProjectStore, noteToMidi } from '@orbit/core';
+import { ProjectStore, newId, noteToMidi, trackOfChannel, type ChannelGroup } from '@orbit/core';
 import { MAX_PACK_SOUNDS, type PackRequest } from '@orbit/sound-library';
 import { ToolExecutor } from '../src/executor';
 
@@ -144,6 +144,37 @@ describe('ToolExecutor', () => {
     expect(text).toContain(String(store.project.tempo));
     expect(text).toContain('Pad Ancho');
     expect(text).toContain(store.project.patternOrder[0]!);
+  });
+
+  it('get_project dice por dónde compila DE VERDAD un canal de grupo (bus), no su mixerTrack crudo', async () => {
+    // Bug real (auditoría v3.5): la línea de cada canal imprimía
+    // `ch.mixerTrack` tal cual. Un canal sin pista propia (mixerTrack 0,
+    // "Master") dentro de una carpeta con bus en realidad compila en el BUS
+    // del grupo (`trackOfChannel`, ver `model/routing.ts`) — el resumen decía
+    // "mixer 0" cuando el canal ni pasa por Master.
+    const { store, executor } = setup();
+    const channelId = await addChannel(executor, store, 'drums', 'Hats');
+    expect(store.project.channels[channelId]!.mixerTrack).toBe(0);
+
+    const group: ChannelGroup = {
+      id: newId(),
+      name: 'Batería',
+      color: '#888',
+      collapsed: false,
+      busTrack: 2,
+    };
+    store.dispatch({ type: 'addChannelGroup', group, members: [channelId] }, { label: 'Agrupar' });
+
+    // El campo crudo del canal NO cambia al agruparlo: sigue en 0.
+    expect(store.project.channels[channelId]!.mixerTrack).toBe(0);
+    // Pero por dónde compila de verdad es el bus, 2.
+    expect(trackOfChannel(store.project, channelId)).toBe(2);
+
+    const { text } = await executor.execute('get_project', {});
+    const line = text.split('\n').find((l) => l.includes('"Hats"'));
+    expect(line, 'la línea del canal "Hats" tiene que estar en el resumen').toBeTruthy();
+    expect(line).toMatch(/mixer 2\b/);
+    expect(line).not.toMatch(/mixer 0\b/);
   });
 
   it('render (pattern) produce un WAV RIFF por el saveFile inyectado', async () => {

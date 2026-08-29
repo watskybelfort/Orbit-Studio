@@ -7,8 +7,9 @@
  * aquí no hay excusa para no decir a dónde va el sonido.
  */
 
-import { type Channel, type MixerTrack } from '@orbit/core';
+import { trackOfChannel, type Channel, type MixerTrack } from '@orbit/core';
 import { store } from '../../state/app';
+import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { Knob } from '../../widgets/Knob';
 import { formatGain, formatPan, mixerTrackLabel } from './format';
@@ -21,8 +22,16 @@ export interface MixTabProps {
 }
 
 export function MixTab({ channel, mixer, anySolo }: MixTabProps) {
+  const project = useProject();
   const names = mixer.map((t) => t.name);
-  const track = mixer[channel.mixerTrack];
+  // Por dónde compila DE VERDAD el canal: `channel.mixerTrack` es el campo
+  // crudo que el usuario puso, pero un canal sin pista propia dentro de una
+  // carpeta con bus se compila en el BUS del grupo (ver `trackOfChannel` en
+  // `@orbit/core`) — mismo criterio que ya usan `run-export.ts` y
+  // `executor.ts`. Leer el campo crudo aquí decía "Sale por Master" cuando en
+  // realidad sonaba por el bus.
+  const effectiveTrack = trackOfChannel(project, channel.id);
+  const track = mixer[effectiveTrack];
   const audible = !channel.mute && (!anySolo || channel.solo);
 
   const patch = (p: Partial<Channel>, label: string, mergeKey?: string) =>
@@ -115,7 +124,7 @@ export function MixTab({ channel, mixer, anySolo }: MixTabProps) {
           </select>
         </label>
         <p className="chan-note">
-          Sale por <b>{mixerTrackLabel(channel.mixerTrack, names)}</b>
+          Sale por <b>{mixerTrackLabel(effectiveTrack, names)}</b>
           {track && track.slots.filter(Boolean).length > 0
             ? ` · ${track.slots.filter(Boolean).length} efecto(s) en esa pista`
             : ' · esa pista está limpia'}
@@ -125,7 +134,7 @@ export function MixTab({ channel, mixer, anySolo }: MixTabProps) {
           className="chan-btn"
           title="Abrir el mixer para ver la pista entera"
           onClick={() => {
-            useUiStore.setState({ selectedMixerTrack: channel.mixerTrack });
+            useUiStore.setState({ selectedMixerTrack: effectiveTrack });
             useUiStore.getState().openWindow('mixer');
           }}
         >

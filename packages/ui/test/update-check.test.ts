@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decideBanner, dueToRecheck, UPDATE_CHECK_INTERVAL_MS } from '../src/state/update-check';
 
 describe('decideBanner — versión local vs remota', () => {
@@ -53,5 +53,105 @@ describe('dueToRecheck — throttle del lado del renderer', () => {
   it('pasado el intervalo, vuelve a tocar', () => {
     const now = 10_000_000;
     expect(dueToRecheck(now - UPDATE_CHECK_INTERVAL_MS - 1, now, UPDATE_CHECK_INTERVAL_MS)).toBe(true);
+  });
+});
+
+/**
+ * `initUpdateCheck` de punta a punta con un `window.orbit` de mentira: el bug
+ * real (auditoría de la v3.5) era que `updateLastCheckedAt` solo se grababa
+ * en el camino de ÉXITO, después del primer `if (!latest) return`. Con la
+ * consulta fallando —sin red, rate-limit, JSON raro: todo cae a `null` por
+ * diseño en `fetchLatestRelease`— el throttle nunca avanzaba y la app volvía
+ * a golpear la API de GitHub en cada arranque, no una vez cada 24h.
+ *
+ * `vi.resetModules()` + `import()` dinámico por test: `useUpdateCheck` es un
+ * store de módulo (singleton), y sin resetear cada test heredaría el
+ * `available`/`release` que dejó el anterior.
+ */
+describe('initUpdateCheck — el throttle se graba TAMBIÉN si falla la consulta', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** `window.orbit` mínimo que necesita `initUpdateCheck`: info + settings + update.check inyectable. */
+  function fakeOrbit(
+    check: () => Promise<{ version: string; url: string } | null>,
+    priorSettings: Record<string, unknown> = {},
+  ) {
+    const settings: Record<string, unknown> = { ...priorSettings };
+    const setCalls: Record<string, unknown>[] = [];
+    const orbit = {
+      app: { info: () => Promise.resolve({ version: '3.4.0', electron: '', chrome: '', node: '' }) },
+      settings: {
+        get: () => Promise.resolve({ ...settings }),
+        set: (patch: Record<string, unknown>) => {
+          setCalls.push(patch);
+          Object.assign(settings, patch);
+          return Promise.resolve({ ...settings });
+        },
+      },
+      update: { check },
+    };
+    return { orbit, setCalls };
+  }
+
+  it('sin red (update.check() rechaza): igual graba updateLastCheckedAt, sin cartel', async () => {
+    vi.resetModules();
+    const { orbit, setCalls } = fakeOrbit(() => Promise.reject(new Error('sin red')));
+    vi.stubGlobal('window', { orbit });
+
+    const mod = await import('../src/state/update-check');
+    await mod.initUpdateCheck();
+
+    const patch = setCalls.find((p) => 'updateLastCheckedAt' in p);
+    expect(patch, 'tiene que haber grabado el throttle pese al fallo').toBeTruthy();
+    expect(typeof patch!['updateLastCheckedAt']).toBe('number');
+    // Sin red no hay release que guardar: esa clave no se toca.
+    expect(patch).not.toHaveProperty('updateLatestKnown');
+    expect(mod.useUpdateCheck.getState().available).toBe(false);
+  });
+
+  it('update.check() resuelve null (404/JSON raro): mismo throttle grabado', async () => {
+    vi.resetModules();
+    const { orbit, setCalls } = fakeOrbit(() => Promise.resolve(null));
+    vi.stubGlobal('window', { orbit });
+
+    const mod = await import('../src/state/update-check');
+    await mod.initUpdateCheck();
+
+    expect(setCalls.find((p) => 'updateLastCheckedAt' in p)).toBeTruthy();
+    expect(mod.useUpdateCheck.getState().available).toBe(false);
+  });
+
+  it('con red: graba el throttle Y la última release conocida, y enseña el cartel', async () => {
+    vi.resetModules();
+    const release = {
+      version: '99.0.0',
+      url: 'https://github.com/watskybelfort/Orbit-Studio/releases/tag/v99.0.0',
+    };
+    const { orbit, setCalls } = fakeOrbit(() => Promise.resolve(release));
+    vi.stubGlobal('window', { orbit });
+
+    const mod = await import('../src/state/update-check');
+    await mod.initUpdateCheck();
+
+    const patch = setCalls.find((p) => 'updateLastCheckedAt' in p);
+    expect(patch).toBeTruthy();
+    expect(patch!['updateLatestKnown']).toEqual(release);
+    expect(mod.useUpdateCheck.getState().available).toBe(true);
+    expect(mod.useUpdateCheck.getState().release).toEqual(release);
+  });
+
+  it('todavía dentro del intervalo: ni siquiera llama a update.check() (y no reescribe el throttle)', async () => {
+    vi.resetModules();
+    const checkFn = vi.fn(() => Promise.resolve(null));
+    const { orbit, setCalls } = fakeOrbit(checkFn, { updateLastCheckedAt: Date.now() - 1000 });
+    vi.stubGlobal('window', { orbit });
+
+    const mod = await import('../src/state/update-check');
+    await mod.initUpdateCheck();
+
+    expect(checkFn).not.toHaveBeenCalled();
+    expect(setCalls).toHaveLength(0);
   });
 });

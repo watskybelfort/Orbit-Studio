@@ -74,11 +74,15 @@ export function decideBanner(
 }
 
 /**
- * ¿Toca volver a preguntarle al main? Mismo throttle que lleva el main para
- * su propia guarda de pruebas (`shouldRecheck` en update-check.ts del main) —
- * no se comparte código entre renderer y main (paquetes distintos), así que
- * se repite la misma lógica de dos líneas en vez de montar un paquete
- * compartido solo para esto.
+ * ¿Toca volver a preguntarle al main? EL throttle: el main no lleva el suyo
+ * (`ipcMain.handle('update:check', …)` en index.ts llama a
+ * `fetchLatestRelease()` sin condición, confiando en que el renderer no
+ * invoque el canal más de la cuenta) — hubo una segunda copia de esta misma
+ * cuenta en el main (`shouldRecheck`) que nadie llamaba en producción, y se
+ * quitó por muerta. Esta es la única que de verdad decide cuándo se vuelve a
+ * mirar, así que grabar `LAST_CHECKED_KEY` en todos los caminos de
+ * `initUpdateCheck` (éxito Y fallo) es lo que hace que este throttle cumpla
+ * lo que promete.
  */
 export function dueToRecheck(
   lastCheckedAt: number | undefined,
@@ -120,13 +124,19 @@ export async function initUpdateCheck(): Promise<void> {
   if (!dueToRecheck(lastCheckedAt, now, UPDATE_CHECK_INTERVAL_MS)) return;
 
   // Falla en silencio: sin red, `update.check()` devuelve null y aquí no se
-  // hace nada más — ni cartel de error ni reintento hasta el próximo arranque.
+  // enseña ni cartel de error ni nada — pero el throttle SÍ se graba igual
+  // (justo abajo): sin eso, `lastCheckedAt` se quedaba en la última vez que
+  // hubo red, `dueToRecheck` seguía diciendo que tocaba mirar en cada
+  // arranque siguiente, y la app volvía a golpear la API de GitHub cada vez
+  // en vez de una vez cada 24h — justo lo que este comentario dice que no
+  // pasa. Con red inestable, o varias instancias detrás de la misma IP, eso
+  // choca contra el límite de 60 peticiones/hora anónimas de GitHub.
   const latest = await api.update.check().catch(() => null);
-  if (!latest) return;
 
-  await api.settings
-    .set({ [LAST_CHECKED_KEY]: now, [LATEST_KNOWN_KEY]: latest })
-    .catch(() => undefined);
+  const settingsPatch: Record<string, unknown> = { [LAST_CHECKED_KEY]: now };
+  if (latest) settingsPatch[LATEST_KNOWN_KEY] = latest;
+  await api.settings.set(settingsPatch).catch(() => undefined);
+  if (!latest) return;
 
   const next = decideBanner(localVersion, latest, dismissed);
   useUpdateCheck.setState({ available: next !== null, release: next });

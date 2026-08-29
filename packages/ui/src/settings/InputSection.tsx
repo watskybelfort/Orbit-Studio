@@ -17,6 +17,7 @@ import {
   toggleInputMonitor,
   useInputMonitorStore,
 } from '../state/input-monitor';
+import { useRecorderStore } from '../state/recorder';
 import { useProject } from '../state/useProject';
 
 export function InputSection() {
@@ -29,6 +30,23 @@ export function InputSection() {
   const gain = useInputMonitorStore((s) => s.gain);
   const peak = useInputMonitorStore((s) => s.peak);
   const error = useInputMonitorStore((s) => s.error);
+
+  // Cambiar de dispositivo o cerrar el micro cierra el stream
+  // (`stopInputMonitor`, en `input-monitor.ts`) y la captura del grabador
+  // —anidada dentro de `if (inputListening…)` en el kernel— deja de acumular
+  // muestras SIN excepción ni aviso: la toma sale corta y desincronizada, y
+  // nadie se entera hasta escucharla (ver `recorder.ts`: ni `pushInputChunk`
+  // ni `stopRecording` se enteran de que el micro se cerró a medio camino).
+  //
+  // Decisión: BLOQUEAR, no parar-y-avisar. Parar la toma como efecto
+  // colateral de tocar un select sería su propia sorpresa (el usuario pierde
+  // igual lo que llevaba cantado, solo que además sin quererlo), y no hay
+  // nada en "cambiar de dispositivo" tan urgente que no pueda esperar a que
+  // se termine de grabar. Mismo patrón que ya sigue `MidiSection.tsx` con el
+  // botón de "Medir latencia" (deshabilitado + título con el motivo mientras
+  // `useRecorderStore().phase !== 'idle'`).
+  const recPhase = useRecorderStore((s) => s.phase);
+  const recording = recPhase !== 'idle';
 
   useEffect(() => {
     void refreshInputDevices();
@@ -44,7 +62,14 @@ export function InputSection() {
         <span className="set-label">Micro</span>
         <button
           className={`set-toggle${listening ? ' on' : ''}`}
-          title={listening ? 'Cerrar el micro' : 'Abrir el micro y medir su nivel'}
+          disabled={recording}
+          title={
+            recording
+              ? 'Hay una toma en curso: para de grabar antes de cerrar el micro'
+              : listening
+                ? 'Cerrar el micro'
+                : 'Abrir el micro y medir su nivel'
+          }
           onClick={() => void toggleInputListening()}
         >
           <span className="set-toggle-knob" />
@@ -72,6 +97,8 @@ export function InputSection() {
         <select
           className="set-select"
           value={deviceId}
+          disabled={recording}
+          title={recording ? 'Hay una toma en curso: para de grabar antes de cambiar de dispositivo' : undefined}
           onChange={(e) => void setInputDevice(e.target.value)}
         >
           <option value="">El del sistema</option>
@@ -134,6 +161,12 @@ export function InputSection() {
         <span className="set-value">{monitor ? 'Sonando' : 'Apagado'}</span>
       </div>
 
+      {recording && (
+        <p className="set-error">
+          Hay una toma en curso: el dispositivo y el micro se quedan quietos hasta que pares de
+          grabar. Cambiarlos a mitad de la toma la cortaría en silencio.
+        </p>
+      )}
       {monitor && (
         <p className="set-error">
           Con altavoces esto es un acople: el micro coge lo que sale y vuelve a entrar. Cascos.

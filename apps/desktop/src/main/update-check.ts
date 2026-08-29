@@ -15,8 +15,18 @@
  * igual: timeout, tope de tamaño, y fallo EN SILENCIO. Un cartel de error por
  * no poder comprobar la versión no le sirve a nadie.
  *
- * Lo puro (parsear la respuesta, decidir si toca volver a mirar) vive aparte
- * para poder probarlo sin Electron delante — igual que path-guard.ts.
+ * Lo puro de aquí (parsear la respuesta) vive aparte para poder probarlo sin
+ * Electron delante — igual que path-guard.ts.
+ *
+ * Este archivo NO lleva throttle propio (`ipcMain.handle('update:check', …)`
+ * en index.ts llama a `fetchLatestRelease()` sin condición): cuándo tocaba
+ * volver a mirar ya lo decidió el renderer antes de invocar el canal
+ * (`dueToRecheck` en `packages/ui/src/state/update-check.ts`, contra
+ * `updateLastCheckedAt` en settings.json). Hubo una segunda copia de esa
+ * misma cuenta aquí (`shouldRecheck`) que nadie llamaba en producción —cinco
+ * tests propios sobre una función muerta— y se quitó: un throttle que vive en
+ * dos sitios y solo se usa en uno es peor que uno solo, porque el que no se
+ * usa se puede desincronizar del real sin que ningún test lo note.
  */
 
 export const UPDATE_REPO = 'watskybelfort/Orbit-Studio';
@@ -52,20 +62,6 @@ export function parseLatestRelease(body: unknown): LatestRelease | null {
   if (!/^\d+(\.\d+){0,3}/.test(version)) return null; // no tiene pinta de versión
   if (!/^https:\/\/github\.com\//i.test(url)) return null; // solo el propio GitHub
   return { version, url };
-}
-
-/**
- * ¿Toca volver a consultar? Throttle puro: no se llama a la red en cada
- * arranque, se guarda cuándo se miró por última vez (en settings.json, que
- * lleva el renderer) y solo se vuelve a mirar pasado `intervalMs`.
- */
-export function shouldRecheck(
-  lastCheckedAt: number | undefined,
-  now: number,
-  intervalMs: number,
-): boolean {
-  if (typeof lastCheckedAt !== 'number' || !Number.isFinite(lastCheckedAt)) return true;
-  return now - lastCheckedAt >= intervalMs;
 }
 
 /**

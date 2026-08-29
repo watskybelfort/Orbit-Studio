@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseLatestRelease, shouldRecheck } from '../src/main/update-check';
+import { parseLatestRelease } from '../src/main/update-check';
 
 describe('parseLatestRelease — respuesta de GET /releases/latest', () => {
   it('acepta una release normal y le quita la "v" del tag', () => {
@@ -61,30 +61,8 @@ describe('parseLatestRelease — respuesta de GET /releases/latest', () => {
   });
 });
 
-describe('shouldRecheck — throttle: no se consulta en cada arranque', () => {
-  const HOUR = 60 * 60 * 1000;
-  const DAY = 24 * HOUR;
-
-  it('sin fecha previa (primer arranque), toca mirar', () => {
-    expect(shouldRecheck(undefined, Date.now(), DAY)).toBe(true);
-  });
-
-  it('recién mirado, no toca todavía', () => {
-    const now = 1_000_000 * DAY;
-    expect(shouldRecheck(now - HOUR, now, DAY)).toBe(false);
-  });
-
-  it('pasado el intervalo, vuelve a tocar', () => {
-    const now = 1_000_000 * DAY;
-    expect(shouldRecheck(now - DAY - 1, now, DAY)).toBe(true);
-  });
-
-  it('justo en el borde del intervalo, toca (>=)', () => {
-    const now = 1_000_000 * DAY;
-    expect(shouldRecheck(now - DAY, now, DAY)).toBe(true);
-  });
-
-  it('una fecha guardada corrupta no bloquea el aviso para siempre', () => {
-    expect(shouldRecheck(Number.NaN, Date.now(), DAY)).toBe(true);
-  });
-});
+// No hay describe de throttle aquí: `shouldRecheck` (con sus cinco tests) se
+// quitó de `src/main/update-check.ts` por ser código muerto — el throttle
+// real es `dueToRecheck`, en `packages/ui/src/state/update-check.ts`, y ESE
+// es el que se prueba (ver `packages/ui/test/update-check.test.ts`). Ver el
+// comentario de cabecera del módulo para el porqué.

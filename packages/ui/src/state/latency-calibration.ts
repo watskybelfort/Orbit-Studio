@@ -101,6 +101,13 @@ export function getLatencyCompensationSamples(): number {
 const SETTINGS_SAMPLES = 'inputLatencySamples';
 const SETTINGS_SOURCE = 'inputLatencySource';
 const SETTINGS_FINGERPRINT = 'inputLatencyFingerprint';
+// Sin esto, `confidence` solo vivía en memoria de la corrida que acaba de
+// medir: al reiniciar la app, `MidiSection.tsx` decide el texto del panel por
+// `latConfidence !== null` y —con la confianza vuelta a `null` de fábrica—
+// decía "Sin calibrar todavía" mientras el retardo, dos líneas más abajo, ya
+// mostraba el número medido y aplicándose. La compensación funcionaba; el
+// mensaje mentía.
+const SETTINGS_CONFIDENCE = 'inputLatencyConfidence';
 
 function persist(patch: Record<string, unknown>): void {
   void window.orbit?.settings.set(patch).catch(() => {
@@ -146,6 +153,20 @@ export async function loadLatencySettings(): Promise<void> {
   if (source === 'measured' || source === 'manual') patch.source = source;
   const fingerprint = raw[SETTINGS_FINGERPRINT];
   if (typeof fingerprint === 'string') patch.calibratedFingerprint = fingerprint;
+  // Solo tiene sentido con una medida real: un valor puesto a mano no tiene
+  // confianza que mostrar, y `setLatencySamplesManually` limpia esta clave a
+  // propósito al guardar (ver más abajo) — pero se revalida aquí también por
+  // si el settings.json viene de una versión vieja o tocado a mano.
+  const confidence = raw[SETTINGS_CONFIDENCE];
+  if (
+    patch.source === 'measured' &&
+    typeof confidence === 'number' &&
+    Number.isFinite(confidence) &&
+    confidence >= 0 &&
+    confidence <= 1
+  ) {
+    patch.confidence = confidence;
+  }
   if (Object.keys(patch).length > 0) useLatencyCalibrationStore.setState(patch);
   refreshStaleness();
 }
@@ -163,7 +184,10 @@ export function setLatencySamplesManually(samples: number): void {
     confidence: null,
     error: null,
   });
-  persist({ [SETTINGS_SAMPLES]: value, [SETTINGS_SOURCE]: 'manual' });
+  // Se limpia también en disco: sin esto, pasar a mano DESPUÉS de haber
+  // medido dejaría la confianza vieja persistida, y `loadLatencySettings`
+  // la resucitaría en el próximo arranque aunque `source` ya diga 'manual'.
+  persist({ [SETTINGS_SAMPLES]: value, [SETTINGS_SOURCE]: 'manual', [SETTINGS_CONFIDENCE]: null });
 }
 
 function wait(ms: number): Promise<void> {
@@ -307,6 +331,7 @@ export async function runLatencyCalibration(): Promise<void> {
       [SETTINGS_SAMPLES]: roundTripSamples,
       [SETTINGS_SOURCE]: 'measured',
       [SETTINGS_FINGERPRINT]: fingerprint,
+      [SETTINGS_CONFIDENCE]: result.confidence,
     });
   } catch (err) {
     if (ownsInput) stopInputMonitor();
