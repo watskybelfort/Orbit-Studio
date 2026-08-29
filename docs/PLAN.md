@@ -6,7 +6,75 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
-## Estado — 26-08-2026: v3.4.0
+## Estado — 28-08-2026: v3.5.0
+
+**Diecinueve tareas de una auditoría del árbol entero**, ejecutadas en paralelo
+por agentes con reparto exclusivo de archivos. Lo que hay que saber para seguir:
+
+### Lo que se aprendió, más allá de las funciones
+
+**Tres veces la documentación afirmaba algo falso, y las tres tenían
+consecuencias de diseño.** No son erratas: son premisas sobre las que se estaban
+tomando decisiones.
+
+1. **El postfiltro no pedía un decodificador embebido.** Este PLAN y el README
+   lo daban por hecho, y por eso llevaba catalogado como «la pieza cara» y iba
+   detrás en el roadmap. El prefiltro de CELT es un lazo abierto: FIR sobre la
+   entrada en el encoder, IIR sobre su propia salida en el decodificador. Costó
+   mucho menos de lo escrito. **Corregido.**
+2. **No hay ningún `Y.UndoManager` en el repo**, aunque `ARCHITECTURE.md` y este
+   PLAN dijeran que el undo por usuario es de Yjs. El scoping por origen vive en
+   `ProjectStore`. Y eso cambió el diseño del historial en árbol: como en Orbit
+   un undo **no rebobina** —aplica el inverso y lo *emite*—, volver a una rama
+   funciona en una sala sin protocolo nuevo. **Corregido.**
+3. **`packages/engine/test/golden` NO EXISTE**, aunque la regla dura 5 de
+   `CLAUDE.md` mande actualizar sus hashes ante cualquier cambio de sonido. Lo
+   que hace de red es el banco de aserciones numéricas del engine. **Sin
+   corregir: es tarea de la ronda siguiente**, y es seria — esta versión metió
+   cuatro cambios de sonido (denormales, suavizado de coeficientes, y dos del
+   encoder) sin un hash que los fijara.
+
+### El encoder Opus, decidiéndose con oído
+
+La pieza central es **la medida perceptual** (`tools/qa/opus-metrics.ts`,
+`patronDb`): PEAQ simplificado sobre el modelo de oído de la BS.1387, con dos
+términos —sonoridad y **planitud espectral por banda**—, porque el primero solo
+tampoco veía la dispersión y eso se comprobó barriendo nfft, pendiente y
+suavizado. **Para decidir manda el patrón; la SNR se queda como red** porque
+cazaría una catástrofe de fase, a la que el patrón es ciego.
+
+Con ella entraron la dispersión adaptativa (+0,40 dB), los transitorios y el
+postfiltro. Distancia media a libopus: **−3,59 → −0,79 dB**.
+
+**Y salió un bug que llevaba desde el primer día**: el encoder marcaba la trama
+como silencio y seguía escribiendo, mientras el decodificador descartaba el
+resto y dejaba todas las bandas en silencio. Los dos lados predecían desde
+sitios distintos y el desfase se amplificaba banda a banda por el término
+`prev`. Se oía en cada golpe del pack de batería.
+
+**La regla que hay que seguir respetando ahí**: toda decisión que el formato
+transmite «solo si cabe» hay que tomarla **DENTRO de la rama que la escribe**.
+Ha mordido cinco veces. Las dos últimas piezas añadieron la forma de
+demostrarlo: un test que **relee el paquete con el `RangeDecoder`** y comprueba
+que lo leído es lo que el encoder usó.
+
+### Lo que queda medido para la ronda siguiente
+
+- **El peor caso sigue siendo tonal (−10,88 dB) pero ya NO por falta de
+  predicción de tono**: el postfiltro acierta el período 75/75. Lo que queda es
+  reparto de bits entre bandas.
+- **Una regresión conocida**: mezcla estéreo 128k es la única que empeoró con el
+  postfiltro (−0,37), y ahí el peine se enciende 41/75 con período 827 ± 183 —
+  persiguiendo algo que no es periódico. No se tocaron los umbrales porque son
+  los de la referencia.
+- **`sampleCache` de `render-inputs.ts`** es otra fuga del mismo tipo que la del
+  worklet (mapa de módulo con audio decodificado, sin vaciar nunca), pero en el
+  hilo de la UI.
+- Falta el mando de ganancia por ruta de entrada en la UI (el modelo y el kernel
+  ya la llevan), y el Channel Rack no pinta todavía la vista de un plugin de
+  instrumento.
+
+## Estado anterior — 26-08-2026: v3.4.0
 
 **El encoder Opus, un poco más fino.** La `alloc_trim` —la pendiente con la que
 el asignador reparte bits entre bandas— llevaba fija en neutro desde que el
