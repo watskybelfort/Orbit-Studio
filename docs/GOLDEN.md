@@ -37,7 +37,15 @@ commit. El commit **tiene que decir qué diff de sonido se aceptó**.
 
 `golden:update` también se **niega** a regenerar desde una arquitectura donde la
 reproducibilidad bit a bit no está medida (hoy: cualquiera que no sea x64).
-Grabar la línea base desde ahí rompería el hash para toda la CI.
+Grabar la línea base desde ahí rompería el hash para toda la CI. Hay un escape,
+`--force`, para quien sepa exactamente lo que hace; sale en el propio mensaje de
+la negativa. **No lo uses sin haber medido tu plataforma**: una línea base
+grabada fuera de x64 deja la CI en rojo permanente.
+
+El motivo de `--accept` tiene que ser texto de verdad. Ni vacío, ni un espacio,
+ni el flag siguiente: hasta la v3.7 `--accept --force` guardaba `"--force"` como
+motivo **y** activaba el bypass de arriba, de un solo gesto. Hoy eso sale con
+código 2 sin escribir nada.
 
 ## Qué se compara, y por qué
 
@@ -65,7 +73,15 @@ Todo lo de abajo se midió de verdad. Se puede rehacer.
 
 Sí. Los 24 fixtures dan el mismo hash en dos renders seguidos del mismo
 proceso, en las cinco plataformas probadas. No hay `Math.random` en el motor
-(`osc.ts` ya lo avisaba; ahora hay una medida detrás).
+(`osc.ts` ya lo avisaba; ahora hay una medida detrás): el ruido va por xorshift32
+con semilla fija, y los ids del proyecto están fijados a mano.
+
+Eso fue el experimento. El test **permanente** de determinismo es más barato a
+propósito y comprueba 2 de los 24 en cada corrida (`golden.test.ts`, con el
+motivo escrito al lado): renderizar los 24 dos veces en cada `npm test` costaría
+el doble del banco entero para volver a demostrar algo que ya se midió. Los 24
+se cubren igual en cada corrida contra la línea base, que es la comparación que
+de verdad importa.
 
 ### 2. ¿Es reproducible entre plataformas?
 
@@ -102,7 +118,7 @@ corrió el golden:
 | perturbación | qué cambio de sonido representa | fixtures rojos | peor métrica |
 | --- | --- | --- | --- |
 | `filters.ts` `ANTI_DENORMAL` 1e-20 → 1e-19 | v3.6, Biquad/SVF/Allpass1 | **7** | 0 dB |
-| `filters.ts` `COEF_SMOOTH_SECONDS` 5 → 6 ms | v3.5, suavizado de coeficientes | **7** | 0,017 dB |
+| `filters.ts` `COEF_SMOOTH_SECONDS` 5 → 6 ms | v3.5, suavizado de coeficientes | **7** | **0,861 dB** (5 de los 7 por métricas) |
 | `voices.ts` guarda 0,2 % → 1 % | v3.6, `SynthVoice` | **2** | 0,906 dB (33 medidas) |
 | `reverb.ts` `ANTI_DENORMAL` ×10 | v3.5, denormales de la reverb | **1** (`fx-reverb`) | 0 dB |
 | `effects.ts` `ANTI_DENORMAL` ×10 | v3.6, delay/flanger/phaser | **2** (flanger, phaser) | 0 dB |
@@ -110,11 +126,22 @@ corrió el golden:
 | `postfilter.ts` `GAIN_STEP` ×1,017 | v3.5, postfiltro | **2** (los dos Opus) | — |
 | `celt-encoder.ts` `tfWeight` → `'plano'` | v3.6, Viterbi por importancia | **1** (`opus-chord`) | — |
 
-Las tres primeras filas son la razón de que haya dos capas. Multiplicar por
-diez una constante anti-denormal mueve el hash de siete fixtures y **no mueve
-ni una métrica**, porque efectivamente no cambia el sonido — y el mensaje del
-test lo dice con esas palabras. Cambiar la guarda del 0,2 % mueve 33 medidas
-hasta 0,9 dB, y el informe las lista ordenadas.
+Las tres primeras filas son la razón de que haya dos capas, y cada una enseña
+un caso distinto. Multiplicar por diez una constante anti-denormal mueve el hash
+de siete fixtures y **no mueve ni una métrica**, porque efectivamente no cambia
+el sonido — y el mensaje del test lo dice con esas palabras: ahí el hash detecta
+y la tolerancia evita mentir. Tocar el suavizado de coeficientes mueve los
+mismos siete fixtures pero **cinco de ellos saltan por métricas**, hasta 0,861 dB:
+ahí la capa perceptual detecta sola, con 86 veces el margen de la tolerancia.
+Y cambiar la guarda del 0,2 % mueve 33 medidas hasta 0,9 dB, con el informe
+listándolas ordenadas.
+
+> Esta celda decía **0,017 dB** hasta que la verificación de la v3.7 la volvió a
+> medir: era el Δ de `fx-eq-smoothing` solo —el fixture del nombre más parecido—
+> en vez del máximo de la fila. El error iba en dirección segura (el golden es
+> más fuerte de lo que decía), pero es justo el número que alguien citaría el día
+> que quisiera **ensanchar** la tolerancia. Si volvés a tocar esa tabla, tomá el
+> máximo de la fila y no el del fixture que suena parecido.
 
 ### 4. Lo que el banco NO fija
 

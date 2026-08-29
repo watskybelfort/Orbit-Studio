@@ -61,6 +61,7 @@ npm run dev          # Vite (ui) + Electron con recarga
 npm run server       # servidor de colaboración local
 npm run typecheck    # TS estricto en todos los paquetes
 npm run test         # unit + golden DSP
+npm run lint         # reglas duras + hooks; exhaustive-deps es error, rompe la CI
 npm run build        # build de producción
 
 npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.md)

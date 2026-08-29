@@ -63,7 +63,7 @@ guardables con nombre).
    overdub por vuelta, **monitor de micro con la cadena del canal puesta** y
    tomas grabadas **en crudo por el kernel**, sin códec de por medio.
 4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos
-   en 132 grabaciones**, generados por síntesis propia, con los **24
+   en 276 grabaciones, 98,87 MB**, generados por síntesis propia, con los **24
    instrumentos en multisample**: tres alturas cada uno, repartidas por el
    teclado) con categorías, tags de género/tonalidad/BPM, detección automática
    de BPM y tonalidad, búsqueda instantánea, **selección múltiple y arrastre
@@ -105,14 +105,19 @@ reales.
 
 **La otra fuga de audio, cerrada.** El `sampleCache` del render vivía en el hilo
 de la UI y no lo vaciaba nadie: cinco proyectos de dieciséis tomas largas
-acumulaban **6460 MiB**. Ahora quedan **1292** — lo que registra el proyecto
-abierto, y nada más.
+acumulaban **6460 MiB**. Ahora quedan **1292** — lo que registra el último
+proyecto que se **exportó**. El barrido vive dentro de `collectSamples()`, así
+que hoy solo corre al exportar, hacer bounce o freeze: cablearlo también a abrir
+un proyecto sigue pendiente.
 
-**Los once avisos de dependencias, uno a uno — y seis eran bugs.** Faltaban
-dependencias en manejadores del piano roll y la playlist, así que leían valores
-rancios. Los cinco que sobran a propósito ahora dicen por qué. Con eso,
-`exhaustive-deps` sube de aviso a error: uno nuevo rompe la CI en vez de sumarse
-a la pila.
+**Los once avisos de dependencias, uno a uno.** Cinco sobraban a propósito y
+ahora dicen por qué; los otros seis se completaron. Lo que **no** quedó
+demostrado es que alguno produjera un fallo visible: al revisarlos uno a uno, la
+dependencia que faltaba ya estaba cubierta transitivamente por otra de la misma
+lista, o apuntaba a una identidad estable. El cambio vale igual —deja de
+depender de una cobertura accidental que el próximo "limpiar deps" rompería— y
+con él `exhaustive-deps` sube de aviso a error: uno nuevo rompe la CI en vez de
+sumarse a la pila.
 
 **Las dos puntas sueltas de la v3.5**: la ganancia de una ruta de entrada ya
 tiene mando (el modelo, el comando y el kernel ya la aplicaban; faltaba el
@@ -410,7 +415,6 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Hashes de sonido en el motor** | `CLAUDE.md` manda actualizar conscientemente los golden tests ante cualquier cambio de sonido, y `packages/engine/test/golden` **no existe**. La v3.5 entró con cuatro cambios de sonido sin ningún hash que los fijara: hoy nada distingue una mejora deliberada de una regresión silenciosa |
 | **La sombra del VBR en el fundido de salida** | El peor caso sigue siendo el acorde estéreo a 128k (−10,61 dB). Pesar el Viterbi por importancia espectral se llevó parte —de −10,99 a −10,61— pero lo que queda **no lo causa el detector de transitorios**: se midió apagándolo por tonalidad, los falsos positivos bajan de 5-6 a 1 de cada 75 tramas y la cifra no se mueve. Lo que queda es cómo reparte bits el VBR en el fundido |
 | **Probarlo con manos y oídos** | Lo que se ve ya se comprobó conduciendo la app por CDP; lo que falta es **hardware**: una interfaz de más de dos canales entregando los 8 de verdad, y la calibración de latencia con el bucle físico altavoz→micro |
 
@@ -418,9 +422,7 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Vista de instrumento en el Channel Rack** | Un plugin ya puede pintar su propia interfaz en el mixer; en el rack todavía no |
-| **Ganancia por ruta** | Hoy una ruta a un bus lleva la señal entera; poder atenuar en el envío es lo que falta para usar los buses como envíos de verdad |
-| **La otra fuga de audio** | El `sampleCache` del render vive en el hilo de la UI y no lo suelta nadie — el mismo problema que se atacó en el worklet, en el otro lado |
+| **Las cachés de audio del hilo de UI** | La del render ya se acota, pero solo al exportar. Quedan sin freno el `pcmCache` del editor de audio —que crece garantizado: cada Normalizar deja la entrada anterior retenida— y la de picos |
 | **Firmar el instalador** | Sin firma de editor, SmartScreen avisa a todo el que lo baja. El camino queda preparado en el workflow: falta el certificado |
 | **Cancelar un export a medias** | Hoy un export de doce stems que tarda minutos no se puede parar |
 
@@ -536,7 +538,7 @@ constante y a 0,620 con la adaptativa.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 1661 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 2250 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 ```

@@ -255,9 +255,10 @@ function createView(sampleRate) {
 `draw(d, f)` se llama a `view.fps` mientras la vista está abierta.
 
 > **Dónde aparece hoy.** En el editor de un slot de **efecto**: la cadena del
-> mixer y la pestaña «Efectos» del canal. Un plugin de **instrumento** puede
-> declarar su vista igual —el parser la lee y la sanea— pero el Channel Rack
-> todavía no la pinta.
+> mixer y la pestaña «Efectos» del canal. Y desde la **v3.7**, también la de un
+> plugin de **instrumento**: el Channel Rack la pinta en un panel propio, que se
+> abre con el botón ⧉ de la fila del canal. El botón solo aparece si el plugin
+> declara `view`.
 
 **Las coordenadas van en el cuadrado unidad**: `x` e `y` de 0 a 1, con (0,0)
 arriba a la izquierda. No sabes el tamaño en píxeles y no te hace falta: el

@@ -2,14 +2,27 @@
  * `npm run golden:bite` — comprobar que el golden MUERDE.
  *
  * Un golden que nadie ha visto fallar no se sabe si funciona. El riesgo real
- * no es que falle de más: es que un fixture se estropee en silencio —deja de
- * sonar, se queda en el ataque, se le rompe la fuente— y siga pasando para
- * siempre, verde y vacío. Desde fuera no se distingue de uno que funciona.
+ * no es que falle de más: es que un fixture se estropee en silencio y siga
+ * pasando para siempre, verde y vacío. Desde fuera no se distingue de uno que
+ * funciona.
  *
  * Esto lo distingue. Para cada fixture renderiza dos veces: la normal y otra
  * con UNA perturbación diminuta metida en la señal de salida (por defecto
  * 0,1 % de ganancia, muy por debajo de lo audible). Si el fingerprint no nota
  * la diferencia, ese fixture no está midiendo nada y el informe lo señala.
+ *
+ * **El alcance exacto, porque este docstring prometía de más.** La perturbación
+ * se aplica a la señal YA renderizada, así que cualquier muestra distinta de
+ * cero cambia de bits: el veredicto SORDO solo puede darse con ceros exactos.
+ * O sea, esto caza el fixture que quedó en **silencio digital**, y NO el que se
+ * quedó en el ataque ni el que perdió una capa. Medido: 20 ms de sonido
+ * seguidos de silencio dan MUERDE, igual que un click de una sola muestra.
+ *
+ * Dos límites más, del mismo orden: con el `--ppm` por defecto la perturbación
+ * es de 0,00868 dB, justo por debajo de la tolerancia de 0,01 dB, así que el
+ * informe por defecto ejercita el hash pero no la capa de métricas (con
+ * `--ppm 5000` sí). Y solo recorre `GOLDEN_FIXTURES`: los dos fixtures Opus no
+ * se comprueban aquí.
  *
  * Lo que esto NO es: la prueba de que el golden detecta un cambio de DSP. Esa
  * se hizo perturbando coeficientes del motor de verdad (ANTI_DENORMAL,
