@@ -25,7 +25,13 @@ import {
   type PeerInfo,
 } from '@orbit/collab';
 import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
-import { resetSampleSync, sampleSetChanged, syncSamplesWithRoom } from './sample-sync';
+import {
+  resetSampleSync,
+  sampleSetChanged,
+  syncSamplesAfterProjectReplaced,
+  syncSamplesWithRoom,
+  type SampleSyncReport,
+} from './sample-sync';
 import { resetViewPublish } from './follow';
 import { resetActivityThrottle } from './presence';
 import { playIncomingChunk, resetMasterStream, setStreamSender } from './master-stream';
@@ -256,9 +262,19 @@ function refreshFrozenPending(): void {
 /**
  * Reconcilia los samples del proyecto con el kernel y con la sala, y deja en el
  * store cuántos sonidos siguen sin poder oírse aquí (el panel lo enseña).
+ *
+ * `sync` elige QUÉ reconciliación, y va por parámetro en vez de por bandera
+ * dentro de `syncSamplesWithRoom` porque los llamantes no son el mismo caso:
+ * un `registerSample` nuevo o un asset que llega solo AÑADEN, y crear una sala
+ * reconcilia sin que nadie haya reemplazado nada —barrer ahí soltaría audio del
+ * proyecto que el usuario tiene abierto delante—. La variante que barre es solo
+ * para las vías que reemplazan el proyecto entero.
  */
-function runSampleSync(s: CollabSession): void {
-  void syncSamplesWithRoom(s).then((report) => {
+function runSampleSync(
+  s: CollabSession,
+  sync: (session: CollabSession) => Promise<SampleSyncReport> = syncSamplesWithRoom,
+): void {
+  void sync(s).then((report) => {
     if (session !== s) return;
     const { missingSamples } = useCollabStore.getState();
     // Comparación por contenido: esto corre en cada comando con samples y no
@@ -386,11 +402,25 @@ async function startSession(
       if (session !== s) return;
       playIncomingChunk(chunk);
     },
-    // Unirse o re-derivar deja el proyecto lleno de referencias y el kernel
-    // vacío: aquí es donde hay que volver a llenarlo.
+    // Unirse o re-derivar REEMPLAZA el proyecto entero, y eso son dos mitades,
+    // no una:
+    //
+    // - LLENAR: el modelo queda lleno de referencias y el kernel vacío, así que
+    //   hay que subirle lo que el proyecto nuevo necesita (de disco o de la
+    //   sala) para que no suene mudo.
+    // - VACIAR: el audio del proyecto ANTERIOR se queda colgado en el worklet y
+    //   en las tres cachés decodificadas del renderer sin que nadie lo nombre
+    //   ya, y ahí se queda hasta cerrar la app.
+    //
+    // Hasta la v3.9 aquí solo se hacía la primera —el comentario que había
+    // decía «aquí es donde hay que volver a llenarlo» y era literalmente cierto,
+    // ese era el error—, mientras las otras cinco puertas que reemplazan el
+    // proyecto sí barrían. El orden entre las dos mitades, y por qué esto no le
+    // quita a otro colaborador nada que todavía necesite, en
+    // `syncSamplesAfterProjectReplaced`.
     onProjectReplaced: () => {
       if (session !== s) return;
-      runSampleSync(s);
+      runSampleSync(s, syncSamplesAfterProjectReplaced);
     },
     // Llegó el contenido de un sonido que aún no teníamos: cárgalo ya.
     onAsset: () => {

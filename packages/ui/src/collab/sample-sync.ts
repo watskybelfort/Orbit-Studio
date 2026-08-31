@@ -25,12 +25,19 @@
  *
  * La pasada es asíncrona y va de una en una (cada `await` suelta el hilo): un
  * proyecto con cincuenta samples no puede congelar la interfaz mientras carga.
+ *
+ * Reconciliar es LLENAR, y eso es solo la mitad cuando la sala no añade
+ * samples sino que REEMPLAZA el proyecto entero (entrar en una sala,
+ * re-derivar tras un merge cruzado). La otra mitad —soltar el audio del
+ * proyecto anterior, que ya no nombra nadie— es
+ * `syncSamplesAfterProjectReplaced`, aquí abajo.
  */
 
 import type { CollabSession } from '@orbit/collab';
 import type { Id } from '@orbit/core';
 import { readSampleBytes } from '../browser/sound-actions';
 import { engine, store } from '../state/app';
+import { collectWorkletSamples } from '../state/sample-gc';
 
 /** Resultado de una pasada, para que la UI cuente lo que falta. */
 export interface SampleSyncReport {
@@ -120,6 +127,96 @@ export async function syncSamplesWithRoom(session: CollabSession): Promise<Sampl
     running = false;
   }
   return lastReport;
+}
+
+/**
+ * Reconcilia **y después barre**: lo que hay que llamar cuando la sala
+ * REEMPLAZA el proyecto entero — `CommandLogBinding.join()` al entrar y
+ * `.replay()` al re-derivar tras un merge cruzado (`collab/command-log.ts`),
+ * las dos vías que hacen `store.replaceProject()` y avisan por
+ * `onProjectReplaced`.
+ *
+ * `syncSamplesWithRoom` a secas es media respuesta: sube al kernel lo que el
+ * proyecto NUEVO necesita y deja intacto el audio del ANTERIOR —el mapa del
+ * worklet, la caché de decodificado del `AudioEngine` y las tres cachés del
+ * renderer—, porque nadie le pidió nunca que soltara nada. Es exactamente la
+ * fuga que la v3.9 cerró en las otras cinco puertas que reemplazan el proyecto
+ * (`rehydrateSamples()` y `newProject()`), por la única que no miró: aquí el
+ * audio del proyecto de antes se quedaba en memoria hasta cerrar la app, y en
+ * una sesión de sala el `replay()` puede pasar varias veces.
+ *
+ * ── El orden: subir primero, barrer después ──────────────────────────────────
+ *
+ * Es la misma elección que el barrido al final de `rehydrateSamples()`
+ * (`browser/sound-actions.ts`), y aquí tiene además una razón propia, porque
+ * esta pasada es asíncrona y re-entrante.
+ *
+ * Barrer DESPUÉS da una garantía que barrer antes no da: `pass()` solo sube
+ * ids que están en `store.project.samples`, y el `keep` del barrido —con
+ * `keepRegistered`, que es el valor por defecto— contiene TODO lo registrado,
+ * así que el barrido no puede deshacer lo que la sincronización acaba de
+ * hacer. Al revés no existe ese invariante: entre el barrido y el final de la
+ * pasada hay un `await` por sample (leer del disco o de la sala, IPC y
+ * decodificar; con veinte sonidos son cientos de ms), y en una sala el
+ * proyecto se sigue moviendo en esa ventana. Un `unregisterSample` remoto que
+ * caiga ahí —los despacha el `collectSessionSamples()` de cualquier peer, con
+ * origin `'gc'`, y se re-anexan al log— dejaría un sample recién subido que ya
+ * no nombra nadie y que ningún barrido volvería a mirar hasta el próximo
+ * `replaceProject`: la misma fuga con otro disparador.
+ *
+ * El precio de barrer después es conocido y es el correcto: mientras dura la
+ * pasada conviven los dos juegos de audio (un pico de |A| + |B|). Es un
+ * transitorio de esos mismos cientos de ms, no una fuga, y es el que
+ * `rehydrateSamples()` ya acepta. Barrer antes lo ahorraría a cambio de una
+ * ventana en la que el kernel no tiene ni lo viejo ni lo nuevo, y lo que se
+ * oye en esa ventana es silencio.
+ *
+ * ── Lo que aquí ya no usa nadie pero otro colaborador sí ─────────────────────
+ *
+ * Es lo que hace distinto a este caso, y la respuesta es que el barrido **no
+ * se lo puede quitar**. Lo que el otro necesita son los BYTES DE LA SALA: el
+ * `Y.Map` 'assets' de `collab/assets.ts`, indexado por hash y replicado en
+ * todos los clientes. `collectWorkletSamples` no toca eso ni puede —solo mira
+ * el mapa del worklet, la caché del `AudioEngine` y las del renderer—, así que
+ * lo publicado sigue publicado y quien lo pida lo saca con
+ * `session.getSample(hash)` aunque aquí no quede ni un byte decodificado. Lo
+ * dice también la cabecera de `state/sample-gc.ts`: esto no borra el asset.
+ *
+ * Y el barrido tampoco reduce lo que PODEMOS publicar: `pass()` publica desde
+ * `readSampleBytes(ref.path)`, o sea desde el disco, nunca desde el kernel.
+ *
+ * De ahí qué se olvida y qué no al barrer:
+ *
+ * - `loadedIds` **sí** se poda, y es obligatorio. Es nuestra copia de "eso ya
+ *   está arriba"; si el kernel suelta un id y aquí seguimos creyendo que lo
+ *   tiene, la próxima pasada hace `continue` sobre él. Y eso no da error: da
+ *   un sample MUDO que ni siquiera aparece en `missing`. Pasa de verdad en una
+ *   sala —un `replay()` que re-deriva y devuelve un sample de antes, o el undo
+ *   de un peer— y por eso se poda con el `keep` que recibió el kernel y no con
+ *   una lista propia: olvidar de más solo cuesta releer y volver a subir;
+ *   olvidar de menos deja mudo (ver `AudioEngine.keepOnlySamples`).
+ * - `publishAttempts` **no**. Guarda los hashes que ya pusimos en la sala, y
+ *   vaciarlo no sacaría nada de allí: solo nos haría reintentar publicar lo
+ *   que `session.hasSample` ya rechaza por duplicado.
+ * - `noLocalBytes` **tampoco**: es un hecho sobre el disco de ESTA máquina
+ *   («esta ruta no resuelve aquí»), no sobre el proyecto que acaba de irse.
+ */
+export async function syncSamplesAfterProjectReplaced(
+  session: CollabSession,
+): Promise<SampleSyncReport> {
+  const gen = generation;
+  const report = await syncSamplesWithRoom(session);
+  // Salimos de la sala mientras la pasada corría (`resetSampleSync` subió la
+  // generación): barrer ahora sería calcular el `keep` contra un proyecto que
+  // ya no tiene nada que ver con la sesión que pidió esto.
+  if (gen !== generation) return report;
+
+  const collected = collectWorkletSamples(engine, store.project);
+  if (collected.sent) {
+    const keep = new Set<Id>(collected.keep);
+    for (const id of loadedIds) if (!keep.has(id)) loadedIds.delete(id);
+  }
+  return report;
 }
 
 async function pass(session: CollabSession, gen: number): Promise<SampleSyncReport> {
