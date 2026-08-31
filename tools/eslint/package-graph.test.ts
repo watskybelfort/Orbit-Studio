@@ -9,10 +9,17 @@
  * fuente, y aquí se comprueba que CLAUDE.md, `docs/ARCHITECTURE.md` y los
  * exports reales de `core` siguen de acuerdo con ella.
  *
- * Lo que NO hace: vigilar los imports del árbol. De eso ya se encarga
- * `orbit/package-boundaries` en `npm run lint`, que ve cada `import` de cada
- * archivo. Aquí se vigila lo otro, lo que un linter no puede ver: que lo
- * ESCRITO en tres sitios siga diciendo lo mismo.
+ * Lo que sí hacía originalmente: vigilar lo que un linter no puede ver —que
+ * lo ESCRITO en tres sitios siga diciendo lo mismo—, no los imports del árbol
+ * en sí. Eso último lo cubre `orbit/package-boundaries` en `npm run lint`.
+ *
+ * El bloque final (`el linter de fronteras cierra sus tres puertas
+ * traseras`) es la excepción deliberada: monta un `Linter` de ESLint y le da
+ * de comer fuentes sintéticas para comprobar que la REGLA MUERDE de verdad
+ * en los tres agujeros que tapó la v3.10 (`require()`, `import()` dinámico y
+ * el barril que cuela `node/`), y que un alias nuevo en `tsconfig.json` no
+ * puede quedar sin vigilar en silencio. Un test de sincronía de documentos no
+ * podía probar eso —lintea código, no prosa—, así que aquí se le hace sitio.
  *
  *   npx vitest run tools/eslint/package-graph.test.ts
  */
@@ -20,9 +27,20 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Linter } from 'eslint';
+import babelParser from '@babel/eslint-parser';
 import { describe, expect, it } from 'vitest';
 
 import config from './package-graph.json';
+import tsconfigJson from '../../tsconfig.json';
+// `package-boundaries.js` es JS de ESLint sin `.d.ts` (no lo cubre ningún
+// paquete de `@types`, y este repo no compila JS: `tsconfig.json` › `include`
+// solo trae `.ts` de `tools/`). `tsc --noEmit` en estricto lo marca TS7016, y
+// una `declare module` de aumento no vale para un módulo relativo que SÍ
+// resuelve a un archivo real (TS2665). La forma del módulo es la de
+// cualquier regla de ESLint: `export default { meta, create }`.
+// @ts-expect-error — ver el porqué arriba.
+import packageBoundaries from './package-boundaries.js';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -139,4 +157,155 @@ describe('la lista `modelOnly` sigue cubriendo el estado de core', () => {
       expect([...regla.deny].sort()).toEqual(reales);
     });
   }
+});
+
+describe('el linter de fronteras cierra sus tres puertas traseras', () => {
+  // Mismo parser que `eslint.config.js` (Babel, sin `@typescript-eslint`: ver
+  // la cabecera de ese archivo para el porqué). Se reconstruye acá en vez de
+  // importarlo porque `eslint.config.js` no es de los archivos que puede
+  // tocar esta tarea, y de todos modos lo único que hace falta de él es este
+  // parser — el resto de su configuración (React hooks, colores, etc.) no
+  // pinta nada en una prueba de `orbit/package-boundaries`.
+  const linter = new Linter();
+  const lintConfig = [
+    {
+      files: ['**/*.ts'],
+      languageOptions: {
+        ecmaVersion: 'latest' as const,
+        sourceType: 'module' as const,
+        parser: babelParser,
+        parserOptions: {
+          requireConfigFile: false,
+          babelOptions: {
+            babelrc: false,
+            configFile: false,
+            parserOpts: { plugins: ['typescript'] },
+          },
+        },
+      },
+      plugins: { orbit: { rules: { 'package-boundaries': packageBoundaries } } },
+      rules: { 'orbit/package-boundaries': 'error' as const },
+    },
+  ];
+
+  function idsOf(code: string, filename: string): (string | null | undefined)[] {
+    return linter.verify(code, lintConfig, filename).map((m) => m.messageId);
+  }
+
+  // A — tools/eslint/package-boundaries.js no tenía listener de
+  // `CallExpression`: un `require('@orbit/...')` cruzaba cualquier frontera
+  // sin que la regla lo viera.
+  it('A: require(\'@orbit/x\') no esquiva la frontera prohibida', () => {
+    const ids = idsOf(
+      "const mod = require('@orbit/ui');\nmodule.exports = mod;\n",
+      'packages/engine/src/foo.ts',
+    );
+    expect(ids).toContain('forbidden');
+  });
+
+  it('A: un require(\'node:...\') legítimo (los tests de ui) sigue sin avisos', () => {
+    const ids = idsOf(
+      "const { parentPort } = require('node:worker_threads');\n",
+      'packages/ui/test/foo.test.ts',
+    );
+    expect(ids).toEqual([]);
+  });
+
+  // B — el bucle de `node.specifiers` es un no-op para `ImportExpression`
+  // (nunca tiene `.specifiers`): un `import()` dinámico se llevaba un nombre
+  // de `modelOnly.deny` sin que la regla lo notara.
+  it('B: import() desestructurado también respeta el deny de modelOnly', () => {
+    const ids = idsOf(
+      "async function f() {\n  const { ProjectStore } = await import('@orbit/core');\n  return ProjectStore;\n}\n",
+      'packages/engine/src/foo.ts',
+    );
+    expect(ids).toContain('notModel');
+  });
+
+  it('B: (await import(...)).Nombre también respeta el deny de modelOnly', () => {
+    const ids = idsOf(
+      "async function f() {\n  return (await import('@orbit/core')).ProjectStore;\n}\n",
+      'packages/engine/src/foo.ts',
+    );
+    expect(ids).toContain('notModel');
+  });
+
+  it('B: import() de un nombre permitido de core sigue sin avisos', () => {
+    const ids = idsOf(
+      "async function f() {\n  const { midiToHz } = await import('@orbit/core');\n  return midiToHz;\n}\n",
+      'packages/engine/src/foo.ts',
+    );
+    expect(ids).toEqual([]);
+  });
+
+  it('B: la arista prohibida sigue vigilada para import() (no es solo modelOnly)', () => {
+    const ids = idsOf(
+      "async function f() {\n  return await import('@orbit/ui');\n}\n",
+      'packages/engine/src/foo.ts',
+    );
+    expect(ids).toContain('forbidden');
+  });
+
+  // C — `BROWSER_ONLY.has(from) && isNodeSubpath(source)` solo miraba el
+  // string del import del archivo linteado: un barril podía reexportar su
+  // propia subruta `node/` bajo el alias base sin que ese string dijera
+  // jamás "node/". Se cierra en el origen: el índice público de un paquete
+  // del que depende un `browserOnly` no puede reexportar su lado `node/`.
+  it('C: el índice de un paquete relevante para ui no puede reexportar su node/', () => {
+    const ids = idsOf("export * from './node/ws-host';\n", 'packages/claude-bridge/src/index.ts');
+    expect(ids).toContain('barrelNodeSubpath');
+  });
+
+  it('C: la forma directa (subruta node/ importada desde ui) sigue detectada', () => {
+    const ids = idsOf(
+      "import { startWsHost } from '@orbit/claude-bridge/node/ws-host';\n",
+      'packages/ui/src/foo.ts',
+    );
+    expect(ids).toContain('nodeSubpath');
+  });
+
+  it('C: un import interno a node/ que NO es el índice público sigue sin avisos', () => {
+    const ids = idsOf(
+      "export { startWsHost } from './node/ws-host';\n",
+      'packages/claude-bridge/src/executor.ts',
+    );
+    expect(ids).toEqual([]);
+  });
+
+  it('C: el índice real de claude-bridge, hoy, sigue limpio', () => {
+    const real = leer('packages/claude-bridge/src/index.ts');
+    expect(linter.verify(real, lintConfig, 'packages/claude-bridge/src/index.ts')).toEqual([]);
+  });
+
+  // D — nada comparaba `ALIASES` con `tsconfig.json` › `paths`: un alias
+  // nuevo en uno sin su par en el otro dejaba ese import sin vigilar en
+  // silencio. Se cerró derivando `ALIASES` de `tsconfig.json` en vez de
+  // escribirlo dos veces (mismo criterio que ya usa `package-graph.json` para
+  // el grafo), así que esta prueba no compara dos listas — ejercita la regla
+  // de verdad contra CADA alias que declara tsconfig.json hoy: si alguno
+  // quedara sin vigilar, `targetOf` devolvería `null` y saldrían 0 problemas
+  // donde tiene que salir `forbidden`.
+  it('D: cada alias base de tsconfig.json termina vigilado por la regla', () => {
+    const paths = tsconfigJson.compilerOptions.paths as Record<string, string[]>;
+    const aliasesBase = Object.keys(paths).filter((alias) => !alias.endsWith('/*'));
+    expect(aliasesBase.length).toBeGreaterThan(0);
+
+    for (const alias of aliasesBase) {
+      if (alias === '@orbit/core') continue; // core no puede importarse a sí mismo.
+      const ids = idsOf(`import x from '${alias}';\n`, 'packages/core/src/foo.ts');
+      expect(ids, `${alias} no quedó vigilado (targetOf debería resolverlo, no devolver null)`).toContain(
+        'forbidden',
+      );
+    }
+  });
+
+  // La exención de `import type` es a propósito (ver el comentario de
+  // `package-boundaries.js` junto a `spec.importKind`) y no se tocó en esta
+  // tarea; esto solo la deja fijada para que un cambio futuro en el bloque de
+  // `modelOnly` (donde se sumó el soporte de `import()` dinámico) no la rompa
+  // por accidente.
+  it('sigue exento: import type { X } de un nombre denegado no avisa', () => {
+    const ids = idsOf("import type { ProjectStore } from '@orbit/core';\n", 'packages/engine/src/foo.ts');
+    expect(ids).toEqual([]);
+  });
 });

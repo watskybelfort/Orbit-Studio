@@ -65,17 +65,63 @@ const BROWSER_ONLY = new Set(CONFIG.browserOnly);
 /** `unidad → { target, deny }`: qué nombres NO puede traerse de `target`. */
 const MODEL_ONLY = CONFIG.modelOnly;
 
-/** Alias del workspace → carpeta del paquete. */
-const ALIASES = {
-  '@orbit/core': 'packages/core',
-  '@orbit/engine': 'packages/engine',
-  '@orbit/collab': 'packages/collab',
-  '@orbit/ui': 'packages/ui',
-  '@orbit/claude-bridge': 'packages/claude-bridge',
-  '@orbit/sound-library': 'packages/sound-library',
-  '@orbit/server': 'apps/server',
-  '@orbit/desktop': 'apps/desktop',
-};
+/**
+ * Alias del workspace → carpeta del paquete, y unidad → su archivo de índice.
+ *
+ * Se derivan los dos de `tsconfig.json` › `compilerOptions.paths` en vez de
+ * escribirse a mano: un alias nuevo ahí sin este archivo enterarse es
+ * exactamente el mismo agujero que ya resuelve `package-graph.json` para el
+ * grafo — un import real y compilable que el linter no vigila porque nadie le
+ * avisó de que existía. Escrito una vez y leído de una fuente, no puede
+ * desincronizarse.
+ *
+ * Solo cuentan las entradas SIN `/*`: son el alias base (`@orbit/core`), y de
+ * ahí sale tanto el paquete (`packages/core`) como su índice
+ * (`packages/core/src/index.ts`). Las entradas con `/*` son el comodín de
+ * subruta y ya las cubre `source.startsWith(`${alias}/`)` en `targetOf`.
+ */
+const TSCONFIG = JSON.parse(readFileSync(new URL('../../tsconfig.json', import.meta.url), 'utf8'));
+const PATHS = TSCONFIG.compilerOptions?.paths ?? {};
+
+const ALIASES = {};
+/** unidad (`packages/x`) → su archivo de índice, en posix relativo a la raíz. */
+const ENTRY_OF = {};
+for (const [alias, targets] of Object.entries(PATHS)) {
+  if (alias.endsWith('/*')) continue;
+  const target = targets?.[0];
+  const m = /^\.\/((?:packages|apps)\/[a-z0-9-]+)\/(.+)$/.exec(target ?? '');
+  if (!m) {
+    throw new Error(
+      `tools/eslint/package-boundaries.js: tsconfig.json › paths['${alias}'] = ${JSON.stringify(target)} ` +
+        "no tiene la forma './(packages|apps)/<nombre>/...'. ALIASES se deriva de ahí y no puede seguir.",
+    );
+  }
+  const [, unit, rest] = m;
+  ALIASES[alias] = unit;
+  ENTRY_OF[unit] = `${unit}/${rest}`;
+}
+
+/**
+ * Unidades que puede llegar a arrastrar un `browserOnly` (directa o
+ * transitivamente, según `GRAPH`). Solo en esas importa que el índice se
+ * mantenga limpio de `node/`: el resto no lo empaqueta nunca el renderer.
+ */
+function transitiveDeps(unit) {
+  const seen = new Set();
+  const stack = [...(GRAPH[unit] ?? [])];
+  while (stack.length) {
+    const u = stack.pop();
+    if (seen.has(u)) continue;
+    seen.add(u);
+    stack.push(...(GRAPH[u] ?? []));
+  }
+  return seen;
+}
+
+const BROWSER_RELEVANT = new Set();
+for (const unit of BROWSER_ONLY) {
+  for (const dep of transitiveDeps(unit)) BROWSER_RELEVANT.add(dep);
+}
 
 /** `packages/ui/src/App.tsx` → `packages/ui`. `tools/x.ts` → null (libre). */
 function unitOf(posixPath) {
@@ -104,6 +150,29 @@ function isNodeSubpath(source) {
   return /(?:^|\/)node\//.test(source);
 }
 
+/**
+ * Nombres que deja en el ámbito un `import()` dinámico, en las dos formas que
+ * se pueden atar a un nombre sin ejecutar nada: desestructurar el resultado
+ * (`const { X } = await import(s)`) o leer una propiedad directa
+ * (`(await import(s)).X`). ESLint ya deja `.parent` puesto en cada nodo según
+ * lo recorre, así que no hace falta rastrear el árbol a mano.
+ */
+function dynamicImportBindings(node) {
+  if (node.type !== 'ImportExpression') return [];
+  const awaitNode = node.parent?.type === 'AwaitExpression' ? node.parent : null;
+  if (!awaitNode) return [];
+  const holder = awaitNode.parent;
+  if (holder?.type === 'VariableDeclarator' && holder.id.type === 'ObjectPattern') {
+    return holder.id.properties
+      .filter((p) => p.type === 'Property' && !p.computed)
+      .map((p) => ({ node: p, name: p.key.type === 'Identifier' ? p.key.name : p.key.value }));
+  }
+  if (holder?.type === 'MemberExpression' && holder.object === awaitNode && !holder.computed) {
+    return [{ node: holder.property, name: holder.property.name }];
+  }
+  return [];
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 export default {
   meta: {
@@ -119,6 +188,8 @@ export default {
       unknown: '`{{from}}` no está en el mapa de dependencias de tools/eslint/package-graph.json.',
       nodeSubpath:
         '`{{from}}` se empaqueta para el navegador y no puede importar `{{source}}`: el lado `node/` arrastra `ws`/`node:http` al bundle. Eso se importa desde `apps/desktop`.',
+      barrelNodeSubpath:
+        'El índice de `{{from}}` no puede reexportar `{{source}}`: cualquiera que importe `{{from}}` por su alias base se llevaría el lado `node/` sin que el import propio lo delate — y de `{{from}}` puede depender un paquete `browserOnly`. Pedí eso por subruta desde fuera del índice.',
       notModel:
         '`{{from}}` usa de `{{to}}` el modelo, no el estado: `{{name}}` es del store / bus de comandos / historial. El motor compila el proyecto, no lo edita (regla 6 de CLAUDE.md).',
     },
@@ -137,11 +208,26 @@ export default {
     // paquetes, en cambio, se les aplica igual que al resto.
     const isTest = /(?:^|\/)test\//.test(filePosix) || /\.test\.[cm]?[jt]sx?$/.test(filePosix);
     const modelOnly = isTest ? undefined : MODEL_ONLY[from];
+    // ¿Es ESTE archivo el índice público de `from`, y le importa a algún
+    // `browserOnly` que se mantenga limpio? Solo ahí tiene sentido vigilar
+    // que no reexporte su propio lado `node/` (agujero C).
+    const barrelMustStayClean = BROWSER_RELEVANT.has(from) && ENTRY_OF[from] === filePosix;
 
     function check(node, source) {
       if (typeof source !== 'string' || source === '') return;
       const to = targetOf(source, filePosix);
-      if (to === null || to === from) return;
+      if (to === null) return;
+
+      // El índice de un paquete es su superficie pública: si reexporta su
+      // propio `node/`, cualquiera que lo importe por el alias base —sin que
+      // el string de SU import diga jamás "node/"— se lo lleva puesto. Por
+      // eso se vigila en el origen, antes del `to === from` de abajo, que de
+      // otro modo lo deja pasar por ser "interno al paquete".
+      if (barrelMustStayClean && to === from && isNodeSubpath(source)) {
+        context.report({ node, messageId: 'barrelNodeSubpath', data: { from, source } });
+        return;
+      }
+      if (to === from) return;
 
       if (!allowed) {
         context.report({ node, messageId: 'unknown', data: { from } });
@@ -170,6 +256,17 @@ export default {
             context.report({ node: spec, messageId: 'notModel', data: { from, to, name } });
           }
         }
+        // `import()` nunca tiene `.specifiers` —ese bucle es un no-op para
+        // él—, así que lo que ata un nombre denegado a una expresión dinámica
+        // es el patrón de alrededor: `const { X } = await import(...)` o
+        // `(await import(...)).X`. Cualquier otra forma (guardar la promesa,
+        // `.then(...)`) no se puede atar a un nombre de forma estática; eso
+        // no lo vigila esta regla y lo dice `dynamicImportBindings`.
+        for (const { node: boundNode, name } of dynamicImportBindings(node)) {
+          if (modelOnly.deny.includes(name)) {
+            context.report({ node: boundNode, messageId: 'notModel', data: { from, to, name } });
+          }
+        }
       }
     }
 
@@ -179,6 +276,17 @@ export default {
       ExportAllDeclaration: (node) => check(node, node.source?.value),
       ImportExpression: (node) =>
         node.source?.type === 'Literal' && check(node, node.source.value),
+      // `require('@orbit/x')` es la misma frontera que un `import`, y sin
+      // este listener el visitor nunca lo veía: no hay nodo `CallExpression`
+      // entre los cuatro de arriba (agujero A). Solo el literal: `require(x)`
+      // con una variable no se puede resolver estáticamente y no es el caso
+      // que existe hoy en el repo (los `require('node:...')` de los tests de
+      // `ui` no cruzan ningún alias, así que `targetOf` ya los deja pasar).
+      CallExpression: (node) => {
+        if (node.callee.type !== 'Identifier' || node.callee.name !== 'require') return;
+        const arg = node.arguments[0];
+        if (arg?.type === 'Literal' && typeof arg.value === 'string') check(node, arg.value);
+      },
     };
   },
 };
