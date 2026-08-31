@@ -39,6 +39,27 @@ Minimalista, iconografía propia estilo Mac, semáforo de macOS opcional y
 customizador integrado (acento, transparencia y tinte del vidrio, temas
 guardables con nombre).
 
+### Para que el acrílico se vea como en la captura
+
+Orbit le pide el vidrio a Windows por su cuenta: la ventana se compone con alfa
+y el desenfoque lo pone DWM, el compositor del sistema
+(`backgroundMaterial: 'acrylic'`, Windows 11 build 22000+). Eso es lo que hace
+el tema al activarlo, sin instalar nada.
+
+Ahora bien, **el vidrio profundo de esa captura es con [Windhawk](https://windhawk.net)
+y el mod [Translucent Windows](https://windhawk.net/mods/translucent-windows)**.
+DWM es bastante tacaño con lo que compone detrás de la ventana de una app
+normal, y sin el mod el acrílico se ve más como un tinte plano que como cristal.
+Si querés exactamente eso:
+
+1. Instalá [Windhawk](https://windhawk.net) (gratis y de código abierto).
+2. En su catálogo, buscá e instalá **Translucent Windows**.
+3. En los ajustes del mod, añadí `Orbit Studio.exe` a los programas objetivo.
+4. En Orbit, **Ver → Ajustes** (o `F10`) → *Apariencia → Tema → Acrílico*.
+
+No hace falta para nada más: los temas claro y oscuro no dependen de esto, y si
+no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
+
 ## Los seis pilares
 
 1. **Motor de audio propio** — DSP sample-accurate en un AudioWorklet: **10

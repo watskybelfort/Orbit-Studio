@@ -23,6 +23,31 @@ compositor del sistema (DWM), no un degradado que lo imita.
 - Verificación obligatoria: captura con la ventana traída al frente y ciclo
   acrílico→oscuro→acrílico sin residuos.
 
+### Windhawk: por qué las capturas se ven mejor que una instalación limpia
+
+Lo de arriba es lo que hace Orbit por su cuenta y no depende de nada externo.
+Pero conviene decirlo claro, porque si no la comparación con el README parece
+un engaño: **las capturas acrílicas del README están tomadas con
+[Windhawk](https://windhawk.net) y el mod
+[Translucent Windows](https://windhawk.net/mods/translucent-windows) activo.**
+
+El motivo es de Windows, no nuestro. DWM compone `backgroundMaterial` con una
+mano bastante corta para la ventana de una aplicación cualquiera: el resultado
+tira más a tinte plano que a cristal, y varía según el build y según si la
+ventana tiene el foco. El mod de Windhawk fuerza la translucidez real sobre las
+ventanas que le indiques, y es lo que da el vidrio de la captura.
+
+Consecuencias prácticas para quien toque el tema:
+
+- **No optimices los tokens del acrílico mirando solo tu máquina con el mod
+  puesto.** Un tinte que se ve perfecto sobre cristal profundo puede quedar
+  turbio sobre el acrílico nativo, que es lo que ve la mayoría. Comprobá los dos.
+- El `applyWindowTheme()` de `apps/desktop/src/main/index.ts` no sabe nada de
+  Windhawk ni tiene por qué: devuelve si el material quedó activo, y el mod (si
+  está) actúa por debajo, a nivel de compositor.
+- El teardown al salir del acrílico sigue siendo obligatorio igual, haya mod o
+  no.
+
 ## Tokens (CSS variables)
 
 Todo color/radio/blur de la UI sale de tokens en `:root`. Un tema = un set de
