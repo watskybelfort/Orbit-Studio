@@ -31,13 +31,10 @@
  * propiedad, y una regresión (alguien borra el `disabled={recording}`, o
  * vuelve a escribir `phase !== 'idle'` a mano) rompe este test igual.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const file = readFileSync(resolve(here, '../src/settings/InputSection.tsx'), 'utf8');
+const file = readSource('settings/InputSection.tsx');
 
 /**
  * El fragmento del JSX que empieza en `marker` y se cierra en el primer

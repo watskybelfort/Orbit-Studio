@@ -16,13 +16,9 @@
  * `await` de más ahí lo hace fallar de verdad, no en teoría.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = (p: string): string => resolve(here, '../src', p);
 
 /**
  * El cuerpo de la función que arranca en `startMarker` (el primer `{` que
@@ -81,7 +77,7 @@ function triageIsSyncBeforeAwait(body: string): void {
 
 describe('el triaje del arrastre del Explorador es síncrono, en el código real', () => {
   it('Playlist.tsx: el onDrop del canvas', () => {
-    const file = readFileSync(src('editors/playlist/Playlist.tsx'), 'utf8');
+    const file = readSource('editors/playlist/Playlist.tsx');
     // El onDrop es un arrow function SÍNCRONO (no `async`): la parte que
     // depende de `await` va aparte, en un `.then()`, precisamente para no
     // poder tentar a nadie a poner un await por delante.
@@ -91,14 +87,14 @@ describe('el triaje del arrastre del Explorador es síncrono, en el código real
   });
 
   it('ChannelRack.tsx: el onDrop del rack entero', () => {
-    const file = readFileSync(src('editors/rack/ChannelRack.tsx'), 'utf8');
+    const file = readSource('editors/rack/ChannelRack.tsx');
     const body = functionBodyAfter(file, 'onDrop={(e) => {');
     expect(body).toContain('hasSystemFiles(e.dataTransfer)');
     triageIsSyncBeforeAwait(body);
   });
 
   it('KeymapEditor.tsx: drop() es async, pero triageDrop va antes de su primer await', () => {
-    const file = readFileSync(src('editors/channel/KeymapEditor.tsx'), 'utf8');
+    const file = readSource('editors/channel/KeymapEditor.tsx');
     // Aquí el manejador SÍ es `async` (usa `await importTriaged(...)` más
     // abajo, tras avisar "Importando…"): la regla no es "nunca haya un
     // await en la función", es que no haya ninguno ANTES de triageDrop.

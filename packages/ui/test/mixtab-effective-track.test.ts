@@ -18,13 +18,10 @@
  * el texto fuente, así que se comprueba ahí, con la misma técnica que
  * `drop-handlers-sync.test.ts`.
  */
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const file = readFileSync(resolve(here, '../src/editors/channel/MixTab.tsx'), 'utf8');
+const file = readSource('editors/channel/MixTab.tsx');
 
 describe('MixTab: "Sale por…" usa la pista EFECTIVA (trackOfChannel), no channel.mixerTrack crudo', () => {
   it('importa trackOfChannel de @orbit/core y useProject para resolverlo', () => {

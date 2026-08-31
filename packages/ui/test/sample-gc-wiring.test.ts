@@ -10,13 +10,9 @@
  * patrón: leer el código fuente de verdad en vez de montar el componente).
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = (p: string): string => resolve(here, '../src', p);
 
 /** El cuerpo de la función/flecha que arranca en `startMarker`, por llaves. */
 function functionBodyAfter(source: string, startMarker: string): string {
@@ -37,13 +33,13 @@ function functionBodyAfter(source: string, startMarker: string): string {
 
 describe('collectSessionSamples está enganchado en el código real', () => {
   it('ChannelRack.tsx importa collectSessionSamples de sound-actions', () => {
-    const file = readFileSync(src('editors/rack/ChannelRack.tsx'), 'utf8');
+    const file = readSource('editors/rack/ChannelRack.tsx');
     expect(file).toMatch(/collectSessionSamples/);
     expect(file).toMatch(/from ['"]\.\.\/\.\.\/browser\/sound-actions['"]/);
   });
 
   it('deleteChannel() llama a collectSessionSamples() tras el dispatch de removeChannel', () => {
-    const file = readFileSync(src('editors/rack/ChannelRack.tsx'), 'utf8');
+    const file = readSource('editors/rack/ChannelRack.tsx');
     const body = functionBodyAfter(file, 'const deleteChannel = (channelId: Id) => {');
     expect(body).toContain("store.dispatch({ type: 'removeChannel'");
     expect(body).toContain('collectSessionSamples()');
@@ -55,7 +51,7 @@ describe('collectSessionSamples está enganchado en el código real', () => {
   });
 
   it('useShortcuts.ts llama a collectSessionSamples() tras undo() y tras redo()', () => {
-    const file = readFileSync(src('hooks/useShortcuts.ts'), 'utf8');
+    const file = readSource('hooks/useShortcuts.ts');
     expect(file).toMatch(/collectSessionSamples/);
 
     const undoAt = file.indexOf('store.undo()');

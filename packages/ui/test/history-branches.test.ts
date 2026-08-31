@@ -4,10 +4,8 @@
  * protege que core siga dando lo que la UI espera) y devuelve filas de texto.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 import { ProjectStore, type HistoryTreeView } from '@orbit/core';
 import {
   branchRows,
@@ -192,10 +190,7 @@ describe('texto de apoyo', () => {
  * (ver CLAUDE.md), así que se lee el CÓDIGO FUENTE de verdad.
  */
 describe('HistoryBranches.tsx (código fuente)', () => {
-  const source = readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), '../src/history/HistoryBranches.tsx'),
-    'utf8',
-  );
+  const source = readSource('history/HistoryBranches.tsx');
 
   it('vuelve a la rama por switchToBranch y la tira por dropBranch', () => {
     expect(source).toContain('store.switchToBranch(row.id)');

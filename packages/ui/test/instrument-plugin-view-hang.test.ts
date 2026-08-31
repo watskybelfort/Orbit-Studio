@@ -21,21 +21,17 @@
  *      sesión detecta el cuelgue y mata al worker.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PluginViewSession, type ViewPort } from '../src/plugins/view-session';
 import { pumpWithFakeClock } from './fake-clock-pump';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = (p: string): string => resolve(here, '../src', p);
 
 describe('la vista de un instrumento reusa el SDK compartido, no un camino propio', () => {
-  const rack = readFileSync(src('editors/rack/ChannelRack.tsx'), 'utf8');
-  const pluginView = readFileSync(src('plugins/PluginView.tsx'), 'utf8');
-  const viewSession = readFileSync(src('plugins/view-session.ts'), 'utf8');
+  const rack = readSource('editors/rack/ChannelRack.tsx');
+  const pluginView = readSource('plugins/PluginView.tsx');
+  const viewSession = readSource('plugins/view-session.ts');
 
   it('ChannelRack.tsx monta InstrumentPluginView desde plugins/PluginView, no un componente nuevo', () => {
     expect(rack).toMatch(/import\s*\{[^}]*InstrumentPluginView[^}]*\}\s*from\s*'\.\.\/\.\.\/plugins\/PluginView'/);

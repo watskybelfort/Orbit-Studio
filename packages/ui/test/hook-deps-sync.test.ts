@@ -22,13 +22,9 @@
  * porque esto es puro cableado de React y no hay aritmética que probar.
  */
 
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { readSource } from './read-source';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const src = (p: string): string => resolve(here, '../src', p);
 
 /** Cuerpo entre llaves que arranca en el primer `{` tras `startMarker`, y el índice justo después de su `}` de cierre. */
 function braceBodyAfter(source: string, startMarker: string): { body: string; end: number } {
@@ -75,7 +71,7 @@ function callImpliesDep(body: string, deps: string[], name: string): void {
 }
 
 describe('PianoRoll.tsx: onPointerDown no usa una cerradura vieja de applyVelocityAt', () => {
-  const source = readFileSync(src('editors/pianoroll/PianoRoll.tsx'), 'utf8');
+  const source = readSource('editors/pianoroll/PianoRoll.tsx');
 
   it('applyVelocityAt está declarado ANTES de onPointerDown (si no, sus deps no podrían citarlo)', () => {
     expect(source.indexOf('const applyVelocityAt = useCallback(')).toBeLessThan(
@@ -90,7 +86,7 @@ describe('PianoRoll.tsx: onPointerDown no usa una cerradura vieja de applyVeloci
 });
 
 describe('Playlist.tsx: los manejadores de puntero no usan una cerradura vieja de fadeHandleAt/setLoopRegion', () => {
-  const source = readFileSync(src('editors/playlist/Playlist.tsx'), 'utf8');
+  const source = readSource('editors/playlist/Playlist.tsx');
 
   it('onPointerDown llama a fadeHandleAt y lo lista en sus deps', () => {
     const { body, end } = braceBodyAfter(source, 'const onPointerDown = useCallback(');

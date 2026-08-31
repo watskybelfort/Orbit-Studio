@@ -11,7 +11,6 @@
  * Si alguien toca el ejemplo de la doc y lo rompe, esto falla.
  */
 
-import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -19,6 +18,7 @@ import { parsePluginSource, defaultPluginParams } from '../src/state/plugin-pars
 import { DrawRecorder } from '../src/plugins/view-recorder';
 import { replayDisplayList, type Canvas2DLike } from '../src/plugins/view-replay';
 import { VIEW_LIST_CAP } from '../src/plugins/view-protocol';
+import { readText } from './read-source';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const DOC = resolve(here, '../../../docs/PLUGINS.md');
@@ -36,7 +36,7 @@ function fencedBlock(markdown: string, marker: string): string {
   throw new Error(`no hay bloque de código con "${marker}" en PLUGINS.md`);
 }
 
-const source = fencedBlock(readFileSync(DOC, 'utf8'), 'compresor-visible.js');
+const source = fencedBlock(readText(DOC), 'compresor-visible.js');
 
 /** Compila como el worker: modo estricto y globales peligrosos en sombra. */
 function compile(fn: 'createEffect' | 'createView'): (...a: unknown[]) => unknown {
