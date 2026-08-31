@@ -4,10 +4,16 @@
 // Uso: node rasterize-icon.mjs  (requiere la app con ORBIT_DEBUG_PORT=9223)
 import { createRequire } from 'module';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-const require = createRequire('C:/Mxrning/Orbit/Bussiness/Onza deck/orbit-studio/package.json');
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+// Este script vive en tools/qa/, así que la raíz del repo son dos niveles
+// arriba. Se deduce del propio archivo y no de una ruta escrita a mano: así
+// funciona en cualquier clon, esté donde esté.
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+const require = createRequire(import.meta.url);
 const WebSocket = require('ws');
 
-const REPO = 'C:/Mxrning/Orbit/Bussiness/Onza deck/orbit-studio';
 const SIZES = [16, 24, 32, 48, 64, 128, 256];
 
 const svg = readFileSync(`${REPO}/packages/ui/src/icons/app-icon.svg`, 'utf8');

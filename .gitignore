@@ -20,3 +20,7 @@ apps/server/rooms/
 
 # Cache del banco de calidad del encoder Opus (tools/qa)
 .opus-diag-cache/
+
+# Ajustes locales de Claude Code (permisos y servidores MCP de cada máquina).
+# .mcp.json SÍ va versionado: define el server del repo. Esto es solo lo de uno.
+.claude/settings.local.json
