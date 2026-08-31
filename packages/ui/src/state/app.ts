@@ -9,10 +9,13 @@ import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { setInputPeak } from './input-monitor';
 import { pushInputChunk } from './recorder';
+import { pinnedSamples, uiAudioCacheStats } from './sample-gc';
+import { peaksCacheStats, peaksListenerCount } from './sample-peaks';
 import { pushCaptureChunk } from './track-capture';
 
 
 import { pushMasterStreamChunk } from '../collab/master-stream';
+import { renderSampleCacheStats } from '../export/render-inputs';
 import { useUiStore } from './ui';
 
 export const store = new ProjectStore();
@@ -267,4 +270,19 @@ if (env?.DEV === true && typeof window !== 'undefined') {
   w['__orbitStore'] = store;
   w['__orbitUi'] = useUiStore;
   w['__orbitEngine'] = engine;
+  // Los contadores de la clase «alta sin baja» (ver la sección homónima de
+  // `state/sample-gc.ts`): antes solo se alcanzaban importando el módulo desde
+  // un test, así que la fuga que miden se podía deducir pero no VER desde la
+  // consola del renderer. `all()` es el desglose de las tres cachés de audio
+  // de la UI (render/picos/editor) de una vez; `render()` y `peaks()` quedan
+  // aparte porque son la llamada textual que cada docblock promete. En
+  // régimen: `pinnedSamples()` vacío y `peaksListeners()` en 0 o 1 (la
+  // playlist); cualquiera que suba y no baje es una baja que falta.
+  w['__orbitAudioCacheStats'] = {
+    all: uiAudioCacheStats,
+    render: renderSampleCacheStats,
+    peaks: peaksCacheStats,
+    pinnedSamples,
+    peaksListeners: peaksListenerCount,
+  };
 }
