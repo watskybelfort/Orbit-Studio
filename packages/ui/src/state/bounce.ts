@@ -25,6 +25,7 @@ import {
 } from '../export/render-in-worker';
 import { engine, store } from './app';
 import { nextPaint } from './next-paint';
+import { withPinnedSample } from './sample-gc';
 
 /** Cola que se renderiza más allá del final de la selección. */
 const TAIL_SECONDS = 2;
@@ -183,67 +184,78 @@ async function bounceClips(
 
     // Al kernel en vivo, para que el clip nuevo suene sin recargar el proyecto.
     const sampleId = newId();
-    await engine.loadSample(sampleId, buffer);
+    // Sujeto desde antes de subirlo y hasta DESPUÉS del dispatch (el mismo
+    // arreglo y por el mismo motivo que el editor de audio, ver
+    // `state/sample-gc.ts`): entre `loadSample` y `registerSample` ese id no lo
+    // nombra nada del modelo, así que un `collectSessionSamples()` de otro
+    // origen —el Ctrl+Z de `useShortcuts`, que entra por el `await` de
+    // `sha1Hex`— le diría al motor que suelte el consolidado recién renderizado
+    // y el clip nuevo nacería MUDO. Con el `finally` de `withPinnedSample` los
+    // dos «no se consolidó» de aquí abajo sueltan el pin igual que el camino
+    // bueno: si no, un bounce abortado dejaría su id protegido para siempre.
+    await withPinnedSample(sampleId, async () => {
+      await engine.loadSample(sampleId, buffer);
 
-    const sample: SampleRef = {
-      id: sampleId,
-      name: file.replace(/\.wav$/i, ''),
-      path: `recording:${file}`,
-      hash: (await sha1Hex(buffer)) ?? sampleId,
-      duration: res.left.length / res.sampleRate,
-    };
-    const audioClip: Clip = {
-      id: newId(),
-      kind: 'audio',
-      playlistTrackId: trackId,
-      start,
-      length,
-      muted: false,
-      sampleId,
-      audioOffset: 0,
-      audioGain: 1,
-    };
+      const sample: SampleRef = {
+        id: sampleId,
+        name: file.replace(/\.wav$/i, ''),
+        path: `recording:${file}`,
+        hash: (await sha1Hex(buffer)) ?? sampleId,
+        duration: res.left.length / res.sampleRate,
+      };
+      const audioClip: Clip = {
+        id: newId(),
+        kind: 'audio',
+        playlistTrackId: trackId,
+        start,
+        length,
+        muted: false,
+        sampleId,
+        audioOffset: 0,
+        audioGain: 1,
+      };
 
-    // Revalidar contra el proyecto de AHORA: el render pudo tardar segundos y en
-    // ese hueco un peer/Claude/el usuario pudo borrar clips o la pista destino.
-    // Sin esto el batch referencia ids muertos (con el rollback de core: se cae
-    // entero y no consolida nada) o deja un clip huérfano sobre una pista que ya
-    // no existe.
-    const now = store.project;
-    if (!now.playlistTracks[trackId]) {
-      notify('No se consolidó: la pista destino ya no existe.');
-      return;
-    }
-    const liveClips = clips.filter((c) => now.clips[c.id]);
-    if (liveClips.length === 0) {
-      notify('No se consolidó: esos clips ya no están.');
-      return;
-    }
+      // Revalidar contra el proyecto de AHORA: el render pudo tardar segundos y en
+      // ese hueco un peer/Claude/el usuario pudo borrar clips o la pista destino.
+      // Sin esto el batch referencia ids muertos (con el rollback de core: se cae
+      // entero y no consolida nada) o deja un clip huérfano sobre una pista que ya
+      // no existe.
+      const now = store.project;
+      if (!now.playlistTracks[trackId]) {
+        notify('No se consolidó: la pista destino ya no existe.');
+        return;
+      }
+      const liveClips = clips.filter((c) => now.clips[c.id]);
+      if (liveClips.length === 0) {
+        notify('No se consolidó: esos clips ya no están.');
+        return;
+      }
 
-    // Congelar conserva los clips originales (muteados y un carril más abajo);
-    // consolidar los sustituye.
-    const commands: Command[] = [{ type: 'registerSample', sample }];
-    if (opts.freeze) {
-      audioClip.frozenFrom = liveClips.map((c) => c.id);
-      commands.push({
-        type: 'patchClips',
-        patches: liveClips.map((c) => ({ id: c.id, muted: true, lane: (c.lane ?? 0) + 1 })),
-      });
-    } else {
-      commands.push({ type: 'removeClips', clipIds: liveClips.map((c) => c.id) });
-    }
-    commands.push({ type: 'addClips', clips: [audioClip] });
-    const label = opts.freeze ? `Congelar ${what}` : `Consolidar ${what} a audio`;
-    store.dispatch({ type: 'batch', label, commands }, { label });
+      // Congelar conserva los clips originales (muteados y un carril más abajo);
+      // consolidar los sustituye.
+      const commands: Command[] = [{ type: 'registerSample', sample }];
+      if (opts.freeze) {
+        audioClip.frozenFrom = liveClips.map((c) => c.id);
+        commands.push({
+          type: 'patchClips',
+          patches: liveClips.map((c) => ({ id: c.id, muted: true, lane: (c.lane ?? 0) + 1 })),
+        });
+      } else {
+        commands.push({ type: 'removeClips', clipIds: liveClips.map((c) => c.id) });
+      }
+      commands.push({ type: 'addClips', clips: [audioClip] });
+      const label = opts.freeze ? `Congelar ${what}` : `Consolidar ${what} a audio`;
+      store.dispatch({ type: 'batch', label, commands }, { label });
 
-    const warn = [
-      ...(missing.length ? [`sin samples: ${missing.join(', ')}`] : []),
-      ...(missingPlugins.length ? [`plugins en bypass: ${missingPlugins.join(', ')}`] : []),
-    ];
-    notify(
-      `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${liveClips.length} clip(s) → ${sample.name}` +
-        (warn.length ? ` (${warn.join('; ')})` : ''),
-    );
+      const warn = [
+        ...(missing.length ? [`sin samples: ${missing.join(', ')}`] : []),
+        ...(missingPlugins.length ? [`plugins en bypass: ${missingPlugins.join(', ')}`] : []),
+      ];
+      notify(
+        `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${liveClips.length} clip(s) → ${sample.name}` +
+          (warn.length ? ` (${warn.join('; ')})` : ''),
+      );
+    });
   } catch (err) {
     notify(err instanceof Error ? err.message : 'No se pudo consolidar.');
   } finally {

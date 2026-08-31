@@ -31,7 +31,7 @@ import {
 } from '@orbit/sound-library';
 import { countSampleRefs, sampleIsUsed } from '@orbit/engine';
 import { engine, store } from '../state/app';
-import { collectWorkletSamples } from '../state/sample-gc';
+import { collectWorkletSamples, pinSample, unpinSample } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
 
 /** MIME propio para arrastrar sonidos del browser dentro de la app. */
@@ -226,24 +226,43 @@ function mainPart(loaded: LoadedSound): LoadedPart {
   return loaded.parts.find((p) => p.sample.file === loaded.entry.file) ?? loaded.parts[0]!;
 }
 
+/** Una lectura de disco de las que reparte `loadAll`, con el id que le toca. */
+interface LoadJob {
+  /** Índice de su entrada en el grupo. */
+  at: number;
+  sample: SoundSample;
+  /** Id con el que va a vivir en el kernel y en el proyecto. */
+  id: string;
+}
+
 /**
- * Sube al kernel un grupo de sonidos con todas sus grabaciones, de cuatro en
- * cuatro y en orden.
+ * Las lecturas que hace falta hacer para un grupo, aplanadas y con su id.
  *
  * Se aplana antes de repartir el trabajo para que el límite cuente lecturas de
  * VERDAD: un instrumento de tres grabaciones son tres viajes al disco, no uno,
  * y contarlo como uno dejaba doce lecturas en vuelo cuando el límite decía
  * cuatro.
+ *
+ * Va aparte de `loadAll` porque la lista de ids se necesita ANTES de subir nada
+ * —es lo que sujeta `withLoadedSounds`—, y sacarla de aquí en vez de repetir la
+ * enumeración evita la única forma de que esa sujeción proteja ids distintos de
+ * los que se suben.
  */
-async function loadAll(entries: readonly SoundEntry[]): Promise<LoadedSound[]> {
-  const jobs: { at: number; sample: SoundSample }[] = [];
+function loadJobs(entries: readonly SoundEntry[]): LoadJob[] {
+  const jobs: LoadJob[] = [];
   entries.forEach((entry, at) => {
-    for (const sample of entrySamples(entry)) jobs.push({ at, sample });
+    for (const sample of entrySamples(entry)) {
+      jobs.push({ at, sample, id: sampleIdFor(entry, sample.file) });
+    }
   });
+  return jobs;
+}
+
+/** Sube al kernel un grupo de sonidos con todas sus grabaciones, de cuatro en cuatro y en orden. */
+async function loadAll(entries: readonly SoundEntry[], jobs: LoadJob[]): Promise<LoadedSound[]> {
   const out: LoadedSound[] = entries.map((entry) => ({ entry, parts: [] }));
-  const done = await mapLimited(jobs, LOAD_LIMIT, async ({ at, sample }) => {
+  const done = await mapLimited(jobs, LOAD_LIMIT, async ({ at, sample, id }) => {
     const entry = entries[at]!;
-    const id = sampleIdFor(entry, sample.file);
     const bytes = await readEntryFile(entry, sample.file);
     await engine.loadSample(id, bytes);
     return { at, part: { sample, id, bytes } };
@@ -252,6 +271,45 @@ async function loadAll(entries: readonly SoundEntry[]): Promise<LoadedSound[]> {
   // instrumento vuelven en el orden en que las declara el manifest.
   for (const { at, part } of done) out[at]!.parts.push(part);
   return out;
+}
+
+/**
+ * Carga un grupo y lo mantiene SUJETO mientras `run` decide qué hacer con él.
+ *
+ * Es la única puerta a `loadAll`, y eso es la mitad del arreglo: el hueco no
+ * estaba dentro de `loadAll` sino a los dos lados, así que una función que
+ * cargue y devuelva deja el agujero abierto por construcción. Lo que hay entre
+ * subir y registrar, en las tres rutas que cargan sonidos (sampler, keymap,
+ * clip de audio):
+ *
+ *  - dentro de `loadAll`, el propio reparto de cuatro en cuatro — el sample 1
+ *    ya está en el kernel mientras se leen del disco el 5 y el 6, y nada lo
+ *    nombra todavía;
+ *  - `registerCommands`, que hace un `sha1Hex` (o sea un `crypto.subtle.digest`)
+ *    y un `realDuration` POR grabación: un piano de treinta muestras son treinta
+ *    cesiones del hilo con las treinta ya subidas;
+ *  - y el reparto del keymap o el cálculo de longitudes, hasta el `dispatch`.
+ *
+ * Un `collectSessionSamples()` en cualquiera de esos puntos —el Ctrl+Z de
+ * `useShortcuts` lo llama— le dice al motor que suelte todo lo subido: el
+ * sampler nace mudo o el keymap con zonas sin audio, y no se vuelve a subir en
+ * esta sesión porque quien lo iba a hacer ya pasó.
+ *
+ * Los ids se sujetan ANTES de empezar a leer, no según van subiendo, para que
+ * una lectura que revienta a mitad no deje sujeto lo que ya subió: el `finally`
+ * suelta la lista entera, igual de larga que si hubiera terminado.
+ */
+async function withLoadedSounds<T>(
+  entries: readonly SoundEntry[],
+  run: (loaded: LoadedSound[]) => Promise<T>,
+): Promise<T> {
+  const jobs = loadJobs(entries);
+  for (const job of jobs) pinSample(job.id);
+  try {
+    return await run(await loadAll(entries, jobs));
+  } finally {
+    for (const job of jobs) unpinSample(job.id);
+  }
 }
 
 /**
@@ -354,39 +412,40 @@ export async function addSamplerChannel(entry: SoundEntry): Promise<void> {
  */
 export async function addSamplerChannels(entries: readonly SoundEntry[]): Promise<void> {
   if (entries.length === 0) return;
-  const loaded = await loadAll(entries);
-  const commands: Command[] = await registerCommands(loaded);
+  await withLoadedSounds(entries, async (loaded) => {
+    const commands: Command[] = await registerCommands(loaded);
 
-  let index = store.project.channelOrder.length;
-  let lastId: Id | null = null;
-  for (const sound of loaded) {
-    const { entry } = sound;
-    const channel = createChannel('sampler', index++, entry.name);
-    // El kernel resuelve el sample de la voz por Channel.sampleId → debe ser
-    // el mismo id con el que engine.loadSample lo subió (el del manifest).
-    channel.sampleId = mainPart(sound).id;
-    // Un instrumento con varias grabaciones entra YA montado como multisample:
-    // es la diferencia entre un piano y una muestra de piano estirada por todo
-    // el teclado. Con una sola, el canal es el sampler de siempre.
-    const keymap = keymapOf(sound);
-    if (keymap) channel.keymap = keymap;
-    if (entry.gainSuggestion !== undefined) {
-      channel.volume = Math.min(2, entry.gainSuggestion);
+    let index = store.project.channelOrder.length;
+    let lastId: Id | null = null;
+    for (const sound of loaded) {
+      const { entry } = sound;
+      const channel = createChannel('sampler', index++, entry.name);
+      // El kernel resuelve el sample de la voz por Channel.sampleId → debe ser
+      // el mismo id con el que engine.loadSample lo subió (el del manifest).
+      channel.sampleId = mainPart(sound).id;
+      // Un instrumento con varias grabaciones entra YA montado como multisample:
+      // es la diferencia entre un piano y una muestra de piano estirada por todo
+      // el teclado. Con una sola, el canal es el sampler de siempre.
+      const keymap = keymapOf(sound);
+      if (keymap) channel.keymap = keymap;
+      if (entry.gainSuggestion !== undefined) {
+        channel.volume = Math.min(2, entry.gainSuggestion);
+      }
+      commands.push({ type: 'addChannel', channel });
+      lastId = channel.id;
     }
-    commands.push({ type: 'addChannel', channel });
-    lastId = channel.id;
-  }
 
-  const label =
-    entries.length === 1
-      ? `Añadir sampler "${entries[0]!.name}"`
-      : `Añadir ${entries.length} samplers`;
-  store.dispatch(
-    commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
-    { label },
-  );
-  // Igual que el rack: el último canal añadido queda seleccionado.
-  if (lastId !== null) useUiStore.setState({ pianoRollChannelId: lastId });
+    const label =
+      entries.length === 1
+        ? `Añadir sampler "${entries[0]!.name}"`
+        : `Añadir ${entries.length} samplers`;
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label },
+    );
+    // Igual que el rack: el último canal añadido queda seleccionado.
+    if (lastId !== null) useUiStore.setState({ pianoRollChannelId: lastId });
+  });
 }
 
 /**
@@ -405,56 +464,57 @@ export async function addKeymapZones(
   const channel = store.project.channels[channelId];
   if (!channel || entries.length === 0) return { added: 0, unreadable: [], dropped: 0 };
 
-  const loaded = await loadAll(entries);
-  const commands: Command[] = await registerCommands(loaded);
+  return withLoadedSounds(entries, async (loaded) => {
+    const commands: Command[] = await registerCommands(loaded);
 
-  // Lo que el pack YA SABE no se adivina. Un instrumento del manifest trae la
-  // nota de cada grabación escrita; leerla del nombre del archivo sería
-  // cambiar un dato cierto por uno probable, y el desplazamiento de octavas
-  // —que existe para arreglar librerías con otra convención— lo movería de su
-  // sitio. Lo que no la trae sí pasa por el auto-mapa.
-  const sabidas: KeymapZone[] = [];
-  const adivinar: { id: Id; name: string }[] = [];
-  for (const sound of loaded) {
-    if (sound.entry.samples && sound.entry.samples.length > 0) {
-      for (const part of sound.parts) sabidas.push(zonaDeToma(part));
-    } else {
-      // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota;
-      // el de la entrada puede venir ya bonito y sin ella. De una ruta solo
-      // mira el último tramo — la nota no está en el nombre de la carpeta.
-      adivinar.push({ id: mainPart(sound).id, name: autoMapNameOf(sound.entry) });
+    // Lo que el pack YA SABE no se adivina. Un instrumento del manifest trae la
+    // nota de cada grabación escrita; leerla del nombre del archivo sería
+    // cambiar un dato cierto por uno probable, y el desplazamiento de octavas
+    // —que existe para arreglar librerías con otra convención— lo movería de su
+    // sitio. Lo que no la trae sí pasa por el auto-mapa.
+    const sabidas: KeymapZone[] = [];
+    const adivinar: { id: Id; name: string }[] = [];
+    for (const sound of loaded) {
+      if (sound.entry.samples && sound.entry.samples.length > 0) {
+        for (const part of sound.parts) sabidas.push(zonaDeToma(part));
+      } else {
+        // El auto-mapa necesita el NOMBRE DEL ARCHIVO, que es donde va la nota;
+        // el de la entrada puede venir ya bonito y sin ella. De una ruta solo
+        // mira el último tramo — la nota no está en el nombre de la carpeta.
+        adivinar.push({ id: mainPart(sound).id, name: autoMapNameOf(sound.entry) });
+      }
     }
-  }
-  const { zones: adivinadas, unreadable } =
-    adivinar.length > 0
-      ? autoMapKeymap(adivinar, options)
-      : { zones: [] as KeymapZone[], unreadable: [] as string[] };
-  const zones = [...sabidas, ...adivinadas];
-  if (zones.length === 0) return { added: 0, unreadable, dropped: 0 };
+    const { zones: adivinadas, unreadable } =
+      adivinar.length > 0
+        ? autoMapKeymap(adivinar, options)
+        : { zones: [] as KeymapZone[], unreadable: [] as string[] };
+    const zones = [...sabidas, ...adivinadas];
+    if (zones.length === 0) return { added: 0, unreadable, dropped: 0 };
 
-  // El tope se aplica ANTES de repartir, no después. Repartir y luego recortar
-  // dejaba el teclado con agujeros: los rangos se habían calculado contando
-  // con zonas que después desaparecían. Y se recorta por el final, así que lo
-  // que ya estaba en el canal se conserva — quien acaba de soltar sabe que ha
-  // soltado de más, pero no espera perder lo de antes.
-  const all = [...(channel.keymap ?? []), ...zones];
-  const dropped = Math.max(0, all.length - MAX_KEYMAP_ZONES);
-  // Las que ya estaban conservan su raíz y su ganancia; lo que se recalcula
-  // son los rangos, que es lo que cambia al entrar gente nueva.
-  const merged = spreadKeymapRanges(all.slice(0, MAX_KEYMAP_ZONES));
-  commands.push({
-    type: 'patchChannel',
-    channelId,
-    patch: { keymap: normalizeKeymap(merged) ?? [] },
+    // El tope se aplica ANTES de repartir, no después. Repartir y luego recortar
+    // dejaba el teclado con agujeros: los rangos se habían calculado contando
+    // con zonas que después desaparecían. Y se recorta por el final, así que lo
+    // que ya estaba en el canal se conserva — quien acaba de soltar sabe que ha
+    // soltado de más, pero no espera perder lo de antes.
+    const all = [...(channel.keymap ?? []), ...zones];
+    const dropped = Math.max(0, all.length - MAX_KEYMAP_ZONES);
+    // Las que ya estaban conservan su raíz y su ganancia; lo que se recalcula
+    // son los rangos, que es lo que cambia al entrar gente nueva.
+    const merged = spreadKeymapRanges(all.slice(0, MAX_KEYMAP_ZONES));
+    commands.push({
+      type: 'patchChannel',
+      channelId,
+      patch: { keymap: normalizeKeymap(merged) ?? [] },
+    });
+
+    const added = zones.length - dropped;
+    const label = `${channel.name}: ${added} muestra(s) al keymap`;
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label },
+    );
+    return { added, unreadable, dropped };
   });
-
-  const added = zones.length - dropped;
-  const label = `${channel.name}: ${added} muestra(s) al keymap`;
-  store.dispatch(
-    commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
-    { label },
-  );
-  return { added, unreadable, dropped };
 }
 
 /** Qué pasó al soltar un grupo de muestras sobre un keymap. */
@@ -519,40 +579,41 @@ export async function addAudioClips(
   startBeat: number,
 ): Promise<void> {
   if (entries.length === 0) return;
-  const loaded = await loadAll(entries);
-  const commands: Command[] = await registerCommands(loaded);
+  await withLoadedSounds(entries, async (loaded) => {
+    const commands: Command[] = await registerCommands(loaded);
 
-  const clips: Clip[] = [];
-  let at = startBeat;
-  for (const sound of loaded) {
-    // En la playlist va la grabación PRINCIPAL: un clip de audio es un trozo
-    // de sonido, no un instrumento. El keymap es cosa del canal.
-    const part = mainPart(sound);
-    const durationSec = await realDuration(part.sample.durationSec, part.id, part.bytes);
-    const lengthBeats = Math.max(0.25, (durationSec * store.project.tempo) / 60);
-    clips.push({
-      id: newId(),
-      kind: 'audio',
-      playlistTrackId: trackId,
-      start: at,
-      length: lengthBeats,
-      muted: false,
-      sampleId: part.id,
-      audioOffset: 0,
-      audioGain: Math.min(2, sound.entry.gainSuggestion ?? 1),
-    });
-    at += lengthBeats;
-  }
+    const clips: Clip[] = [];
+    let at = startBeat;
+    for (const sound of loaded) {
+      // En la playlist va la grabación PRINCIPAL: un clip de audio es un trozo
+      // de sonido, no un instrumento. El keymap es cosa del canal.
+      const part = mainPart(sound);
+      const durationSec = await realDuration(part.sample.durationSec, part.id, part.bytes);
+      const lengthBeats = Math.max(0.25, (durationSec * store.project.tempo) / 60);
+      clips.push({
+        id: newId(),
+        kind: 'audio',
+        playlistTrackId: trackId,
+        start: at,
+        length: lengthBeats,
+        muted: false,
+        sampleId: part.id,
+        audioOffset: 0,
+        audioGain: Math.min(2, sound.entry.gainSuggestion ?? 1),
+      });
+      at += lengthBeats;
+    }
 
-  const label =
-    entries.length === 1
-      ? `Colocar audio "${entries[0]!.name}"`
-      : `Colocar ${entries.length} audios`;
-  commands.push({ type: 'addClips', clips });
-  store.dispatch(
-    commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
-    { label },
-  );
+    const label =
+      entries.length === 1
+        ? `Colocar audio "${entries[0]!.name}"`
+        : `Colocar ${entries.length} audios`;
+    commands.push({ type: 'addClips', clips });
+    store.dispatch(
+      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      { label },
+    );
+  });
 }
 
 /** Bytes de un SampleRef según su esquema, o null si no es resoluble aquí. */

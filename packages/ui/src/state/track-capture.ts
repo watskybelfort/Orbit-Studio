@@ -21,6 +21,7 @@ import { sha1Hex } from '../browser/sound-actions';
 // toca el store del otro fuera de una función, así que el ciclo no muerde.
 import { useMasterStream } from '../collab/master-stream';
 import { currentBeat, engine, store, togglePlay } from './app';
+import { withPinnedSample } from './sample-gc';
 import { useUiStore } from './ui';
 
 interface TrackCaptureState {
@@ -122,58 +123,67 @@ export async function stopTrackCapture(): Promise<void> {
     const file = await api.recording.save(`Pista ${trackName}.wav`, wav);
 
     const sampleId = newId();
-    await engine.loadSample(sampleId, buffer);
+    // Sujeto desde antes de subirlo y hasta DESPUÉS del dispatch, como en el
+    // editor de audio y por lo mismo (`state/sample-gc.ts`): entre `loadSample`
+    // y `registerSample` ese id no lo nombra nada del modelo, y el `await` de
+    // `sha1Hex` que hay en medio es justo por donde entra el
+    // `collectSessionSamples()` del Ctrl+Z. Aquí, además, lo que se perdería es
+    // una PASADA EN VIVO —con las perillas que se movieron en ese momento— que
+    // no se puede volver a renderizar: repetirla es volver a tocarla.
+    await withPinnedSample(sampleId, async () => {
+      await engine.loadSample(sampleId, buffer);
 
-    const duration = captured / sampleRate;
-    const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
-    const sample: SampleRef = {
-      id: sampleId,
-      name: file.replace(/\.wav$/i, ''),
-      path: `recording:${file}`,
-      hash: (await sha1Hex(buffer)) ?? sampleId,
-      duration,
-    };
+      const duration = captured / sampleRate;
+      const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
+      const sample: SampleRef = {
+        id: sampleId,
+        name: file.replace(/\.wav$/i, ''),
+        path: `recording:${file}`,
+        hash: (await sha1Hex(buffer)) ?? sampleId,
+        duration,
+      };
 
-    // Pista de playlist libre en ese tramo (si no, una nueva "Grabaciones").
-    const tracks = Object.values(project.playlistTracks)
-      .filter((t) => t.arrangementId === project.activeArrangementId)
-      .sort((a, b) => a.order - b.order);
-    const clips = Object.values(project.clips);
-    const free = tracks.find(
-      (t) =>
-        !clips.some(
-          (c) =>
-            c.playlistTrackId === t.id &&
-            c.start < startBeat + lengthBeats &&
-            c.start + c.length > startBeat,
-        ),
-    );
-    const commands: Command[] = [{ type: 'registerSample', sample }];
-    let playlistTrackId: string;
-    if (free) {
-      playlistTrackId = free.id;
-    } else {
-      const track = createPlaylistTrack(project.activeArrangementId, tracks.length, 'Grabaciones');
-      commands.push({ type: 'addPlaylistTrack', track });
-      playlistTrackId = track.id;
-    }
+      // Pista de playlist libre en ese tramo (si no, una nueva "Grabaciones").
+      const tracks = Object.values(project.playlistTracks)
+        .filter((t) => t.arrangementId === project.activeArrangementId)
+        .sort((a, b) => a.order - b.order);
+      const clips = Object.values(project.clips);
+      const free = tracks.find(
+        (t) =>
+          !clips.some(
+            (c) =>
+              c.playlistTrackId === t.id &&
+              c.start < startBeat + lengthBeats &&
+              c.start + c.length > startBeat,
+          ),
+      );
+      const commands: Command[] = [{ type: 'registerSample', sample }];
+      let playlistTrackId: string;
+      if (free) {
+        playlistTrackId = free.id;
+      } else {
+        const track = createPlaylistTrack(project.activeArrangementId, tracks.length, 'Grabaciones');
+        commands.push({ type: 'addPlaylistTrack', track });
+        playlistTrackId = track.id;
+      }
 
-    const clip: Clip = {
-      id: newId(),
-      kind: 'audio',
-      playlistTrackId,
-      start: startBeat,
-      length: lengthBeats,
-      muted: false,
-      sampleId,
-      audioOffset: 0,
-      audioGain: 1,
-    };
-    commands.push({ type: 'addClips', clips: [clip] });
+      const clip: Clip = {
+        id: newId(),
+        kind: 'audio',
+        playlistTrackId,
+        start: startBeat,
+        length: lengthBeats,
+        muted: false,
+        sampleId,
+        audioOffset: 0,
+        audioGain: 1,
+      };
+      commands.push({ type: 'addClips', clips: [clip] });
 
-    const label = `Grabar la salida de "${trackName}"`;
-    store.dispatch({ type: 'batch', label, commands }, { label });
-    useTrackCapture.setState({ error: null });
+      const label = `Grabar la salida de "${trackName}"`;
+      store.dispatch({ type: 'batch', label, commands }, { label });
+      useTrackCapture.setState({ error: null });
+    });
   } catch (err) {
     useTrackCapture.setState({
       error: err instanceof Error ? err.message : 'No se pudo guardar la toma',

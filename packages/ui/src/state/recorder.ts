@@ -45,6 +45,7 @@ import {
 } from './input-monitor';
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
 import { compensateClipStart } from './input-latency';
+import { pinSample, unpinSample } from './sample-gc';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -555,6 +556,49 @@ async function stopRecording(): Promise<void> {
   if (ownsInput) stopInputMonitor();
   ownsInput = false;
 
+  /**
+   * Las tomas de esta vuelta, sujetas desde que suben al motor hasta DESPUÉS
+   * del dispatch — y TODAS a la vez, no la que se está guardando.
+   *
+   * El bucle de abajo sube cada toma al kernel y acumula sus comandos, pero no
+   * despacha hasta el final: entre el `loadSample` de la primera y ese dispatch
+   * no hay NADA que nombre su id —ni el proyecto, ni un clip, ni un canal—, así
+   * que `sampleKeepSet` no la incluye y un `collectSessionSamples()` que caiga
+   * ahí le dice al motor que la suelte. Y la ventana es larga de verdad: por
+   * cada toma que queda hay un `recording.save` (escritura de un WAV de varios
+   * megas al disco) y un `sha1Hex` de ese mismo WAV. Con dos micros armados son
+   * cientos de milisegundos en los que el audio RECIÉN CANTADO por el usuario
+   * no lo sujeta nadie, y el Ctrl+Z de `useShortcuts` recolecta sin preguntar.
+   *
+   * **Por qué se sostienen todas hasta el dispatch final y no se despacha por
+   * toma.** Despachar por toma acortaría cada sujeción, pero no la quitaría —la
+   * toma en curso seguiría teniendo su propia ventana entre subir y registrar—,
+   * así que no ahorra este código: solo lo cobra en otro sitio. Y lo que cobra
+   * es caro y no es de implementación:
+   *
+   *  - **Cambia el historial.** Hoy una vuelta de grabación es UN paso de undo
+   *    a propósito (ver el comentario del dispatch): las tomas de dos micros se
+   *    grabaron juntas y deshacerlas de una en una deja media grabación puesta
+   *    —una voz sin su guitarra— sin que la playlist diga cuál falta.
+   *  - **Cambia dónde caen las tomas.** `placeTake` decide contra `project`,
+   *    leído UNA vez antes del bucle, y lleva estado entre tomas (`claimed`,
+   *    `lastTakeTrackByRoute`, los `addPlaylistTrack` que empuja al mismo
+   *    array). Despachar a mitad haría que la toma 2 viera el clip de la toma 1
+   *    como un clip ya existente de esa pista, o sea como una toma ANTERIOR: se
+   *    la mutearía y se la mandaría un carril abajo. Es un cambio de
+   *    comportamiento, no un reordenado.
+   *  - **Rompe el todo-o-nada.** El `batch` de core hace rollback entero; en
+   *    trozos, un fallo a mitad deja registradas unas tomas y otras no.
+   *
+   * El coste de sostenerlas todas es un `Set` con N ids durante esos
+   * milisegundos: el pin no retiene audio, solo impide soltarlo.
+   *
+   * La baja va en el `finally` de abajo, que cubre también el camino de error
+   * (un `recording.save` que revienta con dos tomas ya subidas) — un pin que se
+   * queda puesto es la misma fuga del otro lado.
+   */
+  const pinnedTakes: string[] = [];
+
   try {
     const api = window.orbit;
     if (!api) throw new Error('Sin puente de escritorio');
@@ -599,6 +643,10 @@ async function stopRecording(): Promise<void> {
       const file = await api.recording.save(name, wav);
 
       const sampleId = newId();
+      // Sujeta ANTES de subir y hasta el `finally` de esta función: ver el
+      // bloque de `pinnedTakes` arriba.
+      pinSample(sampleId);
+      pinnedTakes.push(sampleId);
       const wavBuf = wav.buffer.slice(
         wav.byteOffset,
         wav.byteOffset + wav.byteLength,
@@ -643,6 +691,10 @@ async function stopRecording(): Promise<void> {
       phase: 'idle',
       error: err instanceof Error ? err.message : 'No se pudo guardar la toma',
     });
+  } finally {
+    // La baja de TODAS, y estructural: llegue el dispatch o reviente el guardado
+    // con dos tomas ya subidas, aquí no queda ningún id sujeto.
+    for (const id of pinnedTakes) unpinSample(id);
   }
 }
 
