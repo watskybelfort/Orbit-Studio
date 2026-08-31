@@ -82,7 +82,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-check {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .menu-arrow {
@@ -92,7 +92,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-arrow {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--on-accent-dim);
 }
 
 /* Submenú: pegado al borde derecho de su fila y alineado con ella. */
@@ -112,7 +112,7 @@
 
 .menu-item:hover:not(:disabled) {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .menu-item:disabled {
@@ -126,7 +126,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-shortcut {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--on-accent-dim);
 }
 
 .menu-sep {
@@ -420,16 +420,12 @@ html[data-theme='acrylic'] .claude-panel {
   justify-content: space-between;
   height: 30px;
   padding: 0 6px 0 12px;
-  background: var(--surface-2);
+  background: var(--iw-title-bg);
   border-bottom: 1px solid var(--border);
   cursor: default;
   user-select: none;
   touch-action: none;
   flex: none;
-}
-
-html[data-theme='acrylic'] .iw-title {
-  background: rgba(255, 255, 255, 0.05);
 }
 
 .iw-title-text {
@@ -533,7 +529,7 @@ html[data-theme='acrylic'] .iw-title {
 .recovery-btn.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Iconos de los menus (linea fina, heredan color). */
@@ -595,14 +591,14 @@ html[data-theme='acrylic'] .iw-title {
    ve dónde estás. */
 .menu-item:focus:not(:disabled) {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   outline: none;
 }
 
 .menu-item:focus:not(:disabled) .menu-shortcut,
 .menu-item:focus:not(:disabled) .menu-arrow,
 .menu-item:focus:not(:disabled) .menu-check {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--on-accent-dim);
 }
 
 .menu-btn:focus-visible {
@@ -631,7 +627,8 @@ html[data-theme='acrylic'] .iw-title {
   pointer-events: none;
 }
 
-/* Pegando en el techo: el medidor se pone rojo. */
+/* Pegando en el techo: el medidor se pone rojo, el mismo rojo que el clip
+   del medidor master (--meter-clip) — es la misma señal, no un color aparte. */
 .tbtn.mon.hot .mon-level {
-  background: var(--danger, #e6675a);
+  background: var(--meter-clip);
 }

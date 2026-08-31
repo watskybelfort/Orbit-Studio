@@ -13,9 +13,22 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
    osciladores a frecuencias altas — alias), `tanh` con moderación, low-end mono
    < 110 Hz en el master.
 4. **Temas**: ningún color hardcodeado en componentes — todo por CSS variables
-   (tokens en `packages/ui/src/theme/`). El acrílico sigue la arquitectura A del
-   skill `acrylic-theming` (alfa de ventana + DWM; `backdrop-filter` solo en
-   popups). Apagar el acrílico es un teardown real.
+   (tokens en `packages/ui/src/theme/`). Un `var(--x, #hex)` con fallback
+   también es un color hardcodeado: si el token puede faltar, lo que falta es el
+   token. **Una sola excepción, y es técnica**: los editores que pintan en
+   `<canvas>` (`editors/automation`, `editors/pianoroll`, `editors/playlist`)
+   mantienen su paleta por tema (`--au-*`, `--pr-*`, `--pl-*`) declarada en el
+   `.css` del propio editor y con valores LITERALES —nada de `var()` ni
+   `color-mix()`—, porque el canvas los lee con `getComputedStyle()` y una
+   custom property que referencia otra no se resuelve así: `--b: var(--a)`
+   vuelve como el texto `"var(--a)"`, no como un color. Esa paleta declara los
+   tres temas, igual que `theme/tokens.css`, y lleva escrito el porqué en su
+   cabecera. Misma familia: `plugins/view-replay.ts`, que es un módulo puro sin
+   DOM y cuyo `fillStyle` tampoco resuelve `var()`. Lo hacen cumplir
+   `orbit/no-hardcoded-colors` (los `.tsx` y `.ts`) y `npm run lint:css` (los
+   `.css`). El acrílico sigue la arquitectura A del skill `acrylic-theming`
+   (alfa de ventana + DWM; `backdrop-filter` solo en popups). Apagar el acrílico
+   es un teardown real.
 5. **Golden tests**: `engine/test/golden` fija el sonido con 25 renders
    deterministas y 2 flujos Opus. Cualquier cambio de sonido tiene que
    actualizar su línea base **conscientemente**: `npm run golden:update` enseña

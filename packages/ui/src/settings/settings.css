@@ -126,22 +126,26 @@
   border: 1px solid var(--border);
 }
 
-.theme-card.dark .theme-card-preview { background: #141518; }
-.theme-card.light .theme-card-preview { background: #f4f5f7; }
+/* Colores FIJOS a propósito (theme/tokens.css: --theme-preview-*): cada
+   tarjeta enseña el color real del tema que representa, no el que está
+   activo ahora — si siguieran el tema actual, las tres tarjetas se verían
+   iguales. */
+.theme-card.dark .theme-card-preview { background: var(--theme-preview-dark-bg); }
+.theme-card.light .theme-card-preview { background: var(--theme-preview-light-bg); }
 .theme-card.acrylic .theme-card-preview {
-  background: linear-gradient(135deg, #3a4a66 0%, #1c2230 60%, #40304a 100%);
+  background: var(--theme-preview-acrylic-bg);
 }
 
 .tp-bar {
   height: 7px;
   border-radius: 2px;
-  background: rgba(128, 138, 158, 0.55);
+  background: var(--theme-preview-bar);
 }
 
 .tp-row {
   height: 5px;
   border-radius: 2px;
-  background: rgba(128, 138, 158, 0.35);
+  background: var(--theme-preview-row);
 }
 
 .tp-row.short { width: 60%; }
@@ -450,9 +454,9 @@ input[type='range'] {
   transition: transform 60ms linear;
 }
 
-/* Pegando en el techo. */
+/* Pegando en el techo: mismo rojo que el clip del medidor master. */
 .in-meter-fill.hot {
-  background: var(--danger, #e6675a);
+  background: var(--meter-clip);
 }
 
 /* ── Enrutado de entrada (qué canal físico entra en qué pista) ── */

@@ -686,11 +686,16 @@
 }
 
 html[data-theme='light'] .prisma-key {
-  background: #ffffff;
+  /* var(--surface) en claro YA es blanco (theme/tokens.css): mismo valor
+     que antes, ahora derivado del token en vez de repetido a mano. */
+  background: var(--surface);
 }
 
 html[data-theme='light'] .prisma-key.black {
-  background: #2a2c32;
+  /* Token compartido con el piano roll (editors/pianoroll/pianoroll.css):
+     la negra se fija oscura a propósito, ver theme/tokens.css
+     --piano-key-black. */
+  background: var(--piano-key-black);
 }
 
 /* En acrílico `--bg` es translúcido: la negra dejaría ver el escritorio a

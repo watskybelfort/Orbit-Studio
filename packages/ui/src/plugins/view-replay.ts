@@ -90,6 +90,18 @@ export interface ReplayStats {
 const ALIGNS = ['left', 'center', 'right'] as const;
 
 /**
+ * Color de arranque cuando `opts.palette` viene vacía.
+ *
+ * Literal a propósito, y es la excepción que nombra la regla 4 de CLAUDE.md:
+ * este módulo es PURO —sin DOM, se prueba bajo Node— y el `fillStyle` de un
+ * `CanvasRenderingContext2D` no resuelve `var()`, así que aquí no hay token
+ * que leer. El valor es el `--text` del tema oscuro de `theme/tokens.css`, no
+ * un color inventado: contra un fondo oscuro, un negro puro desaparecería.
+ */
+// eslint-disable-next-line orbit/no-hardcoded-colors -- ver el docblock: módulo puro, sin getComputedStyle posible
+const FALLBACK_COLOR = '#e8e9ec';
+
+/**
  * Repinta `buf[0..len)` sobre `ctx`. Devuelve cuántas órdenes se ejecutaron y
  * si hubo que cortar. Nunca lanza: un buffer corrupto se corta, no revienta el
  * bucle de dibujo de la UI.
@@ -113,7 +125,13 @@ export function replayDisplayList(
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.font = opts.font;
-  let color = palette[0] ?? '#000';
+  // Sin paleta del host, no hay --texto de tema que leer: este módulo es
+  // puro (sin DOM, se prueba bajo Node con un doble de canvas) y el 2D
+  // context no resuelve var() en fillStyle/strokeStyle. FALLBACK_COLOR es un
+  // literal a propósito, pero igual a --text del tema oscuro por defecto
+  // (theme/tokens.css) en vez de un negro que se perdería contra un fondo
+  // oscuro.
+  let color = palette[0] ?? FALLBACK_COLOR;
   ctx.fillStyle = color;
   ctx.strokeStyle = color;
 

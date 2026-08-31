@@ -304,8 +304,16 @@ export default [
   //
   // Solo componentes. `packages/ui/src/theme/**` queda fuera porque es donde
   // los colores se definen — es la excepción que hace verdadera a la regla.
+  //
+  // También los `.ts`: el color no deja de serlo por vivir en un módulo sin
+  // JSX. Se vio en `plugins/view-replay.ts`, que pintaba un `#000` que la
+  // regla no miraba porque solo cubría `.tsx`.
+  //
+  // Los `.css` NO los ve ESLint (traería `@eslint/css` y su parser, contra el
+  // «sin dependencias» de `tools/eslint/index.js`): los cubre
+  // `npm run lint:css`, que corre dentro de `npm run lint`.
   {
-    files: ['packages/ui/src/**/*.tsx'],
+    files: ['packages/ui/src/**/*.tsx', 'packages/ui/src/**/*.ts'],
     ignores: ['packages/ui/src/theme/**'],
     rules: { 'orbit/no-hardcoded-colors': 'error' },
   },

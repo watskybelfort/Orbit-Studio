@@ -155,12 +155,15 @@ html[data-theme='acrylic'] .pianoroll {
   background: var(--surface-2);
 }
 
-html[data-theme='light'] .pr-key {
-  background: #ffffff;
-}
+/* .pr-key (blanca) no necesita override en claro: ya hereda var(--surface),
+   que en el tema claro YA es blanco (theme/tokens.css). */
 
+/* La negra se fija oscura a propósito, igual que en Prisma
+   (editors/prisma/prisma.css): en claro, var(--surface-2) es un gris claro
+   y una tecla negra que se aclara deja de leerse como tecla negra. Token
+   compartido: theme/tokens.css --piano-key-black. */
 html[data-theme='light'] .pr-key.black {
-  background: #2a2c32;
+  background: var(--piano-key-black);
 }
 
 .pr-key:hover {

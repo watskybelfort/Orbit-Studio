@@ -78,6 +78,48 @@
   --meter: #46c46e;
   --meter-hot: #e6c95a;
   --meter-clip: #e6675a;
+
+  /* Texto sobre acento (botones/menús con fondo --accent): fijo en los tres
+     temas, igual que el propio --accent no cambia entre temas. */
+  --on-accent: #ffffff;
+  --on-accent-dim: rgba(255, 255, 255, 0.8);
+
+  /* Estados semánticos: fijos en los tres temas, como los medidores y el
+     semáforo de arriba — un error o un aviso se leen igual sin importar el
+     tema activo. */
+  --danger: #e65a5a;
+  --warn: #e6a15a;
+
+  /* Sombras fuera de --shadow-popup: paneles flotantes, diálogos modales y
+     detalles pequeños que llevan su propio peso. Fijas en los tres temas a
+     propósito — la intensidad cambia según el elemento, no según el tema. */
+  --shadow-node: 0 2px 6px rgba(0, 0, 0, 0.18);
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.4);
+  --shadow-thumb: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 18px 48px rgba(0, 0, 0, 0.45);
+  --modal-backdrop: rgba(0, 0, 0, 0.45);
+
+  /* Tecla negra de piano (piano roll y Prisma, override de tema claro):
+     siempre oscura aunque el tema sea claro — una tecla negra que se aclara
+     deja de leerse como tecla negra. Ver el comentario en cada editor. */
+  --piano-key-black: #2a2c32;
+
+  /* Vista previa de temas (Ajustes → Apariencia → tarjetas de tema): fijas a
+     PROPÓSITO, no siguen el tema activo — cada tarjeta tiene que enseñar el
+     color real del tema que representa, no el que está puesto ahora mismo.
+     --theme-preview-dark-bg / --theme-preview-light-bg son copias congeladas
+     de --bg de cada tema (mismo valor, misma fuente): si --bg cambia, hay que
+     actualizar también su copia aquí a mano. */
+  --theme-preview-dark-bg: #141518;
+  --theme-preview-light-bg: #f4f5f7;
+  --theme-preview-acrylic-bg: linear-gradient(135deg, #3a4a66 0%, #1c2230 60%, #40304a 100%);
+  --theme-preview-bar: rgba(128, 138, 158, 0.55);
+  --theme-preview-row: rgba(128, 138, 158, 0.35);
+
+  /* Título de ventana interna (.iw-title): superficie normal en oscuro/claro
+     (hereda --surface-2 tal cual); el override de acrílico está más abajo,
+     en su bloque de tema — ahí SÍ lleva un tinte propio. */
+  --iw-title-bg: var(--surface-2);
 }
 
 /* ── Oscuro ─────────────────────────────────────────────────────────────────
@@ -139,6 +181,11 @@ html[data-theme='acrylic'] {
 
   --popup-bg: color-mix(in srgb, var(--glass-tint) 78%, transparent);
   --shadow-popup: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  /* La barra de título de una ventana interna es región propia (no se
+     solapa con el main): puede llevar tinte de vidrio sin acumular alfa,
+     igual que --titlebar-bg arriba. */
+  --iw-title-bg: rgba(255, 255, 255, 0.05);
 }
 
 /* ── Popups ─────────────────────────────────────────────────────────────────

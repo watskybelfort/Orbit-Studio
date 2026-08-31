@@ -339,7 +339,7 @@
 
 .ver-diff-hint {
   font-size: 11px;
-  color: var(--warn, #e6a15a);
+  color: var(--warn);
   line-height: 1.5;
   margin-bottom: 3px;
 }
