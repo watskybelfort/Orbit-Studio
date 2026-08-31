@@ -4,6 +4,13 @@
  * ganancia del clip, escucha, y operaciones destructivas (normalizar,
  * reverse, fades) que generan un sample procesado NUEVO — se guarda como
  * grabación, se registra y el clip pasa a apuntarle, todo en un undo.
+ *
+ * Ese "se guarda como grabación" deja un `.wav` en disco por operación, y de
+ * ahí salen las dos cosas que este archivo hace además de dibujar: el nombre va
+ * por CONTENIDO (`editFileName`, que de paso cierra un pisado silencioso) y
+ * cada escritura se ANOTA (`noteRecordingWritten`) para que la política de
+ * disco de `state/sample-gc.ts` pueda decidir después, en un momento seguro, si
+ * alguna vez sobra.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,6 +21,7 @@ import { engine, ensureAudioReady, store } from '../../state/app';
 import {
   AUDIO_EDITOR_PCM_ENTRIES,
   createUiAudioCache,
+  noteRecordingWritten,
   sampleCacheKey,
   withPinnedSample,
 } from '../../state/sample-gc';
@@ -108,6 +116,29 @@ function applyOp(op: AudioOp, ch: Channels): { left: Float32Array; right: Float3
     }
   }
   return { left, right };
+}
+
+/**
+ * Nombre del `.wav` de una edición destructiva: por CONTENIDO, nunca por reloj.
+ *
+ * Era `Edit HH.MM.SS.wav`, y ahí dentro había un borrado silencioso:
+ * `recording:save` escribe con `writeFile`, o sea que PISA lo que hubiera con
+ * ese nombre. Dos ediciones del mismo segundo compartían archivo — y, peor, la
+ * de hoy a las 14:03:22 pisaba la de AYER a las 14:03:22, porque el nombre no
+ * llevaba fecha: el proyecto viejo seguía apuntando a
+ * `recording:Edit 14.03.22.wav` y ese archivo ya tenía otro audio dentro. Es el
+ * mismo agujero que `state/recorder.ts` tapa a medias metiéndole a las tomas el
+ * nombre de la entrada.
+ *
+ * Con el sha1 del wav en el nombre, «el mismo nombre» significa «el mismo
+ * contenido», así que pisar es escribir lo mismo encima. Y de regalo, el ciclo
+ * de probar —Normalizar, Ctrl+Z, Normalizar— deja UN archivo en vez de uno por
+ * intento: es la parte de la fuga de disco que se cierra sin dar de baja nada
+ * (la otra parte, la política de reclamación, en `state/sample-gc.ts`). Mismo
+ * criterio que ya usa `browser/dropped-audio.ts` con `storedNameFor`.
+ */
+function editFileName(kind: string, hash: string): string {
+  return `${kind} ${hash}.wav`;
 }
 
 /** Nombres de nota para el selector de tónica. */
@@ -345,28 +376,37 @@ export function AudioEditor() {
       try {
         const { left, right } = applyOp(op, channels);
         const wav = encodeWav(left, right, channels.rate, 24);
-        const stamp = new Date();
-        const two = (n: number) => String(n).padStart(2, '0');
-        const file = await window.orbit.recording.save(
-          `Edit ${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}.wav`,
-          wav,
-        );
         const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
         const newSampleId = newId();
+        // El hash va ANTES del save porque el nombre del archivo sale de él
+        // (ver `editFileName`). Aquí todavía no hay nada subido al motor, así
+        // que este `await` no abre la ventana que tapa el pin de abajo.
+        const hash = (await sha1Hex(wavBuf)) ?? newSampleId;
+        const file = await window.orbit.recording.save(
+          editFileName(OP_LABELS[op], hash),
+          wav,
+        );
+        const path = `recording:${file}`;
+        // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
+        // dispatch: si la operación revienta en medio, ese .wav se queda en
+        // disco sin que nada lo nombre nunca, y es justo el que hay que poder
+        // reclamar. Anotar no borra nada — la política de disco, con sus tres
+        // condiciones y su porqué, en `state/sample-gc.ts`.
+        noteRecordingWritten({ sampleId: newSampleId, path, bytes: wav.byteLength });
         // Sujeto hasta DESPUÉS del dispatch, y con `finally` (ver
         // `withPinnedSample`): entre subir el audio y registrarlo, ese id no lo
         // nombra nada del modelo, así que un `collectSessionSamples` de otro
         // origen se lo lleva y deja el clip MUDO hasta reabrir el proyecto. La
-        // ventana no es "el mismo tick": `sha1Hex` espera a `crypto.subtle` y
-        // `loadSample` a `decodeAudioData`, y ahí el Ctrl+Z de `useShortcuts`
-        // —que recolecta— entra perfectamente.
+        // ventana no es "el mismo tick": `loadSample` espera a
+        // `decodeAudioData`, y ahí el Ctrl+Z de `useShortcuts` —que recolecta—
+        // entra perfectamente.
         await withPinnedSample(newSampleId, async () => {
           await engine.loadSample(newSampleId, wavBuf);
           const ref: SampleRef = {
             id: newSampleId,
             name: `${sample.name} · ${OP_LABELS[op].toLowerCase()}`,
-            path: `recording:${file}`,
-            hash: (await sha1Hex(wavBuf)) ?? newSampleId,
+            path,
+            hash,
             duration: channels.duration,
           };
           const label = `${OP_LABELS[op]} "${sample.name}"`;
@@ -459,22 +499,21 @@ export function AudioEditor() {
         ...(scale ? { scale } : null),
       });
       const wav = encodeWav(out.left, out.right, channels.rate, 24);
-      const stamp = new Date();
-      const two = (n: number) => String(n).padStart(2, '0');
-      const file = await window.orbit.recording.save(
-        `Afinado ${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}.wav`,
-        wav,
-      );
       const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
       const newSampleId = newId();
+      // Mismo orden que en `runOp`: hash → nombre por contenido → alta anotada.
+      const hash = (await sha1Hex(wavBuf)) ?? newSampleId;
+      const file = await window.orbit.recording.save(editFileName('Afinado', hash), wav);
+      const path = `recording:${file}`;
+      noteRecordingWritten({ sampleId: newSampleId, path, bytes: wav.byteLength });
       // Misma ventana que en `runOp`, misma sujeción: ver el comentario de allá.
       await withPinnedSample(newSampleId, async () => {
         await engine.loadSample(newSampleId, wavBuf);
         const ref: SampleRef = {
           id: newSampleId,
           name: `${sample.name} · afinado`,
-          path: `recording:${file}`,
-          hash: (await sha1Hex(wavBuf)) ?? newSampleId,
+          path,
+          hash,
           duration: channels.duration,
         };
         const label = `Afinar "${sample.name}"`;
