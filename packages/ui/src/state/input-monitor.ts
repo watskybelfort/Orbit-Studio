@@ -577,11 +577,24 @@ const INPUT_ROUTE_FIELD_LABELS: Partial<Record<keyof Omit<InputRoute, 'id'>, str
  * deshacer se llevaría por delante un cambio de nombre sin avisar. Se
  * arregla acá, en el envoltorio, y no en cada sitio de llamada: así el
  * próximo campo que se le agregue a `InputRoute` no reabre este mismo bug.
+ *
+ * `overrideLabel` es la salida para un llamante que toca varios campos como
+ * UN solo gesto del usuario (ver `setInputRouteChannels`, más abajo): el
+ * genérico "Ajustar entrada" que sale de mezclar dos o tres claves es
+ * correcto pero menos legible que el nombre propio del gesto. La `mergeKey`
+ * no se toca —se sigue derivando del patch— porque es la que decide qué se
+ * funde con qué, y ahí sí importa que sea automática y no algo que cada
+ * llamante tenga que acertar a mano.
  */
-export function patchInputRoute(routeId: Id, patch: Partial<Omit<InputRoute, 'id'>>): void {
+export function patchInputRoute(
+  routeId: Id,
+  patch: Partial<Omit<InputRoute, 'id'>>,
+  overrideLabel?: string,
+): void {
   const fields = Object.keys(patch).sort() as (keyof Omit<InputRoute, 'id'>)[];
   const label =
-    fields.length === 1 ? (INPUT_ROUTE_FIELD_LABELS[fields[0]!] ?? 'Ajustar entrada') : 'Ajustar entrada';
+    overrideLabel ??
+    (fields.length === 1 ? (INPUT_ROUTE_FIELD_LABELS[fields[0]!] ?? 'Ajustar entrada') : 'Ajustar entrada');
   store.dispatch(
     { type: 'patchInputRoute', routeId, patch },
     { label, mergeKey: `route:${routeId}:${fields.join('+') || 'patch'}` },
@@ -591,6 +604,18 @@ export function patchInputRoute(routeId: Id, patch: Partial<Omit<InputRoute, 'id
 /**
  * Cambia los canales físicos de una entrada. `right === null` la vuelve MONO,
  * que es lo que quiere un micro: su canal a los dos lados.
+ *
+ * Pasa por `patchInputRoute` como el resto de los campos de `InputRoute`
+ * —antes despachaba `patchInputRoute` directo, con `label` pero sin
+ * `mergeKey`— para que herede la misma fusión de ráfaga. Hoy sus dos
+ * llamantes son un `<select>` (evento discreto, sin ráfaga), así que no hay
+ * bug visible; pero es el mismo hueco que costó 80 undos en el deslizador de
+ * ganancia, y el día que este control sea arrastrable (un scrubber de
+ * canales, por ejemplo) el arreglo ya está puesto en vez de tener que
+ * recordarlo. El patch toca 2-3 campos (`channel`, `channelRight` y a veces
+ * `name`) a la vez como un solo gesto, así que se le pasa `overrideLabel`
+ * para conservar el nombre propio en el historial en vez del genérico que
+ * sale de mezclar varias claves.
  */
 export function setInputRouteChannels(routeId: Id, left: number, right: number | null): void {
   const route = store.project.inputRoutes[routeId];
@@ -604,7 +629,7 @@ export function setInputRouteChannels(routeId: Id, left: number, right: number |
   if (route.name === inputRouteLabel(route.channel, route.channelRight)) {
     patch.name = inputRouteLabel(left, right === null ? undefined : right);
   }
-  store.dispatch({ type: 'patchInputRoute', routeId, patch }, { label: 'Canales de la entrada' });
+  patchInputRoute(routeId, patch, 'Canales de la entrada');
 }
 
 /**

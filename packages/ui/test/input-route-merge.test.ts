@@ -156,3 +156,92 @@ describe('patchInputRoute funde ráfagas por ruta y por campo', () => {
     ]);
   });
 });
+
+/**
+ * `setInputRouteChannels` despachaba `patchInputRoute` DIRECTO —el mismo
+ * comando que el envoltorio de arriba, pero sin pasar por él— con `label`
+ * y sin `mergeKey`. Hoy es inofensivo porque sus dos llamantes son un
+ * `<select>` (evento discreto, sin ráfaga), pero es el mismo hueco que costó
+ * 80 undos en el deslizador de ganancia: sobrevivía aquí solo porque este
+ * control todavía no es arrastrable. Ahora entra por `patchInputRoute`, que
+ * deriva la `mergeKey` del patch (`route:${routeId}:channel+channelRight[+name]`)
+ * y acepta un `overrideLabel` para conservar «Canales de la entrada» en vez
+ * del genérico «Ajustar entrada» que sale de mezclar 2-3 claves.
+ */
+describe('setInputRouteChannels entra por patchInputRoute: misma fusión, etiqueta propia', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('una ráfaga de cambios de canal en la MISMA ruta funde en UNA entrada con su propia etiqueta', async () => {
+    const { core, app, monitor } = await rig();
+    const routeId = declareRoute(core, app.store);
+    const historyBefore = app.store.history.length;
+
+    // Hoy nadie dispara esto en ráfaga (el llamante real es un <select>), pero
+    // la fusión tiene que sostenerse igual el día que deje de serlo — es
+    // justo lo que este caso deja comprobado en vez de dar por sentado.
+    monitor.setInputRouteChannels(routeId, 1, null);
+    monitor.setInputRouteChannels(routeId, 2, null);
+    monitor.setInputRouteChannels(routeId, 3, null);
+
+    // Una sola entrada nueva, no tres.
+    expect(app.store.history.length).toBe(historyBefore + 1);
+
+    const entry = app.store.history[app.store.history.length - 1]!;
+    // La etiqueta propia sobrevive: no cae en el «Ajustar entrada» genérico
+    // que le tocaría por mezclar channel+channelRight+name.
+    expect(entry.label).toBe('Canales de la entrada');
+    expect(entry.mergeKey).toBe(`route:${routeId}:channel+channelRight+name`);
+
+    expect(app.store.project.inputRoutes[routeId]!.channel).toBe(3);
+    expect(app.store.project.inputRoutes[routeId]!.channelRight).toBe(3);
+
+    app.store.undo();
+    // Al valor de ANTES de la ráfaga, no al penúltimo paso (canal 2).
+    expect(app.store.project.inputRoutes[routeId]!.channel).toBe(0);
+  });
+
+  it('dos rutas distintas no se funden entre sí', async () => {
+    const { core, app, monitor } = await rig();
+    const routeA = declareRoute(core, app.store);
+    const routeB = declareRoute(core, app.store);
+    const historyBefore = app.store.history.length;
+
+    monitor.setInputRouteChannels(routeA, 1, null);
+    monitor.setInputRouteChannels(routeB, 2, null);
+
+    expect(app.store.history.length).toBe(historyBefore + 2);
+    const tail = app.store.history.slice(-2);
+    expect(tail.map((e) => e.mergeKey)).toEqual([
+      `route:${routeA}:channel+channelRight+name`,
+      `route:${routeB}:channel+channelRight+name`,
+    ]);
+
+    // Deshacer una vez solo toca la ruta B (la última); A queda intacta.
+    app.store.undo();
+    expect(app.store.project.inputRoutes[routeB]!.channel).toBe(0);
+    expect(app.store.project.inputRoutes[routeA]!.channel).toBe(1);
+  });
+
+  it('no se funde con una ráfaga de ganancia de la MISMA ruta: mergeKey distinta', async () => {
+    const { core, app, monitor } = await rig();
+    const routeId = declareRoute(core, app.store);
+    const historyBefore = app.store.history.length;
+
+    for (let i = 1; i <= 3; i++) monitor.patchInputRoute(routeId, { gain: i * 0.2 });
+    monitor.setInputRouteChannels(routeId, 1, null);
+
+    // Dos entradas: la ráfaga de ganancia, y el cambio de canal — no se
+    // fundieron pese a caer en la misma ventana, porque tocan campos
+    // distintos (mergeKey distinta).
+    expect(app.store.history.length).toBe(historyBefore + 2);
+    const tail = app.store.history.slice(-2);
+    expect(tail.map((e) => e.label)).toEqual(['Ganancia de la entrada', 'Canales de la entrada']);
+    expect(tail.map((e) => e.mergeKey)).toEqual([
+      `route:${routeId}:gain`,
+      `route:${routeId}:channel+channelRight+name`,
+    ]);
+  });
+});
