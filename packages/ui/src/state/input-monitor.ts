@@ -545,8 +545,47 @@ export function removeInputRoute(routeId: Id): void {
   store.dispatch({ type: 'removeInputRoute', routeId });
 }
 
+/**
+ * Etiqueta legible por campo, para el historial de `patchInputRoute`. Un
+ * patch que toca varios campos a la vez (o un campo que se agregue a
+ * `InputRoute` sin actualizar este mapa) cae en el genérico de abajo.
+ */
+const INPUT_ROUTE_FIELD_LABELS: Partial<Record<keyof Omit<InputRoute, 'id'>, string>> = {
+  name: 'Nombre de la entrada',
+  channel: 'Canal de la entrada',
+  channelRight: 'Canal de la entrada',
+  mixerTrack: 'Pista de la entrada',
+  playlistTrackId: 'Pista de grabación de la entrada',
+  armed: 'Armar entrada',
+  monitor: 'Oír entrada',
+  gain: 'Ganancia de la entrada',
+};
+
+/**
+ * Cambia campos de una ruta declarada. Por aquí pasan un campo de texto (una
+ * entrada por pulsación, `MidiSection.tsx`), un `<input type=number>`
+ * (NumberScrubber, ráfaga al arrastrar) y el deslizador de ganancia
+ * (`<input type=range>`, hasta 80 eventos por un solo gesto) — sin
+ * `mergeKey` cada evento de la ráfaga sería su propio paso de undo (ver
+ * `Store.dispatch`).
+ *
+ * La clave lleva el id de la ruta Y el campo tocado, como hace
+ * `AudioEditor` con `ae:gain:${clip.id}` (mismo gesto, mismo concepto: la
+ * ganancia de un clip). El id solo no alcanza: dos campos de la MISMA ruta
+ * cambiados en la misma ráfaga (un arrastre de ganancia que termina justo
+ * cuando se está tipeando el nombre) no deben fundirse entre sí, o un solo
+ * deshacer se llevaría por delante un cambio de nombre sin avisar. Se
+ * arregla acá, en el envoltorio, y no en cada sitio de llamada: así el
+ * próximo campo que se le agregue a `InputRoute` no reabre este mismo bug.
+ */
 export function patchInputRoute(routeId: Id, patch: Partial<Omit<InputRoute, 'id'>>): void {
-  store.dispatch({ type: 'patchInputRoute', routeId, patch });
+  const fields = Object.keys(patch).sort() as (keyof Omit<InputRoute, 'id'>)[];
+  const label =
+    fields.length === 1 ? (INPUT_ROUTE_FIELD_LABELS[fields[0]!] ?? 'Ajustar entrada') : 'Ajustar entrada';
+  store.dispatch(
+    { type: 'patchInputRoute', routeId, patch },
+    { label, mergeKey: `route:${routeId}:${fields.join('+') || 'patch'}` },
+  );
 }
 
 /**
