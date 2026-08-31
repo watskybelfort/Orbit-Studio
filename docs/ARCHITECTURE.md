@@ -184,7 +184,7 @@ la tentación contraria es fuerte cuando uno lee «regla dura»:
   líneas por encima de una lista que no le permitía importar `engine`. No es
   que el código se saliera del diseño: es que la lista se quedó en la v0.1 y no
   se volvió a medir.
-- **Ninguna de las doce es una arista hacia arriba.** Ni una sola crea un ciclo,
+- **Ninguna de las seis es una arista hacia arriba.** Ni una sola crea un ciclo,
   ni ensucia `core`. Todas van de capa alta a capa baja, que es precisamente lo
   que la regla quería garantizar. Lo que la regla prohibía de más era
   *profundidad*, no *dirección*, y la profundidad no hace daño.

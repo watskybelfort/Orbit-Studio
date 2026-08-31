@@ -25,12 +25,13 @@
  * sepa que existe un `.gitattributes`—; forzar `eol=lf` los volvería ciertos
  * solo mientras ese archivo siga ahí y nadie edite con una herramienta que
  * reescriba los finales. El segundo arreglo, además, reescribe el árbol entero
- * de todo el mundo para tapar un problema de siete archivos de test.
+ * de todo el mundo para tapar un problema de once archivos de test.
  *
  * **El índice está limpio, y eso refuerza la decisión.** `git ls-files --eol`
  * dice 584 archivos de texto, TODOS `i/lf`, y cero `i/crlf`: el repo no tiene
  * mezcla de finales de línea, la mezcla la fabrica el checkout. (Cuidado con
- * medirlo mal: un `git grep -Il $''` contesta 584 sobre 584, porque mira el
+ * medirlo mal: un `git grep -Il $'
+'` contesta 584 sobre 584, porque mira el
  * árbol de trabajo, que con `core.autocrlf=true` ya está convertido — es una
  * medida del `git config` de quien la corre, no del repositorio.) O sea que un
  * `.gitattributes` con `eol=lf` no arreglaría nada que no arregle esto: no hay

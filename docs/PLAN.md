@@ -147,7 +147,7 @@ v3.7 contra el código que quedó:
 - **Las cachés de audio del hilo de UI** (`pcmCache`, picos, y cablear el
   barrido a abrir proyecto).
 - **Las dos reglas duras que no describen el repo**: la 6 (el grafo de imports
-  real tiene doce dependencias que la regla no permite) y la 4 (colores
+  real tiene seis aristas que la regla no permite, en 16 archivos) y la 4 (colores
   literales fuera de `theme/`, y tres editores con su propia paleta). Las dos
   piden una decisión antes que un arreglo: o se corrige la regla, o se corrige
   el código.

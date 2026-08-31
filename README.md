@@ -93,7 +93,7 @@ tres líneas con `
 ` literales, y en Windows el checkout entrega el archivo con
 CRLF. Reproducido pasando el archivo a CRLF a propósito: la lectura de antes
 contesta `false` a esa aserción y la normalizada `true`. El arreglo no es el
-archivo sino la clase: los nueve tests que leen fuente entran ahora por
+archivo sino la clase: los tests que leen fuente entran ahora por
 `read-source.ts`. (Y de paso, una lección de medir: dije que el repo tenía 577
 archivos con CRLF y era falso — `git ls-files --eol` da 584 de 584 en LF. Había
 medido el árbol de trabajo, que es una medida del `git config` de quien la corre.)
