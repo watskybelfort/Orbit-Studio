@@ -22,22 +22,12 @@
 
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+// Mismo predicado que la regla de ESLint para .tsx/.ts: una definición, dos
+// lectores. Ver el docblock de `eslint/color-literal.js`.
+import { looksLikeColor } from './eslint/color-literal.js';
 
-const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\s*\(/;
-const HEX = /#([0-9a-fA-F]+)\b/g;
 /** Las paletas de canvas de la regla 4: literales a propósito. */
 const CANVAS_PALETTE_PROP = /^--(?:au|pr|pl)-/i;
-
-function looksLikeColor(text) {
-  if (FUNC.test(text)) return true;
-  for (const m of text.matchAll(HEX)) {
-    const n = m[1].length;
-    // 3/4/6/8 dígitos es un color; otras longitudes son otra cosa (un id de
-    // fragmento en una `url()`, por ejemplo).
-    if (n === 3 || n === 4 || n === 6 || n === 8) return true;
-  }
-  return false;
-}
 
 /** Borra comentarios conservando los saltos, para no mover los números de línea. */
 function stripComments(css) {

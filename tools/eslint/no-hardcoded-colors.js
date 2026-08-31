@@ -26,18 +26,11 @@
  * todo el mundo.
  */
 
-const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\s*\(/;
-const HEX = /#([0-9a-fA-F]+)\b/g;
-
-/** `#12345` no es un color (cinco dígitos); `#root` tampoco. */
-function looksLikeColor(text) {
-  if (FUNC.test(text)) return true;
-  for (const m of text.matchAll(HEX)) {
-    const n = m[1].length;
-    if (n === 3 || n === 4 || n === 6 || n === 8) return true;
-  }
-  return false;
-}
+// El predicado vive en `color-literal.js` porque lo comparte con
+// `tools/lint-css-colors.mjs`: eran dos copias idénticas, y por eso las dos
+// arrastraban el mismo defecto (sin flag `i`, un `RGB(1,2,3)` pasaba por las
+// dos sin que ninguna lo viera).
+import { looksLikeColor } from './color-literal.js';
 
 /** @type {import('eslint').Rule.RuleModule} */
 export default {
