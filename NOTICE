@@ -1,0 +1,27 @@
+Orbit Studio
+Copyright 2026 Orbit Studio
+
+Este producto se distribuye bajo la Apache License 2.0 (ver LICENSE).
+
+--------------------------------------------------------------------------
+El nombre y la marca
+--------------------------------------------------------------------------
+
+La licencia cubre el CÓDIGO, no el nombre. La sección 6 de la Apache 2.0 es
+explícita: no concede derechos sobre marcas, nombres comerciales ni logotipos.
+
+En claro: podés usar, modificar, redistribuir y vender lo que construyas con
+este código —incluso sin abrirlo— siempre que mantengas el aviso de copyright,
+la copia de la licencia y este NOTICE, y que dejes constancia de qué archivos
+cambiaste. Lo que no podés es llamarle «Orbit Studio» a tu versión, ni usar el
+icono de la app, ni dar a entender que el proyecto original la respalda.
+
+--------------------------------------------------------------------------
+Los sonidos
+--------------------------------------------------------------------------
+
+El pack de fábrica «Orbit Essentials» (packages/sound-library/factory, 276
+archivos .wav) NO contiene samples de terceros: cada archivo lo genera por
+síntesis el propio motor del proyecto, desde
+packages/sound-library/generate/generate.ts. Va bajo la misma licencia que el
+código, y lo que produzcas con él es tuyo, sin regalías ni atribución.

@@ -2,6 +2,7 @@
 
 ![versión](https://img.shields.io/badge/versi%C3%B3n-v3.10.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
+![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -811,3 +812,20 @@ el **asistente de mezcla de Claude** (`advise_mix`), que diagnostica LUFS, banda
 y fase y propone la cadena con valores reales.
 
 </details>
+
+## Licencia
+
+[Apache License 2.0](LICENSE). Podés usar el código, modificarlo, redistribuirlo
+y vender lo que construyas con él —incluso sin abrir tu versión—, siempre que
+mantengas el aviso de copyright, la licencia y el [NOTICE](NOTICE), y que digas
+qué archivos cambiaste.
+
+Dos cosas que la licencia **no** cubre y conviene tener claras:
+
+- **El nombre no viaja con el código.** «Orbit Studio» y el icono de la app son
+  marca del proyecto (Apache 2.0 §6 no concede derechos de marca): tu fork puede
+  hacer lo que quiera, pero con otro nombre.
+- **Los sonidos son libres de verdad.** El pack de fábrica *Orbit Essentials*
+  (276 .wav) no lleva samples de terceros: los genera por síntesis el propio
+  motor desde `packages/sound-library/generate/generate.ts`. Lo que produzcas
+  con ellos es tuyo, sin regalías ni atribución.
