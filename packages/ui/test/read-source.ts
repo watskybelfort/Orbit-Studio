@@ -27,6 +27,16 @@
  * reescriba los finales. El segundo arreglo, además, reescribe el árbol entero
  * de todo el mundo para tapar un problema de siete archivos de test.
  *
+ * **El índice está limpio, y eso refuerza la decisión.** `git ls-files --eol`
+ * dice 584 archivos de texto, TODOS `i/lf`, y cero `i/crlf`: el repo no tiene
+ * mezcla de finales de línea, la mezcla la fabrica el checkout. (Cuidado con
+ * medirlo mal: un `git grep -Il $''` contesta 584 sobre 584, porque mira el
+ * árbol de trabajo, que con `core.autocrlf=true` ya está convertido — es una
+ * medida del `git config` de quien la corre, no del repositorio.) O sea que un
+ * `.gitattributes` con `eol=lf` no arreglaría nada que no arregle esto: no hay
+ * nada que renormalizar, solo hay tests que afirman sobre bytes que el checkout
+ * decide.
+ *
  * Regla para el próximo test que lea fuente: **entrá por acá**, no por
  * `readFileSync` directo. Si hace falta leer algo que no está bajo
  * `packages/ui/src`, está `readText`.
