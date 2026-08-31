@@ -62,9 +62,14 @@ estaba en ninguna tarjeta del tablero.
   en el envoltorio y lleva el id de la ruta *y* el campo, así que cubre los tres
   llamantes y el próximo campo de `InputRoute` no reabre el bug.
 - **`npm run listen:kit`**: el material de escucha renderizado de los fixtures
-  del golden, con colas de 25 s, a 24 bits, y un índice que dice qué buscar en
-  cada archivo. Existe porque la tarjeta de escucha llevaba dos rondas parada por
-  fricción, no por falta de ganas.
+  del golden, con 25 s de cola añadida detrás del fixture (el archivo mide ~26,7
+  s, no 25), a 24 bits, y un índice que dice qué buscar en cada archivo. Existe
+  porque la tarjeta de escucha llevaba dos rondas parada por fricción, no por
+  falta de ganas. Las medidas del índice salen de decodificar el `.wav`, no del
+  buffer float del motor: la continua de los anti-denormal (−364 dBFS en la
+  reverb) no llega al medio escalón de 24 bits (−144,5 dBFS) y el archivo la
+  guarda como silencio digital exacto, así que el índice da las dos cifras y dice
+  cuál es cuál.
 
 ### Estado de la red
 

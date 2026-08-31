@@ -133,11 +133,16 @@ que se agregue no reabre el bug.
 **`npm run listen:kit`.** La parte de la verificación que ningún test sustituye
 —una cola de reverb en silencio con el monitor arriba, un barrido automatizado,
 el `.opus` propio contra libopus— llevaba dos rondas sin hacerse por pura
-fricción. Ahora sale renderizada de los mismos fixtures del golden, con colas de
-25 s y a 24 bits, y un índice que dice qué escuchar en cada archivo. Primera
-corrida y ya contesta un punto con un número: la continua que dejan los
-anti-denormal es −364 dBFS en la reverb y −264 en el delay, contra el piso de 24
-bits de −144.
+fricción. Ahora sale renderizada de los mismos fixtures del golden, con 25 s de
+cola añadida detrás del fixture y a 24 bits, y un índice que dice qué escuchar en
+cada archivo. Primera corrida y ya contesta un punto, aunque no como se esperaba:
+dentro del motor la continua que dejan los anti-denormal es −364 dBFS en la
+reverb y −264 en el delay, pero eso cae cientos de dB por debajo del medio
+escalón de 24 bits (−144,5 dBFS), así que en el `.wav` los últimos 5 s salen como
+silencio digital exacto. Que el piso no quepa en el contenedor **es** la
+respuesta; lo que había que arreglar es que el índice midiera el buffer float y
+lo publicara como lo que se oye. Ahora mide el archivo decodificado y, donde las
+dos cifras difieren, da las dos y dice cuál es cuál.
 
 **v3.8.0 — "cuando la red deja de mirar".** La ronda empezó comprobando que lo
 que la v3.7 prometió es real, y eso solo ya destapó tres cosas que el verde de
