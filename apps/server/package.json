@@ -8,6 +8,8 @@
     "start": "tsx src/cli.ts"
   },
   "dependencies": {
+    "@orbit/collab": "*",
+    "@orbit/core": "*",
     "ws": "^8.21.3",
     "y-websocket": "^3.1.0",
     "yjs": "^13.6.32"

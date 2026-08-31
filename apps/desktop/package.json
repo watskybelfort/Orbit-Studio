@@ -11,8 +11,11 @@
     "dist": "electron-vite build && electron-builder --win --x64"
   },
   "devDependencies": {
+    "@orbit/claude-bridge": "*",
+    "@orbit/collab": "*",
     "@orbit/core": "*",
     "@orbit/engine": "*",
+    "@orbit/server": "*",
     "@orbit/ui": "*"
   }
 }

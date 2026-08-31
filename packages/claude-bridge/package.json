@@ -9,6 +9,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@orbit/core": "*",
     "@orbit/engine": "*",
+    "@orbit/sound-library": "*",
     "ws": "^8.21.3"
   }
 }

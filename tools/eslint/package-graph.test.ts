@@ -24,7 +24,7 @@
  *   npx vitest run tools/eslint/package-graph.test.ts
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Linter } from 'eslint';
@@ -155,6 +155,102 @@ describe('la lista `modelOnly` sigue cubriendo el estado de core', () => {
       const reales = regla.sources.flatMap(runtimeExports).sort();
       expect(reales.length, 'no se leyó ningún export: ¿se movieron los archivos?').toBeGreaterThan(0);
       expect([...regla.deny].sort()).toEqual(reales);
+    });
+  }
+});
+
+describe('package.json declara al menos lo que su unidad importa de verdad', () => {
+  // El cuarto sitio que describe el grafo, y también mentía: `packages/engine`
+  // importaba `@orbit/core` sin declararlo, `sound-library` no declaraba ni
+  // `core` ni `engine`, etc. — invisible porque npm workspaces iza todo a la
+  // raíz y `tsconfig`/`vite` resuelven por `paths`: funciona por accidente de
+  // la topología, no porque esté declarado. Esta es la cuarta comparación del
+  // mismo patrón que las de arriba: no confía en una tabla escrita a mano (ni
+  // la mía ni la de nadie), deriva "lo que importa de verdad" recorriendo el
+  // código fuente de cada unidad.
+  //
+  // El assert es `⊇`, no igualdad: `apps/desktop` tiene permitidas en el
+  // grafo `core`, `engine` y `sound-library` que hoy no usa directamente (le
+  // llegan transitivamente por `ui`), y declararlas de más en una hoja del
+  // grafo no es un fallo.
+
+  const IGNORAR = new Set(['node_modules', 'dist', 'out', 'build', '.git', 'coverage']);
+
+  // `ReturnType<typeof readdirSync>` resuelve al overload equivocado
+  // (`Dirent<Buffer>[]`, no el `Dirent<string>[]` que de verdad devuelve la
+  // llamada con `withFileTypes: true` y sin `encoding`); dejar que la
+  // asignación infiera el tipo sola evita el choque.
+  function leerDirEntries(abs: string) {
+    try {
+      return readdirSync(abs, { withFileTypes: true });
+    } catch {
+      return null;
+    }
+  }
+
+  function listarFuentes(dir: string): string[] {
+    const abs = path.join(ROOT, dir);
+    const entradas = leerDirEntries(abs);
+    if (!entradas) return [];
+    const out: string[] = [];
+    for (const entrada of entradas) {
+      if (IGNORAR.has(entrada.name)) continue;
+      const rel = path.posix.join(dir, entrada.name);
+      if (entrada.isDirectory()) out.push(...listarFuentes(rel));
+      else if (/\.tsx?$/.test(entrada.name)) out.push(rel);
+    }
+    return out;
+  }
+
+  // Reconoce un especificador SOLO en posición de import real —`from '...'`,
+  // `import('...')`, `require('...')`— y no cualquier mención de `@orbit/` en
+  // el archivo. Esa es la trampa: un grep ingenuo de `@orbit/` cuenta también
+  // las menciones en comentarios (`packages/engine/src/compile.ts` explica en
+  // prosa "Ver `model/groups.ts` en @orbit/core") y hay al menos un comentario
+  // que además parece un import real —`packages/ui/src/collab/collab-state.ts`
+  // dice en prosa "el renderer NO puede importar @orbit/server"—, que un grep
+  // por `@orbit/` sin más contaría como dependencia cuando es exactamente lo
+  // contrario: la razón por la que NO se importa.
+  const ESPECIFICADOR =
+    /\bfrom\s*(['"])(@orbit\/[a-z-]+)(?:\/[^'"]*)?\1|\b(?:import|require)\(\s*(['"])(@orbit\/[a-z-]+)(?:\/[^'"]*)?\3\s*\)/g;
+
+  function importsReales(unidad: string, propioNombre: string): Set<string> {
+    const nombres = new Set<string>();
+    for (const archivo of listarFuentes(unidad)) {
+      for (const m of leer(archivo).matchAll(ESPECIFICADOR)) {
+        const spec = m[2] ?? m[4];
+        // La auto-referencia (un paquete que se importa a sí mismo por su
+        // propio alias) no es una dependencia externa.
+        if (spec && spec !== propioNombre) nombres.add(spec);
+      }
+    }
+    return nombres;
+  }
+
+  for (const unidad of Object.keys(config.graph)) {
+    it(`${unidad}/package.json declara todo lo que ${unidad} importa de verdad`, () => {
+      const pkg = JSON.parse(leer(path.posix.join(unidad, 'package.json')));
+      const declarado = new Set(
+        Object.keys({
+          ...pkg.dependencies,
+          ...pkg.devDependencies,
+          ...pkg.peerDependencies,
+          ...pkg.optionalDependencies,
+        }),
+      );
+      const real = importsReales(unidad, pkg.name);
+      // `packages/core` es la capa 0 del grafo (no puede depender de nada) y
+      // legítimamente no tiene ningún import de `@orbit/*`: el resto de
+      // unidades sí tiene al menos una arista permitida, así que si no se
+      // detectó ningún import real ahí es señal de que el código fuente se
+      // movió y el recorrido de archivos dejó de encontrarlo, no de que la
+      // unidad esté limpia.
+      if ((config.graph as Record<string, string[]>)[unidad]!.length > 0) {
+        expect(real.size, `no se detectó ningún import de @orbit/* en ${unidad}: ¿se movió el código fuente?`).toBeGreaterThan(0);
+      }
+      for (const dep of real) {
+        expect(declarado, `${unidad} importa ${dep} de verdad pero su package.json no lo declara`).toContain(dep);
+      }
     });
   }
 });
