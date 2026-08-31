@@ -29,6 +29,33 @@
 # Qué certificado comprar, dónde, y el nombre exacto de cada secret:
 # docs/FIRMA.md — no repetido acá para no tener dos fuentes que puedan
 # desalinearse.
+#
+# Por qué esto NO se niega a publicar si `CI` está roja para el mismo commit
+# (la v3.8.0 lo hizo: `Release` en verde con `CI` en rojo, y nadie se enteró
+# — ver la tarjeta «el rojo que nadie miró»):
+#   - Se decidió A CONCIENCIA no bloquear. La alternativa —que este workflow
+#     espere o dependa (`needs:`) del resultado de `CI` para el SHA taggeado—
+#     convierte un tag en un comando que puede colgarse: si alguien taggea
+#     ANTES de que `CI` para ese commit siquiera arranque (nada lo impide;
+#     son dos triggers independientes, `push: tags` acá y `push: branches:
+#     [main]` en ci.yml), esperar un resultado que no existe todavía es
+#     esperar indefinidamente o inventar un timeout arbitrario — y eso sí es
+#     la puerta que hay que saltarse con prisas el día de un hotfix real.
+#   - Lo que la tarjeta pide de verdad es que el rojo SE VEA, no que bloquee.
+#     Así que el paso de abajo consulta el estado de `CI` para
+#     `github.sha` (con `tools/qa/ci-status.ts`, el mismo comando que
+#     `npm run ci:status` — una sola lógica de qué cuenta como verde/rojo) y
+#     lo escribe en tres sitios que nadie tiene que ir a buscar: el resumen
+#     del job (`GITHUB_STEP_SUMMARY`), un `::warning::` si no está verde (así
+#     se ve en la lista de runs sin abrir ninguno), y una línea al principio
+#     del cuerpo de la GitHub Release — que es precisamente donde se leyó la
+#     v3.8.0 sin saber que su CI había fallado.
+#   - Consultar en vez de esperar también evita la otra trampa: la CI de hoy
+#     tarda ~4 minutos (medido en los runs de `ci.yml`), así que un `needs:`
+#     alargaría CADA release en ese tiempo aunque siempre saliera verde. Un
+#     hotfix real gana más publicando ya, con el rojo (si lo hay) imposible
+#     de no ver, que esperando cuatro minutos con la app instalable ya rota
+#     en el ambiente del usuario.
 name: Release
 
 on:
@@ -56,6 +83,32 @@ jobs:
 
       # Sin --ignore-scripts: ver el comentario de arriba del archivo.
       - run: npm ci
+
+      - name: Consultar el estado de CI para este commit (no bloquea — se anuncia)
+        id: ci_status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          linea="$(npm run --silent ci:status -- "$GITHUB_SHA")"
+          codigo=$?
+          set -e
+          echo "$linea"
+          {
+            echo "### Estado de CI para ${GITHUB_SHA:0:7}"
+            echo "$linea"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Ver el porqué de no fallar el job en el comentario de arriba del
+          # archivo: 1 = CI roja, 2 = sin ejecución encontrada, 3 = en curso.
+          # Ninguno de los tres detiene la publicación; los tres se anuncian.
+          if [ "$codigo" != "0" ]; then
+            echo "::warning::CI para este commit NO está verde (código $codigo) — $linea"
+          fi
+          # Reescapado de un solo renglón para que el `echo` a GITHUB_OUTPUT
+          # de más abajo no se rompa si la línea trajera un '%' o un salto.
+          linea_segura="${linea//'%'/'%25'}"
+          linea_segura="${linea_segura//$'\n'/' '}"
+          echo "linea=$linea_segura" >> "$GITHUB_OUTPUT"
 
       - name: Compilar + empaquetar (electron-vite build && electron-builder --win --x64)
         env:
@@ -88,12 +141,15 @@ jobs:
       - name: Publicar/actualizar la GitHub Release y adjuntar el instalador
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_STATUS_LINE: ${{ steps.ci_status.outputs.linea }}
         run: |
           set -euo pipefail
+          notas_ci="Estado de \`CI\` para este commit al momento de publicar: ${CI_STATUS_LINE:-sin dato}."
           if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" apps/desktop/dist/*.exe --clobber
           else
             gh release create "${{ github.ref_name }}" apps/desktop/dist/*.exe \
               --title "${{ github.ref_name }}" \
+              --notes "$notas_ci" \
               --generate-notes
           fi

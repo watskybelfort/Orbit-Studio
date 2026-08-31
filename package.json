@@ -18,6 +18,7 @@
     "golden:update": "tsx tools/qa/golden-update.ts",
     "listen:kit": "tsx tools/qa/listen-kit.ts",
     "golden:bite": "tsx tools/qa/golden-bite.ts",
+    "ci:status": "tsx tools/qa/ci-status.ts",
     "build": "npm run build -w @orbit/desktop"
   },
   "devDependencies": {

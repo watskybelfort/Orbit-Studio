@@ -58,6 +58,15 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
 
 - Commits granulares en español (`feat(engine): …`, `feat(ui): …`) y **push al
   terminar cada pieza**. Muchos commits pequeños > uno gigante.
+- **Después de cada push, `npm run ci:status`** para ver en una línea cómo
+  quedó (verde / roja / en curso / sin ejecución todavía) sin acordarse de la
+  sintaxis de `gh run list`. Nace de que la v3.8.0 se taggeó y publicó con
+  `CI` en rojo desde seis pushes antes y nadie lo miró — el comando existe
+  para que mirarlo no dependa de acordarse de mirarlo. `Release` (al taguear)
+  hace esta misma consulta sola y la anuncia en el cuerpo de la GitHub
+  Release y como aviso del job — no bloquea el tag (ver el porqué en el
+  comentario de `.github/workflows/release.yml`), así que un hotfix sigue
+  pudiendo salir con la CI roja, pero ya no en silencio.
 - Release (tag + GitHub release) solo al cerrar una versión, no por commit.
 - `npm run typecheck && npm run build` debe pasar antes de cada commit.
 - **Tests de `packages/ui`: extraer lógica a módulos puros y probar eso, sin
@@ -95,6 +104,7 @@ npm run build        # build de producción
 npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.md)
 npm run golden:bite     # ¿algún fixture del golden dejó de medir?
 npm run listen:kit      # renderiza a out/escucha lo que hay que juzgar con el oído
+npm run ci:status       # cómo quedó el último push (o cualquier SHA), en una línea
 ```
 
 ## Contexto de producto
