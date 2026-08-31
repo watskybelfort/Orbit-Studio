@@ -143,14 +143,24 @@ describe('render offline', () => {
 
     expect(a.left.length).toBeGreaterThan(44100 * 3);
 
+    // Los NaN se CUENTAN y se afirman una vez, no una vez por muestra.
+    // Un `expect()` por muestra son ~180.000 llamadas al matcher para
+    // comprobar algo que se resume en un numero, y eso convertía el test en
+    // una medida de la CPU de la máquina: en reposo tarda ~1,2 s y en la CI
+    // de Windows bajo carga se lo vio tardar 5358 ms contra el timeout por
+    // defecto de 5000 (run 33382948835, commit fd98c72). Afirma lo mismo:
+    // si hay un solo NaN, falla, y además dice cuántos habia.
+    let nans = 0;
     let peak = 0;
     let sumSq = 0;
     for (let i = 0; i < a.left.length; i++) {
       const s = a.left[i]!;
-      expect(Number.isNaN(s)).toBe(false);
+      if (Number.isNaN(s)) nans++;
       peak = Math.max(peak, Math.abs(s));
       sumSq += s * s;
     }
+    expect(nans, `muestras NaN en el render: ${nans}`).toBe(0);
+
     const rms = Math.sqrt(sumSq / a.left.length);
     expect(peak).toBeGreaterThan(0.05); // hay señal
     expect(peak).toBeLessThanOrEqual(1.0); // limiter en master
