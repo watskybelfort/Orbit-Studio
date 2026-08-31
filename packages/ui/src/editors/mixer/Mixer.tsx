@@ -1464,10 +1464,30 @@ function SendMenu({
 }) {
   if (!send) return null;
   const r = resolveSend(send);
+  /**
+   * Por aquí pasan los cinco controles del menú: dos `<select>` (toma,
+   * parte), dos checkboxes (polaridad, mute) y el deslizador de Pan
+   * (`<input type="range" min={-1} max={1} step={0.05}>`, 40 pasos por un
+   * arrastre de punta a punta) — sin `mergeKey` cada paso del arrastre era su
+   * propio paso de undo (hasta 40 filas «Send: pan» en el historial por un
+   * solo gesto).
+   *
+   * La clave lleva la pista de origen, la pista destino Y el campo tocado,
+   * como hace `patchInputRoute` con `route:${routeId}:${campo}` (mismo
+   * hueco, mismo arreglo: derivarla del propio patch en el envoltorio, no en
+   * cada sitio de llamada). Pista de origen y destino hacen falta las DOS
+   * porque una misma pista puede tener varios sends — el target solo no
+   * identifica el envío, y la pista de origen sola fundiría sends distintos
+   * de la misma pista entre sí.
+   */
   const patch = (p: Partial<Omit<Send, 'target'>>, what: string): void => {
+    const fields = Object.keys(p).sort().join('+') || 'patch';
     store.dispatch(
       { type: 'patchSend', trackIndex, target: send.target, patch: p },
-      { label: `Send: ${what}` },
+      {
+        label: `Send: ${what}`,
+        mergeKey: `send:${trackIndex}:${send.target}:${fields}`,
+      },
     );
   };
 

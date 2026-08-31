@@ -506,13 +506,32 @@ export function ChannelRack() {
    * volvías, y el canal que ya estaba muteado a mano se había desmuteado solo.
    * Ahora el flag vive en la carpeta y el compilador lo suma al de cada canal,
    * así que volver del mute devuelve a cada uno exactamente como estaba.
+   *
+   * Despachaba `patchChannelGroup` directo, con `label` pero sin `mergeKey`
+   * (hueco del mismo barrido que el pan de un send, ver Mixer.tsx). Hoy es un
+   * botón de clic discreto, no un arrastre, así que no se ve — pero clonar tal
+   * cual el patrón de `patchGroup` (tres líneas arriba) habría sido un arreglo
+   * que no arregla nada: `patchGroup` mete la ETIQUETA en la clave
+   * (`group:${groupId}:${label}`), y aquí la etiqueta cambia con el estado
+   * («Activar mute» ↔ «Quitar mute»), así que dos clics seguidos jamás
+   * compartirían clave y nunca se fundirían.
+   *
+   * La clave va por el CAMPO (`group:${groupId}:${flag}`), constante pase lo
+   * que pase con el estado — el mismo criterio que `patchInputRoute` aplica
+   * hasta a sus checkboxes (`armed`, `monitor`): dos clics del mismo flag
+   * dentro de la ventana de fusión son la misma decisión repetida ("encendí,
+   * me arrepentí, apagué") y un solo undo debe devolver al estado de ANTES de
+   * la ráfaga, no dejar un paso intermedio fantasma en el historial.
    */
   const toggleGroupFlag = (groupId: Id, flag: 'mute' | 'solo') => {
     const group = project.channelGroups[groupId];
     if (!group) return;
     const next = group[flag] !== true;
     const label = `${next ? 'Activar' : 'Quitar'} ${flag} en "${group.name}"`;
-    store.dispatch({ type: 'patchChannelGroup', groupId, patch: { [flag]: next } }, { label });
+    store.dispatch(
+      { type: 'patchChannelGroup', groupId, patch: { [flag]: next } },
+      { label, mergeKey: `group:${groupId}:${flag}` },
+    );
   };
 
   // ── Bus de la carpeta ─────────────────────────────────────────────────────
