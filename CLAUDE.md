@@ -88,10 +88,13 @@ npm run server       # servidor de colaboración local
 npm run typecheck    # TS estricto en todos los paquetes
 npm run test         # unit + golden DSP
 npm run lint         # reglas duras + hooks; exhaustive-deps es error, rompe la CI
+                     # (encadena lint:css: la regla 4 sobre los .css)
+npm run lint:css     # solo los colores: ningún literal fuera de theme/
 npm run build        # build de producción
 
 npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.md)
 npm run golden:bite     # ¿algún fixture del golden dejó de medir?
+npm run listen:kit      # renderiza a out/escucha lo que hay que juzgar con el oído
 ```
 
 ## Contexto de producto
