@@ -593,6 +593,7 @@ npm run server     # servidor de colaboración (puerto 7900)
 npm test           # 2250 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
+npm run lint       # reglas duras + hooks; exhaustive-deps es error, rompe la CI
 ```
 
 > Si tras `npm install` Electron no arranca (allow-scripts se salta su
