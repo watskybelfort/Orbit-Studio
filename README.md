@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.8.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2301%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.9.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2330%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -83,6 +83,61 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.9.0 — "el rojo que nadie miró".** La ronda empezó por el paso 0 del ciclo,
+comprobar que lo que la v3.8 prometió es real, y lo primero que apareció no
+estaba en ninguna tarjeta: **la CI llevaba seis pushes en rojo y la release de la
+v3.8.0 se cortó encima del último.** Ubuntu en verde y Windows en rojo en la
+misma corrida, siempre por lo mismo — un test que lee código fuente afirmaba
+tres líneas con `
+` literales, y en Windows el checkout entrega el archivo con
+CRLF. Reproducido pasando el archivo a CRLF a propósito: la lectura de antes
+contesta `false` a esa aserción y la normalizada `true`. El arreglo no es el
+archivo sino la clase: los nueve tests que leen fuente entran ahora por
+`read-source.ts`. (Y de paso, una lección de medir: dije que el repo tenía 577
+archivos con CRLF y era falso — `git ls-files --eol` da 584 de 584 en LF. Había
+medido el árbol de trabajo, que es una medida del `git config` de quien la corre.)
+
+**Dos reglas duras que describían un repo que no existe.** La 6 decía que `ui`
+solo puede importar `core`, `engine` y `collab`, y el repo tenía doce
+dependencias que eso prohíbe — entre ellas ocho a `sound-library`, un paquete
+que la regla ni nombraba. Se eligió reescribir la regla, no romper el código, y
+por una razón concreta: `ARCHITECTURE.md` ya describía en prosa las aristas que
+su propia lista negaba, así que la lista era de la v0.1 y nadie la remidió.
+Ahora el grafo se escribe **una sola vez** en `tools/eslint/package-graph.json`,
+y lo leen la regla de ESLint que lo hace cumplir y un test que falla si CLAUDE.md
+o ARCHITECTURE.md dejan de decir lo mismo. La regla 4 pasó por lo mismo:
+veintitantos colores literales fuera de `theme/` salen a token, y los tres
+editores que pintan en `<canvas>` conservan su paleta local **por un motivo
+técnico** — `getComputedStyle()` no resuelve una custom property que referencia
+otra, así que centralizarlas no arreglaría nada. Eso ahora lo dice la regla, y lo
+vigila un `npm run lint:css`.
+
+**Tres cachés de audio, una sola política.** La v3.7 arregló una de las tres. La
+del editor de audio crecía *garantizado* —cada Normalizar hace `newId()` y la
+entrada vieja quedaba retenida para siempre— y el barrido solo corría al
+exportar, así que la cota real no era «el proyecto abierto» sino «el último
+proyecto que se exportó». Ahora cada caché se acota por su **conjunto vivo**, que
+lo define su consumidor, y el barrido cuelga de las cuatro puertas que
+reemplazan el proyecto entero. Cinco Normalizar pasan de 6 entradas a 2; a
+escala real, de ~69 MB retenidos a ~23 de techo.
+
+**Y lo que se arregla mirando dónde ya estaba resuelto.** El scope de la vista de
+instrumento medía el máster cuando el canal salía por un bus; la regla ya existía
+con nombre (`trackOfChannel`) y ya la usaban otros tres sitios, así que el
+arreglo fue usarla en vez de escribir la tercera copia. Y un arrastre del
+deslizador de ganancia de entrada dejaba hasta 80 filas en el historial: el
+`mergeKey` entra en el envoltorio, no en el sitio nuevo, así que el próximo campo
+que se agregue no reabre el bug.
+
+**`npm run listen:kit`.** La parte de la verificación que ningún test sustituye
+—una cola de reverb en silencio con el monitor arriba, un barrido automatizado,
+el `.opus` propio contra libopus— llevaba dos rondas sin hacerse por pura
+fricción. Ahora sale renderizada de los mismos fixtures del golden, con colas de
+25 s y a 24 bits, y un índice que dice qué escuchar en cada archivo. Primera
+corrida y ya contesta un punto con un número: la continua que dejan los
+anti-denormal es −364 dBFS en la reverb y −264 en el delay, contra el piso de 24
+bits de −144.
 
 **v3.8.0 — "cuando la red deja de mirar".** La ronda empezó comprobando que lo
 que la v3.7 prometió es real, y eso solo ya destapó tres cosas que el verde de
@@ -590,7 +645,7 @@ constante y a 0,620 con la adaptativa.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 2250 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 2330 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 npm run lint       # reglas duras + hooks; exhaustive-deps es error, rompe la CI

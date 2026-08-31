@@ -6,6 +6,80 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 31-08-2026: v3.9.0
+
+**"El rojo que nadie miró".** La ronda arrancó por el paso 0 del ciclo
+—comprobar que lo que la v3.8 prometió es real— y lo primero que apareció no
+estaba en ninguna tarjeta del tablero.
+
+### Lo que la verificación encontró antes de tocar nada
+
+- **La CI llevaba SEIS pushes en rojo, y la release de la v3.8.0 se cortó encima
+  del último.** Ubuntu verde y Windows rojo en las mismas corridas, siempre por
+  la misma causa: `input-section-recording-guard.test.ts` afirmaba un fragmento
+  de tres líneas con `
+` literales sobre un archivo que el checkout de Windows
+  (`core.autocrlf=true`, el que trae el runner `windows-latest`) entrega con
+  CRLF. Reproducido, no deducido: pasando `InputSection.tsx` a CRLF a propósito,
+  la lectura de antes contesta `false` a esa aserción y la normalizada `true`.
+  Arreglado por la clase — los **nueve** tests que leen código fuente entran
+  ahora por `packages/ui/test/read-source.ts` — y la CI volvió a verde en los dos
+  sistemas (run `33358761394`).
+- **Una cifra mía, mal medida.** En el commit del arreglo escribí que el repo
+  tenía «577 archivos versionados con CRLF». Falso: `git ls-files --eol` da 584
+  archivos de texto y los 584 en LF. Había medido el árbol de trabajo, que con
+  `autocrlf=true` ya está convertido — o sea una medida del `git config` de quien
+  la corre, no del repositorio. Corregido en el propio archivo para que no vuelva
+  a caer nadie, y el número bueno además refuerza la decisión: si el índice es
+  todo LF, un `.gitattributes` con `eol=lf` no tendría nada que renormalizar.
+- **Que la release salga con la CI roja es un agujero del proceso**, no del test
+  que fallaba. Queda como tarea nueva del tablero, con las tres salidas posibles
+  escritas.
+
+### Lo que cerró la ronda
+
+- **Las dos reglas duras que no describían el repo.** La 6 (grafo de imports) se
+  reescribió con el grafo real —decisión A, con cuatro razones medidas, entre
+  ellas que `ARCHITECTURE.md` ya describía en prosa las aristas que su lista
+  negaba— y el grafo pasa a escribirse UNA vez en
+  `tools/eslint/package-graph.json`, leído por la regla de ESLint y por un test
+  que falla si CLAUDE.md o ARCHITECTURE.md divergen. La 4 (colores) sacó
+  veintitantos literales y cinco fallbacks hex a tokens, y **nombra ahora su
+  excepción**: los editores que pintan en `<canvas>` conservan su paleta local
+  con valores literales porque `getComputedStyle()` no resuelve una custom
+  property que referencia otra. La vigila un `npm run lint:css` nuevo.
+- **Las tres cachés de audio del hilo de UI comparten política**: cada una se
+  acota por su conjunto vivo, que lo define su consumidor. La del editor lleva
+  además tope de recencia, porque es la única a la que el barrido por proyecto no
+  acota. Y el barrido dejó de colgar de «se exportó»: cuelga de
+  `collectWorkletSamples`, o sea de abrir proyecto, plantilla, restaurar versión
+  y recuperar autosave. De 6 entradas a 2 tras cinco Normalizar; ~69 MB → ~23 de
+  techo.
+- **El scope del instrumento medía el máster** cuando el canal salía por un bus.
+  La regla ya existía con nombre (`trackOfChannel`) y ya la usaban MixTab,
+  run-export y el executor: el arreglo fue usarla, no escribir la tercera copia.
+- **Un arrastre del deslizador de ganancia dejaba 80 undos.** El `mergeKey` entra
+  en el envoltorio y lleva el id de la ruta *y* el campo, así que cubre los tres
+  llamantes y el próximo campo de `InputRoute` no reabre el bug.
+- **`npm run listen:kit`**: el material de escucha renderizado de los fixtures
+  del golden, con colas de 25 s, a 24 bits, y un índice que dice qué buscar en
+  cada archivo. Existe porque la tarjeta de escucha llevaba dos rondas parada por
+  fricción, no por falta de ganas.
+
+### Estado de la red
+
+2330 tests en 183 archivos, lint limpio (ESLint + `lint:css`), typecheck limpio,
+build en verde. Golden: 25 renders + 2 flujos Opus, mordida **25/25**.
+
+### Lo que queda abierto
+
+- **Escuchar la v3.7/v3.8 y probarla con hardware** — la única que no puede hacer
+  una sesión: entradas multicanal con la interfaz real, calibración de latencia
+  con el bucle físico, y el juicio del oído sobre lo que el kit deja renderizado.
+- La tanda nueva del tablero, generada al cerrar esta ronda.
+
+---
+
 ## Estado — 29-08-2026: v3.8.0
 
 **"Cuando la red deja de mirar".** La ronda arrancó por el paso 0 del ciclo
