@@ -15,6 +15,7 @@ import {
   AUDIO_EDITOR_PCM_ENTRIES,
   createUiAudioCache,
   sampleCacheKey,
+  withPinnedSample,
 } from '../../state/sample-gc';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -147,6 +148,27 @@ export function AudioEditor() {
       alive = false;
     };
   }, [sample]);
+
+  // Al cerrarse el editor, su caché PCM se queda sin lector: `loadChannels` es
+  // el único que la lee y solo corre desde aquí. Hasta ahora esas dos entradas
+  // sobrevivían al panel y esperaban al próximo CAMBIO DE PROYECTO, que es el
+  // barrido de otra cosa — el mismo patrón de los otros dos huecos de esta
+  // tarjeta: alta garantizada, baja a cargo de nadie.
+  //
+  // Va en un efecto propio con deps vacías, no en el `cleanup` del de arriba, y
+  // ahí está la diferencia que importa: aquel corre en CADA cambio de sample y
+  // tirar allí la entrada mataría justo el par que el tope de recencia existe
+  // para conservar (Normalizar y Ctrl+Z, `AUDIO_EDITOR_PCM_ENTRIES`). Este
+  // corre solo al desmontar, que es el único momento en que el consumidor de
+  // verdad se fue (`InternalWindow` desmonta al cerrar la ventana). Reabrir
+  // cuesta una relectura de disco de UN sample: lo mismo que abrirlo la primera
+  // vez, y es un gesto explícito del usuario.
+  useEffect(
+    () => () => {
+      pcmCache.clear();
+    },
+    [],
+  );
 
   const secPerBeat = 60 / project.tempo;
   const clipSec = (clip?.length ?? 0) * secPerBeat;
@@ -331,26 +353,35 @@ export function AudioEditor() {
         );
         const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
         const newSampleId = newId();
-        await engine.loadSample(newSampleId, wavBuf);
-        const ref: SampleRef = {
-          id: newSampleId,
-          name: `${sample.name} · ${OP_LABELS[op].toLowerCase()}`,
-          path: `recording:${file}`,
-          hash: (await sha1Hex(wavBuf)) ?? newSampleId,
-          duration: channels.duration,
-        };
-        const label = `${OP_LABELS[op]} "${sample.name}"`;
-        store.dispatch(
-          {
-            type: 'batch',
-            label,
-            commands: [
-              { type: 'registerSample', sample: ref },
-              { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
-            ],
-          },
-          { label },
-        );
+        // Sujeto hasta DESPUÉS del dispatch, y con `finally` (ver
+        // `withPinnedSample`): entre subir el audio y registrarlo, ese id no lo
+        // nombra nada del modelo, así que un `collectSessionSamples` de otro
+        // origen se lo lleva y deja el clip MUDO hasta reabrir el proyecto. La
+        // ventana no es "el mismo tick": `sha1Hex` espera a `crypto.subtle` y
+        // `loadSample` a `decodeAudioData`, y ahí el Ctrl+Z de `useShortcuts`
+        // —que recolecta— entra perfectamente.
+        await withPinnedSample(newSampleId, async () => {
+          await engine.loadSample(newSampleId, wavBuf);
+          const ref: SampleRef = {
+            id: newSampleId,
+            name: `${sample.name} · ${OP_LABELS[op].toLowerCase()}`,
+            path: `recording:${file}`,
+            hash: (await sha1Hex(wavBuf)) ?? newSampleId,
+            duration: channels.duration,
+          };
+          const label = `${OP_LABELS[op]} "${sample.name}"`;
+          store.dispatch(
+            {
+              type: 'batch',
+              label,
+              commands: [
+                { type: 'registerSample', sample: ref },
+                { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
+              ],
+            },
+            { label },
+          );
+        });
       } finally {
         setBusy(false);
       }
@@ -436,26 +467,29 @@ export function AudioEditor() {
       );
       const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
       const newSampleId = newId();
-      await engine.loadSample(newSampleId, wavBuf);
-      const ref: SampleRef = {
-        id: newSampleId,
-        name: `${sample.name} · afinado`,
-        path: `recording:${file}`,
-        hash: (await sha1Hex(wavBuf)) ?? newSampleId,
-        duration: channels.duration,
-      };
-      const label = `Afinar "${sample.name}"`;
-      store.dispatch(
-        {
-          type: 'batch',
-          label,
-          commands: [
-            { type: 'registerSample', sample: ref },
-            { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
-          ],
-        },
-        { label },
-      );
+      // Misma ventana que en `runOp`, misma sujeción: ver el comentario de allá.
+      await withPinnedSample(newSampleId, async () => {
+        await engine.loadSample(newSampleId, wavBuf);
+        const ref: SampleRef = {
+          id: newSampleId,
+          name: `${sample.name} · afinado`,
+          path: `recording:${file}`,
+          hash: (await sha1Hex(wavBuf)) ?? newSampleId,
+          duration: channels.duration,
+        };
+        const label = `Afinar "${sample.name}"`;
+        store.dispatch(
+          {
+            type: 'batch',
+            label,
+            commands: [
+              { type: 'registerSample', sample: ref },
+              { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
+            ],
+          },
+          { label },
+        );
+      });
       setTuneOpen(false);
     } finally {
       setBusy(false);

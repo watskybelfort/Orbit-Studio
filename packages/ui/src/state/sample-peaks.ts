@@ -33,8 +33,47 @@ export interface Peaks {
 const inflight = new Map<string, Promise<Peaks | null>>();
 /** Lo que ya se intentó y no salió (para no reintentar en cada frame). */
 const failed = new Set<string>();
-/** Avisos de "ya hay picos nuevos" para que los canvas se repinten. */
+/**
+ * Avisos de "ya hay picos nuevos" para que los canvas se repinten.
+ *
+ * Es la misma clase de fuga que una caché sin barrer —se da de alta y la baja
+ * la tiene que hacer otro— con dos agravantes: lo que se queda dentro son
+ * CLOSURES, y una closure retiene todo lo que capturó (aquí, el `draw` de un
+ * canvas con su proyecto, sus refs y su estado, o sea bastante más que los 8
+ * bytes de la función); y no hay ningún byte visible que delate el crecimiento,
+ * así que una baja perdida no se nota nunca — se deduce.
+ *
+ * La baja en sí ya es estructural y se queda como está: `onPeaksReady` DEVUELVE
+ * su baja y el único llamante la devuelve tal cual desde un `useEffect`
+ * (`Playlist.tsx`), que es el contrato que React garantiza al desmontar. Lo que
+ * faltaba —y es lo que se añade aquí— es poder VERLA: un contador consultable y
+ * un aviso cuando el número deja de ser plausible.
+ */
 const listeners = new Set<() => void>();
+
+/**
+ * Cuántos suscriptores tienen sentido a la vez.
+ *
+ * Hoy hay UNO: el canvas de la playlist. El editor de canal no se suscribe
+ * (`SampleWave` espera su promesa) y no hay ningún sitio más. Treinta y dos deja
+ * sitio de sobra para varias vistas futuras y sigue siendo dos órdenes de
+ * magnitud menos que una fuga de verdad, que crece con cada repintado. Se elige
+ * alto a propósito: un aviso que salta por churn normal se aprende a ignorar.
+ */
+export const PEAKS_LISTENERS_PLAUSIBLE = 32;
+
+/** Se avisa una vez por desborde, no una vez por alta: si no, sería ruido. */
+let overflowWarned = false;
+
+/**
+ * Suscriptores vivos ahora mismo — para VER una baja perdida en vez de
+ * deducirla. Se teclea en la consola del renderer igual que `peaksCacheStats()`;
+ * en régimen debería decir 1 (la playlist) o 0 (con la playlist cerrada), y
+ * cualquier número que sube y no baja es una baja que alguien no hizo.
+ */
+export function peaksListenerCount(): number {
+  return listeners.size;
+}
 
 /**
  * La caché de picos sigue la misma política que la del render y por el mismo
@@ -84,7 +123,19 @@ export function peaksFailed(sample: Pick<SampleRef, 'id' | 'hash'>): boolean {
 /** Se suscribe a "hay picos nuevos"; devuelve la baja. */
 export function onPeaksReady(cb: () => void): () => void {
   listeners.add(cb);
-  return () => listeners.delete(cb);
+  if (!overflowWarned && listeners.size > PEAKS_LISTENERS_PLAUSIBLE) {
+    overflowWarned = true;
+    console.warn(
+      `[sample-peaks] ${listeners.size} suscriptores vivos en onPeaksReady (lo plausible es ${PEAKS_LISTENERS_PLAUSIBLE}): ` +
+        'alguien se suscribe y no llama a la baja que devuelve. Cada uno retiene su closure y lo que capturó.',
+    );
+  }
+  return () => {
+    listeners.delete(cb);
+    // Se rearma al volver a lo normal, para que el aviso siga sirviendo en la
+    // sesión siguiente en vez de gastarse la única vez que saltó.
+    if (listeners.size <= PEAKS_LISTENERS_PLAUSIBLE) overflowWarned = false;
+  };
 }
 
 /**

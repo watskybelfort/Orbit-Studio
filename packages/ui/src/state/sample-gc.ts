@@ -89,6 +89,58 @@ export async function withPinnedSample<T>(id: string, run: () => Promise<T>): Pr
   }
 }
 
+/**
+ * ── «Nadie avisa cuando el consumidor se va» ────────────────────────────────
+ *
+ * El pin de arriba es un caso de una clase que apareció tres veces alrededor
+ * del editor de audio: **un recurso se da de alta y la baja queda a cargo de
+ * nadie.** Los tres, y lo que resultó ser cada uno:
+ *
+ * 1. El sample que se sube al motor y todavía no está en el modelo (`runOp` y
+ *    `runTune`): entre `loadSample` y `registerSample` no lo nombraba nada y un
+ *    `collectSessionSamples` de otro origen —el Ctrl+Z de `useShortcuts`, que
+ *    entra por los `await` de `decodeAudioData` y `crypto.subtle.digest`— se
+ *    llevaba el audio recién subido y dejaba el clip mudo. Único de los tres
+ *    que puede perder trabajo del usuario.
+ * 2. La caché PCM del editor, que al cerrarse la ventana se quedaba esperando
+ *    al próximo CAMBIO DE PROYECTO, que es el barrido de otra cosa.
+ * 3. El `Set` de suscriptores de `sample-peaks.ts`, donde una baja perdida no
+ *    tiene bytes que la delaten (retiene closures) y no la medía nada.
+ *
+ * **¿Se cierra de una vez, o son tres arreglos?** Tres arreglos en la baja, uno
+ * solo en el diagnóstico. Y la razón no es pereza:
+ *
+ * - **La baja no se puede centralizar porque los tres ámbitos son distintos en
+ *   naturaleza**: una operación asíncrona (vive lo que dura una promesa), un
+ *   componente (vive lo que dura su montaje) y una suscripción (vive lo que
+ *   quiera el que se suscribió). Cada uno tiene YA su construcción que la
+ *   garantiza sin acordarse de nada: `finally` (aquí, `withPinnedSample`), el
+ *   cleanup de `useEffect`, y la closure de baja que devuelve el alta. Un
+ *   "gestor de recursos" común encima de los tres tendría que envolver tres
+ *   mecanismos de ámbito ajenos, no daría ninguna garantía que esos tres no den
+ *   ya, y sería una cuarta cosa de la que acordarse. El fallo, en los tres,
+ *   nunca fue que faltara el mecanismo: `pinSample` existía con CERO llamantes,
+ *   el cleanup de desmontaje sencillamente no se había escrito, y la baja de
+ *   los picos ya era correcta.
+ * - **Lo que sí generaliza es la regla**: toda alta nombra su baja en el mismo
+ *   sitio y en el mismo commit, y la baja es ESTRUCTURAL —un `finally`, un
+ *   cleanup, una closure devuelta—, nunca una llamada que haya que recordar en
+ *   otro archivo. Un `pinSample` suelto es exactamente igual de peligroso que
+ *   no sujetar: cambia la fuga de lado.
+ * - **Y lo que sí se centraliza es el CONTADOR.** Las tres estructuras
+ *   contestan hoy "cuánto hay vivo ahora mismo": `pinnedSamples()`,
+ *   `stats()` / `uiAudioCacheStats()` y `peaksListenerCount()`. Eso es lo que
+ *   convierte una fuga en un número en vez de una deducción, y es barato
+ *   —tres funciones de una línea— porque el estado ya estaba ahí. La forma
+ *   general (un `Set` de suscriptores con contador y aviso, que en el renderer
+ *   se repite CUATRO veces: `sample-peaks`, `browser/pack-generator`,
+ *   `state/param-touch` y `theme/useThemeVersion`) no cabe aquí: este archivo
+ *   es sobre la vida de los SAMPLES, y los suscriptores de un tema no tienen
+ *   nada que ver. Si se unifica, es en su propio módulo y con su propia
+ *   tarjeta; lo que esta deja hecho es el precedente medible en uno de los
+ *   cuatro.
+ */
+
 // ── Las cachés de audio decodificado del hilo de UI ──────────────────────────
 
 /**
@@ -184,6 +236,23 @@ export interface UiAudioCache<T> extends SweepableCache {
   get(key: string): T | undefined;
   set(key: string, value: T): void;
   has(key: string): boolean;
+  /**
+   * Suelta TODO: la baja del CONSUMIDOR, no la del proyecto.
+   *
+   * `gc()` contesta a «cambió el mundo» y conserva lo que el proyecto nuevo
+   * sigue nombrando. Esto contesta a «el que la leía se fue» —se cierra la
+   * ventana del editor de audio y con ella el único lector de su caché PCM—,
+   * donde el conjunto vivo no es más chico: es VACÍO. No es otra política, es
+   * la misma de arriba (cada caché se acota por su conjunto vivo, y se barre
+   * cuando ese conjunto cambia) evaluada en el instante en que ese conjunto se
+   * queda sin nadie que lo defina.
+   *
+   * Solo tiene sentido en una caché de consumidor único, que hoy es únicamente
+   * la del editor: llamarlo en la del render o en la de picos tiraría lo que
+   * otro panel sigue necesitando este mismo frame. Devuelve lo que soltó, para
+   * que se pueda medir en vez de suponerse.
+   */
+  clear(): UiAudioCacheStats;
 }
 
 /**
@@ -247,6 +316,11 @@ export function createUiAudioCache<T>(opts: {
       }
     },
     has: (key) => map.has(key),
+    clear() {
+      const freed = stats();
+      map.clear();
+      return freed;
+    },
     stats,
     gc(project) {
       const before = stats();
