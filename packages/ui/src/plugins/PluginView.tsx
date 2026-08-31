@@ -323,7 +323,11 @@ export function InstrumentPluginView({
 /**
  * Envoltorio para un insert PROPIO de un canal (pestaña "Efectos" del Channel
  * Rack). Misma vista, otra procedencia de los valores; el tap del scope va por
- * la pista de mixer del canal, que es donde se oye lo que sale de la cadena.
+ * la pista EFECTIVA del canal (`trackOfChannel`, `@orbit/core`), no por
+ * `channel.mixerTrack` crudo: un canal sin pista propia dentro de una carpeta
+ * con bus compila en el bus del grupo, y pasarle el campo crudo aquí mediría
+ * el máster en vez de lo que sale de la cadena (ver `FxTab.tsx`, que resuelve
+ * `effectiveTrack` con ese mismo criterio antes de pasarlo).
  */
 export function ChannelPluginView({
   pluginId,

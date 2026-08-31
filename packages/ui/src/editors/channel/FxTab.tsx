@@ -20,6 +20,7 @@ import {
   EFFECT_PARAMS,
   defaultEffectParams,
   newId,
+  trackOfChannel,
   type Channel,
   type EffectKind,
   type EffectSlot,
@@ -28,6 +29,7 @@ import {
 import { store } from '../../state/app';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { usePluginsStore, type PluginInfo } from '../../state/plugins';
+import { useProject } from '../../state/useProject';
 import { ChannelPluginView } from '../../plugins/PluginView';
 import { Knob } from '../../widgets/Knob';
 import { MenuPortal } from '../../widgets/MenuPortal';
@@ -48,8 +50,16 @@ export interface FxTabProps {
 }
 
 export function FxTab({ channel, mixer }: FxTabProps) {
+  const project = useProject();
   const plugins = usePluginsStore((s) => s.plugins);
   const [expanded, setExpanded] = useState<number | null>(null);
+  // Pista donde de verdad compila el canal: `channel.mixerTrack` es el campo
+  // crudo que el usuario asignó, pero un canal sin pista propia dentro de una
+  // carpeta con bus se compila en el BUS del grupo (`trackOfChannel`,
+  // `@orbit/core` — mismo criterio que ya usan `MixTab.tsx` y `ChannelRack.tsx`).
+  // El tap del scope de un insert de esta pestaña tiene que medir eso, no el
+  // máster.
+  const effectiveTrack = trackOfChannel(project, channel.id);
   const [menu, setMenu] = useState<{ slot: number; x: number; y: number; anchor: Element } | null>(
     null,
   );
@@ -193,7 +203,7 @@ export function FxTab({ channel, mixer }: FxTabProps) {
                   slotIndex={i}
                   slot={slot}
                   mixer={mixer}
-                  trackIndex={channel.mixerTrack}
+                  trackIndex={effectiveTrack}
                 />
               )}
             </div>
