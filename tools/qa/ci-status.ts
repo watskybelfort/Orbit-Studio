@@ -32,11 +32,40 @@ type EstadoRun = {
   createdAt: string;
 };
 
+/**
+ * Corre un comando y devuelve su stdout.
+ *
+ * **`stderr` se CAPTURA, no se ignora**, y eso costó una release aprenderlo: la
+ * primera versión tiraba stderr a la basura "para que el mensaje propio fuera
+ * el que importa", y cuando esto falló dentro del runner de la release lo único
+ * que quedó escrito fue "Command failed" — una herramienta de diagnóstico
+ * escondiendo su diagnóstico. Ahora el error nativo viaja dentro del mensaje.
+ *
+ * Y en Windows hay que probar también `gh.exe`: `execFileSync` resuelve el PATH
+ * pero NO aplica PATHEXT, así que busca un archivo llamado literalmente `gh` y
+ * en un runner de Windows solo existe `gh.exe`. Es exactamente por lo que el
+ * paso de la v3.10.0 no consiguió el dato aunque el token estaba puesto.
+ */
 function sh(cmd: string, args: string[]): string {
-  // stderr en 'ignore': si `git`/`gh` fallan, lo que importa es el mensaje
-  // propio de cada `catch` de acá abajo, no el ruido nativo del proceso —
-  // este comando promete UNA línea, no un stacktrace ajeno encima.
-  return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  const candidatos = process.platform === 'win32' && !cmd.endsWith('.exe') ? [cmd, `${cmd}.exe`] : [cmd];
+  let ultimo: unknown;
+  for (const bin of candidatos) {
+    try {
+      return execFileSync(bin, args, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch (err) {
+      ultimo = err;
+      // Solo tiene sentido reintentar con otro nombre si el binario no estaba;
+      // si existió y devolvió error, el segundo intento daría lo mismo.
+      const codigo = (err as { code?: string }).code;
+      if (codigo !== 'ENOENT') break;
+    }
+  }
+  const e = ultimo as { stderr?: string | Buffer; message?: string };
+  const nativo = String(e.stderr ?? '').trim();
+  throw new Error(nativo ? `${e.message ?? 'fallo'} — ${nativo}` : (e.message ?? 'fallo'));
 }
 
 /** Resuelve lo que sea (SHA corto, rama, tag, HEAD) al SHA completo de 40 hex. */
