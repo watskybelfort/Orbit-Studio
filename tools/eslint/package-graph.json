@@ -1,0 +1,60 @@
+{
+  "_": [
+    "El grafo de dependencias entre paquetes (regla 6 de CLAUDE.md), en datos.",
+    "",
+    "Está aquí y no dentro de package-boundaries.js para que lo puedan leer a la",
+    "vez la regla de ESLint que lo hace cumplir y el test que comprueba que",
+    "CLAUDE.md y docs/ARCHITECTURE.md siguen diciendo lo mismo que este archivo",
+    "(tools/eslint/package-graph.test.ts). Un grafo escrito en tres sitios se",
+    "desincroniza; escrito en uno y comparado con los otros dos, no.",
+    "",
+    "El porqué de cada arista está en docs/ARCHITECTURE.md › Fronteras entre",
+    "paquetes. JSON no admite comentarios, así que este campo hace de cabecera y",
+    "la regla lo ignora."
+  ],
+
+  "graph": {
+    "packages/core": [],
+    "packages/engine": ["packages/core"],
+    "packages/collab": ["packages/core"],
+    "packages/sound-library": ["packages/core", "packages/engine"],
+    "packages/claude-bridge": ["packages/core", "packages/engine", "packages/sound-library"],
+    "packages/ui": [
+      "packages/core",
+      "packages/engine",
+      "packages/collab",
+      "packages/sound-library",
+      "packages/claude-bridge"
+    ],
+    "apps/server": ["packages/core", "packages/collab"],
+    "apps/desktop": [
+      "packages/core",
+      "packages/engine",
+      "packages/collab",
+      "packages/sound-library",
+      "packages/claude-bridge",
+      "packages/ui",
+      "apps/server"
+    ]
+  },
+
+  "browserOnly": ["packages/ui"],
+
+  "modelOnly": {
+    "packages/engine": {
+      "target": "packages/core",
+      "deny": [
+        "ProjectStore",
+        "describeCommand",
+        "applyCommand",
+        "isBranchableOrigin",
+        "findBranch",
+        "branchContaining",
+        "branchChain",
+        "isBranchReachable",
+        "buildTreeView"
+      ],
+      "sources": ["store.ts", "commands.ts", "history-tree.ts"]
+    }
+  }
+}

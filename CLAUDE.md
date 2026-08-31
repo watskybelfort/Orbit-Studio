@@ -25,8 +25,21 @@ el estado por fases y `docs/ARCHITECTURE.md` antes de tocar el motor o el modelo
    versiones mayores de V8) **y** medidas perceptuales con tolerancia, que son
    las que dicen QUÉ se movió. El porqué de cada decisión, con sus medidas, en
    `docs/GOLDEN.md`.
-6. Los paquetes solo se importan así: `ui→core,engine,collab` · `collab→core` ·
-   `engine→core` (tipos) · `claude-bridge→core`. Nada circular.
+6. **Las dependencias entre paquetes van en un solo sentido**, y son estas —el
+   grafo real, medido, no el de la v0.1—: `core→∅` · `engine→core` ·
+   `collab→core` · `sound-library→core,engine` ·
+   `claude-bridge→core,engine,sound-library` ·
+   `ui→core,engine,collab,sound-library,claude-bridge`. Es un DAG por capas, así
+   que nada circular: `core` no importa ningún `@orbit/*`. Dos matices que la
+   lista no dice y que también son la regla: de `core`, `engine` usa el
+   **modelo** (tipos, constantes y funciones puras de `model/`) y nunca el
+   store, el bus de comandos ni el historial —el motor compila el proyecto, no
+   lo edita—; y `ui` es el renderer, así que no importa `apps/server` ni ninguna
+   subruta `node/` de otro paquete (arrastraría `ws`/`node:http` al bundle): el
+   lado Node lo monta `apps/desktop`. Lo hace cumplir
+   `orbit/package-boundaries`; el grafo se escribe UNA vez, en
+   `tools/eslint/package-graph.json`, y `tools/eslint/package-graph.test.ts`
+   falla si esta lista deja de coincidir con él o con `docs/ARCHITECTURE.md`.
 
 ## Flujo de trabajo
 

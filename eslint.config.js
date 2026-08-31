@@ -10,6 +10,11 @@
  *   regla 4 → orbit/no-hardcoded-colors    (los colores, en el tema)
  *   regla 6 → orbit/package-boundaries     (las fronteras entre paquetes)
  *
+ * La 6 no se configura aquí: el grafo vive en `tools/eslint/package-graph.json`
+ * porque lo leen dos —la regla y `tools/eslint/package-graph.test.ts`, que
+ * comprueba que CLAUDE.md y docs/ARCHITECTURE.md sigan diciendo lo mismo—. Si
+ * hay que abrir o cerrar una arista, se toca ese JSON y nada más.
+ *
  * Encima de eso, el conjunto recomendado de ESLint: errores de verdad (un
  * `case` sin `break`, una clase con dos métodos iguales, un `await` dentro de
  * un `new Promise`), no gustos.
