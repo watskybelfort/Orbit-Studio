@@ -49,8 +49,9 @@ guardables con nombre).
    **16 efectos** (EQ paramétrico, compresor con sidechain real, limiter
    lookahead, reverb, convolución, delay sync, auto-filter con LFO, vinyl,
    gate, mono-maker…), con **4 inserts propios por canal** además del mixer de
-   26 pistas con routing libre y sends. El ADN sonoro viene del engine con el
-   que ya producimos el catálogo de El Doctor.
+   26 pistas con routing libre y sends. El ADN sonoro no sale de presets de
+   librería: cada instrumento y cada efecto está sintetizado aquí dentro y
+   afinado a oído contra discos de referencia del género.
 2. **Flujo FL Studio completo** — Channel Rack con step sequencer (16/32/64),
    Piano Roll con slide notes, escalas, ghost notes y **teclas que se iluminan
    con lo que suena**, Playlist con clips y arrangements, editor de

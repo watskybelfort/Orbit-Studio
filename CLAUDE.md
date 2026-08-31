@@ -109,6 +109,8 @@ npm run ci:status       # cómo quedó el último push (o cualquier SHA), en una
 
 ## Contexto de producto
 
-El usuario es productor (catálogo El Doctor); el DAW debe servir su flujo real:
-trap/reggaetón/boom bap con 808 glide, export .mid+wav para FL, masters a
--14 LUFS para streaming, y su voz siempre por encima del beat en las mezclas.
+Orbit no aspira a ser un DAW genérico: se diseña contra un flujo de producción
+concreto — trap/reggaetón/boom bap con 808 glide, export .mid+wav para seguir
+en FL, masters a -14 LUFS para streaming, y mezclas con la voz siempre por
+encima del beat. Cuando una decisión quede entre lo general y lo que le sirve a
+ese flujo, gana ese flujo.

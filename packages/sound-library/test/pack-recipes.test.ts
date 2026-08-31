@@ -46,9 +46,9 @@ describe('encargo', () => {
   });
 
   it('el nombre del encargo manda sobre el automático', () => {
-    const plan = planPack({ family: 'hats', style: 'drill', name: 'Hats Oscuros del Doctor' });
-    expect(plan.name).toBe('Hats Oscuros del Doctor');
-    expect(plan.slug).toBe('hats-oscuros-del-doctor');
+    const plan = planPack({ family: 'hats', style: 'drill', name: 'Hats Oscuros de Medianoche' });
+    expect(plan.name).toBe('Hats Oscuros de Medianoche');
+    expect(plan.slug).toBe('hats-oscuros-de-medianoche');
   });
 });
 

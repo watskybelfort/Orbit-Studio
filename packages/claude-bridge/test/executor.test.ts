@@ -215,13 +215,13 @@ describe('ToolExecutor', () => {
       family: 'hats',
       style: 'drill',
       count: 6,
-      name: '  Hats del Doctor  ',
+      name: '  Hats Oscuros  ',
       key: 'f',
       seed: 3.6,
     });
 
     expect(encargos).toEqual([
-      { family: 'hats', style: 'drill', count: 6, name: 'Hats del Doctor', key: 'F', seed: 4 },
+      { family: 'hats', style: 'drill', count: 6, name: 'Hats Oscuros', key: 'F', seed: 4 },
     ]);
     expect(text).toContain('Hats de drill');
     expect(text).toContain('Packs generados');
