@@ -11,10 +11,14 @@
  * `peaksOf` es asíncrono y `peaksCached` es la vista síncrona que necesita un
  * canvas: en pleno dibujado no se puede esperar a nada, así que el que pinta
  * consulta lo que ya hay y pide lo que falta para el siguiente frame.
+ *
+ * La caché se acota contra el proyecto abierto como las otras dos del hilo de
+ * UI; la política común y el porqué están en `state/sample-gc.ts`.
  */
 
 import type { SampleRef } from '@orbit/core';
 import { readSampleBytes } from '../browser/sound-actions';
+import { createUiAudioCache, sampleCacheKey } from './sample-gc';
 
 /** Columnas de picos que se guardan por sample (de sobra para cualquier ancho). */
 export const PEAK_COLS = 1400;
@@ -25,7 +29,6 @@ export interface Peaks {
   duration: number;
 }
 
-const cache = new Map<string, Peaks>();
 /** Decodificaciones en vuelo: dos clips del mismo sample no decodifican dos veces. */
 const inflight = new Map<string, Promise<Peaks | null>>();
 /** Lo que ya se intentó y no salió (para no reintentar en cada frame). */
@@ -33,8 +36,39 @@ const failed = new Set<string>();
 /** Avisos de "ya hay picos nuevos" para que los canvas se repinten. */
 const listeners = new Set<() => void>();
 
+/**
+ * La caché de picos sigue la misma política que la del render y por el mismo
+ * motivo: la sirve al proyecto ENTERO a la vez —la playlist pinta todos los
+ * clips de audio del mismo frame y el rack todos los samplers—, así que su cota
+ * es el conjunto vivo del proyecto y no un tope de entradas (ver
+ * `state/sample-gc.ts`). Aquí el volumen es tres órdenes de magnitud menor
+ * —11,2 KB por entrada contra megas— pero la forma de la fuga era idéntica: se
+ * escribía y no la vaciaba nadie, y mil samples auditados en una sesión larga
+ * son ~11 MB que no vuelven hasta cerrar la app.
+ *
+ * `failed` se barre con la misma llave en el mismo gesto: es un `Set` de las
+ * MISMAS claves, así que sobrevivir al proyecto que lo generó lo convierte en
+ * la misma fuga con otro tipo (y, de paso, un sample que volvió a aparecer en
+ * el disco merece un reintento en vez de quedar marcado como imposible para
+ * siempre).
+ */
+const cache = createUiAudioCache<Peaks>({
+  name: 'peaks',
+  bytesOf: (peaks) => (peaks.min.length + peaks.max.length) * 4,
+  sweepExtra: (live) => {
+    for (const key of failed) {
+      if (!live.has(key)) failed.delete(key);
+    }
+  },
+});
+
+/** Tamaño real de la caché de picos ahora mismo — para medir, no para estimar. */
+export function peaksCacheStats(): { entries: number; bytes: number } {
+  return cache.stats();
+}
+
 function keyOf(sample: Pick<SampleRef, 'id' | 'hash'>): string {
-  return `${sample.id}:${sample.hash}`;
+  return sampleCacheKey(sample.id, sample.hash);
 }
 
 /** Picos ya calculados, o undefined si aún no están (sin bloquear). */

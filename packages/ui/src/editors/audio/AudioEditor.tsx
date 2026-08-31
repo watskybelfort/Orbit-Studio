@@ -11,6 +11,11 @@ import { newId, type Clip, type SampleRef } from '@orbit/core';
 import { correctPitch, detectTransients, encodeWav, scalePitchClasses } from '@orbit/engine';
 import { readSampleBytes, sha1Hex } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, store } from '../../state/app';
+import {
+  AUDIO_EDITOR_PCM_ENTRIES,
+  createUiAudioCache,
+  sampleCacheKey,
+} from '../../state/sample-gc';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -25,11 +30,27 @@ interface Channels {
   duration: number;
 }
 
-/** Caché de PCM decodificado por id:hash (decodificar es caro). */
-const pcmCache = new Map<string, Channels>();
+/**
+ * Caché de PCM decodificado por id:hash (decodificar es caro).
+ *
+ * Es la única de las tres cachés de audio del hilo de UI que lleva tope de
+ * entradas, y es la única que lo necesita: sirve a UN sample —el abierto en el
+ * editor— mientras las otras dos sirven al proyecto entero a la vez. Sin tope,
+ * el barrido por proyecto no la acota en absoluto, porque cada Normalizar /
+ * Reverse / Fade / Afinar de aquí abajo hace `registerSample` con un id nuevo y
+ * el sample viejo SIGUE registrado: cinco Normalizar sobre un pad estéreo de
+ * 30 s dejaban cinco buffers completos (~69 MB) que no volvían nunca. Con el
+ * tope quedan dos, que son el que se está viendo y aquel del que se viene (ver
+ * `AUDIO_EDITOR_PCM_ENTRIES` y la política común en `state/sample-gc.ts`).
+ */
+const pcmCache = createUiAudioCache<Channels>({
+  name: 'editor-pcm',
+  capacity: AUDIO_EDITOR_PCM_ENTRIES,
+  bytesOf: (ch) => (ch.left.length + ch.right.length) * 4,
+});
 
 async function loadChannels(sample: SampleRef): Promise<Channels | null> {
-  const key = `${sample.id}:${sample.hash}`;
+  const key = sampleCacheKey(sample.id, sample.hash);
   const hit = pcmCache.get(key);
   if (hit) return hit;
   const bytes = await readSampleBytes(sample.path);

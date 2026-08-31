@@ -24,8 +24,14 @@ v3.7 contra el código que quedó:
   tope, y crece *garantizado* — cada Normalizar/Reverse/Fade hace `newId()`, el
   clip repunta al sample nuevo y la entrada vieja queda retenida para siempre.
   Y la cota real no es «el proyecto abierto» sino «el último proyecto que se
-  exportó», porque el barrido solo corre dentro de `collectSamples()`. Abierto
-  en tarea aparte.
+  exportó», porque el barrido solo corre dentro de `collectSamples()`.
+  **Cerrado**: las tres cachés comparten ahora una política escrita en
+  `state/sample-gc.ts` —cada una se acota por su conjunto vivo, que define su
+  consumidor— y el barrido cuelga de `collectWorkletSamples`, o sea de las
+  cuatro puertas que reemplazan el proyecto entero, no de exportar. La del
+  editor lleva además tope de recencia, porque es la única cuyo conjunto vivo
+  es O(1) y a la que el barrido por proyecto no acota: los cinco samples de
+  cinco Normalizar siguen registrados.
 - **«Seis de los once avisos eran bugs de verdad» no se sostiene.** Se
   verificaron los seis y en todos la dependencia ausente ya estaba cubierta
   transitivamente por otra de la misma lista, o apuntaba a una identidad

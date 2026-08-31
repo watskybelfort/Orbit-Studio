@@ -21,7 +21,7 @@
  * clips — pero esas cuatro fuentes solo importan para decidir si un sample
  * puede sonar SIN estar registrado (`sampleIsUsed(..., keepRegistered=false)`
  * lo usa para decidir si desregistrarlo). Este caché nunca contiene una
- * entrada así: la clave (`id:hash`, ver `cacheKey`) sale de `ref.hash` en
+ * entrada así: la clave (`id:hash`, ver `sampleCacheKey`) sale de `ref.hash` en
  * `project.samples[id]`, y solo se guarda tras un `ref` válido — si el sample
  * no está registrado, se marca `missing` y nunca llega a `sampleCache.set`.
  * Por eso el keep-set correcto aquí es más simple que `sampleKeepSet`: TODO
@@ -35,25 +35,28 @@ import type { Project } from '@orbit/core';
 import type { CompiledProject, SampleData } from '@orbit/engine';
 import { readSampleBytes } from '../browser/sound-actions';
 import { usePluginsStore } from '../state/plugins';
-
-const sampleCache = new Map<string, SampleData>();
-
-/** Clave de caché: identidad de CONTENIDO, no solo de id (un id re-grabado con
- * hash nuevo no debe servir el audio viejo desde caché). */
-function cacheKey(id: string, hash: string): string {
-  return `${id}:${hash}`;
-}
+import { createUiAudioCache, sampleCacheKey } from '../state/sample-gc';
 
 /** Bytes que retiene un sample decodificado (Float32 = 4 bytes, dos canales). */
 function sampleDataBytes(data: SampleData): number {
   return (data.left.length + data.right.length) * 4;
 }
 
+/**
+ * Sin `capacity`: esta caché sirve al proyecto ENTERO a la vez (un export
+ * necesita todos sus samples simultáneamente), así que un tope de entradas
+ * desalojaría a mitad del render justo lo que ese render sigue pidiendo. Su
+ * cota es el conjunto vivo del proyecto — ver la política común en
+ * `state/sample-gc.ts`.
+ */
+const sampleCache = createUiAudioCache<SampleData>({
+  name: 'render',
+  bytesOf: sampleDataBytes,
+});
+
 /** Tamaño real del caché ahora mismo — para medir, no para estimar. */
 export function renderSampleCacheStats(): { entries: number; bytes: number } {
-  let bytes = 0;
-  for (const data of sampleCache.values()) bytes += sampleDataBytes(data);
-  return { entries: sampleCache.size, bytes };
+  return sampleCache.stats();
 }
 
 /**
@@ -79,20 +82,18 @@ export function renderSampleCacheStats(): { entries: number; bytes: number } {
  * memoria y perdería la reutilización entre exports sucesivos del mismo
  * proyecto sin haber cambiado nada; eso es justo lo que este caché existe
  * para evitar.
+ *
+ * Desde la v3.8 esto ya no es el ÚNICO disparador: `collectWorkletSamples`
+ * barre las tres cachés de la UI a la vez cuando cambia el proyecto entero, así
+ * que la cota real dejó de ser "el último proyecto que se exportó". Esta
+ * llamada al final de `collectSamples()` se conserva igual porque el export es
+ * también el momento en que la caché acaba de CRECER.
  */
 export function gcRenderSampleCache(project: Project): {
   before: { entries: number; bytes: number };
   after: { entries: number; bytes: number };
 } {
-  const before = renderSampleCacheStats();
-  const live = new Set<string>();
-  for (const ref of Object.values(project.samples)) {
-    if (ref) live.add(cacheKey(ref.id, ref.hash));
-  }
-  for (const key of sampleCache.keys()) {
-    if (!live.has(key)) sampleCache.delete(key);
-  }
-  return { before, after: renderSampleCacheStats() };
+  return sampleCache.gc(project);
 }
 
 export interface CollectedSamples {
@@ -129,7 +130,7 @@ export async function collectSamples(
   const missing: string[] = [];
   for (const id of needed) {
     const ref = project.samples[id];
-    const key = ref ? cacheKey(id, ref.hash) : id;
+    const key = ref ? sampleCacheKey(id, ref.hash) : id;
     const cached = sampleCache.get(key);
     if (cached) {
       samples.set(id, cached);
