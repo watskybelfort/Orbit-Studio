@@ -56,6 +56,7 @@ import {
   INSTRUMENT_LABELS,
   newId,
   planChannelDrop,
+  trackOfChannel,
   type Channel,
   type ChannelDropTarget,
   type ChannelGroup,
@@ -573,6 +574,12 @@ export function ChannelRack() {
       patternLength={pattern.length}
       selected={selectedChannelId === id}
       busTrack={busOfChannel(project, id)}
+      // Pista de mixer donde de verdad compila el canal: `channel.mixerTrack`
+      // es el campo crudo, pero uno sin pista propia dentro de una carpeta con
+      // bus compila en el BUS del grupo (mismo `trackOfChannel` de
+      // `@orbit/core` que ya usan MixTab.tsx, run-export.ts y executor.ts —
+      // una sola implementación de la regla, no una copia por sitio).
+      effectiveTrack={trackOfChannel(project, id)}
       audible={channelAudible(project, channel, anySolo)}
       playStep={playStep}
       renaming={renamingId === id}
@@ -1345,6 +1352,14 @@ interface ChannelRowProps {
    * carpeta con bus NO sale por el Master, sale por el bus.
    */
   busTrack: number | null;
+  /**
+   * Pista de mixer donde de verdad compila el canal (`trackOfChannel`,
+   * `@orbit/core`): la suya si tiene, o el bus de su carpeta si no. Es la que
+   * hay que pasarle a cualquier vista que mida señal (nivel, espectro) — la
+   * cruda `channel.mixerTrack` mentiría con un canal sin pista propia dentro
+   * de una carpeta con bus.
+   */
+  effectiveTrack: number;
   /** Suena ahora mismo (mute/solo resueltos): enciende el LED. */
   audible: boolean;
   playStep: number;
@@ -1374,6 +1389,7 @@ function ChannelRow({
   patternLength,
   selected,
   busTrack,
+  effectiveTrack,
   audible,
   playStep,
   renaming,
@@ -1723,7 +1739,7 @@ function ChannelRow({
             paramKeys={instrumentPlugin.params.map((p) => p.key)}
             defaults={defaultPluginParams(instrumentPlugin.params)}
             channelId={channel.id}
-            trackIndex={channel.mixerTrack}
+            trackIndex={effectiveTrack}
           />
         </div>
       </MenuPortal>

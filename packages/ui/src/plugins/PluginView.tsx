@@ -282,8 +282,13 @@ export function EffectPluginView({
  * Envoltorio para el INSTRUMENTO de un canal (Channel Rack): el plugin que
  * sustituye a la voz, no un insert de su cadena. Los valores salen de
  * `channel.params` directamente —el mismo sitio de donde los lee `SoundTab`
- * para sus perillas— y el tap del scope va por la pista de mixer del canal,
- * que es donde se oye lo que suena.
+ * para sus perillas— y el tap del scope va por `trackIndex`, que quien monta
+ * este componente tiene que resolver con la pista EFECTIVA del canal
+ * (`trackOfChannel`, `@orbit/core`), no con `channel.mixerTrack` crudo: un
+ * canal sin pista propia dentro de una carpeta con bus compila en el bus del
+ * grupo, y pasarle el campo crudo aquí mediría el máster en vez del canal
+ * (ver `ChannelRack.tsx`, que resuelve `effectiveTrack` con ese mismo
+ * criterio antes de pasarlo).
  */
 export function InstrumentPluginView({
   pluginId,
