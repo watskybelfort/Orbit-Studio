@@ -6,6 +6,66 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 31-08-2026: v3.10.0
+
+**"Lo que se perdía en silencio".** La ronda arrancó por el paso 0 del ciclo, y
+por primera vez lo que encontró no fueron promesas exageradas sino **dos caminos
+por los que la app perdía audio del usuario sin avisar**.
+
+### La auditoría (cinco lanes de solo lectura)
+
+Se comprobó y SÍ se sostiene: los once tests que leen fuente entran todos por el
+helper; el test del grafo muerde en sus tres comparaciones por separado y su
+lista de símbolos se re-deriva de verdad; las cuatro puertas del barrido existen
+(y hay una quinta no anunciada); no queda ningún `channel.mixerTrack` crudo
+midiendo señal salvo el que ya estaba fichado; y el índice del kit acierta en
+nombres, cabeceras y bytes.
+
+Lo que falló se convirtió en seis tarjetas, y una se arregló en el sitio (la
+lista de comandos, dos líneas que esta misma ronda había introducido, con un test
+que impide que vuelva). Además, **tres cifras de la v3.9 no aguantaron la
+remedición** y están corregidas: «doce dependencias» (lo reproducible son seis
+aristas en 16 archivos), «los nueve tests que leen fuente» (once al cerrar la
+ronda) y un «siete archivos» que ya era falso el día que se escribió.
+
+### Lo que cerró la ronda
+
+- **Dos caminos de pérdida de audio.** La ventana sin sujetar entre subir un
+  sample y registrarlo —alcanzable con Ctrl+Z, y en el grabador durante cientos
+  de milisegundos con tomas del usuario— cerrada en los cinco sitios. Y el nombre
+  de archivo por reloj, que pisaba la edición de ayer a la misma hora: ahora se
+  deriva del contenido, lo que de paso recorta el disco un 80 %.
+- **La quinta puerta**: entrar en una sala de colaboración reemplaza el proyecto
+  y no soltaba el audio del anterior. Se barre después de subir, con el porqué
+  escrito, y el arreglo cerró además un agujero propio (`loadedIds` rancio dejaba
+  el sample mudo).
+- **Cuatro agujeros del linter de fronteras** (`require()`, `import()`, un barril,
+  y los alias sin sincronizar) y **dos de los linters de color** (mayúsculas, y
+  una regex copiada dos veces que ahora vive una sola).
+- **Los `package.json`**, cuarta escritura del grafo, completados y vigilados por
+  un cuarto assert del test que ya comparaba las otras tres.
+- **La CI dejó de publicar a ciegas**, y `npm run ci:status` contesta en una línea.
+- **Dos bugs de historial**: el pan de un send dejaba 40 undos por arrastre (vivo,
+  encontrado al barrer) y `setInputRouteChannels` esquivaba su envoltorio.
+- **El kit de escucha** mide el archivo y no el buffer, con el arreglo hecho
+  estructural para que la prosa se derive de la medida.
+- **El sexto test que medía la CPU**, cazado por la CI: hacía un `expect()` por
+  muestra sobre 180.000. De 1200 ms a 261 sin tocar el margen.
+
+### Estado de la red
+
+2456 tests en 195 archivos, lint limpio (ESLint + `lint:css`), typecheck limpio,
+build en verde. Golden: 25 renders + 2 flujos Opus, mordida **25/25**.
+
+### Lo que queda abierto
+
+- **Escuchar y probar con hardware** — la única que no puede hacer una sesión.
+- La mitad del proceso main del barrido de grabaciones, que hoy decide bien y no
+  manda nada; la sujeción por contador de referencias en vez de por `Set`; y el
+  aviso de tests que se acercan a su timeout. Los tres, tarjetas ya escritas.
+
+---
+
 ## Estado — 31-08-2026: v3.9.0
 
 **"El rojo que nadie miró".** La ronda arrancó por el paso 0 del ciclo

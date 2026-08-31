@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.9.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2330%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.10.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
 ![stack](https://img.shields.io/badge/Electron%20%2B%20React%20%2B%20AudioWorklet-e6935a)
@@ -83,6 +83,49 @@ guardables con nombre).
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.10.0 — "lo que se perdía en silencio".** La ronda empezó por el paso 0 del
+ciclo —comprobar que lo que la v3.9 prometió es real— y esta vez lo que encontró
+no eran promesas exageradas: eran **dos caminos por los que la app perdía audio
+del usuario sin decir nada.**
+
+**Un Ctrl+Z mientras normalizabas podía llevarse el sample recién creado.** Entre
+subir el audio al motor y registrarlo en el proyecto hay una ventana en la que no
+lo sujeta nadie, y el recolector se dispara justo con Ctrl+Z. La tarjeta suponía
+que duraba «el mismo tick»; al medirla resultó que dentro hay dos `await` que
+ceden el hilo de verdad. Estaba en cinco sitios, y el peor era el grabador: un
+bucle sobre todas las tomas con un guardado y un hash por toma, o sea cientos de
+milisegundos con audio recién grabado colgando. Los cinco cerrados, cada uno con
+un control en negativo que demuestra que sin la sujeción el clip queda apuntando
+a un sample que el motor ya no tiene.
+
+**Y el nombre de archivo era un borrado.** Las ediciones se guardaban como
+`Edit HH.MM.SS.wav` —sin fecha— y el almacén pisa por nombre: una edición de hoy
+a las 14:03:22 se llevaba por delante el audio de la de ayer a la misma hora, con
+el proyecto viejo apuntando ahí. El nombre pasa a derivarse del contenido, lo que
+además recorta el disco un 80 %: cinco Normalizar dejan un archivo en vez de
+cinco, porque a partir del segundo el WAV sale byte a byte idéntico.
+
+**La red también tenía agujeros, y estaban todos dormidos.** El linter de
+fronteras no miraba `require()`, dejaba pasar un nombre prohibido por
+`import()` dinámico, y un barril podía colar `ws` y `node:http` al bundle del
+renderer. Los dos linters de color eran ciegos a un `RGB(` en mayúsculas, por la
+misma regex copiada dos veces. Y los `package.json` eran una cuarta escritura del
+grafo de paquetes que también mentía. Todo cerrado con un test por agujero, cada
+uno comprobado desactivando su arreglo y viéndolo caer.
+
+**La CI dejó de publicar a ciegas.** La v3.8.0 se cortó con la CI en rojo para su
+propio commit y nadie se enteró. Ahora `Release` consulta el estado de ese SHA y
+lo escribe en la primera línea de la GitHub Release, y `npm run ci:status` lo
+contesta en una línea. No bloquea —un tag y la CI son triggers independientes, y
+esperar puede colgarse— pero ya no sale en silencio.
+
+**Y el kit de escucha mentía sin querer.** Medía el buffer float del motor y lo
+publicaba como lo que se oye: los −364 dBFS de continua de los anti-denormal
+están 220 dB por debajo del medio escalón de 24 bits, así que en el `.wav` esos
+cinco segundos son silencio digital exacto. Que el piso no quepa en el contenedor
+**es** la respuesta que se buscaba; lo que había que arreglar es contarlo así.
+Ahora mide el archivo decodificado y, donde las dos cifras difieren, da las dos.
 
 **v3.9.0 — "el rojo que nadie miró".** La ronda empezó por el paso 0 del ciclo,
 comprobar que lo que la v3.8 prometió es real, y lo primero que apareció no
@@ -650,7 +693,7 @@ constante y a 0,620 con la adaptativa.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 2330 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # 2456 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 npm run lint       # reglas duras + hooks; exhaustive-deps es error, rompe la CI
