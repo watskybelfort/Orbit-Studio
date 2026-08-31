@@ -1,0 +1,73 @@
+name: Reportar un fallo
+description: Algo no funciona como debería en Orbit Studio
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por reportar. Si es un problema de **seguridad**, no lo pongas
+        acá: usá el [canal privado](https://github.com/watskybelfort/Orbit-Studio/security/advisories/new).
+
+  - type: input
+    id: version
+    attributes:
+      label: Versión de Orbit
+      description: Está en Ayuda → Acerca de, o en el nombre del instalador.
+      placeholder: "3.10.0"
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows
+      description: "`winver` te la dice."
+      placeholder: "Windows 11 Pro 24H2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: que-pasa
+    attributes:
+      label: Qué pasa
+      description: Qué esperabas y qué pasó en su lugar.
+    validations:
+      required: true
+
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Cómo reproducirlo
+      description: Los pasos exactos desde abrir la app. Si depende de un proyecto concreto, adjuntá el `.orbit`.
+      placeholder: |
+        1. Abrir Orbit
+        2. Añadir un canal 808
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Dónde
+      options:
+        - No sé / otra cosa
+        - Audio (suena mal, cortes, clics, latencia)
+        - Piano roll / playlist / automatización
+        - Mixer y efectos
+        - Grabación y MIDI
+        - Export (WAV/MP3/FLAC/stems/MIDI)
+        - Librería de sonidos
+        - Colaboración en tiempo real
+        - Claude / MCP
+        - Temas y ventanas
+        - Instalador y arranque
+    validations:
+      required: true
+
+  - type: textarea
+    id: consola
+    attributes:
+      label: Consola (opcional pero ayuda mucho)
+      description: "`Ctrl+Shift+I` → pestaña Console. Pegá lo que salga en rojo."
+      render: text

@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Descargar la última versión
+    url: https://github.com/watskybelfort/Orbit-Studio/releases/latest
+    about: El instalador para Windows x64. SmartScreen avisa la primera vez — es esperado, el .exe no lleva firma todavía.
+  - name: Reportar una vulnerabilidad (privado)
+    url: https://github.com/watskybelfort/Orbit-Studio/security/advisories/new
+    about: Los fallos de seguridad no van en issues públicos.

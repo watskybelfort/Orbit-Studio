@@ -1,0 +1,25 @@
+name: Proponer algo
+description: Una función o una mejora
+labels: ["idea"]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Qué problema resuelve
+      description: Contá el problema de producción real, no la solución. Es lo que decide si entra y en qué forma.
+      placeholder: "Cuando hago X, me toca hacer Y a mano cada vez porque…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Cómo lo imaginás
+      description: Si tenés una idea concreta de cómo debería funcionar, ponela acá.
+
+  - type: input
+    id: referencia
+    attributes:
+      label: ¿Algún DAW ya lo hace?
+      description: FL, Ableton, Logic, Bitwig… Saber cómo lo resolvió otro ahorra media discusión.
+      placeholder: "FL Studio lo hace con…"
