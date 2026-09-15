@@ -101,6 +101,7 @@ npm run lint         # reglas duras + hooks; exhaustive-deps es error, rompe la 
 npm run lint:css     # solo los colores: ningún literal fuera de theme/
 npm run build        # build de producción
 
+npm run pack:warehouse  # regenera el pack Warehouse (techno/rave) en la app
 npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.md)
 npm run golden:bite     # ¿algún fixture del golden dejó de medir?
 npm run listen:kit      # renderiza a out/escucha lo que hay que juzgar con el oído

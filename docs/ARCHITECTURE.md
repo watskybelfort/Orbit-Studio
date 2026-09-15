@@ -84,8 +84,20 @@
 
 ### `packages/sound-library`
 - `manifest.json` clasificado (categoría/género/tonalidad/BPM/tags).
-- `generate/`: scripts Node que sintetizan el contenido de fábrica con las
-  unidades de `engine` (determinista, semilla fija) → WAVs reproducibles.
+- `generate/`: scripts Node que sintetizan contenido con las unidades de
+  `engine` (determinista, semilla fija) → WAVs reproducibles. Son **dos** y no
+  escriben en el mismo sitio:
+  - `generate.ts` → `factory/`, el pack **Orbit Essentials** que viaja dentro
+    del instalador y está versionado en el repo (276 grabaciones, 98,87 MB de
+    115 de tope).
+  - `warehouse.ts` → `userData/packs/warehouse/`, el pack **Warehouse**
+    (techno/rave). No va en el repo ni en el instalador: se genera con
+    `npm run pack:warehouse` en la misma carpeta y con el mismo manifest que
+    usan los packs que pide Claude, así que el browser lo enseña sin aprender
+    nada nuevo. Sus recetas salen de medir dos temas de referencia; los
+    números están en la cabecera del script.
+  - `wav-out.ts`: lo que comparten — normalizar a -1 dBFS, cortar la cola,
+    fade anti-click, mono cuando L==R y releer el pico del archivo.
 
 ### `apps/desktop`
 - `main.ts`: BrowserWindow frameless; acrílico por `backgroundMaterial` DWM
