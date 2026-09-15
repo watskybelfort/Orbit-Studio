@@ -19,6 +19,14 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DYNAMICS, INSTRUMENTS, midiDeHz, rootsFor } from './instruments';
+import {
+  encodeWavMono,
+  esMono,
+  fadeOut,
+  normalizar,
+  picoDeWavDb,
+  recortarCola,
+} from './wav-out';
 
 // Imports relativos a la fuente del engine: el index del paquete arrastra
 // engine.ts (worklet de Vite) que Node no puede resolver fuera del bundler.
@@ -152,108 +160,6 @@ function rampaExp(desde: number, hasta: number, beats: number, step = 0.25): num
   const out: number[] = [];
   for (let i = 0; i <= n; i++) out.push(desde * Math.pow(hasta / desde, i / n));
   return out;
-}
-
-// ── Post-procesado ───────────────────────────────────────────────────────────
-
-function pico(l: Float32Array, r: Float32Array): number {
-  let p = 0;
-  for (let i = 0; i < l.length; i++) {
-    const a = Math.abs(l[i]!);
-    const b = Math.abs(r[i]!);
-    if (a > p) p = a;
-    if (b > p) p = b;
-  }
-  return p;
-}
-
-/** Normaliza in-place al pico objetivo (dBFS). */
-function normalizar(l: Float32Array, r: Float32Array, objetivoDb = -1): void {
-  const p = pico(l, r);
-  if (p <= 1e-6) throw new Error('Render en silencio: no se puede normalizar');
-  const g = Math.pow(10, objetivoDb / 20) / p;
-  for (let i = 0; i < l.length; i++) {
-    l[i] = l[i]! * g;
-    r[i] = r[i]! * g;
-  }
-}
-
-/** Recorta el silencio final bajo el umbral, dejando margen. */
-function recortarCola(
-  l: Float32Array,
-  r: Float32Array,
-  umbralDb = -60,
-  margenSec = 0.05,
-): [Float32Array, Float32Array] {
-  const umbral = Math.pow(10, umbralDb / 20);
-  let ultimo = -1;
-  for (let i = l.length - 1; i >= 0; i--) {
-    if (Math.abs(l[i]!) > umbral || Math.abs(r[i]!) > umbral) {
-      ultimo = i;
-      break;
-    }
-  }
-  if (ultimo < 0) throw new Error('Render bajo el umbral de recorte en toda su duración');
-  const fin = Math.min(l.length, ultimo + 1 + Math.round(margenSec * SR));
-  return [l.slice(0, fin), r.slice(0, fin)];
-}
-
-/** Fade-out lineal de `ms` al final (anti-click). */
-function fadeOut(l: Float32Array, r: Float32Array, ms = 5): void {
-  const n = Math.min(l.length, Math.round((ms / 1000) * SR));
-  const desde = l.length - n;
-  for (let i = 0; i < n; i++) {
-    const g = 1 - (i + 1) / n;
-    l[desde + i] = l[desde + i]! * g;
-    r[desde + i] = r[desde + i]! * g;
-  }
-}
-
-/**
- * ¿Contenido mono? El paneo del kernel usa cos/sin(π/4), que difieren en
- * 1 ulp, así que se compara con tolerancia (-100 dB), no bit a bit.
- */
-function esMono(l: Float32Array, r: Float32Array): boolean {
-  for (let i = 0; i < l.length; i++) {
-    if (Math.abs(l[i]! - r[i]!) > 1e-5) return false;
-  }
-  return true;
-}
-
-/** Mezcla L/R a un solo canal (para escribir WAV mono). */
-function aMono(l: Float32Array, r: Float32Array): Float32Array {
-  const out = new Float32Array(l.length);
-  for (let i = 0; i < l.length; i++) out[i] = (l[i]! + r[i]!) * 0.5;
-  return out;
-}
-
-/** WAV 16-bit mono (el encoder del engine solo hace estéreo). */
-function encodeWavMono(x: Float32Array, sampleRate: number): Uint8Array {
-  const dataSize = x.length * 2;
-  const buf = new ArrayBuffer(44 + dataSize);
-  const v = new DataView(buf);
-  const str = (off: number, s: string) => {
-    for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i));
-  };
-  str(0, 'RIFF');
-  v.setUint32(4, 36 + dataSize, true);
-  str(8, 'WAVE');
-  str(12, 'fmt ');
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true); // PCM
-  v.setUint16(22, 1, true); // mono
-  v.setUint32(24, sampleRate, true);
-  v.setUint32(28, sampleRate * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  str(36, 'data');
-  v.setUint32(40, dataSize, true);
-  let off = 44;
-  for (let i = 0; i < x.length; i++) {
-    v.setInt16(off, Math.round(Math.max(-1, Math.min(1, x[i]!)) * 32767), true);
-    off += 2;
-  }
-  return new Uint8Array(buf);
 }
 
 // ── Especificación de sonidos ────────────────────────────────────────────────
@@ -649,32 +555,6 @@ const SPECS: SonidoSpec[] = [
     }, { bpm: 174, keyRoot: 'E' }),
 ];
 
-// ── Verificación: lee el pico real desde el WAV en disco ─────────────────────
-
-function picoDeWavDb(buf: Buffer): number {
-  const ascii = (off: number, n: number) => buf.toString('ascii', off, off + n);
-  if (ascii(0, 4) !== 'RIFF' || ascii(8, 4) !== 'WAVE') throw new Error('No es un WAV RIFF');
-  let off = 12;
-  let bits = 16;
-  let peak = 0;
-  while (off + 8 <= buf.length) {
-    const id = ascii(off, 4);
-    const size = buf.readUInt32LE(off + 4);
-    if (id === 'fmt ') {
-      bits = buf.readUInt16LE(off + 22);
-    } else if (id === 'data') {
-      if (bits !== 16) throw new Error(`Se esperaba 16-bit, hay ${bits}`);
-      const fin = Math.min(buf.length, off + 8 + size);
-      for (let i = off + 8; i + 1 < fin; i += 2) {
-        const s = Math.abs(buf.readInt16LE(i)) / 32768;
-        if (s > peak) peak = s;
-      }
-    }
-    off += 8 + size + (size % 2);
-  }
-  return peak <= 0 ? -Infinity : 20 * Math.log10(peak);
-}
-
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 function main(): void {
@@ -702,14 +582,14 @@ function main(): void {
       normalizar(l, rr, -1);
     } else {
       normalizar(l, rr, -1);
-      [l, rr] = recortarCola(l, rr, -60, 0.05);
+      [l, rr] = recortarCola(l, rr, SR, -60, 0.05);
       if (maxSec !== undefined && l.length > maxSec * SR) {
         const n = Math.round(maxSec * SR);
         l = l.slice(0, n);
         rr = rr.slice(0, n);
       }
     }
-    fadeOut(l, rr, 5);
+    fadeOut(l, rr, SR, 5);
 
     const mono = esMono(l, rr);
     const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
@@ -776,8 +656,8 @@ function main(): void {
         let l = rendered.left;
         let rr = rendered.right;
         normalizar(l, rr, -1);
-        [l, rr] = recortarCola(l, rr, -60, 0.05);
-        fadeOut(l, rr, 5);
+        [l, rr] = recortarCola(l, rr, SR, -60, 0.05);
+        fadeOut(l, rr, SR, 5);
 
         const mono = esMono(l, rr);
         const wav = mono ? encodeWavMono(l, SR) : encodeWav(l, rr, SR, 16);
