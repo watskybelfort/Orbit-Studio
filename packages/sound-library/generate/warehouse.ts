@@ -286,6 +286,16 @@ interface OpcionesBombo {
   rumbleDesde?: number;
   /** Bits del crusher (ausente = sin crusher). */
   crush?: number;
+  /**
+   * Nivel de la capa a la octava (0 = ninguna).
+   *
+   * El `tanh` del sub808 es simétrico, así que solo saca armónicos IMPARES: el
+   * bombo sale con un agujero justo en su segundo armónico. Medido, son 14 dB
+   * de diferencia con las referencias, que en 80-120 Hz llevan casi tanto como
+   * en su fundamental — y esa banda es la que hace que un bombo se oiga en un
+   * altavoz pequeño. La capa a la octava es la forma barata de taparlo.
+   */
+  octava?: number;
 }
 
 /**
@@ -335,6 +345,18 @@ function bombo(o: OpcionesBombo): () => { project: CompiledProject; tail: number
       ),
     );
     events.push(nota(0, 2, o.key, { ch: cuerpo }));
+
+    // 2b) La octava (ver `octava`): tapa el agujero del segundo armónico
+    if (o.octava && o.octava > 0) {
+      channels.push(
+        canal(
+          'sub808',
+          { tune: 0, decay: o.decay * 0.6, drive: 0.25, glide: 0.005, punch: 0, tone: o.tone },
+          { volume: o.octava },
+        ),
+      );
+      events.push(nota(0, 2, o.key + 12, { ch: channels.length - 1 }));
+    }
 
     // 3) Rumble
     if (o.rumble && o.rumble > 0) {
@@ -533,29 +555,29 @@ export const SPECS: SonidoSpec[] = [
   spec('drums/kick-hardgroove-01', 'Kick Hard Groove 01', 'drums',
     ['techno', 'kick', 'hardgroove', 'punchy'], 0.95,
     bombo({ key: N.A1, decay: 0.38, drive: 0.55, tone: 1500, punch: 0.6, click: 0.62,
-      clickTone: 0.5, clickDecay: 0.32, satura: 0.4 }), { subcategory: 'techno' }),
+      clickTone: 0.5, clickDecay: 0.32, satura: 0.4, octava: 0.45 }), { subcategory: 'techno' }),
   spec('drums/kick-hardgroove-02', 'Kick Hard Groove 02', 'drums',
     ['techno', 'kick', 'hardgroove', 'deep', 'long'], 0.95,
     bombo({ key: N.G1, decay: 0.55, drive: 0.5, tone: 1300, punch: 0.52, click: 0.48,
-      clickTone: 0.35, clickDecay: 0.34, satura: 0.32 }), { subcategory: 'techno' }),
+      clickTone: 0.35, clickDecay: 0.34, satura: 0.32, octava: 0.4 }), { subcategory: 'techno' }),
   spec('drums/kick-rumble-01', 'Kick Rumble 01', 'drums',
     ['techno', 'kick', 'rumble', 'dark'], 0.95,
     bombo({ key: N.G1, decay: 0.45, drive: 0.45, tone: 900, punch: 0.48, click: 0.42,
-      clickTone: 0.2, clickDecay: 0.3, satura: 0.25, rumble: 0.55, rumbleTecho: 1400 }),
+      clickTone: 0.2, clickDecay: 0.3, satura: 0.25, rumble: 0.55, rumbleTecho: 1400, octava: 0.5 }),
     { subcategory: 'techno' }),
   spec('drums/kick-rumble-02', 'Kick Rumble 02', 'drums',
     ['techno', 'kick', 'rumble', 'dark', 'long'], 0.95,
     bombo({ key: N.Fs1, decay: 0.6, drive: 0.4, tone: 800, punch: 0.42, click: 0.32,
-      clickTone: 0.15, clickDecay: 0.32, satura: 0.22, rumble: 0.7, rumbleTecho: 1200 }),
+      clickTone: 0.15, clickDecay: 0.32, satura: 0.22, rumble: 0.7, rumbleTecho: 1200, octava: 0.3 }),
     { subcategory: 'techno' }),
   spec('drums/kick-raw-01', 'Kick Raw 01', 'drums',
     ['techno', 'kick', 'raw', 'distorted', 'hard'], 0.95,
     bombo({ key: N.A1, decay: 0.36, drive: 0.85, tone: 3400, punch: 0.68, click: 0.6,
-      clickTone: 0.6, clickDecay: 0.26, satura: 0.68, crush: 7 }), { subcategory: 'techno' }),
+      clickTone: 0.6, clickDecay: 0.26, satura: 0.68, crush: 7, octava: 0.48 }), { subcategory: 'techno' }),
   spec('drums/kick-punch-01', 'Kick Punch 01', 'drums',
     ['techno', 'kick', 'tight', 'short'], 0.95,
     bombo({ key: N.As1, decay: 0.26, drive: 0.6, tone: 1800, punch: 0.62, click: 0.78,
-      clickTone: 0.55, clickDecay: 0.22, satura: 0.35 }), { subcategory: 'techno' }),
+      clickTone: 0.55, clickDecay: 0.22, satura: 0.35, octava: 0.5 }), { subcategory: 'techno' }),
   spec('drums/kick-sub-01', 'Kick Sub 01', 'drums',
     ['techno', 'kick', 'sub', 'layer', 'clean'], 0.95,
     bombo({ key: N.Fs1, decay: 0.8, drive: 0.25, tone: 450, punch: 0.35, click: 0 }),
