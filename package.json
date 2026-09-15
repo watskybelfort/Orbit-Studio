@@ -25,6 +25,7 @@
     "lint": "eslint . && node tools/lint-css-colors.mjs",
     "lint:css": "node tools/lint-css-colors.mjs",
     "test": "vitest run",
+    "pack:warehouse": "tsx packages/sound-library/generate/warehouse.ts",
     "golden:update": "tsx tools/qa/golden-update.ts",
     "listen:kit": "tsx tools/qa/listen-kit.ts",
     "golden:bite": "tsx tools/qa/golden-bite.ts",
