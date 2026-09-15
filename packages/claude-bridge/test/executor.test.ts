@@ -278,6 +278,113 @@ describe('ToolExecutor', () => {
   });
 });
 
+// ── list_library / load_sample ────────────────────────────────────────────────
+// La librería la lee el renderer (manifest de fábrica + packs del disco), así
+// que aquí se inyecta una de mentira: lo que se comprueba es la RESOLUCIÓN —
+// cómo se filtra, cómo se resuelve un nombre y qué pasa cuando es ambiguo—,
+// que es lo único que decide este paquete.
+
+describe('librería de sonidos', () => {
+  const SOUNDS = [
+    { id: 'pack:drums/warehouse/kick-hard-groove-01', name: 'Kick Hard Groove 01',
+      pack: 'Warehouse', category: 'drums', subcategory: 'warehouse',
+      tags: ['techno', 'kick'], durationSec: 0.42 },
+    { id: 'pack:drums/warehouse/kick-rumble-01', name: 'Kick Rumble 01',
+      pack: 'Warehouse', category: 'drums', subcategory: 'warehouse',
+      tags: ['rave', 'kick'], durationSec: 0.9 },
+    { id: 'pack:melodic-loops/warehouse/acid-134-am', name: 'Acid 134 Am',
+      pack: 'Warehouse', category: 'melodic-loops', tags: ['acid'],
+      durationSec: 7.16, bpm: 134, keyRoot: 'A' },
+    { id: 'factory/drums/trap/kick-01', name: 'Kick Trap 01',
+      pack: 'Orbit Essentials', category: 'drums', subcategory: 'trap',
+      tags: ['trap'], durationSec: 0.5 },
+  ];
+
+  /** Executor con una librería de mentira; `cargados` recoge lo que se pidió. */
+  function withLibrary() {
+    const store = new ProjectStore();
+    const cargados: string[][] = [];
+    const executor = new ToolExecutor(store, undefined, undefined, undefined, {
+      list: async () => SOUNDS,
+      load: async (ids) => {
+        cargados.push([...ids]);
+        return ids.map((id) => {
+          const channel = { id: newId(), name: SOUNDS.find((s) => s.id === id)?.name ?? id };
+          store.dispatch({
+            type: 'addChannel',
+            channel: {
+              id: channel.id, name: channel.name, color: '#fff', kind: 'sampler',
+              params: {}, volume: 1, pan: 0, mute: false, solo: false,
+              mixerTrack: 0, fx: [null, null, null, null],
+            },
+          });
+          return channel;
+        });
+      },
+    });
+    return { store, executor, cargados };
+  }
+
+  it('list_library filtra por texto sin acentos ni mayúsculas', async () => {
+    const { executor } = withLibrary();
+    const { text } = await executor.execute('list_library', { busca: 'RUMBLE' });
+    expect(text).toContain('Kick Rumble 01');
+    expect(text).not.toContain('Kick Hard Groove 01');
+  });
+
+  it('list_library enseña BPM y nota de los loops, que es lo que decide si encajan', async () => {
+    const { executor } = withLibrary();
+    const { text } = await executor.execute('list_library', { categoria: 'melodic-loops' });
+    expect(text).toContain('134 BPM');
+    expect(text).toContain('A');
+  });
+
+  it('list_library se queda con un pack cuando se le pide', async () => {
+    const { executor } = withLibrary();
+    const { text } = await executor.execute('list_library', { pack: 'warehouse' });
+    expect(text).not.toContain('Kick Trap 01');
+    expect(text).toContain('Warehouse (3)');
+  });
+
+  it('load_sample resuelve por nombre y respeta el orden pedido', async () => {
+    const { executor, cargados, store } = withLibrary();
+    await executor.execute('load_sample', {
+      sonidos: ['Kick Rumble 01', 'Acid 134 Am'],
+    });
+    expect(cargados).toEqual([
+      ['pack:drums/warehouse/kick-rumble-01', 'pack:melodic-loops/warehouse/acid-134-am'],
+    ]);
+    expect(store.project.channelOrder).toHaveLength(2);
+  });
+
+  it('load_sample enruta los canales creados a la pista pedida', async () => {
+    const { executor, store } = withLibrary();
+    await executor.execute('load_sample', { sonidos: ['Kick Hard Groove 01'], mixerTrack: 3 });
+    const channel = store.project.channels[store.project.channelOrder[0]!]!;
+    expect(channel.mixerTrack).toBe(3);
+  });
+
+  it('load_sample no elige a ciegas cuando el nombre es ambiguo', async () => {
+    const { executor, cargados } = withLibrary();
+    await expect(executor.execute('load_sample', { sonidos: ['Kick'] })).rejects.toThrow(
+      /cuadra con 3 sonidos/,
+    );
+    expect(cargados).toEqual([]);
+  });
+
+  it('load_sample dice qué nombre no existe en vez de cargar de menos', async () => {
+    const { executor } = withLibrary();
+    await expect(
+      executor.execute('load_sample', { sonidos: ['Kick Rumble 01', 'Trompeta'] }),
+    ).rejects.toThrow(/No hay ningún sonido "Trompeta"/);
+  });
+
+  it('sin librería cableada lo dice en vez de fallar raro', async () => {
+    const { executor } = setup();
+    await expect(executor.execute('list_library', {})).rejects.toThrow(/no está disponible/);
+  });
+});
+
 describe('set_keymap', () => {
   /** Registra samples en el proyecto con nombres de archivo de librería. */
   function withSamples(store: ProjectStore, files: string[]): void {

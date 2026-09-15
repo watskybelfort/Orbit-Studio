@@ -102,6 +102,36 @@ export type GeneratePackFn = (
   opts: { addChannels: boolean },
 ) => Promise<GeneratedPackInfo>;
 
+/** Un sonido de la librería tal como lo ve el browser (fábrica o pack generado). */
+export interface LibrarySound {
+  /** Id del manifest, ya prefijado con su pack. Lo acepta `load_sample`. */
+  id: string;
+  name: string;
+  /** Nombre del pack al que pertenece. */
+  pack: string;
+  category: string;
+  subcategory?: string;
+  tags: string[];
+  durationSec: number;
+  /** Solo en loops. */
+  bpm?: number;
+  /** Solo en 808s y loops. */
+  keyRoot?: string;
+}
+
+/**
+ * Acceso a la librería de sonidos. La inyecta el renderer por la misma razón
+ * que `saveFile` y `generatePack`: el executor no lee el disco ni conoce el
+ * browser, y montar un sampler es subir el WAV al motor además de despachar el
+ * comando.
+ */
+export interface LibraryFn {
+  /** Todo lo que hay en el browser: pack de fábrica + packs generados. */
+  list(): Promise<LibrarySound[]>;
+  /** Un canal sampler por sonido, en un solo paso de undo. Devuelve los creados. */
+  load(ids: readonly string[]): Promise<{ id: string; name: string }[]>;
+}
+
 // Del registro de core, igual que los efectos: si core gana un instrumento
 // (nova, vox, slicer…) la tool lo acepta sola y no se queda corta respecto al
 // enum que anuncia su propio esquema.
@@ -226,6 +256,8 @@ export class ToolExecutor {
     private readonly takeUserRequest?: () => string | null,
     /** Generador de packs de sonidos (lo cablea el renderer). */
     private readonly generatePack?: GeneratePackFn,
+    /** Librería de sonidos del browser (lo cablea el renderer). */
+    private readonly library?: LibraryFn,
   ) {}
 
   /** Adjunta la petición pendiente del usuario al texto de get_project. */
@@ -267,6 +299,8 @@ export class ToolExecutor {
       case 'render': return { text: await this.render(a) };
       case 'analyze_mix': return { text: this.analyzeMixTool() };
       case 'advise_mix': return { text: this.adviseMixTool(a) };
+      case 'list_library': return { text: await this.listLibrary(a) };
+      case 'load_sample': return { text: await this.loadSample(a) };
       case 'generate_pack': return { text: await this.generatePackTool(a) };
       case 'undo': return { text: this.undo() };
       case 'redo': return { text: this.redo() };
@@ -1320,6 +1354,154 @@ export class ToolExecutor {
       label,
     );
     return `Aplicado en un solo paso de undo: ${done.join(', ')}.`;
+  }
+
+  // ── Librería de sonidos ───────────────────────────────────────────
+
+  /** Sin acentos, sin mayúsculas: buscar "percusion" tiene que encontrar "percusión". */
+  private static plano(text: string): string {
+    return text
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase();
+  }
+
+  private libraryOrFail(): LibraryFn {
+    if (!this.library) {
+      throw new ToolError(
+        'La librería no está disponible en esta sesión (falta el puente del browser)',
+      );
+    }
+    return this.library;
+  }
+
+  /**
+   * Qué hay en el browser. Existe porque sin esto la única forma de que un
+   * sonido del pack llegue a un canal era que el usuario lo arrastrase a mano:
+   * el puente podía escribir notas pero no elegir con qué sonaban.
+   */
+  private async listLibrary(a: Record<string, unknown>): Promise<string> {
+    const all = await this.libraryOrFail().list();
+    if (all.length === 0) {
+      return 'La librería está vacía: no hay pack de fábrica instalado ni packs generados.';
+    }
+
+    const busca = optString(a, 'busca');
+    const pack = optString(a, 'pack');
+    const categoria = optString(a, 'categoria');
+    const limite = Math.max(1, Math.round(optNumber(a, 'limite') ?? 120));
+
+    const needle = busca ? ToolExecutor.plano(busca) : null;
+    const filtered = all.filter((sound) => {
+      if (pack && !ToolExecutor.plano(sound.pack).includes(ToolExecutor.plano(pack))) return false;
+      if (categoria && ToolExecutor.plano(sound.category) !== ToolExecutor.plano(categoria)) return false;
+      if (!needle) return true;
+      const haystack = ToolExecutor.plano(
+        [sound.name, sound.category, sound.subcategory ?? '', sound.pack, ...sound.tags].join(' '),
+      );
+      return haystack.includes(needle);
+    });
+
+    if (filtered.length === 0) {
+      const que = [busca && `"${busca}"`, pack && `pack "${pack}"`, categoria && `categoría "${categoria}"`]
+        .filter(Boolean)
+        .join(', ');
+      return `Ningún sonido cuadra con ${que || 'el filtro'}. Hay ${all.length} en la librería.`;
+    }
+
+    const shown = filtered.slice(0, limite);
+    const porPack = new Map<string, LibrarySound[]>();
+    for (const sound of shown) {
+      const list = porPack.get(sound.pack) ?? [];
+      list.push(sound);
+      porPack.set(sound.pack, list);
+    }
+
+    const lines: string[] = [
+      `${filtered.length} sonido(s)${filtered.length > shown.length ? `, muestro ${shown.length}` : ''}:`,
+    ];
+    for (const [nombre, sounds] of porPack) {
+      lines.push(`\n${nombre} (${sounds.length}):`);
+      for (const sound of sounds) {
+        // El BPM y la nota son lo que decide si un loop entra en el proyecto o
+        // no: van en la línea, no escondidos detrás de otra llamada.
+        const extra = [
+          sound.bpm !== undefined ? `${f(sound.bpm)} BPM` : null,
+          sound.keyRoot ? sound.keyRoot : null,
+          `${f(sound.durationSec, 2)} s`,
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        const grupo = sound.subcategory ? `${sound.category}/${sound.subcategory}` : sound.category;
+        lines.push(`  - "${sound.name}" · ${grupo} · ${extra}`);
+      }
+    }
+    lines.push('\nPara meterlos en el proyecto: load_sample con sus nombres.');
+    return lines.join('\n');
+  }
+
+  /**
+   * Un canal sampler por sonido, lo mismo que arrastrarlos al rack.
+   *
+   * La resolución por NOMBRE es deliberada: los ids del manifest
+   * (`pack:drums/warehouse/kick-hard-groove-01`) no se pueden teclear de memoria
+   * y el nombre visible sí. Un nombre ambiguo se rechaza diciendo cuáles
+   * coincidían, en vez de elegir uno a ciegas.
+   */
+  private async loadSample(a: Record<string, unknown>): Promise<string> {
+    const library = this.libraryOrFail();
+    const raw = a['sonidos'];
+    if (!Array.isArray(raw) || raw.length === 0) {
+      throw new ToolError('Falta "sonidos": una lista de nombres o ids de la librería');
+    }
+    const wanted = raw.map((x, i) => {
+      if (typeof x !== 'string' || x.trim() === '') {
+        throw new ToolError(`"sonidos[${i}]" debe ser un nombre o id no vacío`);
+      }
+      return x.trim();
+    });
+
+    const mixerTrack = optNumber(a, 'mixerTrack');
+    if (mixerTrack !== undefined) this.mixerTrack(mixerTrack);
+
+    const all = await library.list();
+    const ids: string[] = [];
+    for (const query of wanted) {
+      const exact = all.filter(
+        (s) => s.id === query || ToolExecutor.plano(s.name) === ToolExecutor.plano(query),
+      );
+      const candidates = exact.length > 0
+        ? exact
+        : all.filter((s) => ToolExecutor.plano(s.name).includes(ToolExecutor.plano(query)));
+
+      if (candidates.length === 0) {
+        throw new ToolError(`No hay ningún sonido "${query}" en la librería (mira list_library)`);
+      }
+      if (candidates.length > 1) {
+        const nombres = candidates.slice(0, 6).map((s) => `"${s.name}"`).join(', ');
+        throw new ToolError(
+          `"${query}" cuadra con ${candidates.length} sonidos (${nombres}${candidates.length > 6 ? '…' : ''}): concreta`,
+        );
+      }
+      ids.push(candidates[0]!.id);
+    }
+
+    const created = await library.load(ids);
+    if (created.length === 0) throw new ToolError('No se pudo cargar ningún sonido');
+
+    if (mixerTrack !== undefined) {
+      const commands: Command[] = created.map((channel) => ({
+        type: 'patchChannel',
+        channelId: channel.id,
+        patch: { mixerTrack },
+      }));
+      const label = `Enrutar ${created.length} sampler(s) al mixer ${mixerTrack}`;
+      this.dispatch(commands.length === 1 ? commands[0]! : { type: 'batch', label, commands }, label);
+    }
+
+    const destino = mixerTrack !== undefined ? `, en el mixer ${mixerTrack}` : '';
+    const lista = created.map((c) => `  - "${c.name}" id=${c.id}`).join('\n');
+    return `${created.length} canal(es) sampler creados${destino}:\n${lista}`;
   }
 
   // ── Packs de sonidos a medida ─────────────────────────────────────

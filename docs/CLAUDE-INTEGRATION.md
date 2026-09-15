@@ -39,7 +39,13 @@ Consecuencias de diseño (por qué es elegante):
 | `render` | Exportar WAV (master o stems) y devolver la ruta |
 | `analyze_mix` | Medidas reales del render: LUFS, peak, balance espectral por bandas, correlación estéreo |
 | `advise_mix` | Diagnóstico accionable de la mezcla (tilts entre bandas, fase, loudness contra -14 LUFS) y cadena propuesta con valores reales; con `apply` la monta en un solo undo |
-| `list_library` / `load_sample` | Buscar en la librería clasificada y cargar samples |
+| `list_library` | Qué hay en el browser: pack de fábrica + packs generados, con BPM y nota de cada loop |
+| `load_sample` | Mete sonidos de la librería en el rack como canales sampler, igual que arrastrarlos |
+
+`load_sample` resuelve por NOMBRE, no solo por id: los ids del manifest
+(`pack:drums/warehouse/kick-hard-groove-01`) no se teclean de memoria y el nombre
+visible sí. Un nombre ambiguo se rechaza diciendo con cuáles cuadraba, porque
+elegir uno a ciegas es lo que acaba con un bombo que no era ese en el compás 33.
 
 Diseño de las tools: parámetros musicales (notas como `"F2"`, tiempos en beats,
 ganancias en dB), respuestas compactas, y **batch** (`edit_many`) para que una

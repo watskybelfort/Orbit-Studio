@@ -5,9 +5,16 @@
  */
 
 import { create } from 'zustand';
-import { ToolExecutor, type GeneratePackFn, type SaveFileFn } from '@orbit/claude-bridge';
-import { addSamplerChannel } from '../browser/sound-actions';
-import { generatePack, readPackEntries } from '../browser/pack-generator';
+import {
+  ToolExecutor,
+  type GeneratePackFn,
+  type LibraryFn,
+  type LibrarySound,
+  type SaveFileFn,
+} from '@orbit/claude-bridge';
+import { loadManifest, type SoundEntry } from '@orbit/sound-library';
+import { addSamplerChannel, addSamplerChannels } from '../browser/sound-actions';
+import { generatePack, packEntries, readPackEntries } from '../browser/pack-generator';
 import { store } from './app';
 
 export interface ClaudeActivityEntry {
@@ -104,6 +111,90 @@ export function initClaudeBridge(): void {
     return { ...pack, added };
   };
 
+  /**
+   * Librería para las tools `list_library` / `load_sample`: el pack de fábrica
+   * más los generados, con las MISMAS entradas que ve el browser — los ids y
+   * las rutas de un pack van prefijados por `packEntries`, que es de donde sabe
+   * `loadIntoEngine` por dónde leer el WAV.
+   */
+  const library: LibraryFn = {
+    async list(): Promise<LibrarySound[]> {
+      const entries: { entry: SoundEntry; pack: string }[] = [];
+
+      const factoryJson = await api.library.manifest().catch(() => null);
+      if (factoryJson !== null) {
+        try {
+          const manifest = loadManifest(factoryJson);
+          for (const entry of manifest.entries) entries.push({ entry, pack: manifest.pack });
+        } catch {
+          // manifest a medias: igual que el browser, mejor no enseñarlo que romper
+        }
+      }
+
+      for (const raw of await api.pack.list().catch(() => [])) {
+        try {
+          const manifest = loadManifest(raw.manifest);
+          for (const entry of packEntries(raw.slug, manifest)) {
+            entries.push({ entry, pack: manifest.pack });
+          }
+        } catch {
+          // ídem
+        }
+      }
+
+      return entries.map(({ entry, pack }) => ({
+        id: entry.id,
+        name: entry.name,
+        pack,
+        category: entry.category,
+        ...(entry.subcategory !== undefined ? { subcategory: entry.subcategory } : {}),
+        tags: entry.tags,
+        durationSec: entry.durationSec,
+        ...(entry.bpm !== undefined ? { bpm: entry.bpm } : {}),
+        ...(entry.keyRoot !== undefined ? { keyRoot: entry.keyRoot } : {}),
+      }));
+    },
+
+    async load(ids): Promise<{ id: string; name: string }[]> {
+      const wanted = new Set(ids);
+      const found: SoundEntry[] = [];
+
+      const factoryJson = await api.library.manifest().catch(() => null);
+      if (factoryJson !== null) {
+        try {
+          for (const entry of loadManifest(factoryJson).entries) {
+            if (wanted.has(entry.id)) found.push(entry);
+          }
+        } catch {
+          // ídem
+        }
+      }
+      for (const raw of await api.pack.list().catch(() => [])) {
+        try {
+          for (const entry of packEntries(raw.slug, loadManifest(raw.manifest))) {
+            if (wanted.has(entry.id)) found.push(entry);
+          }
+        } catch {
+          // ídem
+        }
+      }
+
+      // Se respeta el ORDEN que pidió quien llama, no el del manifest: quien
+      // carga bombo, bajo y hat espera esos tres canales en ese orden.
+      const byId = new Map(found.map((entry) => [entry.id, entry]));
+      const ordered = ids.flatMap((id) => {
+        const entry = byId.get(id);
+        return entry ? [entry] : [];
+      });
+
+      const before = new Set(store.project.channelOrder);
+      await addSamplerChannels(ordered);
+      return store.project.channelOrder
+        .filter((id) => !before.has(id))
+        .map((id) => ({ id, name: store.project.channels[id]?.name ?? id }));
+    },
+  };
+
   const executor = new ToolExecutor(
     store,
     saveFile,
@@ -113,6 +204,7 @@ export function initClaudeBridge(): void {
       return request;
     },
     makePack,
+    library,
   );
 
   api.claude.onBridgeStatus((s) => {

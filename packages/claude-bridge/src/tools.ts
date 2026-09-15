@@ -512,6 +512,52 @@ export const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'list_library',
+    description:
+      'Lista los sonidos de la librería del browser: el pack de fábrica y los packs generados ' +
+      '(sección "Packs generados"). Sin filtros los devuelve todos agrupados por pack. `busca` ' +
+      'filtra por nombre, tags, categoría o pack (subcadena, sin acentos ni mayúsculas); `pack` ' +
+      'se queda con uno solo; `categoria` con una categoría. Devuelve nombre, categoría, ' +
+      'duración y, cuando aplica, BPM y nota raíz — que es lo que hace falta para decidir si un ' +
+      'loop encaja con el tempo del proyecto. Los nombres que devuelve son los que acepta ' +
+      '`load_sample`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        busca: { type: 'string', description: 'Texto en nombre, tags, categoría o pack.' },
+        pack: { type: 'string', description: 'Nombre o slug de un pack concreto.' },
+        categoria: { type: 'string', description: 'Categoría del browser (drums, 808s, fx, melodic-loops…).' },
+        limite: { type: 'integer', minimum: 1, description: 'Cuántos como mucho (por defecto 120).' },
+      },
+    },
+  },
+  {
+    name: 'load_sample',
+    description:
+      'Mete sonidos de la librería en el proyecto como canales sampler, igual que arrastrarlos al ' +
+      'channel rack: un canal por sonido, en UN solo paso de undo, con su multisample montado si ' +
+      'lo trae. `sonidos` son nombres (exactos, o el único que coincida) o ids de `list_library`. ' +
+      'Con `mixerTrack` los canales salen ya enrutados a esa pista. Devuelve el nombre y el id de ' +
+      'cada canal creado, listos para `set_notes` y `set_steps`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sonidos: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string' },
+          description: 'Nombres o ids de sonidos de la librería.',
+        },
+        mixerTrack: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Pista de mixer a la que van todos los canales creados.',
+        },
+      },
+      required: ['sonidos'],
+    },
+  },
+  {
     name: 'generate_pack',
     description:
       'Genera un pack de sonidos NUEVO por síntesis ("12 hats de drill") con el MISMO motor que ' +

@@ -10,6 +10,8 @@ export {
   ToolExecutor,
   type GeneratePackFn,
   type GeneratedPackInfo,
+  type LibraryFn,
+  type LibrarySound,
   type SaveFileFn,
 } from './executor';
 export {
