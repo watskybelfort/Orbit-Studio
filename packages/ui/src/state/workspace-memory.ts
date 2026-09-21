@@ -13,7 +13,14 @@
  */
 
 import type { LayoutWindow } from '@orbit/core';
-import { applyLayoutWindows, captureLayout, workspaceArea, BROWSER_KEY, CLAUDE_KEY } from './layouts';
+import {
+  applyLayoutWindows,
+  captureLayout,
+  fitToArea,
+  workspaceArea,
+  BROWSER_KEY,
+  CLAUDE_KEY,
+} from './layouts';
 import { useUiStore, isWindowId } from './ui';
 
 /** Clave de settings.json con la disposición de la última sesión. */
@@ -23,12 +30,6 @@ export const REMEMBER_KEY = 'rememberWorkspace';
 
 /** Retardo de guardado tras el último cambio, en ms. */
 const SAVE_DEBOUNCE_MS = 700;
-
-/** Mínimos de una ventana interna (los de InternalWindow). */
-const MIN_W = 320;
-const MIN_H = 200;
-/** Píxeles de ventana que se garantizan dentro del escritorio al restaurar. */
-const KEEP_VISIBLE = 80;
 
 function num(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -48,27 +49,6 @@ function parseBox(raw: unknown): LayoutWindow | null {
   const h = num(o['h']);
   if (x === null || y === null || w === null || h === null) return null;
   return { open: o['open'] === true, x, y, w, h };
-}
-
-/**
- * Mete la caja dentro del escritorio de AHORA.
- *
- * Sin esto, cerrar la app con el mixer en el segundo monitor y volver a
- * abrirla sin ese monitor dejaría la ventana en x = 2400: existe, se puede
- * arrastrar por el store, pero no la ves ni la puedes agarrar. Se garantiza
- * que quedan KEEP_VISIBLE píxeles suyos dentro (incluida la barra de título,
- * que es de donde se arrastra).
- */
-function fitToArea(box: LayoutWindow, area: { w: number; h: number }): LayoutWindow {
-  const w = Math.max(MIN_W, Math.min(box.w, Math.max(MIN_W, area.w)));
-  const h = Math.max(MIN_H, Math.min(box.h, Math.max(MIN_H, area.h)));
-  return {
-    open: box.open,
-    w,
-    h,
-    x: Math.max(0, Math.min(box.x, Math.max(0, area.w - KEEP_VISIBLE))),
-    y: Math.max(0, Math.min(box.y, Math.max(0, area.h - KEEP_VISIBLE / 2))),
-  };
 }
 
 /** Pseudo-ventana de los paneles del shell: solo importa si están abiertos. */

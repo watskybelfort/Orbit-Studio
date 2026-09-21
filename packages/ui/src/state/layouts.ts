@@ -31,6 +31,39 @@ export const CLAUDE_KEY = 'claudePanel';
 /** Margen del escritorio para los predefinidos. */
 const GAP = 12;
 
+/** Mínimos de una ventana interna (los de InternalWindow). */
+const MIN_W = 320;
+const MIN_H = 200;
+/** Píxeles de ventana que se garantizan dentro del escritorio al recortar. */
+const KEEP_VISIBLE = 80;
+
+/**
+ * Mete la caja dentro del escritorio de AHORA.
+ *
+ * Un layout del proyecto no sabe qué monitores tienes: se guardó en una sesión
+ * que podía tener dos pantallas (x = 2400), y aplicarlo en un portátil sin
+ * ellas deja la ventana existiendo en el store pero invisible — se puede
+ * arrastrar a ciegas, no se puede agarrar. Se garantiza que quedan
+ * KEEP_VISIBLE píxeles suyos dentro (incluida la barra de título, que es de
+ * donde se arrastra).
+ *
+ * Vive aquí, y no en `workspace-memory.ts` —que la usó primero para lo de
+ * settings.json—, porque los dos caminos (settings y layout del proyecto)
+ * tienen que recortar con la MISMA regla: dos copias divergen, y la que se
+ * quede vieja deja ventanas fuera sin que nadie lo note.
+ */
+export function fitToArea(box: LayoutWindow, area: LayoutArea): LayoutWindow {
+  const w = Math.max(MIN_W, Math.min(box.w, Math.max(MIN_W, area.w)));
+  const h = Math.max(MIN_H, Math.min(box.h, Math.max(MIN_H, area.h)));
+  return {
+    open: box.open,
+    w,
+    h,
+    x: Math.max(0, Math.min(box.x, Math.max(0, area.w - KEEP_VISIBLE))),
+    y: Math.max(0, Math.min(box.y, Math.max(0, area.h - KEEP_VISIBLE / 2))),
+  };
+}
+
 // ── Capturar / aplicar ───────────────────────────────────────────────────────
 
 /** Fotografía el escritorio actual (sin el z-order: se recalcula al aplicar). */
@@ -52,6 +85,7 @@ export function captureLayout(): Record<string, LayoutWindow> {
 export function applyLayoutWindows(windows: Record<string, LayoutWindow>): void {
   const ui = useUiStore.getState();
   const next: Record<WindowId, WindowState> = { ...ui.windows };
+  const area = workspaceArea();
   let z = 0;
 
   for (const id of Object.keys(next) as WindowId[]) {
@@ -60,15 +94,18 @@ export function applyLayoutWindows(windows: Record<string, LayoutWindow>): void 
       next[id] = { ...next[id], open: false };
       continue;
     }
+    // El mismo recorte que el camino de settings: un layout guardado con otro
+    // monitor no puede dejar ventanas fuera de la pantalla de ahora.
+    const fitted = fitToArea(box, area);
     next[id] = {
       ...next[id],
-      open: box.open,
-      x: box.x,
-      y: box.y,
-      w: box.w,
-      h: box.h,
+      open: fitted.open,
+      x: fitted.x,
+      y: fitted.y,
+      w: fitted.w,
+      h: fitted.h,
       // Solo se renumera lo visible; lo cerrado conserva su z (invisible da igual).
-      z: box.open ? ++z : next[id].z,
+      z: fitted.open ? ++z : next[id].z,
     };
   }
 
