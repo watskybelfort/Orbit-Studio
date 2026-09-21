@@ -213,9 +213,25 @@ export class CommandLogBinding {
 
   // ── Unirse / crear ─────────────────────────────────────────────────────────
 
+  /**
+   * `parseProject` sin morir por la base de la sala. Un snapshot que no parsea
+   * (un cliente modificado, un .bin tocado a mano) no puede dejar la sala
+   * inentrable ni tumbar una re-derivación: se avisa, se sigue SIN base y el
+   * log se aplica encima del proyecto que ya se tenía.
+   */
+  private parseSnapshot(snapshotJson: string): Project | null {
+    try {
+      return parseProject(snapshotJson);
+    } catch (err) {
+      console.warn('[collab] el snapshot de la sala no parsea; se sigue sin base:', err);
+      return null;
+    }
+  }
+
   /** Carga snapshot + log en el store (sustituye el proyecto local). */
   private join(snapshotJson: string): void {
-    const project = parseProject(snapshotJson);
+    const project = this.parseSnapshot(snapshotJson);
+    if (!project) return;
     for (const entry of this.log.toArray()) {
       // Clonamos: el objeto del log pertenece a Yjs y no debe mutar.
       if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
@@ -425,8 +441,10 @@ export class CommandLogBinding {
    */
   private replay(entries: LogEntry[]): void {
     const snapshotJson = this.meta.get('snapshot');
-    if (typeof snapshotJson !== 'string') {
-      // Sin snapshot no hay base para re-derivar: aplica lo pendiente y sigue.
+    const project = typeof snapshotJson === 'string' ? this.parseSnapshot(snapshotJson) : null;
+    if (!project) {
+      // Sin snapshot (o con uno ilegible) no hay base para re-derivar: aplica
+      // lo pendiente y sigue.
       for (const entry of entries) {
         const key = entryKey(entry.client, entry.seq);
         if (this.applied.has(key)) continue;
@@ -442,7 +460,6 @@ export class CommandLogBinding {
       }
       return;
     }
-    const project = parseProject(snapshotJson);
     this.applied = new Set();
     for (const entry of entries) {
       if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
