@@ -136,6 +136,16 @@ async function readVersion(file: string): Promise<Project | null> {
 }
 
 /**
+ * Secuencia de peticiones por panel. Leer una versión cruza un `await` (IPC),
+ * y entre pedirla y recibirla el usuario puede pedir OTRA: sin este número,
+ * la respuesta lenta pisa el estado de la nueva (abres A, te arrepientes,
+ * abres B, y cuando por fin llega A el panel enseña el diff de A). Cada
+ * respuesta comprueba que sigue siendo la última antes de escribir nada.
+ */
+let diffRequest = 0;
+let restoreRequest = 0;
+
+/**
  * Despliega una versión: calcula qué cambió DESDE ella hasta el proyecto de
  * ahora. Volver a pulsar la cierra.
  */
@@ -144,8 +154,10 @@ export async function openVersionDiff(file: string): Promise<void> {
     useVersions.setState({ openFile: null, diff: null });
     return;
   }
+  const token = ++diffRequest;
   useVersions.setState({ busy: true, notice: null });
   const project = await readVersion(file);
+  if (token !== diffRequest) return; // llegó tarde: hay otra petición en curso
   if (!project) {
     useVersions.setState({ busy: false });
     return;
@@ -164,8 +176,10 @@ export async function openVersionDiff(file: string): Promise<void> {
  * restaurar": restaurar no puede ser una puerta de un solo sentido.
  */
 export async function restoreVersion(file: string): Promise<void> {
+  const token = ++restoreRequest;
   useVersions.setState({ busy: true, notice: null });
   const project = await readVersion(file);
+  if (token !== restoreRequest) return; // llegó tarde: no se restaura nada
   if (!project) {
     useVersions.setState({ busy: false });
     return;
@@ -174,6 +188,7 @@ export async function restoreVersion(file: string): Promise<void> {
   // reversible: si NO se pudo guardar, se aborta en vez de reemplazar el estado
   // actual sin vuelta atrás.
   const backedUp = await saveVersion('antes de restaurar');
+  if (token !== restoreRequest) return; // otra restauración pidió paso entretanto
   if (!backedUp) {
     useVersions.setState({
       busy: false,
