@@ -366,6 +366,11 @@ function persist(patch: Record<string, unknown>): void {
 /** Canal MIDI que se escucha (0 = todos). */
 export function setMidiChannel(channel: number): void {
   const value = Math.min(16, Math.max(0, Math.round(channel)));
+  // Lo que ya está pulsado se suelta ANTES de cambiar el filtro: su note-off
+  // llega con el canal viejo y, con el nuevo puesto, `channelMatches` lo
+  // descartaría — la nota se quedaría sonando sin nadie que la suelte. Mismo
+  // motivo que en `setMidiOctave`.
+  releaseAll();
   useLiveInputStore.setState({ channel: value });
   persist({ [SETTINGS_CHANNEL]: value });
 }
@@ -473,6 +478,11 @@ if (env?.DEV === true && typeof window !== 'undefined') {
 let wired = false;
 /** Vuelve a repartir los manejadores (al cambiar qué está encendido). */
 let reattach: (() => void) | null = null;
+/**
+ * Dispositivos que tenían manejador repartido en el reparto ANTERIOR. Sirve
+ * para detectar los que desaparecieron entre dos repartos (ver `attach`).
+ */
+let attachedIds = new Set<string>();
 
 export function initLiveInput(): void {
   if (wired || typeof window === 'undefined') return;
@@ -480,8 +490,15 @@ export function initLiveInput(): void {
 
   useUiStore.subscribe((s, prev) => {
     if (!useLiveInputStore.getState().armed) return;
-    // Al parar el transporte, se vuelca lo tocado.
+    // Al parar el transporte, se vuelca lo tocado. Y las teclas que sigan
+    // pulsadas se cierran EN el beat donde paró, como en el cruce de vuelta:
+    // sin eso, su note-off llegaría con la grabación ya volcada y la nota se
+    // perdería (la dejas apretada, das Stop, y esa nota no existe).
     if (prev.playing && !s.playing) {
+      for (const h of held.values()) {
+        push(h, prev.positionBeats);
+        h.startBeat = s.positionBeats;
+      }
       commitRecording();
       return;
     }
@@ -544,8 +561,10 @@ export function initLiveInput(): void {
     .then((access) => {
       const attach = () => {
         const devices: MidiDeviceInfo[] = [];
+        const present = new Set<string>();
         for (const input of access.inputs.values()) {
           const id = input.id;
+          present.add(id);
           const enabled = !disabledIds.has(id);
           devices.push({ id, name: input.name ?? 'Controlador MIDI', enabled });
           // Apagado = sin manejador. No basta con filtrar dentro: apagar un
@@ -553,6 +572,16 @@ export function initLiveInput(): void {
           // incluido.
           input.onmidimessage = enabled ? (e: MIDIMessageEvent) => handleMidi(id, e) : null;
         }
+        // Los que estaban y ya no: el cable se fue (o el sistema los quitó).
+        // Sus notas no las va a soltar nadie más —ya no hay note-off posible—
+        // así que se liberan aquí, con su pedal incluido, igual que hace
+        // `setMidiDeviceEnabled` al apagar uno a mano.
+        for (const id of attachedIds) {
+          if (present.has(id)) continue;
+          for (const source of pedal.forgetDevice(id)) noteOff(source);
+          releaseAll(sourcePrefix(id));
+        }
+        attachedIds = present;
         useLiveInputStore.setState({
           devices,
           midiInputs: devices.filter((d) => d.enabled).length,
