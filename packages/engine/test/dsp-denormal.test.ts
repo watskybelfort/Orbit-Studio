@@ -125,12 +125,19 @@ describe('effects.ts: flush de denormales en DelayUnit/FlangerUnit/PhaserUnit', 
     fx.setParams({ time: 0, feedback: 0.95, pingpong: 1, filter: 3500 });
     driveEffectSilence(fx, 50, 4000, 512);
     const buf = (fx as unknown as { dl: { buf: Float32Array } }).dl.buf;
+    // Acumular y comprobar al final: un `expect()` por muestra sobre 262 144
+    // muestras tardaba ~2.7 s y con el timeout de 5 s de vitest la corrida
+    // completa caía por timeout de forma intermitente.
     let maxAbs = 0;
+    let minNonZero = Infinity;
     for (const v of buf) {
       const a = Math.abs(v);
-      maxAbs = Math.max(maxAbs, a);
-      if (a !== 0) expect(a).toBeGreaterThan(FLOAT32_MIN_NORMAL);
+      if (a > maxAbs) maxAbs = a;
+      if (a !== 0 && a < minNonZero) minNonZero = a;
     }
+    expect(minNonZero, 'ninguna muestra no-cero por debajo del mínimo normal').toBeGreaterThan(
+      FLOAT32_MIN_NORMAL,
+    );
     expect(Number.isFinite(maxAbs)).toBe(true);
     expect(maxAbs).toBeLessThan(FLOOR_24BIT);
   });
