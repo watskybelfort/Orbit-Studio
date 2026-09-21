@@ -27,7 +27,13 @@
  */
 
 import { create } from 'zustand';
-import { encodeMidi, trackOfChannel, type Project } from '@orbit/core';
+import {
+  encodeMidi,
+  parseProject,
+  serializeProject,
+  trackOfChannel,
+  type Project,
+} from '@orbit/core';
 import {
   analyzeMix,
   compileProject,
@@ -376,8 +382,13 @@ async function renderAndWrite(
     await nextPaint();
   };
 
-  // Snapshot del proyecto al empezar (no del último render de React).
-  const proj = store.project;
+  // Snapshot del proyecto al empezar: una COPIA, no una referencia al vivo.
+  // El render compila su propio proyecto, pero el `.mid` y los tags del
+  // `.opus` se codifican al final, minutos después, y con la referencia viva
+  // leían lo que se hubiera editado entretanto (tempo incluido): el WAV salía
+  // a 140 y el `.mid` a 200, desincronizados. Todo el export sale de esta
+  // foto, la misma que ya usa `sideProject()` para comparar versiones.
+  const proj = parseProject(serializeProject(store.project));
   const warnings: string[] = [];
 
   // Cancelación: qué se sabe del export en el momento de cortar. `stemTracks`
