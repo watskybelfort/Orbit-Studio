@@ -44,6 +44,7 @@ import {
 } from '../state/project-templates';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, loadIntoEngine, setDragEntries } from './sound-actions';
+import { createPreviewSequence, type PreviewSequence } from './preview-sequence';
 import {
   dragSetFor,
   pruneSelection,
@@ -203,6 +204,9 @@ export function Browser() {
   /** Plantilla cuya ficha (descripción, qué trae) está desplegada. */
   const [templateDetail, setTemplateDetail] = useState<string | null>(null);
   const previewTimer = useRef<number | null>(null);
+  /** Token de la carga de preview más nueva (descarta las que llegan tarde). */
+  const previewSeq = useRef<PreviewSequence | null>(null);
+  if (previewSeq.current === null) previewSeq.current = createPreviewSequence();
 
   const { favorites, collections, previewGain, analysis } = usePrefs();
   /** Suscripción a las plantillas del usuario (las de fábrica no cambian en toda la sesión). */
@@ -564,8 +568,12 @@ export function Browser() {
   const preview = async (entry: SoundEntry) => {
     ensureAudioReady();
     setStatus(null);
+    const seq = previewSeq.current!.begin();
     try {
       await loadIntoEngine(entry);
+      // Otra carga más nueva arrancó mientras ésta leía: sonar ahora sería
+      // pisar el preview que el usuario pidió después. Se descarta en silencio.
+      if (!previewSeq.current!.isCurrent(seq)) return;
       engine.previewSample(entry.id, (entry.gainSuggestion ?? 0.9) * previewGain);
       if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
       setPlayingId(entry.id);
@@ -574,6 +582,8 @@ export function Browser() {
         Math.max(200, Math.ceil((entry.durationSec || 2) * 1000)),
       );
     } catch (err) {
+      // Un error viejo tampoco puede tapar el estado de la carga nueva.
+      if (!previewSeq.current!.isCurrent(seq)) return;
       setStatus(err instanceof Error ? err.message : `No se pudo leer "${entry.name}"`);
     }
   };
