@@ -106,6 +106,12 @@ export interface OrbitApi {
     get(): Promise<Record<string, unknown>>;
     /** Merge superficial sobre settings.json; devuelve el resultado. */
     set(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+    /**
+     * Persiste dónde escucha el servidor de colaboración. Va por canal propio
+     * porque `collabServerHost` no se escribe por `settings:set`: el main solo
+     * acepta loopback, todas las redes o una interfaz real de esta máquina.
+     */
+    setServerHost(host: string): Promise<Record<string, unknown>>;
   };
   readonly claude: {
     /** Tool calls entrantes del puente MCP (main); devuelve desuscripción. */
@@ -304,6 +310,7 @@ const api: OrbitApi = {
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),
     set: (patch) => ipcRenderer.invoke('settings:set', patch),
+    setServerHost: (host) => ipcRenderer.invoke('settings:set-server-host', host),
   },
   claude: {
     onToolCall: (cb) => {

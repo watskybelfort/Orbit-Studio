@@ -107,6 +107,11 @@ interface OrbitApi {
     get(): Promise<Record<string, unknown>>;
     /** Merge superficial sobre settings.json; devuelve el resultado. */
     set(patch: Record<string, unknown>): Promise<Record<string, unknown>>;
+    /**
+     * Persiste dónde escucha el servidor de colaboración. Canal propio: el main
+     * solo acepta loopback, todas las redes o una interfaz real de la máquina.
+     */
+    setServerHost(host: string): Promise<Record<string, unknown>>;
   };
   readonly claude: {
     /** Tool calls entrantes del puente MCP (main); devuelve desuscripción. */

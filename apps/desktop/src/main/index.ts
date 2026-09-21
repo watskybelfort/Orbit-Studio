@@ -13,6 +13,8 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { networkInterfaces, release } from 'node:os';
@@ -21,6 +23,7 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
 import { isBlockedIp, pathWithin } from './path-guard';
+import { SETTINGS_LOCKED, isAllowedServerHost, requiresNetworkConfirmation } from './settings-guard';
 import { fetchLatestRelease } from './update-check';
 import { cleanServerUrl, isLanAddress, type Peer } from './discovery-protocol';
 import { isValidRoomCode, normalizeRoomCode } from '@orbit/collab';
@@ -204,20 +207,35 @@ function installPermissionHandlers(): void {
 // red INTERNA que el renderer no ve: 127.0.0.1, la config del router
 // (192.168.x.1), paneles de intranet o el 169.254.169.254 de metadatos en la
 // nube. Por eso cada host al que se va a conectar se resuelve por DNS y se
-// rechaza si apunta a loopback, link-local o rango privado, y los redirects se
+// rechaza si apunta a loopback, link-local o rango privado, los redirects se
 // siguen a mano revalidando cada salto (un host "de galería" legítimo podría
-// redirigir a 127.0.0.1 y colarse por la puerta de atrás).
+// redirigir a 127.0.0.1 y colarse por la puerta de atrás), y la conexión se
+// hace contra la IP YA VALIDADA, no contra la que resuelva el sistema en el
+// último momento (TOCTOU de DNS: ver `resolvePublicTarget`).
 
 const GALLERY_MAX_BYTES = 2 * 1024 * 1024;
 const GALLERY_TIMEOUT_MS = 10_000;
 const GALLERY_MAX_REDIRECTS = 4;
 
-/** Resuelve el host y lanza si CUALQUIERA de sus IPs es interna. */
-async function assertPublicHost(hostname: string): Promise<void> {
+/** IP ya validada contra la que se conecta la descarga. */
+interface PinnedTarget {
+  address: string;
+  family: number;
+}
+
+/**
+ * Resuelve el host y lanza si CUALQUIERA de sus IPs es interna. Devuelve además
+ * la IP concreta contra la que hay que conectar: validar y después dejar que el
+ * cliente HTTP vuelva a resolver por su cuenta deja una ventana (TOCTOU de DNS)
+ * en la que la respuesta puede cambiar de pública a interna entre la
+ * comprobación y la conexión.
+ */
+async function resolvePublicTarget(hostname: string): Promise<PinnedTarget> {
   const bare = hostname.replace(/^\[|\]$/g, '');
-  if (isIP(bare)) {
+  const literal = isIP(bare);
+  if (literal) {
     if (isBlockedIp(bare)) throw new Error(`Destino no permitido (red interna): ${hostname}`);
-    return;
+    return { address: bare, family: literal };
   }
   let addrs;
   try {
@@ -228,13 +246,74 @@ async function assertPublicHost(hostname: string): Promise<void> {
   if (addrs.length === 0 || addrs.some((a) => isBlockedIp(a.address))) {
     throw new Error(`Destino no permitido (red interna): ${hostname}`);
   }
+  const first = addrs[0]!;
+  return { address: first.address, family: first.family };
+}
+
+/** Un salto ya resuelto: estado, Location (si es redirect) y cuerpo del tope. */
+interface GalleryHop {
+  status: number;
+  location: string | null;
+  body: string;
+}
+
+/**
+ * Pide la URL conectándose a LA IP YA VALIDADA (`lookup` fijado), no volviendo a
+ * resolver: un DNS que responda distinto en la segunda consulta no llega a
+ * abrir el socket. El cuerpo se lee por trozos con corte, así que no se
+ * bufferiza una respuesta gigante ni se confía en el `content-length`.
+ */
+function requestPinned(url: URL, target: PinnedTarget, signal: AbortSignal): Promise<GalleryHop> {
+  return new Promise((resolve, reject) => {
+    const send = url.protocol === 'https:' ? httpsRequest : httpRequest;
+    const req = send(
+      url,
+      {
+        method: 'GET',
+        headers: { accept: 'text/plain, application/json;q=0.9, */*;q=0.8' },
+        lookup: (_host, _opts, callback) => callback(null, target.address, target.family),
+        signal,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        let total = 0;
+        let done = false;
+        const fail = (err: Error) => {
+          if (done) return;
+          done = true;
+          reject(err);
+          res.destroy();
+        };
+        res.on('data', (chunk: Buffer) => {
+          if (done) return;
+          total += chunk.byteLength;
+          if (total > GALLERY_MAX_BYTES) {
+            fail(new Error('La galería pasa del tope de 2 MB'));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on('end', () => {
+          if (done) return;
+          done = true;
+          resolve({
+            status: res.statusCode ?? 0,
+            location: res.headers.location ?? null,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+        res.on('error', fail);
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 /**
  * Descarga el TEXTO de una galería con las tres guardas: solo http(s), destino
- * público (resuelto por DNS en cada salto), y cuerpo leído por streaming con
- * corte en cuanto pasa del tope — nunca se bufferiza una respuesta gigante ni
- * se confía en el `content-length` declarado.
+ * público (resuelto por DNS en cada salto y con la IP FIJADA para conectarse) y
+ * cuerpo leído por streaming con corte en cuanto pasa del tope.
  */
 async function fetchGalleryText(url: string): Promise<string> {
   let current: URL;
@@ -248,45 +327,20 @@ async function fetchGalleryText(url: string): Promise<string> {
     if (current.protocol !== 'http:' && current.protocol !== 'https:') {
       throw new Error('Solo se descargan galerías por http o https');
     }
-    await assertPublicHost(current.hostname);
-    const response = await fetch(current, { signal, redirect: 'manual' });
-    // redirect:'manual' devuelve el 3xx con la cabecera Location legible; se
-    // sigue a mano para poder revalidar el host de cada salto.
+    const target = await resolvePublicTarget(current.hostname);
+    const response = await requestPinned(current, target, signal);
+    // Los 3xx se siguen a mano para poder revalidar el host de cada salto.
     if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location');
-      if (!location) throw new Error(`Redirección sin destino (${response.status})`);
-      current = new URL(location, current); // resuelve relativas
+      if (!response.location) throw new Error(`Redirección sin destino (${response.status})`);
+      current = new URL(response.location, current); // resuelve relativas
       continue;
     }
-    if (!response.ok) throw new Error(`La galería respondió ${response.status}`);
-    const declared = Number(response.headers.get('content-length') ?? '0');
-    if (declared > GALLERY_MAX_BYTES) throw new Error('La galería pasa del tope de 2 MB');
-    return await readCapped(response, GALLERY_MAX_BYTES);
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`La galería respondió ${response.status}`);
+    }
+    return response.body;
   }
   throw new Error(`Demasiadas redirecciones (>${GALLERY_MAX_REDIRECTS})`);
-}
-
-/** Lee el cuerpo por trozos y aborta en cuanto supera `max` bytes. */
-async function readCapped(response: Response, max: number): Promise<string> {
-  const body = response.body;
-  if (!body) return '';
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        total += value.byteLength;
-        if (total > max) throw new Error('La respuesta pasa del tope de 2 MB');
-        chunks.push(value);
-      }
-    }
-  } finally {
-    void reader.cancel().catch(() => {});
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 // ─── Guardas de ruta (contra symlinks/junctions) ─────────────────────────────
@@ -939,24 +993,6 @@ function registerIpc(): void {
 
   ipcMain.handle('settings:get', () => readSettings());
 
-  /**
-   * Claves que NO se escriben por este canal.
-   *
-   * `userFolders` es la única lista blanca que protege `folder:scan` y
-   * `folder:read` — la regla de "solo las carpetas que el usuario eligió con el
-   * diálogo". Si se puede reescribir por el canal genérico de ajustes, la regla
-   * la acaba poniendo quien la tenía que cumplir: un
-   * `settings.set({ userFolders: ['C:\\'] })` y la guarda deja de guardar nada.
-   * Las carpetas se registran por su canal propio, que solo acepta lo que salió
-   * del diálogo.
-   *
-   * `recentProjects` va por lo mismo: es la lista blanca de `project:open-recent`
-   * y solo la escribe el main cuando un diálogo confirma que el usuario eligió
-   * ese archivo. Si el renderer pudiera meter rutas, "abrir un reciente" sería
-   * "leer cualquier archivo del disco".
-   */
-  const SETTINGS_LOCKED = new Set(['userFolders', 'recentProjects', 'friends']);
-
   ipcMain.handle('settings:set', (_event, patch: unknown) => {
     const base = readSettings();
     if (typeof patch !== 'object' || patch === null) return base;
@@ -973,13 +1009,35 @@ function registerIpc(): void {
     return merged;
   });
 
+  // Canal propio de "dónde escucha el servidor de colaboración": el panel lo
+  // pide por aquí y el main comprueba que sea loopback, todas las redes o una
+  // interfaz REAL de esta máquina antes de escribirlo. Es la contrapartida de
+  // tener la clave en SETTINGS_LOCKED: el renderer conserva la preferencia sin
+  // poder colar una dirección inventada.
+  ipcMain.handle('settings:set-server-host', (_event, host: unknown) => {
+    if (typeof host !== 'string') return readSettings();
+    const value = host.trim();
+    if (!isAllowedServerHost(value, localAddresses().map((a) => a.address))) {
+      console.warn(`[settings] "${value}" no es una dirección de escucha de esta máquina`);
+      return readSettings();
+    }
+    const merged: Settings = {
+      ...readSettings(),
+      collabServerHost: value,
+      // La casilla vieja (1.3.0) se deja coherente por si se abre una versión anterior.
+      collabServerOpen: value !== HOST_LOCAL,
+    };
+    writeSettings(merged);
+    return merged;
+  });
+
   // ── Servidor de colaboración (arrancarlo desde el panel) ───────────────────
   ipcMain.handle('server:status', () => collabServerStatus());
 
   /** Direcciones de esta máquina para el desplegable de "dónde escuchar". */
   ipcMain.handle('server:interfaces', () => localAddresses());
 
-  ipcMain.handle('server:start', async () => {
+  ipcMain.handle('server:start', async (event) => {
     if (collabServer) return collabServerStatus();
     const settings = readSettings();
     const capacity = settings['collabRoomCapacity'];
@@ -987,7 +1045,10 @@ function registerIpc(): void {
     // esta máquina, una IP concreta (la del VPN, la de la LAN…) o todas. Es una
     // decisión EXPLÍCITA porque el servidor no tiene más autenticación que el
     // código de sala; sin elección se queda en localhost. `collabServerOpen` es
-    // la casilla de la 1.3.0: si estaba encendida, equivale a "todas".
+    // la casilla de la 1.3.0: si estaba encendida, equivale a "todas". Esas dos
+    // claves están en SETTINGS_LOCKED (el renderer no las escribe), y aun así
+    // abrir la sala a la red SIEMPRE pasa por este diálogo: un settings.json
+    // tocado a mano no convierte `server:start` en una exposición silenciosa.
     const wanted = settings['collabServerHost'];
     collabServerWanted =
       typeof wanted === 'string' && wanted.trim() !== ''
@@ -995,9 +1056,33 @@ function registerIpc(): void {
         : settings['collabServerOpen'] === true
           ? HOST_ALL
           : HOST_LOCAL;
+    const resolvedHost = resolveHost(collabServerWanted, localAddresses().map((a) => a.address));
+    if (requiresNetworkConfirmation(resolvedHost)) {
+      const win = windowOf(event.sender);
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Abrir a la red', 'Cancelar'],
+        defaultId: 1,
+        cancelId: 1,
+        title: 'Orbit Studio',
+        message: `Vas a hospedar la sala en ${resolvedHost}, visible desde la red.`,
+        detail:
+          'El servidor de colaboración no tiene más cerradura que el código de sala: ' +
+          'entra quien llegue al puerto y sepa el código. Si no lo necesitas, quédate en localhost.',
+      };
+      const choice = win
+        ? dialog.showMessageBoxSync(win, options)
+        : dialog.showMessageBoxSync(options);
+      if (choice !== 0) {
+        return {
+          running: false,
+          error: 'Arranque cancelado: abrir el servidor a la red necesita confirmación.',
+        };
+      }
+    }
     try {
       collabServer = await startServer({
-        host: resolveHost(collabServerWanted, localAddresses().map((a) => a.address)),
+        host: resolvedHost,
         roomsDir: join(app.getPath('userData'), 'collab-rooms'),
         // Cuánta gente cabe en cada sala: lo elige el usuario en el panel de
         // colaboración y se guarda en settings.json (el server lo recorta a su

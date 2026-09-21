@@ -32,8 +32,46 @@ describe('isBlockedIp — guarda anti-SSRF de gallery:fetch', () => {
     expect(isBlockedIp('::ffff:8.8.8.8')).toBe(false);
   });
 
+  it('no deja pasar la IPv4 mapeada escrita en hexadecimal ni comprimida', () => {
+    for (const ip of [
+      '::ffff:7f00:1', // la reproducción medida: loopback en hex
+      '::FFFF:7F00:1', // y en mayúsculas
+      '0:0:0:0:0:ffff:7f00:1', // sin comprimir
+      '::ffff:127.0.0.1',
+      '::ffff:169.254.169.254', // metadatos por la puerta v6
+      '::ffff:a00:1', // 10.0.0.1
+      '::127.0.0.1', // forma compatible (obsoleta)
+    ]) {
+      expect(isBlockedIp(ip), ip).toBe(true);
+    }
+    // Lo público sigue pasando por la misma notación.
+    expect(isBlockedIp('::ffff:808:808')).toBe(false); // 8.8.8.8
+  });
+
+  it('reconoce la IPv4 en sus otras notaciones (hex, entero, corta, octal)', () => {
+    for (const ip of ['0x7f000001', '2130706433', '127.1', '0177.0.0.1', '127.0.1']) {
+      expect(isBlockedIp(ip), ip).toBe(true);
+    }
+    expect(isBlockedIp('0x8080808')).toBe(false); // 8.8.8.8 en hex
+    expect(isBlockedIp('134744072')).toBe(false); // 8.8.8.8 en decimal
+  });
+
+  it('bloquea también el rango NAT64 cuando el embebido es interno', () => {
+    expect(isBlockedIp('64:ff9b::7f00:1')).toBe(true);
+    expect(isBlockedIp('64:ff9b::a00:1')).toBe(true); // 10.0.0.1
+    expect(isBlockedIp('64:ff9b::808:808')).toBe(false); // 8.8.8.8
+    expect(isBlockedIp('64:ff9b::c0a8:101')).toBe(true); // 192.168.1.1
+  });
+
+  it('deja pasar IPv6 públicas y documentación', () => {
+    expect(isBlockedIp('[2001:db8::1]')).toBe(false);
+    expect(isBlockedIp('2606:4700:4700::1111')).toBe(false); // Cloudflare
+  });
+
   it('no marca como bloqueada una cadena que no es IPv4 válida', () => {
     expect(isBlockedIp('999.1.1.1')).toBe(false);
+    expect(isBlockedIp('1.2.3.4.5')).toBe(false);
+    expect(isBlockedIp('::gggg')).toBe(false);
   });
 });
 

@@ -823,9 +823,10 @@ export function saveCollabSettings(patch: Partial<CollabSettings>): void {
   if (patch.serverUrl !== undefined) p[SETTINGS_KEY_URL] = patch.serverUrl;
   if (patch.roomCapacity !== undefined) p[SETTINGS_KEY_CAPACITY] = clampRoomCapacity(patch.roomCapacity);
   if (patch.serverHost !== undefined) {
-    p[SETTINGS_KEY_SERVER_HOST] = patch.serverHost;
-    // La casilla vieja se deja coherente por si se abre una versión anterior.
-    p[SETTINGS_KEY_SERVER_OPEN] = patch.serverHost !== SERVER_HOST_LOCAL;
+    // El host va por su CANAL PROPIO (la clave está en SETTINGS_LOCKED): el main
+    // valida que sea loopback, todas las redes o una interfaz real de esta
+    // máquina antes de escribirla, y de paso deja coherente la casilla vieja.
+    void window.orbit?.settings.setServerHost?.(patch.serverHost);
   }
   if (Object.keys(p).length > 0) void window.orbit?.settings.set(p);
 }
