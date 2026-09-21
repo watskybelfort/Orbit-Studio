@@ -96,4 +96,18 @@ describe('slicer: cortes propios del canal', () => {
     // Y el trozo 2 de ocho iguales empieza en 0.25 del sample: el tono está ahí.
     expect(rms(a.left, 0, Math.round(0.05 * SR))).toBeGreaterThan(0.1);
   });
+
+  it('en reversa TODOS los trozos suenan, también el último', () => {
+    // El trozo 7 (el último de ocho) arrancaba en `stop - 1`, o sea en la
+    // última muestra del sample, y la guarda de interpolación (`idx >= len-1`)
+    // mataba la voz antes de leer nada: rms 0.0000 contra 0.2756 de los demás.
+    for (let i = 0; i < 8; i++) {
+      const compiled = slicerProject(36 + i);
+      compiled.channels[0]!.params['reverse'] = 1;
+      const res = renderProject(compiled, { samples: toneSample(), tailSeconds: 0 });
+      expect(rms(res.left, 0, Math.round(0.05 * SR)), `trozo ${i} en reversa`).toBeGreaterThan(
+        0.05,
+      );
+    }
+  });
 });

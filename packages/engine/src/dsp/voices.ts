@@ -972,15 +972,23 @@ export class SlicerVoice extends Voice {
   ): boolean {
     const d = this.data;
     if (!d) return false;
+    const last = d.left.length - 1;
     for (let i = from; i < to; i++) {
       const idx = Math.floor(this.pos);
-      if (idx < 0 || idx >= d.left.length - 1) return false;
+      if (idx < 0 || idx > last) return false;
+      // La última muestra solo es legible en REVERSA: ahí es el ARRANQUE del
+      // último trozo (`stop - 1`), y con la guarda vieja (`idx >= last`) la voz
+      // moría antes de leer nada y el trozo no sonaba. En avance se mantiene la
+      // guarda de siempre: no hay muestra siguiente con la que interpolar.
+      const finalReverse = idx === last;
+      if (finalReverse && !this.reverse) return false;
       // En reversa `end` es el principio del trozo: con `<=` se cortaba justo al
       // llegar y nunca sonaba la primera muestra; con `<` sí suena.
       if (this.reverse ? idx < this.end : idx >= this.end) return false;
-      const frac = this.pos - idx;
-      const sl = d.left[idx]! * (1 - frac) + d.left[idx + 1]! * frac;
-      const sr = d.right[idx]! * (1 - frac) + d.right[idx + 1]! * frac;
+      const next = finalReverse ? last : idx + 1;
+      const frac = finalReverse ? 0 : this.pos - idx;
+      const sl = d.left[idx]! * (1 - frac) + d.left[next]! * frac;
+      const sr = d.right[idx]! * (1 - frac) + d.right[next]! * frac;
       const e = this.env.tick() * this.velocity;
       outL[i]! += sl * e * gainL;
       outR[i]! += sr * e * gainR;
