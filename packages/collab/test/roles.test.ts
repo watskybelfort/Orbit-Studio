@@ -22,6 +22,7 @@ import {
   ProjectStore,
   serializeProject,
   type Command,
+  type InputRoute,
   type Project,
 } from '@orbit/core';
 import { CommandLogBinding, type DeniedInfo, type LogEntry } from '../src/command-log';
@@ -66,6 +67,18 @@ const insertEffect: Command = {
   slot: { id: newId(), kind: 'reverb', enabled: true, mix: 0.3, params: { size: 0.6 } },
 };
 
+function inputRoute(mixerTrack: number): InputRoute {
+  return {
+    id: newId(),
+    name: 'Voz',
+    channel: 0,
+    mixerTrack,
+    armed: false,
+    monitor: false,
+    gain: 1,
+  };
+}
+
 // ── Contrato: checkRole ──────────────────────────────────────────────────────
 
 describe('checkRole: qué deja pasar cada rol', () => {
@@ -94,6 +107,11 @@ describe('checkRole: qué deja pasar cada rol', () => {
       { type: 'addChannel', channel: createChannel('drums', 0) },
       { type: 'addClips', clips: [] },
       { type: 'removeClips', clipIds: ['c1'] },
+      // Sends y rutas de entrada que NO apuntan al master siguen siendo suyos.
+      { type: 'patchSend', trackIndex: 1, target: 0, patch: { mute: true } },
+      { type: 'addInputRoute', route: inputRoute(2) },
+      { type: 'patchInputRoute', routeId: 'r1', patch: { mixerTrack: 3 } },
+      { type: 'patchInputRoute', routeId: 'r1', patch: { gain: 0.5 } },
     ];
     for (const cmd of permitidos) {
       expect(checkRole('invitado', cmd), `debería permitir ${cmd.type}`).toEqual({ allowed: true });
@@ -130,7 +148,11 @@ describe('checkRole: qué deja pasar cada rol', () => {
       { type: 'patchEffect', trackIndex: 0, slotIndex: 0, patch: { enabled: false } },
       { type: 'setEffectParam', trackIndex: 0, slotIndex: 0, key: 'ceiling', value: -1 },
       { type: 'setSend', trackIndex: 0, target: 3, level: 0.4 },
+      { type: 'patchSend', trackIndex: 0, target: 3, patch: { mute: true } },
       { type: 'setRoute', trackIndex: 0, routeTo: null },
+      // Las entradas en vivo también pueden caer en el master (pista 0).
+      { type: 'addInputRoute', route: inputRoute(0) },
+      { type: 'patchInputRoute', routeId: 'r1', patch: { mixerTrack: 0 } },
     ];
     for (const cmd of master) {
       const verdict = checkRole('invitado', cmd);

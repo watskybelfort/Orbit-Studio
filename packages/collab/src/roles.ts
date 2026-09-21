@@ -93,14 +93,23 @@ export function trackDeletionTargets(cmd: Command): Id[] {
 
 /** ¿El comando toca la pista master del mixer (fader, efectos, sends, ruta)? */
 export function touchesMaster(cmd: Command): boolean {
+  // `patchSend` es la otra puerta al mismo envío del master: cambia CÓMO es
+  // (tap/part/invert/pan/mute) sin tocar su nivel, y se colaba.
   switch (cmd.type) {
     case 'patchMixerTrack':
     case 'setEffect':
     case 'patchEffect':
     case 'setEffectParam':
+    case 'patchSend':
     case 'setSend':
     case 'setRoute':
       return cmd.trackIndex === MASTER_TRACK;
+    // Una entrada en vivo puede caer directamente en el master: addInputRoute
+    // lo trae en la ruta y patchInputRoute en el parche.
+    case 'addInputRoute':
+      return (cmd.route as { mixerTrack?: number } | undefined)?.mixerTrack === MASTER_TRACK;
+    case 'patchInputRoute':
+      return (cmd.patch as { mixerTrack?: number } | undefined)?.mixerTrack === MASTER_TRACK;
     default:
       return false;
   }
