@@ -48,18 +48,25 @@ visible sí. Un nombre ambiguo se rechaza diciendo con cuáles cuadraba, porque
 elegir uno a ciegas es lo que acaba con un bombo que no era ese en el compás 33.
 
 Diseño de las tools: parámetros musicales (notas como `"F2"`, tiempos en beats,
-ganancias en dB), respuestas compactas, y **batch** (`edit_many`) para que una
-pasada de mezcla entera sea una sola transacción/un solo undo.
+ganancias en dB) y respuestas compactas. No existe una tool `edit_many`: cada
+tool que toca varias cosas a la vez las manda por dentro en un solo comando
+`batch` del bus, así que **una llamada = un paso de undo** (p. ej. `advise_mix`
+con `apply`, `set_notes` con `replace` o `set_channel` con parámetros).
 
 ## Panel de Claude (en la app)
 
 Panel acoplable a la derecha:
 
-- **Feed de actividad**: cada tool call como tarjeta legible — "🎚️ Subió la voz
-  +2 dB en el drop (Mixer 3)" — con timestamp y botón *deshacer esto*.
-- **Petición rápida** (v0.x): campo de texto que lanza Claude Code headless con
-  el contexto del proyecto ("hazme un contratiempo de conga en el patrón 2").
-- Indicador de conexión del bridge (puerto, estado, último ping).
+- **Feed de actividad**: cada tool call como tarjeta con el nombre de la tool,
+  su resultado en una línea y el timestamp, más el estado (en curso / ✓ / ✕).
+  No hay botón de deshacer por tarjeta: deshacer es por origen — la tool `undo`
+  del bridge (o el panel de historial) revierte lo último de Claude sin tocar
+  lo del usuario.
+- **Petición rápida**: campo de texto cuya petición viaja adjunta a la SIGUIENTE
+  `get_project` que haga Claude ("hazme un contratiempo de conga en el patrón
+  2"). No lanza Claude Code sola: MCP no permite empujarle mensajes.
+- Indicador de conexión del bridge: conectado, esperando o no disponible
+  (fuera de Electron).
 
 ## Flujos reales que habilita
 
@@ -76,7 +83,12 @@ Panel acoplable a la derecha:
 
 ## Seguridad
 
-- El MCP server escucha **solo en localhost** y exige un token que la app
-  muestra/rota en Ajustes.
-- Tools destructivas (borrar patrón, sobrescribir proyecto) piden confirmación
-  en la UI salvo modo "manos libres" activado explícitamente.
+- El MCP server escucha **solo en localhost** y exige un token distinto por
+  sesión: la app lo genera al arrancar y lo deja en `~/.orbit/bridge.json`
+  (legible solo por el usuario), de donde lo lee el relay para presentarlo. Las
+  conexiones con cabecera `Origin` (clientes navegador) se rechazan de entrada.
+- No hay confirmación por tool ni modo "manos libres" todavía: lo que hay es el
+  historial por origen. Todo lo de Claude entra como `origin: 'claude'` y se
+  revierte con su tool `undo` (o desde el panel de historial) sin tocar los
+  cambios del usuario. Cuando exista la confirmación de tools destructivas, se
+  documentará aquí.
