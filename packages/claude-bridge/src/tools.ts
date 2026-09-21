@@ -50,7 +50,7 @@ const effectParamsHelp = Object.entries(EFFECT_PARAMS)
   .map(([kind, specs]) => `${kind}: ${specs.map((s) => s.key).join(',') || '(sin parámetros)'}`)
   .join(' · ');
 
-const EFFECT_KINDS = Object.keys(EFFECT_PARAMS);
+const EFFECT_KINDS = Object.keys(EFFECT_PARAMS).filter((k) => k !== 'plugin');
 const INSTRUMENT_KINDS = Object.keys(INSTRUMENT_PARAMS);
 
 // ── Sub-esquemas reutilizados ────────────────────────────────────────────────

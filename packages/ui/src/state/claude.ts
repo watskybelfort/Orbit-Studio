@@ -13,7 +13,7 @@ import {
   type SaveFileFn,
 } from '@orbit/claude-bridge';
 import { loadManifest, type SoundEntry } from '@orbit/sound-library';
-import { addSamplerChannel, addSamplerChannels } from '../browser/sound-actions';
+import { addSamplerChannels } from '../browser/sound-actions';
 import { generatePack, packEntries, readPackEntries } from '../browser/pack-generator';
 import { store } from './app';
 
@@ -103,10 +103,14 @@ export function initClaudeBridge(): void {
     const pack = await generatePack(request);
     let added = 0;
     if (opts.addChannels) {
-      for (const entry of await readPackEntries(pack.slug)) {
-        await addSamplerChannel(entry);
-        added++;
-      }
+      // Un solo dispatch para todo el pack: la tool promete UN paso de undo y
+      // con un canal por vuelta se comía un Ctrl+Z por sonido.
+      const entries = await readPackEntries(pack.slug);
+      await addSamplerChannels(entries, {
+        ...(opts.origin !== undefined ? { origin: opts.origin } : {}),
+        ...(opts.label !== undefined ? { label: opts.label } : {}),
+      });
+      added = entries.length;
     }
     return { ...pack, added };
   };
@@ -155,7 +159,7 @@ export function initClaudeBridge(): void {
       }));
     },
 
-    async load(ids): Promise<{ id: string; name: string }[]> {
+    async load(ids, opts): Promise<{ id: string; name: string }[]> {
       const wanted = new Set(ids);
       const found: SoundEntry[] = [];
 
@@ -188,7 +192,9 @@ export function initClaudeBridge(): void {
       });
 
       const before = new Set(store.project.channelOrder);
-      await addSamplerChannels(ordered);
+      // Las opciones del bridge (origin 'claude', etiqueta y mixerTrack) van
+      // tal cual: son las que hacen que la tool sea un solo paso de undo.
+      await addSamplerChannels(ordered, opts);
       return store.project.channelOrder
         .filter((id) => !before.has(id))
         .map((id) => ({ id, name: store.project.channels[id]?.name ?? id }));

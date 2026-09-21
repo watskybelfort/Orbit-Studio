@@ -399,8 +399,29 @@ export function keymapOf(sound: LoadedSound): KeymapZone[] | undefined {
 }
 
 /** Doble clic o drop en el rack: canal sampler nuevo por el bus de comandos. */
-export async function addSamplerChannel(entry: SoundEntry): Promise<void> {
-  return addSamplerChannels([entry]);
+export async function addSamplerChannel(
+  entry: SoundEntry,
+  options: AddSamplerChannelsOptions = {},
+): Promise<void> {
+  return addSamplerChannels([entry], options);
+}
+
+/**
+ * Opciones del alta de samplers: ruteo y origen/etiqueta del historial.
+ *
+ * Las usa el puente de Claude (`load_sample`) para que los canales Y su pista
+ * de mixer entren en UN solo dispatch: con origin 'claude' el cambio es
+ * deshacible con `undo('claude')`, y el ruteo va dentro del mismo comando en
+ * vez de ser una segunda entrada aparte. La UI las omite y todo queda como
+ * siempre (origin 'local').
+ */
+export interface AddSamplerChannelsOptions {
+  /** Pista de mixer a la que van TODOS los canales creados. */
+  mixerTrack?: number;
+  /** Origen del historial (por defecto 'local', el del usuario). */
+  origin?: string;
+  /** Etiqueta del paso de historial. */
+  label?: string;
 }
 
 /**
@@ -410,7 +431,10 @@ export async function addSamplerChannel(entry: SoundEntry): Promise<void> {
  * tener que darle ocho veces a Ctrl+Z para volver atrás es lo que hace que la
  * gente no use el arrastre múltiple.
  */
-export async function addSamplerChannels(entries: readonly SoundEntry[]): Promise<void> {
+export async function addSamplerChannels(
+  entries: readonly SoundEntry[],
+  options: AddSamplerChannelsOptions = {},
+): Promise<void> {
   if (entries.length === 0) return;
   await withLoadedSounds(entries, async (loaded) => {
     const commands: Command[] = await registerCommands(loaded);
@@ -431,17 +455,21 @@ export async function addSamplerChannels(entries: readonly SoundEntry[]): Promis
       if (entry.gainSuggestion !== undefined) {
         channel.volume = Math.min(2, entry.gainSuggestion);
       }
+      // El ruteo va en el MISMO comando que la creación: si se pidió una pista,
+      // el canal nace ya en ella y el paso de undo es uno solo.
+      if (options.mixerTrack !== undefined) channel.mixerTrack = options.mixerTrack;
       commands.push({ type: 'addChannel', channel });
       lastId = channel.id;
     }
 
     const label =
-      entries.length === 1
+      options.label ??
+      (entries.length === 1
         ? `Añadir sampler "${entries[0]!.name}"`
-        : `Añadir ${entries.length} samplers`;
+        : `Añadir ${entries.length} samplers`);
     store.dispatch(
       commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
-      { label },
+      { label, ...(options.origin !== undefined ? { origin: options.origin } : {}) },
     );
     // Igual que el rack: el último canal añadido queda seleccionado.
     if (lastId !== null) useUiStore.setState({ pianoRollChannelId: lastId });

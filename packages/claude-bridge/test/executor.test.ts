@@ -5,9 +5,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { ProjectStore, newId, noteToMidi, trackOfChannel, type ChannelGroup } from '@orbit/core';
+import { ProjectStore, newId, noteToMidi, trackOfChannel, type ChannelGroup, type Command } from '@orbit/core';
 import { MAX_PACK_SOUNDS, type PackRequest } from '@orbit/sound-library';
 import { ToolExecutor } from '../src/executor';
+import { findTool } from '../src/tools';
 
 /** Store nuevo + executor; devuelve también helpers de lectura frecuentes. */
 function setup(saveFile?: (name: string, data: Uint8Array) => Promise<string>) {
@@ -306,7 +307,7 @@ describe('librería de sonidos', () => {
     const cargados: string[][] = [];
     const executor = new ToolExecutor(store, undefined, undefined, undefined, {
       list: async () => SOUNDS,
-      load: async (ids) => {
+      load: async (ids, opts) => {
         cargados.push([...ids]);
         return ids.map((id) => {
           const channel = { id: newId(), name: SOUNDS.find((s) => s.id === id)?.name ?? id };
@@ -315,9 +316,11 @@ describe('librería de sonidos', () => {
             channel: {
               id: channel.id, name: channel.name, color: '#fff', kind: 'sampler',
               params: {}, volume: 1, pan: 0, mute: false, solo: false,
-              mixerTrack: 0, fx: [null, null, null, null],
+              // El ruteo sale de las opciones, en el mismo paso que el canal:
+              // es lo que el executor le pide al renderer.
+              mixerTrack: opts?.mixerTrack ?? 0, fx: [null, null, null, null],
             },
-          });
+          }, opts?.origin !== undefined ? { origin: opts.origin, label: opts.label } : {});
           return channel;
         });
       },
@@ -492,5 +495,154 @@ describe('set_keymap', () => {
     await executor.execute('undo', {});
     expect(store.project.channels[id]!.keymap ?? []).toHaveLength(0);
 
+  });
+});
+
+describe('cotas de tamaño en la playlist y la automatización', () => {
+  it('arrange_clip rechaza posiciones y duraciones desmedidas', async () => {
+    const { store, executor, patternId } = setup();
+    await expect(
+      executor.execute('arrange_clip', {
+        action: 'add',
+        patternId,
+        trackIndex: 0,
+        lengthBeats: 1e12,
+      }),
+    ).rejects.toThrow(/lengthBeats.*fuera de rango/);
+    await expect(
+      executor.execute('arrange_clip', { action: 'add', patternId, trackIndex: 0, startBeat: 1e12 }),
+    ).rejects.toThrow(/startBeat.*fuera de rango/);
+    // Y lo mismo al mover un clip que ya existe.
+    await executor.execute('arrange_clip', { action: 'add', patternId, trackIndex: 0 });
+    const clipId = Object.keys(store.project.clips)[0]!;
+    await expect(
+      executor.execute('arrange_clip', { action: 'move', clipId, startBeat: 1e12 }),
+    ).rejects.toThrow(/startBeat.*fuera de rango/);
+    await expect(
+      executor.execute('arrange_clip', { action: 'move', clipId, lengthBeats: 1e12 }),
+    ).rejects.toThrow(/lengthBeats.*fuera de rango/);
+  });
+
+  it('set_automation rechaza puntos a 1e12 beats', async () => {
+    const { store, executor } = setup();
+    const channelId = await addChannel(executor, store, 'synth', 'Lead');
+    await expect(
+      executor.execute('set_automation', {
+        trackIndex: 0,
+        startBeat: 0,
+        lengthBeats: 4,
+        targetJson: { kind: 'channelMix', channelId, param: 'volume' },
+        points: [{ time: 1e12, value: 0.5 }],
+      }),
+    ).rejects.toThrow(/time.*fuera de rango/);
+  });
+});
+
+describe('add_effect: el pseudo-efecto plugin no entra sin pluginId', () => {
+  it('lo rechaza en runtime y no lo anuncia en el esquema', async () => {
+    const { executor } = setup();
+    await expect(
+      executor.execute('add_effect', { trackIndex: 1, slotIndex: 0, kind: 'plugin' }),
+    ).rejects.toThrow(/kind inválido/);
+
+    const schema = findTool('add_effect')!.inputSchema.properties!['kind'] as { enum: string[] };
+    expect(schema.enum).not.toContain('plugin');
+    expect(schema.enum).toContain('eq');
+  });
+});
+
+describe('load_sample: los canales de Claude son deshacibles', () => {
+  const CATALOGO = [
+    { id: 'pack:drums/warehouse/kick-hard-groove-01', name: 'Kick Hard Groove 01',
+      pack: 'Warehouse', category: 'drums', tags: ['kick'], durationSec: 0.42 },
+    { id: 'pack:drums/warehouse/kick-rumble-01', name: 'Kick Rumble 01',
+      pack: 'Warehouse', category: 'drums', tags: ['kick'], durationSec: 0.9 },
+  ];
+
+  /**
+   * Librería de mentira que hace lo que debe hacer la del renderer: subir los
+   * samples Y despachar los canales con el origen y el ruteo que le pide el
+   * executor, en un solo dispatch.
+   */
+  function withUndoableLibrary() {
+    const store = new ProjectStore();
+    const executor = new ToolExecutor(store, undefined, undefined, undefined, {
+      list: async () => CATALOGO,
+      load: async (ids, opts) => {
+        const created = ids.map((id) => ({
+          id: newId(),
+          name: CATALOGO.find((s) => s.id === id)!.name,
+        }));
+        const commands: Command[] = created.map((c) => ({
+          type: 'addChannel',
+          channel: {
+            id: c.id, name: c.name, color: '#fff', kind: 'sampler', params: {},
+            volume: 1, pan: 0, mute: false, solo: false,
+            mixerTrack: opts?.mixerTrack ?? 0, fx: [null, null, null, null],
+          },
+        }));
+        const label = opts?.label ?? 'Cargar sonidos';
+        store.dispatch(
+          commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+          { label, ...(opts?.origin !== undefined ? { origin: opts.origin } : {}) },
+        );
+        return created;
+      },
+    });
+    return { store, executor };
+  }
+
+  it('los canales entran como UN cambio de Claude y undo los quita de una', async () => {
+    const { store, executor } = withUndoableLibrary();
+    await executor.execute('load_sample', { sonidos: ['Kick Hard Groove 01'] });
+    expect(store.project.channelOrder).toHaveLength(1);
+    expect(store.history).toHaveLength(1);
+    expect(store.history[0]!.origin).toBe('claude');
+
+    const { text } = await executor.execute('undo', {});
+    expect(text).toContain('Deshecho');
+    expect(store.project.channelOrder).toHaveLength(0);
+  });
+
+  it('con mixerTrack el enrutado va en el MISMO paso de undo', async () => {
+    const { store, executor } = withUndoableLibrary();
+    await executor.execute('load_sample', {
+      sonidos: ['Kick Hard Groove 01', 'Kick Rumble 01'],
+      mixerTrack: 3,
+    });
+    expect(store.history).toHaveLength(1);
+    expect(store.history[0]!.origin).toBe('claude');
+    for (const id of store.project.channelOrder) {
+      expect(store.project.channels[id]!.mixerTrack).toBe(3);
+    }
+
+    await executor.execute('undo', {});
+    expect(store.project.channelOrder).toHaveLength(0);
+  });
+
+  it('si el renderer aún no lee las opciones, el ruteo no se pierde', async () => {
+    // Red de seguridad: una librería que despacha sin mirar `mixerTrack`
+    // (implementación vieja) no puede dejar los canales en Master mientras la
+    // tool dice "en el mixer 2".
+    const store = new ProjectStore();
+    const executor = new ToolExecutor(store, undefined, undefined, undefined, {
+      list: async () => CATALOGO,
+      load: async (ids) =>
+        ids.map((id) => {
+          const c = { id: newId(), name: CATALOGO.find((s) => s.id === id)!.name };
+          store.dispatch({
+            type: 'addChannel',
+            channel: {
+              id: c.id, name: c.name, color: '#fff', kind: 'sampler', params: {},
+              volume: 1, pan: 0, mute: false, solo: false,
+              mixerTrack: 0, fx: [null, null, null, null],
+            },
+          });
+          return c;
+        }),
+    });
+    await executor.execute('load_sample', { sonidos: ['Kick Rumble 01'], mixerTrack: 2 });
+    const channelId = store.project.channelOrder[0]!;
+    expect(store.project.channels[channelId]!.mixerTrack).toBe(2);
   });
 });

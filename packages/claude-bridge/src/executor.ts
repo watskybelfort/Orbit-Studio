@@ -95,11 +95,13 @@ export interface GeneratedPackInfo {
 
 /**
  * Genera un pack de sonidos. La inyecta el renderer (el executor no toca ni el
- * disco ni el browser), igual que `saveFile` con los WAV del render.
+ * disco ni el browser), igual que `saveFile` con los WAV del render. Con
+ * `addChannels`, los canales tienen que entrar con el `origin` de estas
+ * opciones (el origen del historial) y en un solo paso de undo.
  */
 export type GeneratePackFn = (
   request: PackRequest,
-  opts: { addChannels: boolean },
+  opts: { addChannels: boolean; origin?: string; label?: string },
 ) => Promise<GeneratedPackInfo>;
 
 /** Un sonido de la librería tal como lo ve el browser (fábrica o pack generado). */
@@ -120,6 +122,23 @@ export interface LibrarySound {
 }
 
 /**
+ * Cómo quiere el executor que el renderer despache lo que cargue.
+ *
+ * `origin` es lo que hace la tool deshacible por Claude y no por el usuario
+ * (`undo('claude')`), y `mixerTrack` va aquí para que el ruteo salga en el
+ * MISMO dispatch que los canales: la tool promete "UN solo paso de undo" y con
+ * dos dispatches eran dos entradas (y la del ruteo no era ni de Claude).
+ */
+export interface LibraryLoadOptions {
+  /** Pista de mixer a la que enrutar los canales creados, en el mismo paso. */
+  mixerTrack?: number;
+  /** Origen del historial para los canales creados ('claude' desde el puente). */
+  origin?: string;
+  /** Etiqueta legible del paso de historial. */
+  label?: string;
+}
+
+/**
  * Acceso a la librería de sonidos. La inyecta el renderer por la misma razón
  * que `saveFile` y `generatePack`: el executor no lee el disco ni conoce el
  * browser, y montar un sampler es subir el WAV al motor además de despachar el
@@ -128,15 +147,27 @@ export interface LibrarySound {
 export interface LibraryFn {
   /** Todo lo que hay en el browser: pack de fábrica + packs generados. */
   list(): Promise<LibrarySound[]>;
-  /** Un canal sampler por sonido, en un solo paso de undo. Devuelve los creados. */
-  load(ids: readonly string[]): Promise<{ id: string; name: string }[]>;
+  /**
+   * Un canal sampler por sonido, en un solo paso de undo. Devuelve los creados.
+   * `opts.origin` y `opts.label` son del historial y `opts.mixerTrack` tiene que
+   * aplicarse a los canales DENTRO del mismo dispatch.
+   */
+  load(
+    ids: readonly string[],
+    opts?: LibraryLoadOptions,
+  ): Promise<{ id: string; name: string }[]>;
 }
 
 // Del registro de core, igual que los efectos: si core gana un instrumento
 // (nova, vox, slicer…) la tool lo acepta sola y no se queda corta respecto al
-// enum que anuncia su propio esquema.
+// enum que anuncia su propio esquema. El pseudo-efecto `plugin` queda fuera de
+// entrada: su slot necesita un `pluginId` del registro de plugins de la UI y
+// aceptarlo sin él creaba un slot muerto e irreparable (el kernel lo salta en
+// silencio). Para insertar un plugin está la UI, que sí tiene el registro.
 const INSTRUMENT_KINDS = Object.keys(INSTRUMENT_PARAMS) as InstrumentKind[];
-const EFFECT_KINDS = Object.keys(EFFECT_PARAMS) as EffectKind[];
+const EFFECT_KINDS: EffectKind[] = (Object.keys(EFFECT_PARAMS) as EffectKind[]).filter(
+  (k) => k !== 'plugin',
+);
 
 // ── Helpers de validación de argumentos ──────────────────────────────────────
 
@@ -196,6 +227,17 @@ function boundedNumber(o: Record<string, unknown>, key: string, min: number, max
   const v = reqNumber(o, key);
   if (v < min || v > max) throw new ToolError(`"${key}" fuera de rango [${min}, ${max}]: ${v}`);
   return v;
+}
+
+/** Como `boundedNumber`, pero para parámetros opcionales (ausente = undefined). */
+function optBoundedNumber(
+  o: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+): number | undefined {
+  if (o[key] === undefined || o[key] === null) return undefined;
+  return boundedNumber(o, key, min, max);
 }
 
 function optNumber(o: Record<string, unknown>, key: string): number | undefined {
@@ -311,9 +353,22 @@ export class ToolExecutor {
 
   // ── Resolución de entidades (acepta id o nombre exacto) ───────────────────
 
+  /**
+   * Propiedad PROPIA del pool, no heredada.
+   *
+   * `patterns[ref]`, `channels[ref]`, `samples[ref]` y `clips[id]` a secas dan
+   * por buenos `'__proto__'`, `'constructor'`, `'toString'`… (viven en
+   * `Object.prototype`, son truthy) y devuelven entidades que no existen: la
+   * búsqueda encontraba algo, la validación pasaba y el comando acababa
+   * mutando el prototipo o escribiendo `project.clips['undefined']`.
+   */
+  private static own<T>(pool: Record<string, T>, id: string): T | undefined {
+    return Object.hasOwn(pool, id) ? pool[id] : undefined;
+  }
+
   private findPattern(ref: string): Pattern {
     const p = this.project;
-    const byId = p.patterns[ref];
+    const byId = ToolExecutor.own(p.patterns, ref);
     if (byId) return byId;
     const lower = ref.toLowerCase();
     for (const id of p.patternOrder) {
@@ -327,7 +382,7 @@ export class ToolExecutor {
   /** Sample del proyecto por id o por nombre exacto. */
   private findSample(ref: string): SampleRef {
     const p = this.project;
-    const byId = p.samples[ref];
+    const byId = ToolExecutor.own(p.samples, ref);
     if (byId) return byId;
     const lower = ref.toLowerCase();
     for (const s of Object.values(p.samples)) {
@@ -340,7 +395,7 @@ export class ToolExecutor {
   private findChannel(ref: string): Channel {
 
     const p = this.project;
-    const byId = p.channels[ref];
+    const byId = ToolExecutor.own(p.channels, ref);
     if (byId) return byId;
     const lower = ref.toLowerCase();
     for (const id of p.channelOrder) {
@@ -799,9 +854,9 @@ export class ToolExecutor {
     if (action === 'add') {
       const pattern = this.findPattern(reqString(a, 'patternId'));
       const track = this.playlistTrack(optNumber(a, 'trackIndex') ?? 0);
-      const start = optNumber(a, 'startBeat') ?? 0;
-      const length = optNumber(a, 'lengthBeats') ?? pattern.length;
-      if (start < 0 || length <= 0) throw new ToolError('startBeat >= 0 y lengthBeats > 0');
+      const start = optBoundedNumber(a, 'startBeat', 0, MAX_BEATS) ?? 0;
+      const length = optBoundedNumber(a, 'lengthBeats', 0, MAX_BEATS) ?? pattern.length;
+      if (length <= 0) throw new ToolError('startBeat >= 0 y lengthBeats > 0');
       const clip: Clip = {
         id: newId(),
         kind: 'pattern',
@@ -817,13 +872,13 @@ export class ToolExecutor {
 
     if (action === 'move') {
       const clipId = reqString(a, 'clipId');
-      const clip = this.project.clips[clipId];
+      const clip = ToolExecutor.own(this.project.clips, clipId);
       if (!clip) throw new ToolError(`No existe el clip ${clipId}`);
       const patch: { id: string; start?: number; length?: number; playlistTrackId?: string } = { id: clipId };
       const changed: string[] = [];
-      const start = optNumber(a, 'startBeat');
-      if (start !== undefined) { patch.start = Math.max(0, start); changed.push(`start ${f(patch.start)}`); }
-      const length = optNumber(a, 'lengthBeats');
+      const start = optBoundedNumber(a, 'startBeat', 0, MAX_BEATS);
+      if (start !== undefined) { patch.start = start; changed.push(`start ${f(patch.start)}`); }
+      const length = optBoundedNumber(a, 'lengthBeats', 0, MAX_BEATS);
       if (length !== undefined) {
         if (length <= 0) throw new ToolError('lengthBeats debe ser > 0');
         patch.length = length; changed.push(`length ${f(length)}`);
@@ -840,7 +895,7 @@ export class ToolExecutor {
 
     if (action === 'remove') {
       const clipId = reqString(a, 'clipId');
-      if (!this.project.clips[clipId]) throw new ToolError(`No existe el clip ${clipId}`);
+      if (!ToolExecutor.own(this.project.clips, clipId)) throw new ToolError(`No existe el clip ${clipId}`);
       this.dispatch({ type: 'removeClips', clipIds: [clipId] }, 'Borrar clip');
       return `Clip ${clipId} borrado de la playlist.`;
     }
@@ -1023,8 +1078,7 @@ export class ToolExecutor {
     const points: AutomationPoint[] = rawPoints
       .map((raw, i) => {
         const o = asObject(raw);
-        const time = reqNumber(o, 'time');
-        if (time < 0) throw new ToolError(`Punto ${i}: time debe ser >= 0`);
+        const time = boundedNumber(o, 'time', 0, MAX_BEATS);
         return {
           id: newId(),
           time,
@@ -1486,17 +1540,39 @@ export class ToolExecutor {
       ids.push(candidates[0]!.id);
     }
 
-    const created = await library.load(ids);
+    // Los canales Y su ruteo salen del MISMO dispatch —el renderer hacia
+    // dentro— con origin 'claude': la tool promete "UN solo paso de undo" y
+    // antes eran dos entradas, la primera además como cambio local (Claude no
+    // podía deshacerla).
+    const total = ids.length;
+    const label = mixerTrack !== undefined
+      ? `Cargar ${total} sonido(s) de la librería al mixer ${mixerTrack}`
+      : `Cargar ${total} sonido(s) de la librería`;
+    const created = await library.load(ids, {
+      ...(mixerTrack !== undefined ? { mixerTrack } : {}),
+      origin: 'claude',
+      label,
+    });
     if (created.length === 0) throw new ToolError('No se pudo cargar ningún sonido');
 
+    // Red de seguridad: si el renderer todavía no lee `mixerTrack` de las
+    // opciones, los canales vienen sin rutear y se aplica aquí para no perder
+    // el destino (serán dos entradas hasta que pase las opciones; cuando las
+    // pase, esto no dispara nada).
     if (mixerTrack !== undefined) {
-      const commands: Command[] = created.map((channel) => ({
-        type: 'patchChannel',
-        channelId: channel.id,
-        patch: { mixerTrack },
-      }));
-      const label = `Enrutar ${created.length} sampler(s) al mixer ${mixerTrack}`;
-      this.dispatch(commands.length === 1 ? commands[0]! : { type: 'batch', label, commands }, label);
+      const sinRutear = created.filter((c) => this.project.channels[c.id]?.mixerTrack !== mixerTrack);
+      if (sinRutear.length > 0) {
+        const commands: Command[] = sinRutear.map((channel) => ({
+          type: 'patchChannel',
+          channelId: channel.id,
+          patch: { mixerTrack },
+        }));
+        const labelRuteo = `Enrutar ${sinRutear.length} sampler(s) al mixer ${mixerTrack}`;
+        this.dispatch(
+          commands.length === 1 ? commands[0]! : { type: 'batch', label: labelRuteo, commands },
+          labelRuteo,
+        );
+      }
     }
 
     const destino = mixerTrack !== undefined ? `, en el mixer ${mixerTrack}` : '';
@@ -1551,7 +1627,11 @@ export class ToolExecutor {
     const seed = a['seed'];
     if (typeof seed === 'number' && Number.isFinite(seed)) request.seed = Math.round(seed);
 
-    const pack = await this.generatePack(request, { addChannels: a['addChannels'] === true });
+    const pack = await this.generatePack(request, {
+      addChannels: a['addChannels'] === true,
+      origin: 'claude',
+      label: `Generar pack "${request.name ?? request.family}"`,
+    });
     const added =
       pack.added > 0 ? ` Y ${pack.added} canal(es) sampler nuevos en el proyecto.` : '';
     return (
