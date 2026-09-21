@@ -60,6 +60,13 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
       return;
     }
     let authed = !requireAuth;
+    // Sin token la conexión se acepta de entrada (autenticación implícita):
+    // hay que registrarla YA, o `onStatus` no dice nunca "conectado" y
+    // `close()` no cierra a nadie. Con token, el alta llega en el handshake.
+    if (authed) {
+      clients.add(socket);
+      notify();
+    }
 
     socket.on('message', (raw) => {
       let msg: unknown;

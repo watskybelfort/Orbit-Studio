@@ -98,3 +98,32 @@ describe('startBridgeHost: autenticación', () => {
     expect(await closeCode(ws)).toBe(1008);
   });
 });
+
+describe('startBridgeHost: sin token (uso embebido)', () => {
+  it('el cliente queda registrado y notificado, y close() lo cierra', async () => {
+    // Bug real (auditoría v3.10): sin token la conexión se aceptaba pero nunca
+    // entraba en `clients`, así que `onStatus` jamás decía "conectado" y
+    // `close()` no cerraba nada.
+    const estados: boolean[] = [];
+    let avisar: () => void = () => {};
+    const vioConectar = new Promise<void>((resolve) => { avisar = resolve; });
+    host = startBridgeHost({
+      port: PORT,
+      dispatch: () => Promise.resolve({ text: 'x' }),
+      onStatus: (s) => {
+        estados.push(s.connected);
+        if (s.connected) avisar();
+      },
+    });
+
+    const ws = await open();
+    await vioConectar;
+    expect(estados[0]).toBe(true);
+
+    const cerrado = closeCode(ws);
+    host.close();
+    await cerrado;
+    expect(ws.readyState).toBe(WebSocket.CLOSED);
+    expect(estados[estados.length - 1]).toBe(false);
+  });
+});
