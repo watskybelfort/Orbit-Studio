@@ -3,6 +3,7 @@ import { applyCommand, createEmptyProject, newId } from '@orbit/core';
 import { compileProject } from '../src/compile';
 import { KernelCore, MAX_BLOCK } from '../src/kernel-core';
 import { renderProject } from '../src/render/offline';
+import { secondsAtBeat } from '../src/tempo';
 import type { CompiledAudioClip } from '../src/protocol';
 
 /** Proyecto con marcadores que cambian tempo y/o compás. */
@@ -147,5 +148,26 @@ describe('mapas de tempo y compás por marcador', () => {
     expect(core.posBeats).toBeGreaterThan(1.9);
     expect(core.posBeats).toBeLessThan(2.15);
     expect(slow).toBeGreaterThan(8);
+  });
+});
+
+describe('secondsAtBeat: extrapolación hacia atrás', () => {
+  it('un beat anterior al primer tramo extrapola con el tempo de ese tramo', () => {
+    const map = [{ beat: 0, tempo: 120 }];
+    // 2 beats antes del 0 a 120 BPM = -1 s (antes devolvía 0).
+    expect(secondsAtBeat(map, -2, 999)).toBeCloseTo(-1, 10);
+    expect(secondsAtBeat(map, -0.5, 999)).toBeCloseTo(-0.25, 10);
+  });
+
+  it('el primer tramo no tiene por qué empezar en el beat 0', () => {
+    const map = [{ beat: 4, tempo: 60 }];
+    // Del 4 hacia atrás, un beat por segundo: el beat 2 está 2 s antes.
+    expect(secondsAtBeat(map, 2, 999)).toBeCloseTo(-2, 10);
+    expect(secondsAtBeat(map, 4, 999)).toBe(0);
+    expect(secondsAtBeat(map, 5, 999)).toBeCloseTo(1, 10);
+  });
+
+  it('sin mapa sigue siendo lineal, también hacia atrás', () => {
+    expect(secondsAtBeat(undefined, -2, 120)).toBeCloseTo(-1, 10);
   });
 });

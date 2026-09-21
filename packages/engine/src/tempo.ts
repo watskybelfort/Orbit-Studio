@@ -17,6 +17,11 @@ export interface TempoSegment {
 /**
  * Segundos absolutos del timeline hasta `beat`, sumando tramo a tramo. Sin
  * mapa es `beat * 60 / fallbackTempo`.
+ *
+ * Un beat ANTERIOR al primer tramo extrapola hacia atrás con el tempo de ese
+ * primer tramo en vez de devolver 0: devolver 0 aplastaba contra el origen
+ * cualquier cuenta hacia atrás (un recorte de export que empiece antes del
+ * beat 0, o el propio beat 0 de un mapa que no arranca en 0).
  */
 export function secondsAtBeat(
   map: readonly TempoSegment[] | undefined,
@@ -24,6 +29,7 @@ export function secondsAtBeat(
   fallbackTempo: number,
 ): number {
   if (!map || map.length === 0) return (beat * 60) / fallbackTempo;
+  if (beat <= map[0]!.beat) return ((beat - map[0]!.beat) * 60) / map[0]!.tempo;
   let sec = 0;
   for (let i = 0; i < map.length; i++) {
     const segStart = map[i]!.beat;
