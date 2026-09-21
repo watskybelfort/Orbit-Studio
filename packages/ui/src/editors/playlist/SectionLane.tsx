@@ -495,6 +495,10 @@ export function SectionLane({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          // Mismo cierre que al soltar: un gesto cortado no puede dejar la
+          // sección a medio crear ni el arrastre de bordes vivo.
+          onPointerCancel={onPointerUp}
+          onLostPointerCapture={onPointerUp}
           onDoubleClick={onDoubleClick}
           onContextMenu={(e) => e.preventDefault()}
         />

@@ -137,7 +137,14 @@ export function AutomationEditor() {
 type TargetKind = 'mixer' | 'channel' | 'effect' | 'transport';
 
 const MIXER_PARAMS = ['volume', 'pan', 'stereoWidth'] as const;
-const TRANSPORT_PARAMS = ['tempo', 'swing'] as const;
+/**
+ * Destinos de transporte automatizables. Solo `tempo`: `swing` lo hornea el
+ * compilador al aplanar las notas (`swungStart` en `compile.ts`) y el kernel no
+ * lee ningún evento `transport:swing`, así que un clip de curva sobre swing era
+ * un no-op silencioso (render bit-idéntico). Para el swing en vivo está el
+ * control del transporte, que viaja como comando `setSwing`.
+ */
+const TRANSPORT_PARAMS = ['tempo'] as const;
 
 interface NewClipFormProps {
   project: Project;
@@ -1177,6 +1184,10 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          // Captura perdida = gesto terminado: lápiz y recta se cierran aquí
+          // (el cierre ya limpia `stroke`/`drag`/`tip` y es idempotente).
+          onPointerCancel={onPointerUp}
+          onLostPointerCapture={onPointerUp}
           onDoubleClick={onDoubleClick}
           onContextMenu={(e) => e.preventDefault()}
         />
