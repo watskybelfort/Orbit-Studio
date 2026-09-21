@@ -53,7 +53,18 @@ export type Command =
       notesByPattern: Record<Id, Note[]>;
     }
   | { type: 'patchChannel'; channelId: Id; patch: Partial<Omit<Channel, 'id'>> }
-  | { type: 'setChannelParam'; channelId: Id; key: string; value: number }
+  | {
+      type: 'setChannelParam';
+      channelId: Id;
+      key: string;
+      value: number;
+      /**
+       * Solo lo usa el INVERSO: la clave NO existía en `params` y hay que
+       * borrarla en vez de escribir un valor. Con `?? 0` el inverso
+       * materializaba el default y apply+invert dejaba de ser identidad.
+       */
+      dropKey?: boolean;
+    }
   | { type: 'moveChannel'; channelId: Id; toIndex: number }
   // Carpetas del rack: organización pura, no tocan el audio. `members` solo lo
   // usa el inverso de borrar una carpeta, para devolver a sus canales dentro.
@@ -61,14 +72,33 @@ export type Command =
   | { type: 'removeChannelGroup'; groupId: Id }
   | { type: 'patchChannelGroup'; groupId: Id; patch: Partial<Omit<ChannelGroup, 'id'>> }
   // Inserts propios del canal (Channel.fx)
-  | { type: 'setChannelEffect'; channelId: Id; slotIndex: number; slot: EffectSlot | null }
+  | {
+      type: 'setChannelEffect';
+      channelId: Id;
+      slotIndex: number;
+      slot: EffectSlot | null;
+      /**
+       * Solo lo usa el INVERSO: el canal no traía `fx` y, si al deshacer la
+       * cadena queda entera a nulls, hay que quitarle el campo materializado
+       * para devolverlo al estado legado.
+       */
+      dropFx?: boolean;
+    }
   | {
       type: 'patchChannelEffect';
       channelId: Id;
       slotIndex: number;
       patch: Partial<Pick<EffectSlot, 'enabled' | 'mix' | 'sidechainSource'>>;
     }
-  | { type: 'setChannelEffectParam'; channelId: Id; slotIndex: number; key: string; value: number }
+  | {
+      type: 'setChannelEffectParam';
+      channelId: Id;
+      slotIndex: number;
+      key: string;
+      value: number;
+      /** Igual que en `setChannelParam`: el inverso borra si la clave no estaba. */
+      dropKey?: boolean;
+    }
   // Patrones
   | { type: 'addPattern'; pattern: Pattern; index?: number }
   | { type: 'removePattern'; patternId: Id }
@@ -104,7 +134,17 @@ export type Command =
   | { type: 'patchArrangement'; arrangementId: Id; patch: Partial<Omit<Arrangement, 'id'>> }
   | { type: 'setActiveArrangement'; arrangementId: Id }
   // Layouts de ventanas guardados en el proyecto
-  | { type: 'setLayout'; name: string; windows: Record<string, LayoutWindow> | null }
+  | {
+      type: 'setLayout';
+      name: string;
+      windows: Record<string, LayoutWindow> | null;
+      /**
+       * Solo lo usa el INVERSO: el proyecto no traía `layouts` y, si al
+       * deshacer el contenedor queda vacío, hay que quitarlo para que el
+       * .orbit vuelva a ser el de antes (el campo es opcional).
+       */
+      dropContainer?: boolean;
+    }
   // LFOs
   | { type: 'addLfos'; lfos: Lfo[] }
   | { type: 'removeLfos'; lfoIds: Id[] }
@@ -134,7 +174,15 @@ export type Command =
       slotIndex: number;
       patch: Partial<Pick<EffectSlot, 'enabled' | 'mix' | 'sidechainSource'>>;
     }
-  | { type: 'setEffectParam'; trackIndex: number; slotIndex: number; key: string; value: number }
+  | {
+      type: 'setEffectParam';
+      trackIndex: number;
+      slotIndex: number;
+      key: string;
+      value: number;
+      /** Igual que en `setChannelParam`: el inverso borra si la clave no estaba. */
+      dropKey?: boolean;
+    }
   | {
       type: 'setSend';
       trackIndex: number;
@@ -267,6 +315,13 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Canales
     case 'addChannel': {
+      // Un add con un id que ya vive en el pool duplicaba el id en el orden y su
+      // inverso (removeChannel) se llevaba por delante a la entidad original.
+      // Se rechaza, como setRoute con los ciclos: el comando es inválido y el
+      // estado anterior queda intacto.
+      if (project.channels[cmd.channel.id]) {
+        throw new Error(`Ya existe: canal ${cmd.channel.id}`);
+      }
       project.channels[cmd.channel.id] = cmd.channel;
       const index = cmd.index ?? project.channelOrder.length;
       project.channelOrder.splice(index, 0, cmd.channel.id);
@@ -304,6 +359,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'removeChannel', channelId: cmd.channel.id };
     }
     case 'addChannelGroup': {
+      // Mismo caso que addChannel: con el id repetido, el orden se duplicaba y
+      // el inverso borraba la carpeta preexistente.
+      if (project.channelGroups[cmd.group.id]) {
+        throw new Error(`Ya existe: carpeta ${cmd.group.id}`);
+      }
       const at = cmd.index ?? project.channelGroupOrder.length;
       project.channelGroups[cmd.group.id] = { ...cmd.group };
       project.channelGroupOrder.splice(at, 0, cmd.group.id);
@@ -348,13 +408,18 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setChannelParam': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      const params = channel.params;
+      const had = Object.hasOwn(params, cmd.key);
       const inverse: Command = {
         type: 'setChannelParam',
         channelId: cmd.channelId,
         key: cmd.key,
-        value: channel.params[cmd.key] ?? 0,
+        value: had ? params[cmd.key]! : 0,
+        // Sin clave, el inverso deja de escribir un 0 fantasma: la borra.
+        ...(had ? null : { dropKey: true }),
       };
-      channel.params[cmd.key] = cmd.value;
+      if (cmd.dropKey) delete params[cmd.key];
+      else params[cmd.key] = cmd.value;
       return inverse;
     }
     case 'moveChannel': {
@@ -369,20 +434,35 @@ export function applyCommand(project: Project, cmd: Command): Command {
     case 'setChannelEffect': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
       const slotIndex = slotIn(cmd.slotIndex, CHANNEL_SLOTS, 'canal');
-      const slots = channelFx(channel);
-      const old = slots[slotIndex] ?? null;
-      slots[slotIndex] = cmd.slot;
+      const hadFx = channel.fx !== undefined;
+      const old = channel.fx?.[slotIndex] ?? null;
+      if (cmd.dropFx) {
+        // Inverso de un primer efecto sobre un canal legado: si al deshacer la
+        // cadena entera queda a nulls se quita el campo, para que el canal
+        // vuelva a estar SIN `fx` (materializarlo rompía la identidad: el
+        // .orbit ganaba un array de nulls que antes no tenía).
+        if (channel.fx) {
+          channel.fx[slotIndex] = null;
+          if (channel.fx.every((s) => s === null)) delete channel.fx;
+        }
+      } else {
+        channelFx(channel)[slotIndex] = cmd.slot;
+      }
       return {
         type: 'setChannelEffect',
         channelId: cmd.channelId,
         slotIndex,
         slot: old,
+        ...(hadFx ? null : { dropFx: true }),
       };
     }
     case 'patchChannelEffect': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      // Acceso directo (sin `channelFx`): si el slot no existe, el must lanza
+      // ANTES de materializar el array, que es lo que dejaba `fx` colado en un
+      // canal legado aunque el comando fallara.
       const slot = must(
-        channelFx(channel)[cmd.slotIndex] ?? undefined,
+        channel.fx?.[cmd.slotIndex] ?? undefined,
         `slot ${cmd.slotIndex} del canal ${cmd.channelId}`,
       );
       const inverse: Command = {
@@ -397,22 +477,31 @@ export function applyCommand(project: Project, cmd: Command): Command {
     case 'setChannelEffectParam': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
       const slot = must(
-        channelFx(channel)[cmd.slotIndex] ?? undefined,
+        channel.fx?.[cmd.slotIndex] ?? undefined,
         `slot ${cmd.slotIndex} del canal ${cmd.channelId}`,
       );
+      const params = slot.params;
+      const had = Object.hasOwn(params, cmd.key);
       const inverse: Command = {
         type: 'setChannelEffectParam',
         channelId: cmd.channelId,
         slotIndex: cmd.slotIndex,
         key: cmd.key,
-        value: slot.params[cmd.key] ?? 0,
+        value: had ? params[cmd.key]! : 0,
+        ...(had ? null : { dropKey: true }),
       };
-      slot.params[cmd.key] = cmd.value;
+      if (cmd.dropKey) delete params[cmd.key];
+      else params[cmd.key] = cmd.value;
       return inverse;
     }
 
     // Patrones
     case 'addPattern': {
+      // Mismo caso que addChannel: con el id repetido, el orden se duplicaba y
+      // el inverso borraba el patrón preexistente.
+      if (project.patterns[cmd.pattern.id]) {
+        throw new Error(`Ya existe: patrón ${cmd.pattern.id}`);
+      }
       project.patterns[cmd.pattern.id] = cmd.pattern;
       const index = cmd.index ?? project.patternOrder.length;
       project.patternOrder.splice(index, 0, cmd.pattern.id);
@@ -429,12 +518,17 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const clips = Object.values(project.clips).filter((c) => c.patternId === cmd.patternId);
       for (const c of clips) delete project.clips[c.id];
       delete project.patterns[cmd.patternId];
-      project.patternOrder.splice(index, 1);
+      // Guardia: si el patrón está en el pool pero NO en patternOrder (merge de
+      // colaboración), indexOf da -1 y splice(-1,1) expulsaría al ÚLTIMO del
+      // orden. Misma que removeChannel.
+      if (index >= 0) project.patternOrder.splice(index, 1);
       return { type: 'restorePattern', pattern, index, clips };
     }
     case 'restorePattern': {
       project.patterns[cmd.pattern.id] = cmd.pattern;
-      project.patternOrder.splice(cmd.index, 0, cmd.pattern.id);
+      // index < 0 = no estaba en el orden al borrarlo: se reengancha al final.
+      if (cmd.index >= 0) project.patternOrder.splice(cmd.index, 0, cmd.pattern.id);
+      else project.patternOrder.push(cmd.pattern.id);
       for (const c of cmd.clips) project.clips[c.id] = c;
       return { type: 'removePattern', patternId: cmd.pattern.id };
     }
@@ -557,6 +651,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Arrangements
     case 'addArrangement': {
+      // Mismo caso que addChannel: con el id repetido, el orden se duplicaba y
+      // el inverso borraba el arrangement preexistente.
+      if (project.arrangements[cmd.arrangement.id]) {
+        throw new Error(`Ya existe: arrangement ${cmd.arrangement.id}`);
+      }
       project.arrangements[cmd.arrangement.id] = cmd.arrangement;
       project.arrangementOrder.push(cmd.arrangement.id);
       return { type: 'removeArrangement', arrangementId: cmd.arrangement.id };
@@ -626,11 +725,27 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Layouts de ventanas
     case 'setLayout': {
-      const layouts = (project.layouts ??= {});
-      const old = layouts[cmd.name] ?? null;
-      if (cmd.windows === null) delete layouts[cmd.name];
-      else layouts[cmd.name] = cmd.windows;
-      return { type: 'setLayout', name: cmd.name, windows: old };
+      const hadContainer = project.layouts !== undefined;
+      const layouts = project.layouts;
+      const old = layouts?.[cmd.name] ?? null;
+      if (cmd.windows === null) {
+        if (layouts) {
+          delete layouts[cmd.name];
+          // El inverso de un primer layout no puede dejar el contenedor
+          // materializado en un proyecto que no traía `layouts`: el campo es
+          // opcional y sin él el .orbit vuelve a ser el de antes.
+          if (cmd.dropContainer && Object.keys(layouts).length === 0) delete project.layouts;
+        }
+        return { type: 'setLayout', name: cmd.name, windows: old };
+      }
+      const target = (project.layouts ??= {});
+      target[cmd.name] = cmd.windows;
+      return {
+        type: 'setLayout',
+        name: cmd.name,
+        windows: old,
+        ...(hadContainer ? null : { dropContainer: true }),
+      };
     }
 
     // LFOs
@@ -752,14 +867,19 @@ export function applyCommand(project: Project, cmd: Command): Command {
     case 'setEffectParam': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
       const slot = must(track.slots[cmd.slotIndex] ?? undefined, `slot ${cmd.slotIndex}`);
+      const params = slot.params;
+      const had = Object.hasOwn(params, cmd.key);
       const inverse: Command = {
         type: 'setEffectParam',
         trackIndex: cmd.trackIndex,
         slotIndex: cmd.slotIndex,
         key: cmd.key,
-        value: slot.params[cmd.key] ?? 0,
+        value: had ? params[cmd.key]! : 0,
+        // Igual que en setChannelParam: sin clave, el inverso la borra.
+        ...(had ? null : { dropKey: true }),
       };
-      slot.params[cmd.key] = cmd.value;
+      if (cmd.dropKey) delete params[cmd.key];
+      else params[cmd.key] = cmd.value;
       return inverse;
     }
     case 'setSend': {
@@ -808,6 +928,21 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setRoute': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
+      // Un routeTo fuera del mixer (o no entero) pasa el ciclo sin detectarse
+      // —`wouldLoop` ni lo mira— y llega al kernel, que indexa su tabla de
+      // buffers con él y revienta en process(). Se rechaza aquí, que es donde
+      // el comando tiene nombre. 0 = Master; null sigue valiendo (el Master
+      // nace así y la UI lo usa para "sin ruta").
+      if (
+        cmd.routeTo !== null &&
+        (!Number.isInteger(cmd.routeTo) ||
+          cmd.routeTo < 0 ||
+          cmd.routeTo >= project.mixer.length)
+      ) {
+        throw new Error(
+          `Ruta fuera de rango: ${String(cmd.routeTo)} (0..${project.mixer.length - 1})`,
+        );
+      }
       // Guardia contra ciclos: enrutar A → B cuando B ya vuelve a A (directo, por
       // sends, o los dos) deja el compilador (`topoOrder` en @orbit/engine)
       // tolerando el bucle y la mezcla entera en silencio digital, sin aviso ni
