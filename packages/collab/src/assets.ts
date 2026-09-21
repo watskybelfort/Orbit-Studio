@@ -49,6 +49,34 @@ export interface SampleAsset {
 /** Resultado de intentar publicar un sample. */
 export type PublishResult = 'published' | 'duplicate' | 'too-large' | 'room-full' | 'invalid';
 
+/**
+ * ¿Este valor tiene la forma de un `SampleAsset`? El Y.Map lo escribe
+ * cualquiera que sepa hablar el protocolo (un cliente modificado, un .bin
+ * manipulado), así que la sala no se fía de su contenido: sin `bytes` de
+ * verdad no hay nada que servir al kernel, y unas `hash`/`name` que no sean
+ * texto romperían los avisos y los índices. Lo malformado se ignora, nunca se
+ * deja tumbar el scan (que es el que anuncia TODO lo demás).
+ */
+export function isSampleAsset(value: unknown): value is SampleAsset {
+  if (typeof value !== 'object' || value === null) return false;
+  const asset = value as Partial<SampleAsset>;
+  return (
+    typeof asset.hash === 'string' &&
+    typeof asset.name === 'string' &&
+    asset.bytes instanceof Uint8Array
+  );
+}
+
+/** Nombre con el que avisar de un asset malformado (aunque no tenga `name`). */
+function assetName(value: unknown, fallback: string): string {
+  if (typeof value === 'object' && value !== null) {
+    const name = (value as { name?: unknown }).name;
+    if (typeof name === 'string' && name.trim() !== '') return name;
+  }
+  return fallback;
+}
+
+
 /** Motivos por los que un sample NO llega a la sala. */
 export type RejectReason = Exclude<PublishResult, 'published' | 'duplicate'>;
 
@@ -100,6 +128,8 @@ export class SampleAssetBinding {
   private readonly notified = new Set<string>();
   /** Hashes descartados por pasarse del tope (ya avisados): no se repiten. */
   private readonly oversized = new Set<string>();
+  /** Hashes malformados ya avisados: no se repite el aviso en cada scan. */
+  private readonly malformed = new Set<string>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -139,24 +169,24 @@ export class SampleAssetBinding {
 
   /** ¿Está el contenido de este sample en la sala? */
   has(hash: string): boolean {
-    return this.assets.has(hash);
+    return isSampleAsset(this.assets.get(hash));
   }
 
   /** Bytes publicados bajo ese hash, o null si la sala no los tiene. */
   get(hash: string): Uint8Array | null {
     const asset = this.assets.get(hash);
-    if (!asset) return null;
+    if (!asset || !isSampleAsset(asset)) return null;
     // El receptor tampoco se fía: un blob por encima del tope por sample no se
     // sirve al kernel aunque esté en el doc (un cliente modificado o un .bin
     // manipulado podría haberlo colado saltándose la validación del emisor).
-    if ((asset.size ?? asset.bytes.byteLength) > this.maxAssetBytes) return null;
+    if (asset.bytes.byteLength > this.maxAssetBytes) return null;
     return asset.bytes;
   }
 
   /** Ficha del asset (sin tocar el blob si solo quieres el nombre/tamaño). */
   meta(hash: string): Omit<SampleAsset, 'bytes'> | null {
     const asset = this.assets.get(hash);
-    if (!asset) return null;
+    if (!asset || !isSampleAsset(asset)) return null;
     const { hash: h, name, size, by, at } = asset;
     return { hash: h, name, size, by, at };
   }
@@ -253,7 +283,28 @@ export class SampleAssetBinding {
     let changed = false;
     const fresh: SampleAsset[] = [];
     for (const [hash, asset] of this.assets.entries()) {
-      const size = asset.size ?? asset.bytes.byteLength;
+      // La forma primero: una entrada sin bytes (o con hash/name que no son
+      // texto) no se cuenta, no se sirve y NO se propaga el error. Antes este
+      // `asset.bytes.byteLength` tumbaba el observer entero, así que un solo
+      // asset malo dejaba sin anunciar a TODOS los legítimos.
+      if (!isSampleAsset(asset)) {
+        if (!this.malformed.has(hash)) {
+          this.malformed.add(hash);
+          const name = assetName(asset, hash);
+          console.warn(`[collab] asset «${name}» (${hash}) con forma inválida: se ignora`);
+          this.onRejected?.({
+            hash,
+            name,
+            size: 0,
+            reason: 'invalid',
+            message:
+              `«${name}» llegó a la sala incompleto (sin sus bytes) y se ignora: no sonará ` +
+              'en esta máquina.',
+          });
+        }
+        continue;
+      }
+      const size = asset.bytes.byteLength;
       // El emisor valida los topes al publicar, pero un cliente modificado (o un
       // .bin manipulado) puede meter en el Y.Map blobs por encima del presupuesto
       // que sostiene la arquitectura. El receptor NO los cuenta, NO los anuncia y

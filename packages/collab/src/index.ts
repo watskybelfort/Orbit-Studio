@@ -85,10 +85,15 @@ export {
 
 export { USER_COLORS, colorForName, pickDistinctColor } from './colors';
 
-export { ChatBinding, MAX_CHAT_MESSAGES } from './chat';
+export { ChatBinding, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT } from './chat';
 export type { ChatMessage, ChatOptions } from './chat';
 
-export { MAX_ASSET_BYTES, MAX_ROOM_ASSET_BYTES, SampleAssetBinding } from './assets';
+export {
+  MAX_ASSET_BYTES,
+  MAX_ROOM_ASSET_BYTES,
+  SampleAssetBinding,
+  isSampleAsset,
+} from './assets';
 export type {
   AssetRejection,
   PublishResult,

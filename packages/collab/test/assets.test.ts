@@ -185,6 +185,64 @@ describe('SampleAssetBinding: el contenido viaja por la sala', () => {
     expect([...bindB.get('ok')!]).toEqual([...blob(64)]);
   });
 
+  it('un asset malformado se ignora y no tumba el sync de los legítimos', () => {
+    const docA = new Y.Doc();
+    const docB = new Y.Doc();
+    linkDocs(docA, docB);
+    const received: SampleAsset[] = [];
+    const rejected: AssetRejection[] = [];
+    const bindB = new SampleAssetBinding(docB, {
+      onAsset: (a) => received.push(a),
+      onRejected: (info) => rejected.push(info),
+    });
+    bindB.start();
+
+    // Cliente modificado (o .bin manipulado): una entrada sin `bytes`.
+    const assetsA = docA.getMap<SampleAsset>('assets');
+    assetsA.set('malo', {
+      hash: 'malo',
+      name: 'Malo',
+      by: 'evil',
+      at: 0,
+    } as unknown as SampleAsset);
+
+    // Lo legítimo que venga DESPUÉS sí se anuncia: el sync no se queda roto.
+    assetsA.set('ok', { hash: 'ok', name: 'Kick', size: 64, by: 'Ana', at: 0, bytes: blob(64) });
+
+    expect(received.map((a) => a.hash)).toEqual(['ok']);
+    expect(bindB.get('malo')).toBeNull();
+    expect(bindB.has('malo')).toBe(false);
+    expect(bindB.meta('malo')).toBeNull();
+    expect(bindB.totalBytes).toBe(64);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.reason).toBe('invalid');
+    expect(rejected[0]!.message).toMatch(/malo/i);
+  });
+
+  it('arrancar con un asset malformado ya en el doc no revienta el scan inicial', () => {
+    const doc = new Y.Doc();
+    doc.getMap<SampleAsset>('assets').set('malo', {
+      hash: 'malo',
+      name: 'Malo',
+      by: 'evil',
+      at: 0,
+    } as unknown as SampleAsset);
+    doc.getMap<SampleAsset>('assets').set('ok', {
+      hash: 'ok',
+      name: 'Kick',
+      size: 32,
+      by: 'Ana',
+      at: 0,
+      bytes: blob(32),
+    });
+    const received: SampleAsset[] = [];
+    const bind = new SampleAssetBinding(doc, { onAsset: (a) => received.push(a) });
+
+    expect(() => bind.start()).not.toThrow();
+    expect(received.map((a) => a.hash)).toEqual(['ok']);
+    expect(bind.get('ok')).not.toBeNull();
+  });
+
   it('quien entra tarde recibe el contenido que la sala ya tenía', () => {
     const docA = new Y.Doc();
     const bindA = new SampleAssetBinding(docA, {});
