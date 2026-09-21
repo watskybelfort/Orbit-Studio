@@ -30,6 +30,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { Knob } from '../../widgets/Knob';
+import { naturalRatePieces } from '../clip-slice';
 import './audio-editor.css';
 
 interface Channels {
@@ -443,29 +444,28 @@ export function AudioEditor() {
    * Trocea el clip por las marcas: un clip por trozo, en la misma pista y
    * empezando donde estaba, todo en un solo undo. No toca el sample — cada
    * trozo es el mismo audio con su offset y su largo.
+   *
+   * Con stretch el motor llena el clip con TODO lo que queda del sample desde
+   * `offset`, así que la región audible termina en el final del sample y las
+   * piezas se construyen a velocidad NATURAL (sin stretch): si cada pieza se
+   * quedara con el stretch, volvería a estirar lo que queda del sample sobre su
+   * largo en vez de leer su propio tramo.
    */
   const sliceClip = useCallback(() => {
     if (!clip || !channels || !slices || slices.length === 0) return;
     const dur = channels.duration;
     const from = offsetSec;
-    const to = Math.min(dur, offsetSec + clipSec);
-    // Solo las marcas dentro de la región audible del clip.
-    const cuts = slices.filter((t) => t > from + 0.01 && t < to - 0.01).sort((a, b) => a - b);
-    if (cuts.length === 0) return;
-
-    const bounds = [from, ...cuts, to];
-    const clips: Clip[] = [];
-    for (let i = 1; i < bounds.length; i++) {
-      const start = bounds[i - 1]!;
-      const end = bounds[i]!;
-      clips.push({
-        ...clip,
-        id: newId(),
-        start: clip.start + (start - from) / secPerBeat,
-        length: (end - start) / secPerBeat,
-        audioOffset: start,
-      });
-    }
+    const to = clip.audioStretch ? dur : Math.min(dur, offsetSec + clipSec);
+    const pieces = naturalRatePieces(from, to, slices);
+    if (pieces.length === 0) return;
+    const clips: Clip[] = pieces.map((p) => ({
+      ...clip,
+      id: newId(),
+      start: clip.start + p.at / secPerBeat,
+      length: p.seconds / secPerBeat,
+      audioOffset: p.offset,
+      audioStretch: false,
+    }));
     const label = `Trocear "${sample?.name ?? 'audio'}" en ${clips.length}`;
     store.dispatch(
       {
@@ -680,6 +680,9 @@ export function AudioEditor() {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          // Sin captura el asa se quedaba "agarrada" tras un gesto cortado.
+          onPointerCancel={onPointerUp}
+          onLostPointerCapture={onPointerUp}
         />
       </div>
       <div className="ae-hint">

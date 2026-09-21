@@ -54,6 +54,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
+import { projectTempoMap, slicedTailOffset } from '../clip-slice';
 import { SectionLane } from './SectionLane';
 import {
   clampGroupMove,
@@ -990,7 +991,25 @@ export function Playlist() {
       if (clip.kind === 'pattern') {
         second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
       } else if (clip.kind === 'audio') {
-        second.audioOffset = (clip.audioOffset ?? 0) + firstLen * (60 / project.tempo);
+        // Con stretch el motor llena el clip con TODA la fuente que le queda
+        // (`ratio = srcSec/clipSec`), así que la cola no puede arrancar en
+        // `firstLen` segundos de tiempo real: arranca en la parte proporcional
+        // del span de fuente. Y los beats se pasan por el mapa de tempo, no con
+        // `project.tempo` (que miente en cuanto hay un marcador).
+        //
+        // Nota: con stretch, la CABEZA sigue llenándose con todo el sample que
+        // queda — el modelo no tiene "fin de fuente" por clip, solo offset y
+        // largo de salida, así que una ventana [offset, x] no es expresable.
+        // Sin tocar el motor, la cola es la única pieza que se puede dejar
+        // leyendo donde debe.
+        const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
+        second.audioOffset = slicedTailOffset(clip.start, clip.start + clip.length, cut, {
+          offset: clip.audioOffset ?? 0,
+          sampleDuration: sample?.duration ?? 0,
+          stretch: clip.audioStretch === true,
+          tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
+          fallbackTempo: project.tempo,
+        });
       }
       const label = 'Cortar clip';
       store.dispatch(
@@ -1934,6 +1953,10 @@ export function Playlist() {
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            // Gesto cortado sin `pointerup` (captura perdida): se cierra igual,
+            // o el arrastre sigue vivo y el fantasma pegado al cursor.
+            onPointerCancel={onPointerUp}
+            onLostPointerCapture={onPointerUp}
             onDoubleClick={onDoubleClick}
             onWheel={onWheel}
             onContextMenu={(e) => e.preventDefault()}
