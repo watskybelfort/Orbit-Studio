@@ -9,7 +9,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   SCALES,
-  arpeggiate,
   chop,
   chordify,
   humanize,
@@ -34,6 +33,12 @@ import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { ArpDialog } from './ArpDialog';
 import { RiffDialog } from './RiffDialog';
+import {
+  cancelArpSession,
+  openArpSession,
+  previewArpSession,
+  type ArpSession,
+} from './arp-session';
 import { affectedNoteIds, quantizePatches, transposePatches } from './note-tools';
 import { TOOLS, applySliceCuts, occupied, sliceCuts, type PianoRollTool } from './tools';
 import './pianoroll.css';
@@ -1166,85 +1171,29 @@ export function PianoRoll() {
   // ── Arpegiador (panel con previsualización en vivo) ───────────────────────
 
   /**
-   * Sesión del arpegiador: las notas tal y como estaban al abrirlo, lo que hay
-   * escrito AHORA de esta pasada, y qué entrada del historial la puso.
-   *
-   * `base` hace falta porque cada toque de perilla vuelve a arpegiar desde el
-   * ORIGINAL — no desde lo ya arpegiado, que se multiplicaría a cada toque. Y
-   * `entryId` porque la pasada anterior se DESHACE antes de la siguiente (ver
-   * `previewArp`).
+   * Sesión del arpegiador. La decisión de qué hacer con cada pasada —deshacer
+   * la anterior, quitarla a mano, o no tocar nada porque un Ctrl+Z ya la dejó
+   * en el futuro— vive en `arp-session.ts`, con test contra el store real: el
+   * booleano "¿está arriba?" no distinguía "aplicada pero debajo" de "deshecha"
+   * y cancelar después de un Ctrl+Z duplicaba las notas originales.
    */
-  const arpSession = useRef<{ base: Note[]; currentIds: string[]; entryId: string | null } | null>(
-    null,
-  );
-
-  /** ¿La última entrada aplicada del historial es la que puso esta pasada? */
-  const arpEntryOnTop = useCallback((entryId: string | null): boolean => {
-    if (entryId === null) return false;
-    const { entries, present } = store.historyView();
-    return entries[present - 1]?.id === entryId;
-  }, []);
+  const arpSession = useRef<ArpSession | null>(null);
 
   const previewArp = useCallback(
     (opts: ArpeggiateOptions) => {
       const session = arpSession.current;
       if (!session || !activePatternId || !channelId) return;
-
-      /**
-       * Antes de pintar la pasada nueva se DESHACE la anterior.
-       *
-       * Lo evidente sería fundirlas con `mergeKey`, como las perillas, pero
-       * ahí eso está mal: al fusionar se conserva el inverso de la PRIMERA y
-       * se sustituye el comando por el último. Con perillas da igual (patch
-       * sobre los mismos ids), pero cada pasada del arpegio borra unas notas y
-       * crea otras nuevas, así que ese inverso acaba apuntando a ids que ya no
-       * existen: un Ctrl+Z después de aceptar dejaba el arpegio Y las notas
-       * originales encima, sonando a la vez. Deshaciendo, el historial queda
-       * con UNA entrada limpia y el estado siempre parte del original.
-       */
-      if (arpEntryOnTop(session.entryId)) {
-        store.undo();
-        // Deshacer ha devuelto las notas ORIGINALES: lo que hay que quitar
-        // ahora son esas, no las que generó la pasada anterior (que ya no
-        // existen). Sin esta línea, la pasada nueva se sumaba a las originales
-        // y acababas con el arpegio y el acorde sonando a la vez.
-        session.currentIds = session.base.map((n) => n.id);
-      }
-      session.entryId = null;
-
-      const generated = arpeggiate(session.base, opts);
-      if (generated.length === 0) return;
-      const label = 'Arpegiar';
-      store.dispatch(
-        {
-          type: 'batch',
-          label,
-          commands: [
-            {
-              type: 'removeNotes',
-              patternId: activePatternId,
-              channelId,
-              noteIds: session.currentIds,
-            },
-            { type: 'addNotes', patternId: activePatternId, channelId, notes: generated },
-          ],
-        },
-        { label },
-      );
-      const { entries, present } = store.historyView();
-      session.entryId = entries[present - 1]?.id ?? null;
-      session.currentIds = generated.map((n) => n.id);
-      setSelection(new Set(session.currentIds));
+      const ids = previewArpSession(store, session, activePatternId, channelId, opts);
+      if (ids) setSelection(new Set(ids));
     },
-    [activePatternId, channelId, arpEntryOnTop],
+    [activePatternId, channelId],
   );
 
   /** Abre el panel con las notas afectadas (selección o todas) congeladas. */
   const openArp = useCallback(() => {
     if (!activePatternId || !channelId) return;
     const ids = new Set(affectedIds());
-    const base = notes.filter((n) => ids.has(n.id)).map((n) => ({ ...n }));
-    arpSession.current = { base, currentIds: base.map((n) => n.id), entryId: null };
+    arpSession.current = openArpSession(notes.filter((n) => ids.has(n.id)));
     // Los dos paneles salen en la misma esquina: abrir uno cierra el otro.
     setRiffOpen(false);
     setArpOpen(true);
@@ -1256,30 +1205,9 @@ export function PianoRoll() {
     arpSession.current = null;
     setArpOpen(false);
     if (!session || !activePatternId || !channelId) return;
-    // Lo normal: deshacer la pasada, que además borra su rastro del historial.
-    if (arpEntryOnTop(session.entryId)) {
-      store.undo();
-      setSelection(new Set(session.base.map((n) => n.id)));
-      return;
-    }
-    if (session.entryId === null) return;
-    // Si mientras tanto se hizo otra cosa, la entrada del arpegio ya no está
-    // arriba y deshacer se llevaría por delante lo del usuario: se restaura a
-    // mano, aunque cueste una entrada más de historial.
-    const label = 'Deshacer arpegio';
-    store.dispatch(
-      {
-        type: 'batch',
-        label,
-        commands: [
-          { type: 'removeNotes', patternId: activePatternId, channelId, noteIds: session.currentIds },
-          { type: 'addNotes', patternId: activePatternId, channelId, notes: session.base },
-        ],
-      },
-      { label },
-    );
+    cancelArpSession(store, session, activePatternId, channelId);
     setSelection(new Set(session.base.map((n) => n.id)));
-  }, [activePatternId, channelId, arpEntryOnTop]);
+  }, [activePatternId, channelId]);
 
   const acceptArp = useCallback(() => {
     arpSession.current = null;
@@ -1790,6 +1718,12 @@ export function PianoRoll() {
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
+            // Sin captura (ver widgets/pointer.ts) el gesto se corta sin
+            // `pointerup`: sin esto el preview se quedaba sonando y el fantasma
+            // seguía al cursor. El cierre es idempotente, así que el
+            // `lostpointercapture` que sigue a un pointerup normal no repite.
+            onPointerCancel={onPointerUp}
+            onLostPointerCapture={onPointerUp}
             onWheel={onWheel}
             onContextMenu={(e) => e.preventDefault()}
           />
