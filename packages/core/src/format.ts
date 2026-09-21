@@ -10,6 +10,29 @@ import { normalizeProjectInputRoutes } from './model/input-routing';
 
 export const ORBIT_EXTENSION = '.orbit';
 
+/** Tipo que el compilador espera de un campo obligatorio del esqueleto. */
+type SkeletonKind = 'object' | 'array' | 'string' | 'number';
+
+function matchesKind(value: unknown, kind: SkeletonKind): boolean {
+  switch (kind) {
+    case 'object':
+      return typeof value === 'object' && value !== null && !Array.isArray(value);
+    case 'array':
+      return Array.isArray(value);
+    case 'string':
+      return typeof value === 'string';
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+  }
+}
+
+const SKELETON_KIND_LABEL: Record<SkeletonKind, string> = {
+  object: 'un objeto',
+  array: 'un array',
+  string: 'un string',
+  number: 'un número',
+};
+
 export function serializeProject(project: Project): string {
   return JSON.stringify(project, null, 1);
 }
@@ -30,18 +53,37 @@ export function parseProject(json: string): Project {
       `Versión de formato no soportada: ${String(p.formatVersion)} (esperada ${FORMAT_VERSION})`,
     );
   }
-  // Estas cuatro faltaban en la lista y nadie las rellena por defecto: sin
-  // ellas el archivo pasaba la puerta y reventaba más tarde, dentro del
-  // compilador, con un TypeError que no dice nada ("Cannot convert undefined or
-  // null to object"). Un .orbit incompleto tiene que fallar AQUÍ y por su
-  // nombre.
-  for (const key of [
-    'id', 'meta', 'tempo', 'channels', 'patterns', 'mixer', 'clips',
-    'channelOrder', 'playlistTracks', 'markers', 'timeSig',
+  // Esqueleto obligatorio. Antes bastaba con que la clave no fuera `undefined`
+  // (un `null`, un número o un string colaban) y faltaban los tres campos de
+  // arrangements: sin ellos el archivo pasaba la puerta y reventaba más tarde,
+  // dentro del compilador, con un TypeError que no dice nada ("Cannot convert
+  // undefined or null to object") o —peor— compilaba sin error y dejaba la
+  // canción MUDA. Un .orbit incompleto tiene que fallar AQUÍ y por su nombre.
+  for (const [key, kind] of [
+    ['id', 'string'], ['meta', 'object'], ['tempo', 'number'],
+    ['timeSig', 'object'], ['channels', 'object'], ['channelOrder', 'array'],
+    ['patterns', 'object'], ['arrangements', 'object'],
+    ['arrangementOrder', 'array'], ['activeArrangementId', 'string'],
+    ['playlistTracks', 'object'], ['clips', 'object'], ['markers', 'object'],
+    ['mixer', 'array'],
   ] as const) {
-    if (p[key] === undefined) {
-      throw new Error(`.orbit inválido: falta "${key}"`);
+    if (!matchesKind(p[key], kind)) {
+      throw new Error(`.orbit inválido: "${key}" falta o no es ${SKELETON_KIND_LABEL[kind]}`);
     }
+  }
+  // El arrangement activo es el filtro con el que el compilador elige qué pistas
+  // suenan en modo canción: apuntando a uno que no existe, la canción queda
+  // muda sin que nada avise. Se recoloca al primero del orden que exista de
+  // verdad; si no hay ninguno, el archivo no puede sonar y se dice.
+  const arrangements = p.arrangements!;
+  if (arrangements[p.activeArrangementId!] === undefined) {
+    const fallback =
+      p.arrangementOrder!.find((id) => arrangements[id] !== undefined) ??
+      Object.keys(arrangements)[0];
+    if (fallback === undefined) {
+      throw new Error('.orbit inválido: "arrangements" está vacío');
+    }
+    p.activeArrangementId = fallback;
   }
   // `swing` faltaba en la lista y NO se rellenaba: sin él, `swungStart`
   // produce NaN y corrompe el timing EN SILENCIO (peor que un throw). Se
