@@ -25,6 +25,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
+import { createEmptyProject, serializeProject } from '@orbit/core';
 import { startServer, type ServerHandle } from '../src/index';
 
 const ROOM = 'K3P9QF';
@@ -199,39 +200,65 @@ describe('el guardia de roles no se deja engañar', () => {
     const server = await serve();
     const productor = new RawPeer(server.port, 'A');
     await productor.open();
+    const bueno = serializeProject(createEmptyProject('El de verdad'));
     productor.doc.transact(() => {
-      productor.meta.set('snapshot', '{"proyecto":"el de verdad"}');
+      productor.meta.set('snapshot', bueno);
       productor.meta.set('snapshotSeq', 0);
     });
     await sleep(300);
 
     const invitado = new RawPeer(server.port, 'B');
     await invitado.open();
-    expect(invitado.meta.get('snapshot')).toBe('{"proyecto":"el de verdad"}');
+    expect(invitado.meta.get('snapshot')).toBe(bueno);
 
     invitado.doc.transact(() => {
-      invitado.meta.set('snapshot', '{"proyecto":"SECUESTRADO POR UN INVITADO"}');
+      invitado.meta.set(
+        'snapshot',
+        serializeProject(createEmptyProject('SECUESTRADO POR UN INVITADO')),
+      );
     });
     await sleep(400);
 
-    expect(productor.meta.get('snapshot')).toBe('{"proyecto":"el de verdad"}');
-    expect(invitado.meta.get('snapshot')).toBe('{"proyecto":"el de verdad"}');
+    expect(productor.meta.get('snapshot')).toBe(bueno);
+    expect(invitado.meta.get('snapshot')).toBe(bueno);
+  });
+
+  it('un snapshot que no parsea no se acepta, ni del productor', async () => {
+    const server = await serve();
+    const productor = new RawPeer(server.port, 'A');
+    await productor.open();
+    const bueno = serializeProject(createEmptyProject('De verdad'));
+    productor.doc.transact(() => {
+      productor.meta.set('snapshot', bueno);
+    });
+    await sleep(300);
+    expect(productor.meta.get('snapshot')).toBe(bueno);
+
+    // Un .bin tocado a mano o un cliente modificado: la base no parsea y
+    // dejarla pasar convertiría la sala en inentrable para todos.
+    productor.doc.transact(() => {
+      productor.meta.set('snapshot', '{ esto no es JSON');
+    });
+    await sleep(300);
+    expect(productor.meta.get('snapshot')).toBe(bueno);
   });
 
   it('el productor sí reescribe el snapshot (compactar sigue funcionando)', async () => {
     const server = await serve();
     const productor = new RawPeer(server.port, 'A');
     await productor.open();
+    const v1 = serializeProject(createEmptyProject('v1'));
     productor.doc.transact(() => {
-      productor.meta.set('snapshot', '{"proyecto":"v1"}');
+      productor.meta.set('snapshot', v1);
     });
     await sleep(300);
+    const v2 = serializeProject(createEmptyProject('v2 compactado'));
     productor.doc.transact(() => {
-      productor.meta.set('snapshot', '{"proyecto":"v2 compactado"}');
+      productor.meta.set('snapshot', v2);
       productor.meta.set('snapshotSeq', 12);
     });
     await sleep(300);
-    expect(productor.meta.get('snapshot')).toBe('{"proyecto":"v2 compactado"}');
+    expect(productor.meta.get('snapshot')).toBe(v2);
     expect(productor.meta.get('snapshotSeq')).toBe(12);
   });
 });

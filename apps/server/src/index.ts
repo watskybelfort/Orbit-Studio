@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join, resolve } from 'node:path';
 import { WebSocketServer, WebSocket as WsSocket, type RawData } from 'ws';
 import * as Y from 'yjs';
+import { parseProject } from '@orbit/core';
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
@@ -46,6 +47,7 @@ import {
   publicInvite,
   randomNonce,
   verifyProof,
+  isSampleAsset,
   type CollabRole,
   type RoomAuthRecord,
   type RoomInviteRecord,
@@ -53,6 +55,7 @@ import {
 } from '@orbit/collab';
 import { RoomAuthStore } from './auth-store';
 import { normalizeRoomCode } from './room-path';
+import { sweepRooms } from './room-cleanup';
 import {
   RoomRoles,
   checkEntry,
@@ -117,6 +120,21 @@ const MAX_CONNS_TOTAL = 512;
 /** Origen de las transacciones del guardia de roles (para no re-juzgarlas). */
 const ROLE_ENFORCER = 'orbit:roles';
 
+/**
+ * ¿Este valor puede ser la base del proyecto? El snapshot de `meta` es lo que
+ * carga todo el que entra: un texto que no parsea convierte la sala en
+ * inentrable (y el .bin conserva el veneno). No basta con mirar el rol.
+ */
+function isProjectSnapshot(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  try {
+    parseProject(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // El doc de una sala ya no lleva solo comandos: lleva los BYTES de los samples
 // (Y.Map 'assets', ver packages/collab/src/assets.ts). El primer sync manda el
 // estado ENTERO en un solo mensaje, así que el tope de payload tiene que quedar
@@ -132,6 +150,30 @@ function toUint8(data: RawData): Uint8Array {
   if (Array.isArray(data)) return new Uint8Array(Buffer.concat(data));
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
   return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+}
+
+/**
+ * clientIDs (y si el anuncio los deja vacíos) que toca un update de awareness.
+ * Se decodifica aquí, antes de aplicarlo, para poder descartar lo que venga
+ * firmado con un clientID ajeno. `null` si el update no tiene la forma.
+ */
+function readAwarenessAnnouncements(
+  update: Uint8Array,
+): { client: number; empty: boolean }[] | null {
+  try {
+    const decoder = decoding.createDecoder(update);
+    const len = decoding.readVarUint(decoder);
+    const out: { client: number; empty: boolean }[] = [];
+    for (let i = 0; i < len; i++) {
+      const client = decoding.readVarUint(decoder);
+      decoding.readVarUint(decoder); // clock
+      const state = JSON.parse(decoding.readVarString(decoder));
+      out.push({ client, empty: state === null });
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 // ── Room ─────────────────────────────────────────────────────────────────────
@@ -340,11 +382,12 @@ class Room {
           break;
         }
         case MESSAGE_AWARENESS: {
-          awarenessProtocol.applyAwarenessUpdate(
-            this.awareness,
-            decoding.readVarUint8Array(decoder),
-            conn,
-          );
+          const update = decoding.readVarUint8Array(decoder);
+          if (!this.ownsAwareness(conn, update)) {
+            console.warn(`[room ${this.code}] presencia con clientID ajeno: se descarta`);
+            break;
+          }
+          awarenessProtocol.applyAwarenessUpdate(this.awareness, update, conn);
           break;
         }
         case MESSAGE_CONTROL: {
@@ -366,6 +409,34 @@ class Room {
     } catch (err) {
       console.error(`[room ${this.code}] mensaje inválido:`, err);
     }
+  }
+
+  /**
+   * ¿Puede este socket hablar de los clientID que trae su update de presencia?
+   * Solo de los suyos. Un ID que ya pertenece a OTRO socket se descarta ANTES
+   * de aplicarlo: sin esto, un invitado anunciaba presencia (nombre, color,
+   * rol) con el clientID del productor, el servidor lo replicaba a todos y
+   * además lo apuntaba como suyo. Los IDs libres se reclaman aquí mismo, para
+   * que dos sockets no puedan reclamar el mismo a la vez.
+   */
+  private ownsAwareness(conn: WsSocket, update: Uint8Array): boolean {
+    const announcements = readAwarenessAnnouncements(update);
+    if (!announcements) return false;
+    const controlled = this.conns.get(conn);
+    if (!controlled) return false;
+    for (const { client } of announcements) {
+      const owner = this.clientOwner.get(client);
+      if (owner !== undefined && owner !== conn) return false;
+    }
+    let claimed = false;
+    for (const { client, empty } of announcements) {
+      if (empty || this.clientOwner.has(client)) continue;
+      this.clientOwner.set(client, conn);
+      controlled.add(client);
+      claimed = true;
+    }
+    if (claimed) this.broadcastRoles();
+    return true;
   }
 
   removeConn(conn: WsSocket): void {
@@ -679,6 +750,10 @@ class Room {
    * toca un productor. Lo que escriba otro se REVIERTE al valor anterior (o se
    * borra, si la clave no existía), que es lo mismo que se hace con el log.
    *
+   * Y aunque lo escriba un productor, un snapshot que no parsea se rechaza
+   * igual: compactar desde el cliente es legítimo, pero `parseProject` es
+   * estricto con la forma y una base rota deja la sala inentrable para todos.
+   *
    * Quién compacta es cosa del cliente, pero desde aquí queda dicho: el que
    * escriba el snapshot sin ser productor, no lo escribe.
    */
@@ -687,30 +762,40 @@ class Room {
     from: WsSocket | undefined,
   ): void {
     const role = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
-    if (role === 'productor') return;
     const meta = this.doc.getMap<string | number>('meta');
     const keys = [...event.changes.keys.entries()];
     if (keys.length === 0) return;
+
+    const toRevert: { key: string; action: string; oldValue: unknown }[] = [];
+    let invalidSnapshot = false;
+    for (const [key, change] of keys) {
+      if (role !== 'productor') {
+        toRevert.push({ key, action: change.action, oldValue: change.oldValue });
+        continue;
+      }
+      if (key === 'snapshot' && change.action !== 'delete' && !isProjectSnapshot(meta.get(key))) {
+        toRevert.push({ key, action: change.action, oldValue: change.oldValue });
+        invalidSnapshot = true;
+      }
+    }
+    if (toRevert.length === 0) return;
+
     this.doc.transact(() => {
-      for (const [key, change] of keys) {
-        if (change.action === 'add') meta.delete(key);
-        else if (change.oldValue !== undefined) meta.set(key, change.oldValue as string | number);
+      for (const { key, action, oldValue } of toRevert) {
+        if (action === 'add') meta.delete(key);
+        else if (oldValue !== undefined) meta.set(key, oldValue as string | number);
       }
     }, ROLE_ENFORCER);
-    console.warn(`[room ${this.code}] revertido en meta: ${keys.map(([k]) => k).join(', ')}`);
+    console.warn(`[room ${this.code}] revertido en meta: ${toRevert.map(({ key }) => key).join(', ')}`);
     if (from) {
       this.sendControl(from, {
         type: 'denied',
-        reason: 'Solo el productor puede reescribir la base del proyecto.',
+        reason: invalidSnapshot
+          ? 'Ese snapshot no es un proyecto válido: se mantiene la base anterior.'
+          : 'Solo el productor puede reescribir la base del proyecto.',
         command: 'snapshot',
       });
     }
-  }
-
-  /** Bytes de un asset (el contenido si está, o el tamaño declarado). */
-  private assetBytes(asset: SampleAsset | undefined): number {
-    if (!asset) return 0;
-    return asset.bytes?.byteLength ?? asset.size ?? 0;
   }
 
   /**
@@ -718,26 +803,51 @@ class Room {
    * y la suma de la sala ≤ MAX_ROOM_ASSET_BYTES. Lo que se pase se BORRA del map
    * (no se guarda ni se replica). Los topes por-emisor no bastan: un cliente
    * modificado los ignora.
+   *
+   * Desde v3.11 aquí también se mira la FORMA y el ROL:
+   * - un valor sin `bytes` (o con hash/name que no son texto) es un asset
+   *   malformado que tumbaba el scan de TODOS los peers; se borra igual que lo
+   *   que se pasa de tamaño.
+   * - publicar muestras es editar: el oyente no publica. El rol lo reparte este
+   *   servidor, no lo declara el cliente.
    */
   private enforceAssets(event: Y.YMapEvent<SampleAsset>, from: WsSocket | undefined): void {
     const assets = this.doc.getMap<SampleAsset>('assets');
     const changed = [...event.changes.keys.entries()].filter(([, c]) => c.action !== 'delete');
     if (changed.length === 0) return;
 
+    const senderRole = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
     const toDelete = new Set<string>();
-    // 1) Los que de por sí pasan el tope por-sample.
-    for (const [key] of changed) {
-      if (this.assetBytes(assets.get(key)) > MAX_ASSET_BYTES) toDelete.add(key);
+    const malformed: string[] = [];
+
+    if (senderRole === 'oyente') {
+      for (const [key] of changed) toDelete.add(key);
+    } else {
+      for (const [key] of changed) {
+        const asset = assets.get(key);
+        if (asset !== undefined && !isSampleAsset(asset)) {
+          toDelete.add(key);
+          malformed.push(key);
+          continue;
+        }
+        if (asset && asset.bytes.byteLength > MAX_ASSET_BYTES) toDelete.add(key);
+      }
     }
+
     // 2) El tope de sala: si el total lo supera, se quitan los recién añadidos
     //    (los de ESTA transacción) hasta bajar de él, sin tocar lo que ya estaba.
     let total = 0;
-    for (const asset of assets.values()) total += this.assetBytes(asset);
+    for (const [key, asset] of assets.entries()) {
+      if (toDelete.has(key) || !isSampleAsset(asset)) continue;
+      total += asset.bytes.byteLength;
+    }
     if (total > MAX_ROOM_ASSET_BYTES) {
-      for (const [key] of changed) {
+      for (const [key, asset] of changed) {
         if (total <= MAX_ROOM_ASSET_BYTES) break;
         if (toDelete.has(key)) continue;
-        total -= this.assetBytes(assets.get(key));
+        const value = assets.get(key);
+        if (!isSampleAsset(value)) continue;
+        total -= value.bytes.byteLength;
         toDelete.add(key);
       }
     }
@@ -746,11 +856,24 @@ class Room {
     this.doc.transact(() => {
       for (const key of toDelete) assets.delete(key);
     }, ROLE_ENFORCER);
-    console.warn(`[room ${this.code}] samples rechazados por tope: ${[...toDelete].join(', ')}`);
+    if (malformed.length > 0) {
+      console.warn(
+        `[room ${this.code}] samples con forma inválida (se borran): ${malformed.join(', ')}`,
+      );
+    }
+    const rejected = [...toDelete].filter((key) => !malformed.includes(key));
+    if (rejected.length > 0) {
+      console.warn(`[room ${this.code}] samples rechazados por tope: ${rejected.join(', ')}`);
+    }
     if (from) {
       this.sendControl(from, {
         type: 'denied',
-        reason: 'Ese sample supera el tope de la sala.',
+        reason:
+          senderRole === 'oyente'
+            ? 'Estás como oyente: no puedes publicar sonidos en la sala.'
+            : malformed.length > 0
+              ? 'Ese sample llegó malformado (sin sus bytes) y se ha descartado.'
+              : 'Ese sample supera el tope de la sala.',
         command: 'asset',
       });
     }
@@ -880,6 +1003,17 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       (rawCapacity === undefined || rawCapacity.trim() === '' ? undefined : Number(rawCapacity)),
   );
   if (opts.roomsDir) roomsDir = resolve(opts.roomsDir);
+  // Las salas cerradas no se recogían nunca: al arrancar (sin ninguna abierta)
+  // se borra lo que pasa del tope o de la edad. Best-effort: que no se pueda
+  // limpiar no puede impedir arrancar.
+  try {
+    const removed = sweepRooms(roomsDir);
+    if (removed.length > 0) {
+      console.log(`[server] salas viejas recogidas: ${removed.length} archivo(s)`);
+    }
+  } catch (err) {
+    console.error('[server] no se pudo limpiar salas viejas:', err);
+  }
   // La caché de puertas es de una instancia: si el servidor se rearranca (otra
   // carpeta de salas, o el mismo proceso levantándolo de nuevo), lo que valga
   // es lo que haya AHORA en disco, no lo que se leyó la vez anterior.
