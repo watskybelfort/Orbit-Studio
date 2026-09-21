@@ -1307,8 +1307,88 @@ function destino(): string {
 
 export type { SonidoSpec };
 
+// ── Seguridad del destino ────────────────────────────────────────────────────
+// El generador reemplaza la carpeta destino de cero (rmSync recursive). Un
+// `--out` que apunte a una carpeta con cosas dentro —una víctima cualquiera—
+// la borraba entera y la sustituía por el pack. Antes de tocar nada se mira
+// qué hay: solo se reemplaza un pack DE ESTE generador (su manifest.json con
+// `pack: "Warehouse"`), una carpeta vacía o una ruta inexistente.
+
+/** Lo que se ve de la carpeta destino ANTES de tocarla. */
+export interface DestinoPack {
+  /** Ruta tal cual (para el mensaje de error). */
+  dir: string;
+  existe: boolean;
+  esDirectorio: boolean;
+  /** Nombres dentro (vacío si no existe). */
+  entradas: string[];
+  /** Contenido de `manifest.json`, si está. */
+  manifestJson: string | null;
+}
+
+/** El destino tal como está en disco. No borra ni crea nada. */
+export function leerDestino(dir: string): DestinoPack {
+  if (!fs.existsSync(dir)) {
+    return { dir, existe: false, esDirectorio: false, entradas: [], manifestJson: null };
+  }
+  if (!fs.statSync(dir).isDirectory()) {
+    return { dir, existe: true, esDirectorio: false, entradas: [], manifestJson: null };
+  }
+  const entradas = fs.readdirSync(dir);
+  let manifestJson: string | null = null;
+  if (entradas.includes('manifest.json')) {
+    try {
+      manifestJson = fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8');
+    } catch {
+      // Ilegible: que decida `motivoParaNoBorrar` con null, que es lo seguro.
+      manifestJson = null;
+    }
+  }
+  return { dir, existe: true, esDirectorio: true, entradas, manifestJson };
+}
+
+/**
+ * Motivo por el que NO se puede reemplazar el destino, o null si se puede.
+ * Puro: no toca el disco, así que se prueba con estados fabricados.
+ */
+export function motivoParaNoBorrar(
+  destino: DestinoPack,
+  packName: string = PACK_NAME,
+): string | null {
+  if (!destino.existe) return null;
+  if (!destino.esDirectorio) {
+    return `El destino ${destino.dir} existe y no es una carpeta: no se toca.`;
+  }
+  if (destino.entradas.length === 0) return null;
+  let pack: unknown;
+  try {
+    pack =
+      destino.manifestJson !== null
+        ? (JSON.parse(destino.manifestJson) as { pack?: unknown }).pack
+        : undefined;
+  } catch {
+    pack = undefined;
+  }
+  if (pack === packName) return null;
+  return (
+    `La carpeta ${destino.dir} no está vacía y no es un pack de ${packName}: ` +
+    'abortando para no borrar archivos que no son suyos.'
+  );
+}
+
+/** Mira el disco y devuelve el motivo, o null si el destino se puede reemplazar. */
+export function verificacionDeDestino(dir: string, packName: string = PACK_NAME): string | null {
+  return motivoParaNoBorrar(leerDestino(dir), packName);
+}
+
 function main(): void {
   const dir = destino();
+  const motivo = verificacionDeDestino(dir);
+  if (motivo !== null) {
+    console.error(motivo);
+    process.exitCode = 1;
+    return;
+  }
   console.log(`Generando el pack "${PACK_NAME}" en ${dir}`);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
