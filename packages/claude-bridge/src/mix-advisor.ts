@@ -174,9 +174,16 @@ function dbText(x: number): string {
 /**
  * Reserva de slots: busca uno que ya tenga ese efecto (para reajustarlo) o el
  * primero libre. Lleva su propia copia para que dos pasos no pidan el mismo.
+ *
+ * "El mismo" incluye lo que el PROPIO plan acaba de colocar: si no, dos EQ a la
+ * misma pista —voz y 808 pueden ser la misma, y ahí se piden dos— acababan los
+ * dos en el slot 0, el segundo marcado como "ya existía", y aplicar la cadena
+ * mezclaba los dos diagnósticos en un solo efecto.
  */
 class SlotPlanner {
   private readonly taken = new Map<number, (EffectKind | null)[]>();
+  /** Slots que el plan ya ha gastado en esta pista. */
+  private readonly consumed = new Map<number, Set<number>>();
 
   private lanes(track: TrackSlots): (EffectKind | null)[] {
     let lanes = this.taken.get(track.index);
@@ -187,18 +194,37 @@ class SlotPlanner {
     return lanes;
   }
 
+  private usedIn(track: TrackSlots): Set<number> {
+    let used = this.consumed.get(track.index);
+    if (!used) {
+      used = new Set<number>();
+      this.consumed.set(track.index, used);
+    }
+    return used;
+  }
+
   /** Devuelve {slotIndex, existing} o null si no queda hueco. */
   take(track: TrackSlots, kind: EffectKind): { slotIndex: number; existing: boolean } | null {
     const lanes = this.lanes(track);
-    const existing = lanes.indexOf(kind);
-    if (existing >= 0) {
-      lanes[existing] = kind;
-      return { slotIndex: existing, existing: true };
+    const used = this.usedIn(track);
+    // 1) Un slot que YA tenía ese efecto antes del plan: se reajusta. El
+    // `track.slots` original (no las lanes) distingue "ya existía" de "lo puso
+    // este mismo plan hace un momento".
+    for (let i = 0; i < track.slots.length; i++) {
+      if (track.slots[i] === kind && !used.has(i)) {
+        used.add(i);
+        return { slotIndex: i, existing: true };
+      }
     }
-    const free = lanes.indexOf(null);
-    if (free < 0) return null;
-    lanes[free] = kind;
-    return { slotIndex: free, existing: false };
+    // 2) El primer libre que el plan no haya gastado ya.
+    for (let i = 0; i < lanes.length; i++) {
+      if (lanes[i] === null && !used.has(i)) {
+        lanes[i] = kind;
+        used.add(i);
+        return { slotIndex: i, existing: false };
+      }
+    }
+    return null;
   }
 }
 

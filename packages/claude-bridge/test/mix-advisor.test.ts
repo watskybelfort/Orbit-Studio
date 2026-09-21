@@ -214,6 +214,22 @@ describe('adviseMix: cadena propuesta', () => {
     expect(subEq.params['lowGain']).toBeLessThan(0);
   });
 
+  it('dos EQ a la MISMA pista (voz == 808) no comparten slot', () => {
+    // Bug real (auditoría v3.10): si la pista de voz y la del 808 son la misma,
+    // el EQ de la voz y el correctivo del grave acababan los dos en el slot 0
+    // —el segundo "reutilizaba" el que el plan acababa de ocupar— y aplicar la
+    // cadena mezclaba los dos diagnósticos en un solo efecto.
+    const analysis = mix({ bands: { low: -0.2, lowMid: -15, highMid: -21.6, high: -23.3 } });
+    const voz = track(3, 'Voz');
+    const advice = adviseMix(analysis, ctx({ voice: voz, low: voz }));
+
+    const eqs = advice.chain.filter((s) => s.trackIndex === 3 && s.kind === 'eq');
+    expect(eqs).toHaveLength(2);
+    expect(eqs[0]!.slotIndex).not.toBe(eqs[1]!.slotIndex);
+    // Ninguno de los dos existía: los dos se insertan.
+    expect(eqs.every((s) => !s.existing)).toBe(true);
+  });
+
   it('el texto sale en el formato de las demás tools (accionable y compacto)', () => {
     const analysis = mix({ lufsIntegrated: -21, bands: { low: -0.2, lowMid: -15, highMid: -21.6, high: -23.3 } });
     const text = formatAdvice(adviseMix(analysis, ctx()), analysis, 'canción');
