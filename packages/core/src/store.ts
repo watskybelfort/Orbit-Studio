@@ -178,26 +178,48 @@ export class ProjectStore {
     this.emit(cmd, origin, label);
   }
 
-  /** Deshace el último cambio de `origin` (undo por usuario). */
+  /**
+   * Deshace el último cambio de `origin` (undo por usuario).
+   *
+   * Si el inverso no aplica —su entidad la borró otro origen, o un `setRoute`
+   * que ahora cerraría ciclo— la entrada se QUEDA exactamente donde estaba: no
+   * se emite nada y se devuelve false. Antes se sacaba del stack ANTES de
+   * aplicar y la excepción se llevaba por delante el paso de undo (y subía a la
+   * UI, que no la captura). Como `applyCommand` no deja el proyecto a medias
+   * cuando lanza (el batch revierte), el estado previo queda intacto.
+   */
   undo(origin = 'local'): boolean {
     for (let i = this.undoStack.length - 1; i >= 0; i--) {
       if (this.undoStack[i]!.origin !== origin) continue;
-      const [entry] = this.undoStack.splice(i, 1);
-      const redoInverse = applyCommand(this.project, entry!.inverse);
-      this.redoStack.push({ ...entry!, command: entry!.inverse, inverse: redoInverse });
-      this.emit(entry!.inverse, origin, `Deshacer: ${entry!.label}`);
+      const entry = this.undoStack[i]!;
+      let redoInverse: Command;
+      try {
+        redoInverse = applyCommand(this.project, entry.inverse);
+      } catch {
+        return false;
+      }
+      this.undoStack.splice(i, 1);
+      this.redoStack.push({ ...entry, command: entry.inverse, inverse: redoInverse });
+      this.emit(entry.inverse, origin, `Deshacer: ${entry.label}`);
       return true;
     }
     return false;
   }
 
+  /** Rehace el último cambio de `origin`; misma protección que `undo()`. */
   redo(origin = 'local'): boolean {
     for (let i = this.redoStack.length - 1; i >= 0; i--) {
       if (this.redoStack[i]!.origin !== origin) continue;
-      const [entry] = this.redoStack.splice(i, 1);
-      const undoInverse = applyCommand(this.project, entry!.inverse);
-      this.undoStack.push({ ...entry!, command: entry!.inverse, inverse: undoInverse });
-      this.emit(entry!.inverse, origin, `Rehacer: ${entry!.label}`);
+      const entry = this.redoStack[i]!;
+      let undoInverse: Command;
+      try {
+        undoInverse = applyCommand(this.project, entry.inverse);
+      } catch {
+        return false;
+      }
+      this.redoStack.splice(i, 1);
+      this.undoStack.push({ ...entry, command: entry.inverse, inverse: undoInverse });
+      this.emit(entry.inverse, origin, `Rehacer: ${entry.label}`);
       return true;
     }
     return false;
