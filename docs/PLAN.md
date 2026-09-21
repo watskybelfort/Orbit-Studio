@@ -6,6 +6,20 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 21-09-2026: revisión de bugs sobre la v3.10.0
+
+Sesión de auditoría con seis lanes en paralelo: **56 hallazgos, 50 corregidos y
+verificados con su test, 6 abiertos con causa raíz**. El detalle completo
+—evidencia, medidas antes/después, límites aceptados y commits— está en
+[REVISION-2026-09-21.md](REVISION-2026-09-21.md). La red quedó en **222 archivos
+/ 2609 tests**, lint y typecheck limpios, build en verde y golden sin tocar.
+Lo abierto, en una línea cada uno: la simetría de ramas con ancla ajena
+(`store.ts`), los bytes realtime del MIDI, las alocaciones de `kernel-core.ts`,
+el medidor de CPU que nadie calcula, la identidad de presencia sin firma y
+`ownCreations` por conexión.
+
+---
+
 ## Estado — 31-08-2026: v3.10.0
 
 **"Lo que se perdía en silencio".** La ronda arrancó por el paso 0 del ciclo, y
