@@ -28,6 +28,17 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let savedVersion = -1;
 let autosavedVersion = -1;
 
+/**
+ * Hay una recuperación OFRECIDA y todavía sin resolver (el usuario no ha
+ * pulsado Recuperar ni Descartar). Mientras lo esté, el bucle del autosave no
+ * escribe: `pending.orbit` es la red que el usuario tiene delante, y pisarla
+ * con lo que se edita a continuación convertiría la oferta en otra cosa — al
+ * pulsar Recuperar ya no volvería la sesión anterior, sino lo de hace un
+ * minuto. Se limpia cuando el cartel se resuelve (o cuando un guardado
+ * explícito descarta el pendiente).
+ */
+let recoveryPending = false;
+
 export interface RecoveryOffer {
   json: string;
   mtimeMs: number;
@@ -38,7 +49,10 @@ export async function checkRecovery(): Promise<RecoveryOffer | null> {
   const api = window.orbit;
   if (!api?.autosave) return null;
   try {
-    return await api.autosave.check();
+    const offer = await api.autosave.check();
+    // Con oferta, el bucle del autosave queda bloqueado hasta que se resuelva.
+    recoveryPending = offer !== null;
+    return offer;
   } catch {
     return null;
   }
@@ -66,6 +80,12 @@ export function applyRecovery(offer: RecoveryOffer): boolean {
     });
     return false;
   }
+  // Recuperar reemplaza el proyecto ENTERO (historial incluido), como abrir un
+  // `.orbit` o cargar una plantilla, así que pasa por la misma guardia que
+  // esos caminos. Si el usuario cancela, no se toca nada y el cartel se queda
+  // — con su pendiente — para que pueda decidir después.
+  if (!confirmDiscard('Recuperar el trabajo de la sesión anterior')) return false;
+  recoveryPending = false;
   store.replaceProject(project);
   // Los samples referenciados se resuben al kernel (arranca vacío).
   void rehydrateSamples();
@@ -104,6 +124,7 @@ function refreshDirty(): void {
 
 /** Descarta el pendiente de la sesión anterior. */
 export function discardRecovery(): void {
+  recoveryPending = false;
   void window.orbit?.autosave.clear();
 }
 
@@ -127,7 +148,10 @@ export function markCleanAt(version: number): void {
   // La recuperación pendiente solo se descarta si lo guardado ES el estado
   // actual; si el proyecto avanzó durante el diálogo, esos cambios aún no están
   // en disco y su pending debe seguir vivo.
-  if (store.version === version) void window.orbit?.autosave.clear();
+  if (store.version === version) {
+    recoveryPending = false;
+    void window.orbit?.autosave.clear();
+  }
 }
 
 export function initAutosave(): void {
@@ -141,6 +165,9 @@ export function initAutosave(): void {
   // undo/redo, replaceProject), no con los medidores del kernel.
   store.subscribe(refreshDirty);
   timer = setInterval(() => {
+    // Con un cartel de recuperación sin resolver, `pending.orbit` no se toca:
+    // es la oferta que el usuario todavía puede aceptar (ver `recoveryPending`).
+    if (recoveryPending) return;
     if (store.version === autosavedVersion) return;
     autosavedVersion = store.version;
     void api.autosave.write(serializeProject(store.project));
