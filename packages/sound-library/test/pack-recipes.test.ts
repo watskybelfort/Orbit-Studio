@@ -37,6 +37,14 @@ describe('encargo', () => {
     expect(planPack({ family: 'kicks', count: 12 }).sounds).toHaveLength(12);
   });
 
+  it('un count que no es finito cae al valor por defecto, no a cero sonidos', () => {
+    // Bug real (auditoría v3.10): Math.round(NaN) contagiaba el min/max y el
+    // bucle no corría: un encargo con NaN devolvía un pack vacío en silencio.
+    expect(planPack({ family: 'hats', count: NaN }).sounds).toHaveLength(8);
+    expect(planPack({ family: 'kicks', count: Infinity }).sounds).toHaveLength(8);
+    expect(planPack({ family: 'beats', count: NaN }).sounds).toHaveLength(2);
+  });
+
   it('un estilo desconocido cae en trap en vez de romper', () => {
     expect(planPack({ family: 'kicks', style: 'reggaeton' as never }).style).toBe('trap');
   });
@@ -133,6 +141,14 @@ describe('los sonidos', () => {
   it('una nota rara cae en C en vez de desafinar el pack entero', () => {
     const plan = planPack({ family: '808s', count: 1, key: 'H' });
     expect(plan.sounds[0]!.keyRoot).toBe('C');
+  });
+
+  it('la nota raíz no distingue mayúsculas', () => {
+    // Bug real (auditoría v3.10): 'f' no estaba en NOTE_OFFSETS (que escribe
+    // las notas en mayúscula) y el pack entero caía a C en silencio.
+    const f = planPack({ family: '808s', count: 1, key: 'f' });
+    expect(f.sounds[0]!.keyRoot).toBe('F');
+    expect(f.sounds[0]!.project.events[0]!.key).toBe(29);
   });
 
   it('los risers suben y los downlifters bajan', () => {

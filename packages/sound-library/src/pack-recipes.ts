@@ -1011,11 +1011,17 @@ export function planPack(request: PackRequest): PackPlan {
   // Cuántos caben depende de la familia: un beat entero pesa como veinte hats.
   const topeFamilia = family === 'beats' ? MAX_STRUCTURED_BEATS : MAX_PACK_SOUNDS;
   const porDefecto = family === 'beats' ? DEFAULT_BEAT_COUNT : DEFAULT_COUNT;
-  const count = Math.max(1, Math.min(topeFamilia, Math.round(request.count ?? porDefecto)));
+  // `Number.isFinite` y no `??`: un NaN o un Infinity colándose por el min/max
+  // dejaba el bucle sin correr y el encargo devolvía un pack VACÍO en silencio.
+  const pedido = Number.isFinite(request.count) ? Math.round(request.count as number) : porDefecto;
+  const count = Math.max(1, Math.min(topeFamilia, pedido));
   const seed = Number.isFinite(request.seed) ? Math.round(request.seed as number) : 0;
   const traits = FAMILIES[family];
 
-  const keyName = request.key && NOTE_OFFSETS[request.key] !== undefined ? request.key : 'C';
+  // La nota se normaliza antes del lookup: NOTE_OFFSETS escribe en mayúscula y
+  // un 'f' (o ' f ') caía a C sin decir nada, desafinando el pack entero.
+  const pedida = request.key?.trim().toUpperCase() ?? '';
+  const keyName = NOTE_OFFSETS[pedida] !== undefined ? pedida : 'C';
   const rootKey = 24 + (NOTE_OFFSETS[keyName] ?? 0); // C1 = 24
 
   const name = request.name?.trim() || `${FAMILY_LABELS[family]} de ${STYLE_LABELS[style]}`;
