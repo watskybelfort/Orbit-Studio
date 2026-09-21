@@ -245,7 +245,7 @@ export class CollabSession {
     // El chat vive en el doc desde el minuto uno: no necesita esperar al
     // binding del proyecto (y así lo que escribas antes de sincronizar viaja
     // igualmente cuando llegue la sala).
-    this.chatBinding = new ChatBinding(this.doc, opts.user, { isHost: () => this.isHost() });
+    this.chatBinding = new ChatBinding(this.doc, opts.user);
     // Los samples también viven en el doc desde el minuto uno: lo que subas
     // antes de sincronizar viaja igual cuando llegue la sala, y lo que la sala
     // ya tenía se anuncia en cuanto entra por el primer sync.
@@ -793,15 +793,6 @@ export class CollabSession {
       // lib0 tipa sus buffers como ArrayBufferLike; aquí siempre son ArrayBuffer.
       this.ws.send(message as Uint8Array<ArrayBuffer>);
     }
-  }
-
-  /** Host = clientID más bajo con presencia (poda el chat). */
-  private isHost(): boolean {
-    let min = this.doc.clientID;
-    for (const id of this.awareness.getStates().keys()) {
-      if (id < min) min = id;
-    }
-    return min === this.doc.clientID;
   }
 
   /**

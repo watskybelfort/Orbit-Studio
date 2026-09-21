@@ -35,14 +35,21 @@ export interface ChatMessage {
   beat?: number;
 }
 
-/** Tope de mensajes retenidos en el doc (el host recorta los más viejos). */
+/** Tope de mensajes retenidos en el doc (lo recorta CUALQUIER peer). */
 export const MAX_CHAT_MESSAGES = 300;
 
+/**
+ * Tope de longitud de un mensaje, en caracteres. El chat viaja en el MISMO
+ * documento que el proyecto y el servidor lo persiste entero: un mensaje de
+ * cientos de KB se replica a todos y se queda en el .bin.
+ */
+export const MAX_CHAT_TEXT = 4000;
+
 export interface ChatOptions {
-  /** Solo el host recorta, igual que en la compactación del log. */
-  isHost?: () => boolean;
   /** Tope de mensajes (por defecto MAX_CHAT_MESSAGES). */
   maxMessages?: number;
+  /** Tope de longitud por mensaje (por defecto MAX_CHAT_TEXT). */
+  maxTextLength?: number;
 }
 
 /**
@@ -53,8 +60,8 @@ export class ChatBinding {
   private readonly doc: Y.Doc;
   private readonly user: CollabUser;
   private readonly list: Y.Array<ChatMessage>;
-  private readonly isHost: () => boolean;
   private readonly maxMessages: number;
+  private readonly maxTextLength: number;
   private readonly callbacks = new Set<(messages: ChatMessage[]) => void>();
   private observer: (() => void) | null = null;
 
@@ -62,9 +69,12 @@ export class ChatBinding {
     this.doc = doc;
     this.user = user;
     this.list = doc.getArray<ChatMessage>('chat');
-    this.isHost = opts.isHost ?? (() => true);
     this.maxMessages = opts.maxMessages ?? MAX_CHAT_MESSAGES;
+    this.maxTextLength = opts.maxTextLength ?? MAX_CHAT_TEXT;
     this.observer = () => {
+      // El recorte va ANTES de avisar: cualquier peer que vea la conversación
+      // pasada de largo la recorta, sin esperar a que el host mande algo.
+      this.trim();
       const messages = this.messages;
       for (const cb of this.callbacks) cb(messages);
     };
@@ -73,7 +83,12 @@ export class ChatBinding {
 
   /** Conversación completa en orden de llegada (orden total del CRDT). */
   get messages(): ChatMessage[] {
-    return this.list.toArray().map((m) => ({ ...m }));
+    return this.list.toArray().map((m) => ({
+      ...m,
+      // Un mensaje escrito a mano por un cliente modificado puede traer
+      // cualquier cosa: lo que se pinta se recorta siempre.
+      text: typeof m.text === 'string' ? this.capText(m.text) : '',
+    }));
   }
 
   /** Solo las notas ancladas, ordenadas por posición en el timeline. */
@@ -88,8 +103,12 @@ export class ChatBinding {
    * playlist. Devuelve el mensaje ya sellado, o null si el texto está vacío.
    */
   send(text: string, opts: { beat?: number } = {}): ChatMessage | null {
-    const clean = text.trim();
-    if (clean === '') return null;
+    const trimmed = text.trim();
+    if (trimmed === '') return null;
+    const clean = this.capText(trimmed);
+    if (clean.length < trimmed.length) {
+      console.warn(`[collab] mensaje de chat recortado a ${this.maxTextLength} caracteres`);
+    }
     const message: ChatMessage = {
       id: newId(),
       user: this.user.name,
@@ -133,10 +152,21 @@ export class ChatBinding {
     this.callbacks.clear();
   }
 
-  /** El host recorta la cabecera cuando la conversación se va de largo. */
+  /** Recorta un texto al tope (lo usan `send` y la lectura). */
+  private capText(text: string): string {
+    return text.length > this.maxTextLength ? text.slice(0, this.maxTextLength) : text;
+  }
+
+  /**
+   * Recorta la cabecera cuando la conversación se pasa del tope. Lo hace
+   * CUALQUIER peer, no solo el host: la regla ("sobran los `length - max` más
+   * viejos") es determinista e idéntica en todos, así que converge sola y un
+   * cliente modificado no puede esperar a que el host se conecte para inflar
+   * el documento de todos.
+   */
   private trim(): void {
     const excess = this.list.length - this.maxMessages;
-    if (excess <= 0 || !this.isHost()) return;
+    if (excess <= 0) return;
     this.doc.transact(() => {
       this.list.delete(0, excess);
     }, this);
