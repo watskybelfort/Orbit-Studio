@@ -8,6 +8,7 @@
 
 import { MAX_INPUT_CHANNELS, MAX_INPUT_ROUTES } from '@orbit/core';
 import type {
+  CompiledAutomationEvent,
   CompiledChannel,
   CompiledEffect,
   CompiledInputRoute,
@@ -19,7 +20,7 @@ import type {
 } from './protocol';
 import { createEffect, type EffectUnit } from './dsp/effects';
 import { Biquad } from './dsp/filters';
-import { secondsAtBeat } from './tempo';
+import type { TempoSegment } from './tempo';
 import { Voice, createVoice, type SampleData, type VoiceContext } from './dsp/voices';
 
 export const MAX_BLOCK = 128;
@@ -182,6 +183,25 @@ export class KernelCore {
   posBeats = 0;
   private tempo = 140;
   private timeSigNum = 4;
+  /**
+   * Segundos de timeline en `posBeats`, acumulados en TIEMPO REAL mientras el
+   * transporte avanza.
+   *
+   * Es la única fuente para la lectura de los clips: el tempo de runtime puede
+   * moverlo la automatización o un LFO, y la integral del mapa estático no los
+   * ve. Como avanza al ritmo real (n/sr por bloque), un LFO sobre el tempo
+   * también llega a los clips.
+   */
+  private posSeconds = 0;
+  /**
+   * Último tempo que se les pasó a los efectos sincronizados. Con esto,
+   * `syncEffectTempos()` avisa UNA vez por cambio real, venga de donde venga
+   * (mapa, automatización, LFO o mensaje), en vez de solo desde `applyMaps`.
+   */
+  private effectsTempo = 0;
+  /** Segundos del arranque y del fin de cada clip, con la curva de runtime. */
+  private clipStartSecs = new Float64Array(0);
+  private clipEndSecs = new Float64Array(0);
   /** Índices de tramo actuales en los mapas de tempo/compás (avanzan solos). */
   private tempoIdx = 0;
   private meterIdx = 0;
@@ -332,13 +352,22 @@ export class KernelCore {
         // un transporte remoto) deja huérfanas las notas vivas: su note-off
         // estaba en un punto del timeline que el salto se lleva por delante.
         if (this.playing) this.releaseSequencedVoices();
+        // Arranque nuevo (veníamos parados): la cola cuantizada era de la
+        // tirada anterior y no puede entrar en el primer cierre de esta.
+        if (!this.playing) this.pendingProject = null;
         this.posBeats = msg.fromBeat;
         this.playing = true;
         this.resyncCursor();
         this.applyMaps();
+        this.resyncSeconds();
+        this.syncEffectTempos();
         break;
       case 'stop':
         this.playing = false;
+        // La cola cuantizada era para la reproducción que se acaba de parar:
+        // aplicarla al siguiente cierre de loop cambiaría el timeline (longitud,
+        // loop, tempo) de una tirada que ya no existe.
+        this.pendingProject = null;
         this.cancelCountIn();
         this.releaseAllVoices();
         break;
@@ -347,6 +376,8 @@ export class KernelCore {
         this.posBeats = msg.beat;
         this.resyncCursor();
         this.applyMaps();
+        this.resyncSeconds();
+        this.syncEffectTempos();
         // Saltar deja huérfanas las notas que estaban sonando: su note-off
         // vivía en un punto del timeline que ya no vamos a pisar.
         this.releaseSequencedVoices();
@@ -434,7 +465,7 @@ export class KernelCore {
       case 'setTempo':
         this.tempo = msg.tempo;
         if (this.project) this.project.tempo = msg.tempo;
-        this.updateEffectTempos();
+        this.syncEffectTempos();
         break;
       case 'channelParam': {
         const ch = this.project?.channels[msg.channelIndex];
@@ -626,6 +657,31 @@ export class KernelCore {
     this.resyncCursor();
     this.resetLfoState(p);
     this.applyMaps();
+    this.cacheClipSeconds(p);
+    this.syncEffectTempos();
+    this.resyncSeconds();
+  }
+
+  /**
+   * Segundos de arranque y fin de cada clip del proyecto puesto, con la curva
+   * de tempo de runtime. Se resuelven UNA vez por snapshot —entre bloques—
+   * para que `process()` solo lea dos números por clip.
+   *
+   * Un LFO sobre el tempo no entra en esta integral (su valor depende de su
+   * estado, no solo del beat): la lectura en sí sí lo sigue, porque
+   * `posSeconds` avanza en tiempo real mientras el transporte rueda.
+   */
+  private cacheClipSeconds(p: CompiledProject): void {
+    const n = p.audioClips.length;
+    if (this.clipStartSecs.length !== n) {
+      this.clipStartSecs = new Float64Array(n);
+      this.clipEndSecs = new Float64Array(n);
+    }
+    for (let i = 0; i < n; i++) {
+      const clip = p.audioClips[i]!;
+      this.clipStartSecs[i] = this.secondsAtBeatRuntime(clip.start);
+      this.clipEndSecs[i] = this.secondsAtBeatRuntime(clip.start + clip.length);
+    }
   }
 
   private updateEffectTempos(): void {
@@ -641,6 +697,17 @@ export class KernelCore {
         if (slot) this.effects.get(slot.id)?.setTempo?.(this.tempo);
       }
     }
+  }
+
+  /**
+   * Avisa a los efectos sincronizados del tempo EFECTIVO del bloque. Una sola
+   * verdad: da igual si el tempo lo movió el mapa, la automatización, un LFO o
+   * el mensaje de la perilla — todos pasan por aquí.
+   */
+  private syncEffectTempos(): void {
+    if (this.effectsTempo === this.tempo) return;
+    this.effectsTempo = this.tempo;
+    this.updateEffectTempos();
   }
 
   // ── Plugins JS de usuario ─────────────────────────────────────────────────
@@ -1168,10 +1235,10 @@ export class KernelCore {
       while (i + 1 < tempoMap.length && tempoMap[i + 1]!.beat <= this.posBeats + 1e-9) i++;
       this.tempoIdx = i;
       const tempo = tempoMap[i]!.tempo;
-      if (tempo !== this.tempo) {
-        this.tempo = tempo;
-        this.updateEffectTempos();
-      }
+      // Solo se fija el tempo BASE del mapa. Avisar a los efectos lo hace
+      // `syncEffectTempos()` al cerrar el bloque, cuando la automatización y
+      // los LFOs ya han tenido su oportunidad de moverlo.
+      if (tempo !== this.tempo) this.tempo = tempo;
     }
     const meterMap = p.meterMap;
     if (meterMap && meterMap.length > 0) {
@@ -1184,16 +1251,84 @@ export class KernelCore {
   }
 
   /**
-   * Segundos absolutos del timeline hasta `beat`, integrando el mapa de tempo
-   * (suma tramo a tramo). Sin mapa es `beat * 60 / tempo`. Es lo que convierte la
-   * posición en beats de un clip de audio a segundos del sample: si se usa el
-   * secPerBeat del tempo actual sin integrar el mapa, un cambio de tempo a mitad
-   * del clip hace que la lectura del sample salte.
+   * Segundos de timeline hasta `beat` con la curva de tempo de RUNTIME: el mapa
+   * de marcadores MÁS la automatización de tempo.
+   *
+   * Es la integral que ancla los clips (arranque y fin de cada uno, play, seek
+   * y cierre de loop) al tempo que de verdad está sonando. Durante la
+   * reproducción manda `posSeconds`, que avanza en tiempo real — así un LFO
+   * sobre el tempo también llega a la lectura de los clips.
+   *
+   * Sin allocations: los puntos de corte se recorren con índices, nunca con un
+   * array intermedio (esto puede correr dentro de `process()`, al envolver el
+   * loop).
    */
-  private secondsAtBeat(beat: number): number {
-    // La cuenta vive en tempo.ts: la necesita también el recorte del export, y
-    // tenerla duplicada era justo lo que hacía que allí se usara tempo plano.
-    return secondsAtBeat(this.project?.tempoMap, beat, this.tempo);
+  private secondsAtBeatRuntime(beat: number): number {
+    const p = this.project;
+    if (beat <= 0) {
+      const t = p ? tempoAtBeatMap(p.tempoMap, beat, p.tempo) : this.tempo;
+      return (beat * 60) / Math.max(1, t);
+    }
+    if (!p) return (beat * 60) / Math.max(1, this.tempo);
+    let sec = 0;
+    let b = 0;
+    while (b < beat) {
+      const next = this.nextTempoBreak(p, b, beat);
+      const db = next - b;
+      const t0 = this.tempoAtBeat(b);
+      const t1 = this.tempoAtBeat(next);
+      // Trapecio sobre 60/t: dentro del intervalo el tempo es constante (mapa)
+      // o lineal entre dos muestras (automatización), así que sale exacto.
+      sec += db * 30 * (1 / t0 + 1 / t1);
+      b = next;
+    }
+    return sec;
+  }
+
+  /** Siguiente beat en el que puede cambiar el tempo (> `b`, <= `limit`). */
+  private nextTempoBreak(p: CompiledProject, b: number, limit: number): number {
+    let next = limit;
+    const map = p.tempoMap;
+    if (map) {
+      for (let i = 0; i < map.length; i++) {
+        const mb = map[i]!.beat;
+        if (mb > b + 1e-9 && mb < next) next = mb;
+      }
+    }
+    for (let i = 0; i < p.automation.length; i++) {
+      const a = p.automation[i]!;
+      const target = a.target;
+      if (target.scope !== 'transport' || target.key !== 'tempo') continue;
+      if (a.startBeat > b + 1e-9 && a.startBeat < next) next = a.startBeat;
+      const end = a.startBeat + a.values.length * a.step;
+      if (end > b + 1e-9 && end < next) next = end;
+      if (b >= a.startBeat - 1e-9 && b < end) {
+        const k = Math.floor((b - a.startBeat) / a.step) + 1;
+        const nb = a.startBeat + k * a.step;
+        if (nb > b + 1e-9 && nb < next) next = nb;
+      }
+    }
+    return next;
+  }
+
+  /** Tempo EFECTIVO en `beat`: el del mapa, con la automatización encima. */
+  private tempoAtBeat(beat: number): number {
+    const p = this.project;
+    if (!p) return this.tempo;
+    let t = tempoAtBeatMap(p.tempoMap, beat, p.tempo);
+    for (let i = 0; i < p.automation.length; i++) {
+      const a = p.automation[i]!;
+      const target = a.target;
+      if (target.scope !== 'transport' || target.key !== 'tempo') continue;
+      const v = automationValueAt(a, beat);
+      if (v !== null) t = v;
+    }
+    return t > 0 ? t : 1;
+  }
+
+  /** Reancla `posSeconds` a la curva del proyecto puesto (play, seek, snapshot). */
+  private resyncSeconds(): void {
+    this.posSeconds = this.secondsAtBeatRuntime(this.posBeats);
   }
 
   // ── Automatización ────────────────────────────────────────────────────────
@@ -1202,14 +1337,8 @@ export class KernelCore {
     const p = this.project;
     if (!p || !this.playing) return;
     for (const a of p.automation) {
-      const rel = this.posBeats - a.startBeat;
-      if (rel < 0) continue;
-      const idx = rel / a.step;
-      const i0 = Math.floor(idx);
-      if (i0 >= a.values.length) continue;
-      const i1 = Math.min(a.values.length - 1, i0 + 1);
-      const frac = idx - i0;
-      const value = a.values[i0]! * (1 - frac) + a.values[i1]! * frac;
+      const value = automationValueAt(a, this.posBeats);
+      if (value === null) continue;
       const t = a.target;
       switch (t.scope) {
         case 'channelParam': {
@@ -1463,6 +1592,8 @@ export class KernelCore {
           this.playing = true;
           this.resyncCursor();
           if (this.project) this.applyMaps();
+          this.resyncSeconds();
+          this.syncEffectTempos();
         }
       }
       if (this.countInWait > 0) this.countInWait--;
@@ -1706,12 +1837,16 @@ export class KernelCore {
     if (this.playing && this.loopEnabled && this.posBeats >= this.loopEnd) {
       this.posBeats = this.loopStart;
       this.resyncCursor();
+      this.resyncSeconds();
       this.releaseSequencedVoices();
     }
 
     this.applyMaps();
     this.applyAutomation();
     this.applyLfos();
+    // UNA verdad del tempo para los efectos sincronizados: después de que la
+    // automatización y los LFOs hayan movido `this.tempo`, no antes.
+    this.syncEffectTempos();
 
     const spb = this.tempo / 60 / this.sr; // beats por sample
     const blockBeats = n * spb;
@@ -1722,10 +1857,14 @@ export class KernelCore {
     // `blockBeats` a `this.posBeats`: al envolver, `posBeats` ya es el beat de
     // DESPUÉS del salto y esa resta apunta a un tramo que no se ha tocado.
     const blockStartBeat = this.posBeats;
+    /** Segundos de timeline en `blockStartBeat` (tiempo real acumulado). */
+    const blockStartSec = this.posSeconds;
     /** Muestra en la que el loop envuelve dentro de este bloque (-1 = no lo hace). */
     let wrapAt = -1;
     /** Beat en el que se reanuda tras el salto (solo válido con `wrapAt >= 0`). */
     let wrapBeat = 0;
+    /** Segundos de timeline en `wrapBeat`, de la curva del proyecto que rige. */
+    let wrapStartSec = 0;
 
     if (this.playing) {
       const end = this.posBeats + blockBeats;
@@ -1746,15 +1885,18 @@ export class KernelCore {
         }
         this.posBeats = this.loopStart;
         this.resyncCursor();
-        this.triggerRange(this.loopStart, this.loopStart + remainBeats, wrapSamples, spb);
-        this.posBeats = this.loopStart + remainBeats;
         // Se apunta DESPUÉS del snapshot en cola: `applyQueued` puede haber
         // movido `loopStart`, y lo que vale es de dónde se reanuda de verdad.
+        wrapStartSec = this.secondsAtBeatRuntime(this.loopStart);
+        this.triggerRange(this.loopStart, this.loopStart + remainBeats, wrapSamples, spb);
+        this.posBeats = this.loopStart + remainBeats;
         wrapAt = Math.min(n, Math.max(0, wrapSamples));
         wrapBeat = this.loopStart;
+        this.posSeconds = wrapStartSec + (n - wrapAt) / this.sr;
       } else {
         this.triggerRange(this.posBeats, end, 0, spb);
         this.posBeats = end;
+        this.posSeconds += n / this.sr;
         if (!this.loopEnabled && this.posBeats >= p.lengthBeats) {
           this.playing = false;
           this.releaseAllVoices();
@@ -1868,15 +2010,16 @@ export class KernelCore {
 
     // Clips de audio (posición determinista desde el timeline)
     if (this.playing) {
-      // Segundos del timeline en el arranque de CADA tramo, integrando el mapa
-      // de tempo. Dentro del bloque el tempo es constante, así que a partir de
-      // aquí el avance del sample es tiempo real (i / sr) y no salta si un
-      // marcador cambia el tempo a mitad del clip.
-      const preStartSec = this.secondsAtBeat(blockStartBeat);
-      const postStartSec = wrapAt >= 0 ? this.secondsAtBeat(wrapBeat) : 0;
+      // Segundos de timeline en el arranque de CADA tramo. `blockStartSec` y
+      // `wrapStartSec` salen del acumulador de tiempo real (ver `posSeconds`),
+      // así que siguen la curva de tempo que de verdad suena — incluida la
+      // automatización y los LFOs — y no la integral del mapa estático.
+      const preStartSec = blockStartSec;
+      const postStartSec = wrapAt >= 0 ? wrapStartSec : 0;
       const preCount = wrapAt >= 0 ? wrapAt : n;
       const postCount = wrapAt >= 0 ? n - wrapAt : 0;
-      for (const clip of p.audioClips) {
+      for (let ci = 0; ci < p.audioClips.length; ci++) {
+        const clip = p.audioClips[ci]!;
         // Con el loop envuelto el bloque cubre DOS ventanas de beats disjuntas:
         // el clip entra si toca cualquiera de las dos.
         const clipEnd = clip.start + clip.length;
@@ -1896,9 +2039,9 @@ export class KernelCore {
         // que el sample llene exactamente la longitud del clip. Sin stretch ni
         // pitch, lectura directa como siempre. Cero alocaciones en los dos
         // caminos: todo son escalares.
-        const clipStartSec = this.secondsAtBeat(clip.start);
+        const clipStartSec = this.clipStartSecs[ci]!;
         const srcSec = data.left.length / data.rate - clip.offset;
-        const clipSec = this.secondsAtBeat(clip.start + clip.length) - clipStartSec;
+        const clipSec = this.clipEndSecs[ci]! - clipStartSec;
         const doStretch = clip.stretch && srcSec > 0.01 && clipSec > 0.01;
         // Pitch-shift = resample + stretch inverso, con el MISMO motor de
         // grains: `speed` es lo rápido que se lee DENTRO del grain (eso sube o
@@ -2156,11 +2299,17 @@ export class KernelCore {
         }
         this.meterSamples += n;
       } else if (track.routeTo !== null) {
-        const dl = this.bufL[track.routeTo]!;
-        const dr = this.bufR[track.routeTo]!;
-        for (let i = 0; i < n; i++) {
-          dl[i]! += bl[i]!;
-          dr[i]! += br[i]!;
+        // La pista destino puede no existir (un `routeTo` corrupto, un archivo
+        // viejo con menos pistas): sin guarda, `bufL[999]` era `undefined` y
+        // `process()` reventaba. Igual que en los envíos, la ruta se queda
+        // muda; lo que no puede es llevarse el hilo de audio por delante.
+        const dl = this.bufL[track.routeTo];
+        const dr = this.bufR[track.routeTo];
+        if (dl && dr) {
+          for (let i = 0; i < n; i++) {
+            dl[i]! += bl[i]!;
+            dr[i]! += br[i]!;
+          }
         }
       }
       /*
@@ -2357,9 +2506,10 @@ export type { FromKernel };
 class PluginVoice extends Voice {
   private broken = false;
   // Scratch propio: el instrumento renderiza aquí y solo se suma al bus si la
-  // salida es finita (ver render). Se alocan la primera vez y se reutilizan.
-  private scratchL: Float32Array | null = null;
-  private scratchR: Float32Array | null = null;
+  // salida es finita (ver render). Se reserva en el CONSTRUCTOR, no en el
+  // primer render: el camino caliente no puede alocar (regla dura 2).
+  private readonly scratchL = new Float32Array(MAX_BLOCK);
+  private readonly scratchR = new Float32Array(MAX_BLOCK);
 
   constructor(
     channelIndex: number,
@@ -2422,8 +2572,8 @@ class PluginVoice extends Voice {
     gainR: number,
   ): boolean {
     if (this.broken) return false;
-    const sl = (this.scratchL ??= new Float32Array(MAX_BLOCK));
-    const sr = (this.scratchR ??= new Float32Array(MAX_BLOCK));
+    const sl = this.scratchL;
+    const sr = this.scratchR;
     sl.fill(0, from, to);
     sr.fill(0, from, to);
     let ret: boolean;
@@ -2496,6 +2646,44 @@ class StripEq {
       r[i] = this.highR.tick(this.midR.tick(this.lowR.tick(r[i]!)));
     }
   }
+}
+
+// ── Curvas de tempo ──────────────────────────────────────────────────────────
+
+/**
+ * Valor de una curva de automatización en `beat`, o null si la curva no cubre
+ * ese beat (antes de su inicio o después de su última muestra). Es la misma
+ * interpolación lineal que aplica `applyAutomation`, compartida para que la
+ * integral de `secondsAtBeatRuntime` no tenga una segunda versión que se
+ * desincronice.
+ */
+function automationValueAt(a: CompiledAutomationEvent, beat: number): number | null {
+  const rel = beat - a.startBeat;
+  if (rel < 0) return null;
+  const idx = rel / a.step;
+  const i0 = Math.floor(idx);
+  if (i0 >= a.values.length) return null;
+  const i1 = Math.min(a.values.length - 1, i0 + 1);
+  const frac = idx - i0;
+  return a.values[i0]! * (1 - frac) + a.values[i1]! * frac;
+}
+
+/**
+ * Tempo del mapa de marcadores en `beat`. Antes del primer tramo vale el tempo
+ * de ese primer tramo (extrapolación hacia atrás), igual que `secondsAtBeat`.
+ */
+function tempoAtBeatMap(
+  map: readonly TempoSegment[] | undefined,
+  beat: number,
+  fallback: number,
+): number {
+  if (!map || map.length === 0) return fallback;
+  let t = map[0]!.tempo;
+  for (let i = 0; i < map.length; i++) {
+    if (map[i]!.beat <= beat + 1e-9) t = map[i]!.tempo;
+    else break;
+  }
+  return t > 0 ? t : 1;
 }
 
 // ── Matemáticas de los LFOs ──────────────────────────────────────────────────
