@@ -45,7 +45,15 @@ export function ProjectInfo() {
   }, [project]);
 
   const setMeta = (patch: { title?: string; author?: string; comments?: string }) => {
-    store.dispatch({ type: 'setMeta', patch }, { label: 'Info del proyecto', mergeKey: 'meta' });
+    // Una mergeKey por CAMPO, no `'meta'` a secas: escribir el título y el
+    // autor con menos de 800 ms de diferencia (la ventana de fusión del store)
+    // fundía las dos ráfagas en una, y su inverso solo devolvía UNO de los dos
+    // campos. Mismo criterio que `SendMenu.patch` (ver `send-merge.test.ts`).
+    const fields = Object.keys(patch).sort().join('+');
+    store.dispatch(
+      { type: 'setMeta', patch },
+      { label: 'Info del proyecto', mergeKey: `meta:${fields}` },
+    );
   };
 
   return (
