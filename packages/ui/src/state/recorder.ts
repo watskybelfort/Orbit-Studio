@@ -708,8 +708,17 @@ async function stopRecording(): Promise<void> {
  * sobreescribe el motivo con uno que dice CLARO que la toma se cortó ahí, para
  * que quien cantó sepa que tiene que repetirla en vez de descubrirlo al
  * escuchar un clip corto sin ninguna pista de por qué.
+ *
+ * La CUENTA ATRÁS también es una toma en curso (el micro ya está abierto y la
+ * captura entra al cerrar la cuenta): ahí no hay nada que guardar, así que se
+ * cancela y se avisa — dejarla seguir arrancaba una toma sin stream.
  */
 export async function abortRecordingForLostDevice(reason: string): Promise<void> {
+  if (useRecorderStore.getState().phase === 'countin') {
+    cancelCountIn = true;
+    useRecorderStore.setState({ phase: 'idle', error: reason });
+    return;
+  }
   if (!capturing) return;
   await stopRecording();
   useRecorderStore.setState({ error: reason });

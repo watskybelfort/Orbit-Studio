@@ -86,6 +86,11 @@ export const useInputMonitorStore = create<InputMonitorState>(() => ({
 /** Stream abierto ahora mismo y su nodo en el grafo. */
 let stream: MediaStream | null = null;
 let source: MediaStreamAudioSourceNode | null = null;
+/**
+ * Arranque en vuelo (ver `startInputMonitor`): mientras exista, cualquier otra
+ * llamada espera a ESTA promesa en vez de abrir otro micro.
+ */
+let starting: Promise<boolean> | null = null;
 
 /** Lo llama el bucle de medidores del kernel. */
 export function setInputPeak(peak: number): void {
@@ -307,11 +312,15 @@ export function useInputGuardReason(): string | null {
  */
 function handleStreamLost(cause: string): void {
   if (!stream) return; // ya se cerró por otro camino (o por este mismo evento, dos veces)
-  const wasRecording = useRecorderStore.getState().phase === 'recording';
+  // `countin` también es una toma en curso: el micro ya está abierto y la
+  // captura entra al cerrar la cuenta. Sin el stream, esa toma arrancaría
+  // vacía y saldría un clip mudo sin que nadie lo explique.
+  const phase = useRecorderStore.getState().phase;
+  const takeInProgress = phase === 'recording' || phase === 'countin';
   stopInputMonitor();
-  const reason = wasRecording ? `${cause} La toma se cortó ahí: repítela.` : cause;
+  const reason = takeInProgress ? `${cause} La toma se cortó ahí: repítela.` : cause;
   useInputMonitorStore.setState({ error: reason });
-  if (wasRecording) void abortRecordingForLostDevice(reason);
+  if (takeInProgress) void abortRecordingForLostDevice(reason);
 }
 
 /**
@@ -367,9 +376,28 @@ export function stopInputMonitor(): void {
   push();
 }
 
-/** Abre el micro (sin sacarlo todavía por los altavoces). */
+/**
+ * Abre el micro (sin sacarlo todavía por los altavoces).
+ *
+ * Un arranque EN VUELO se comparte: `stream` solo se asigna cuando
+ * `getUserMedia` resuelve, así que sin esta promesa dos llamadas seguidas
+ * (dos efectos de React, un atajo mientras el permiso viaja…) entraban las dos,
+ * abrían DOS capturas del mismo aparato —los tracks de la primera no los
+ * paraba nadie— y conectaban dos fuentes al kernel (nivel duplicado). La
+ * segunda espera a la primera y recibe su mismo resultado.
+ */
 export async function startInputMonitor(): Promise<boolean> {
   if (stream) return true;
+  if (starting) return starting;
+  starting = openInputMonitor();
+  try {
+    return await starting;
+  } finally {
+    starting = null;
+  }
+}
+
+async function openInputMonitor(): Promise<boolean> {
   try {
     ensureAudioReady();
     await engine.init();
