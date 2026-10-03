@@ -9,6 +9,11 @@
  *    el TypeError al escanearlo.
  * 2. Un oyente no publica muestras: los topes de tamaño no son una política de
  *    rol, y el rol lo reparte el servidor.
+ * 3. Y tampoco los DESTRUYE: borrar y reemplazar son mutaciones como publicar,
+ *    y el guardia solo miraba altas y updates (filtraba `action !== 'delete'`),
+ *    así que un oyente vaciaba el audio compartido de la sala y el borrado
+ *    quedaba aplicado, sin aviso y sin copia para devolverlo (BUG 013). Ahora
+ *    lo que altera a un no-productor se restaura desde la copia autoritativa.
  *
  * El atacante es un Y.Doc con el protocolo a mano, como en role-enforcement.
  */
@@ -116,6 +121,13 @@ class RawPeer {
 
   checkAsset(key: string): boolean {
     return this.assets.has(key);
+  }
+
+  /** Borra del mapa `assets` tal cual, sin pasar por el binding. */
+  deleteAsset(key: string): void {
+    this.doc.transact(() => {
+      this.assets.delete(key);
+    });
   }
 
   /** Pide al servidor el rol de otro (solo lo atiende si quien lo pide es productor). */
@@ -242,5 +254,104 @@ describe('el servidor no deja entrar basura en el mapa de samples', () => {
     await sleep(300);
     expect(productor.checkAsset('raro')).toBe(false);
     expect(invitado.checkAsset('raro')).toBe(false);
+  });
+});
+
+/**
+ * BUG 013: mutar `assets` es editar la sala, y solo lo hace el productor.
+ *
+ * Antes el guardia filtraba los borrados (`action !== 'delete'`), de modo que el
+ * borrado llegaba YA APLICADO al doc: el servidor anunciaba `role=oyente` y el
+ * asset desaparecía igual, sin revertir ni rechazar. Con nombres por contenido,
+ * la rehidratación de cualquier cliente posterior salía muda.
+ */
+describe('un oyente no puede mutar los sounds de la sala', () => {
+  /**
+   * Sala con las tresfiguras en el ORDEN que importa: entra primero el
+   * PRODUCTOR (el que reparte los roles), luego un invitado que publica de
+   * verdad, y por último el que se baja a oyente.
+   */
+  async function sala() {
+    const server = await serve();
+    const productor = new RawPeer(server.port);
+    await productor.open();
+    const invitado = new RawPeer(server.port);
+    await invitado.open();
+    const kick: SampleAsset = {
+      hash: 'kick',
+      name: 'Kick',
+      size: 64,
+      by: 'invitado',
+      at: 0,
+      bytes: blob(64),
+    };
+    invitado.setAsset('kick', kick);
+    await sleep(300);
+    expect(productor.checkAsset('kick')).toBe(true);
+    const oyente = new RawPeer(server.port);
+    await oyente.open();
+    // El rol lo reparte el servidor: el productor se lo baja a oyente.
+    productor.assignRole(oyente.doc.clientID, 'oyente');
+    await sleep(250);
+    return { productor, oyente, kick };
+  }
+
+  it('su borrado se restaura: el audio sigue en la sala, con sus bytes', async () => {
+    const { productor, oyente, kick } = await sala();
+
+    oyente.deleteAsset('kick');
+    await sleep(400);
+
+    // Sigue ahí, con el CONTENIDO ORIGINAL: ni se replica el borrado ni se
+    // pierde el audio.
+    expect(productor.checkAsset('kick')).toBe(true);
+    const bytes = productor.assets.get('kick')?.bytes;
+    expect(bytes?.byteLength).toBe(kick.bytes.byteLength);
+    expect([...(bytes ?? [])]).toEqual([...kick.bytes]);
+    // Y el oyente también lo ve volver (la restauración se reparte a todos).
+    expect(oyente.checkAsset('kick')).toBe(true);
+  });
+
+  it('su reemplazo se deshace con el valor bueno, sin borrar el audio de los demás', async () => {
+    const { productor, oyente, kick } = await sala();
+
+    oyente.setAsset('kick', {
+      hash: 'kick',
+      name: 'Kick',
+      size: 8,
+      by: 'oyente',
+      at: 0,
+      bytes: blob(8),
+    });
+    await sleep(400);
+
+    expect(productor.checkAsset('kick')).toBe(true);
+    expect(productor.assets.get('kick')?.bytes.byteLength).toBe(kick.bytes.byteLength);
+  });
+
+  it('su alta colada sigue sin entrar (y no se cuela por el lado del borrado)', async () => {
+    const { productor, oyente } = await sala();
+
+    oyente.setAsset('colado', {
+      hash: 'colado',
+      name: 'Colado',
+      size: 8,
+      by: 'oyente',
+      at: 0,
+      bytes: blob(8),
+    });
+    await sleep(400);
+
+    expect(oyente.checkAsset('colado')).toBe(false);
+    expect(productor.checkAsset('colado')).toBe(false);
+  });
+
+  it('el PRODUCTOR sí puede borrar un sample: la política de borrado es suya', async () => {
+    const { productor } = await sala();
+
+    productor.deleteAsset('kick');
+    await sleep(400);
+
+    expect(productor.checkAsset('kick')).toBe(false);
   });
 });
