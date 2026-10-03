@@ -6,11 +6,12 @@
  * Todo se aplica EN VIVO y se persiste en settings.json.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GallerySection } from './GallerySection';
 import { InputSection } from './InputSection';
 import { MidiSection } from './MidiSection';
 import { UpdateSection } from './UpdateSection';
+import { findSettingsSections, type SettingsSectionId } from './settings-catalog';
 
 import {
   commitAppearance,
@@ -79,6 +80,9 @@ function parseCustomThemes(raw: unknown): CustomThemes {
 type FileNotice = { kind: 'ok' | 'error'; text: string } | null;
 
 export function SettingsPanel() {
+  const [section, setSection] = useState<SettingsSectionId>('appearance');
+  const [query, setQuery] = useState('');
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [theme, setTheme] = useState<ThemeId>('dark');
   const [overrides, setOverrides] = useState<ThemeOverrides>({});
   const [appearance, setAppearance] = useState<Appearance>(DEFAULT_APPEARANCE);
@@ -87,7 +91,15 @@ export function SettingsPanel() {
   const [acrylicOk, setAcrylicOk] = useState(true);
   const [fileNotice, setFileNotice] = useState<FileNotice>(null);
   const trafficLights = useUiStore((s) => s.trafficLights);
+  const compact = useUiStore((s) => s.compact);
   const [rememberLayout, setRememberLayout] = useState(workspaceMemoryOn());
+  const sections = findSettingsSections(query);
+  const currentSection = sections.find((s) => s.id === section) ?? sections[0];
+  const visibleSection = currentSection?.id;
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [visibleSection]);
 
   useEffect(() => {
     void (async () => {
@@ -176,7 +188,37 @@ export function SettingsPanel() {
 
   return (
     <div className="settings">
-      <h3 className="set-heading">Apariencia</h3>
+      <header className="settings-header">
+        <div className="settings-header__top">
+          <h2>Preferencias del estudio</h2>
+          <input
+            className="settings-search"
+            type="search"
+            aria-label="Buscar una categoría de ajustes"
+            placeholder="Buscar: tema, micro, latencia…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && query) { event.stopPropagation(); setQuery(''); }
+            }}
+          />
+        </div>
+        <nav className="settings-nav" aria-label="Categorías de ajustes">
+          {sections.map((item) => (
+            <button key={item.id} aria-pressed={visibleSection === item.id} onClick={() => setSection(item.id)}>{item.label}</button>
+          ))}
+        </nav>
+        <p className="settings-description" aria-live="polite">{currentSection?.description ?? 'No encontramos una categoría con esas palabras.'}</p>
+      </header>
+      <div className="settings-body" ref={bodyRef}>
+      {!currentSection && (
+        <div className="settings-empty">
+          <p>Prueba con «tema», «micro», «ventanas» o «MIDI».</p>
+          <button className="tbtn" onClick={() => setQuery('')}>Ver todos los ajustes</button>
+        </div>
+      )}
+      <section className="settings-section" aria-label="Color y transparencia" hidden={visibleSection !== 'appearance'}>
+      <h3 className="set-heading">Color y transparencia</h3>
 
       <div className="set-row">
         <span className="set-label">Tema</span>
@@ -191,6 +233,7 @@ export function SettingsPanel() {
             <button
               key={id}
               className={`theme-card ${id}${theme === id ? ' selected' : ''}`}
+              aria-pressed={theme === id}
               onClick={() => commit(id, overrides)}
             >
               <span className="theme-card-preview">
@@ -216,6 +259,8 @@ export function SettingsPanel() {
             <button
               key={c}
               className={`swatch${(overrides.accent ?? ACCENT_DEFAULT) === c ? ' selected' : ''}`}
+              aria-label={`Acento ${c}`}
+              aria-pressed={(overrides.accent ?? ACCENT_DEFAULT) === c}
               style={{ background: c }}
               onClick={() => commit(theme, { ...overrides, accent: c })}
             />
@@ -226,6 +271,7 @@ export function SettingsPanel() {
             value={overrides.accent ?? ACCENT_DEFAULT}
             onChange={(e) => commit(theme, { ...overrides, accent: e.target.value })}
             title="Color personalizado"
+            aria-label="Color de acento personalizado"
           />
         </div>
       </div>
@@ -234,6 +280,7 @@ export function SettingsPanel() {
         <span className="set-label">Transparencia</span>
         <input
           type="range"
+          aria-label="Transparencia del acrílico"
           min={0.2}
           max={0.92}
           step={0.01}
@@ -251,16 +298,23 @@ export function SettingsPanel() {
         <input
           type="color"
           className="color-input"
+          aria-label="Tinte del acrílico"
           disabled={theme !== 'acrylic'}
           value={overrides.glassTint ?? GLASS_TINT_DEFAULT}
           onChange={(e) => commit(theme, { ...overrides, glassTint: e.target.value })}
         />
       </div>
 
+      </section>
+      <section className="settings-section" aria-label="Espacio de trabajo" hidden={visibleSection !== 'workspace'}>
+      <h3 className="set-heading">Ventanas y concentración</h3>
       <div className="set-row">
         <span className="set-label">Semáforo macOS</span>
         <button
           className={`set-toggle${trafficLights ? ' on' : ''}`}
+          role="switch"
+          aria-label="Botones de ventana estilo macOS"
+          aria-checked={trafficLights}
           onClick={() => setTraffic(!trafficLights)}
         >
           <span className="set-toggle-knob" />
@@ -274,6 +328,9 @@ export function SettingsPanel() {
         <span className="set-label">Recordar el escritorio</span>
         <button
           className={`set-toggle${rememberLayout ? ' on' : ''}`}
+          role="switch"
+          aria-label="Recordar el escritorio"
+          aria-checked={rememberLayout}
           onClick={() => {
             const next = !rememberLayout;
             setRememberLayout(next);
@@ -296,12 +353,29 @@ export function SettingsPanel() {
         </button>
       </div>
 
-      <h3 className="set-heading">A mi manera</h3>
+      <div className="set-row">
+        <span className="set-label">Modo enfoque</span>
+        <button className={`set-toggle${compact ? ' on' : ''}`} role="switch" aria-label="Modo enfoque" aria-checked={compact} onClick={() => useUiStore.setState({ compact: !compact })}>
+          <span className="set-toggle-knob" />
+        </button>
+        <span className="set-value">Oculta los paneles laterales para dar espacio a los editores.</span>
+      </div>
+      <p className="set-note">En Ver → Layouts puedes elegir un escritorio para componer, arreglar o mezclar. También puedes guardar tu distribución en el proyecto.</p>
+      </section>
+
+      <section className="settings-section" aria-label="Lectura y temas personales" hidden={visibleSection !== 'appearance'}>
+      <h3 className="set-heading">Lectura y tamaño</h3>
+      <div className="settings-size-presets" role="group" aria-label="Tamaños de interfaz">
+        {([{ label: 'Más espacio', scale: 0.9 }, { label: 'Equilibrado', scale: 1 }, { label: 'Lectura cómoda', scale: 1.15 }] as const).map((preset) => (
+          <button key={preset.scale} className="set-reset" aria-pressed={Math.abs(appearance.scale - preset.scale) < 0.001} onClick={() => commitLook({ ...appearance, scale: preset.scale })}>{preset.label} <span>{Math.round(preset.scale * 100)}%</span></button>
+        ))}
+      </div>
 
       <div className="set-row">
-        <span className="set-label">Escala de la UI</span>
+        <span className="set-label">Tamaño de interfaz</span>
         <input
           type="range"
+          aria-label="Tamaño de interfaz"
           min={UI_SCALE_MIN}
           max={UI_SCALE_MAX}
           step={0.05}
@@ -319,14 +393,14 @@ export function SettingsPanel() {
         </button>
       </div>
       <p className="set-note">
-        Escala toda la interfaz de golpe —texto, paneles, perillas y los canvas del piano roll y
-        la playlist, que se redibujan a la nueva resolución para no salir borrosos.
+        Aumenta el tamaño para leer con más comodidad o redúcelo para ver más pistas a la vez.
       </p>
 
       <div className="set-row">
         <span className="set-label">Tipografía</span>
         <select
           className="set-select"
+          aria-label="Tipografía de la interfaz"
           value={appearance.font}
           onChange={(e) => {
             const id = e.target.value;
@@ -346,6 +420,7 @@ export function SettingsPanel() {
         <span className="set-label">Radio de esquinas</span>
         <input
           type="range"
+          aria-label="Radio de esquinas"
           min={UI_RADIUS_MIN}
           max={UI_RADIUS_MAX}
           step={1}
@@ -358,13 +433,14 @@ export function SettingsPanel() {
 
       <h3 className="set-heading">Mis temas</h3>
       <div className="custom-themes">
+        {Object.keys(customThemes).length === 0 && <p className="set-note">Guarda tu combinación de color, tamaño y tipografía para recuperarla con un clic.</p>}
         {Object.entries(customThemes).map(([name, t]) => (
           <div key={name} className="custom-theme">
             <button className="custom-apply" onClick={() => applyCustom(t)}>
               <span className="swatch" style={{ background: t.overrides.accent ?? ACCENT_DEFAULT }} />
               {name}
             </button>
-            <button className="custom-del" title="Borrar" onClick={() => deleteCustom(name)}>
+            <button className="custom-del" title="Borrar" aria-label={`Borrar tema ${name}`} onClick={() => deleteCustom(name)}>
               ×
             </button>
           </div>
@@ -378,6 +454,7 @@ export function SettingsPanel() {
             className="scrubber-input"
             autoFocus
             placeholder="Nombre del tema"
+            aria-label="Nombre del tema"
             value={savingName}
             onChange={(e) => setSavingName(e.target.value)}
             onKeyDown={(e) => {
@@ -398,23 +475,20 @@ export function SettingsPanel() {
         </button>
       </div>
       {fileNotice && (
-        <p className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
+        <p role="status" className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
       )}
-
+      </section>
+      <section className="settings-section" aria-label="Audio y MIDI" hidden={visibleSection !== 'devices'}>
       <InputSection />
-
       <MidiSection />
-
+      </section>
+      <section className="settings-section" aria-label="Plugins" hidden={visibleSection !== 'plugins'}>
       <GallerySection />
-
+      </section>
+      <section className="settings-section" aria-label="Actualizaciones" hidden={visibleSection !== 'updates'}>
       <UpdateSection />
-
-      <h3 className="set-heading">Audio</h3>
-
-      <p className="set-note">
-        Motor: kernel propio en AudioWorklet · bloques de 128 samples · low-end
-        mono bajo 110 Hz en master (efecto Stereo).
-      </p>
+      </section>
+      </div>
     </div>
   );
 }
