@@ -404,4 +404,53 @@ describe('el linter de fronteras cierra sus tres puertas traseras', () => {
     const ids = idsOf("import type { ProjectStore } from '@orbit/core';\n", 'packages/engine/src/foo.ts');
     expect(ids).toEqual([]);
   });
+
+  it.each([
+    "import * as core from '@orbit/core'; new core.ProjectStore();",
+    "import * as core from '@orbit/core'; core['applyCommand']({}, {});",
+    "import * as core from '@orbit/core'; const { ProjectStore: Store } = core;",
+    "import * as core from '@orbit/core'; const { ['ProjectStore']: Store } = core;",
+    "export { ProjectStore as Store } from '@orbit/core';",
+    "const core = await import('@orbit/core'); new core.ProjectStore();",
+    "const core = require('@orbit/core'); core.applyCommand({}, {});",
+    "const { ProjectStore } = require('@orbit/core');",
+    "const Store = (await import('@orbit/core'))['ProjectStore'];",
+  ])('035: namespace y reexport no esconden estado: %s', (code) => {
+    expect(idsOf(code, 'packages/engine/src/foo.ts')).toContain('notModel');
+  });
+
+  it.each([
+    "import * as core from '@orbit/core'; consume(core);",
+    "import * as core from '@orbit/core'; const alias = core;",
+    "import * as core from '@orbit/core'; const value = core[key];",
+    "import * as core from '@orbit/core'; const { midiToHz, ...rest } = core;",
+    "export * from '@orbit/core';",
+    "export * as core from '@orbit/core';",
+    "const { ...core } = await import('@orbit/core');",
+    "const core = await import('@orbit/core'); consume(core);",
+    "import * as core from '@orbit/core'; export { core };",
+  ])('035: un namespace opaco exige selección explícita del modelo: %s', (code) => {
+    expect(idsOf(code, 'packages/engine/src/foo.ts')).toContain('modelNamespace');
+  });
+
+  it.each([
+    "import * as core from '@orbit/core'; core.midiToHz(60);",
+    "import * as core from '@orbit/core'; core['midiToHz'](60);",
+    "import * as core from '@orbit/core'; const { midiToHz: hz } = core; hz(60);",
+    "import * as core from '@orbit/core'; function f(core) { return core.ProjectStore; } core.midiToHz(60);",
+    "import type * as core from '@orbit/core'; let s: core.ProjectStore;",
+    "import * as core from '@orbit/core'; type Store = core.ProjectStore;",
+    "export type { ProjectStore } from '@orbit/core';",
+    "export { type ProjectStore, midiToHz } from '@orbit/core';",
+    "export { midiToHz as hz } from '@orbit/core';",
+    "const core = await import('@orbit/core'); core.midiToHz(60);",
+    "const { midiToHz } = require('@orbit/core'); midiToHz(60);",
+    "import * as core from '@orbit/core'; type Module = typeof core; export const hz = core.midiToHz;",
+  ])('035: modelo, tipos y nombres sombreados permanecen válidos: %s', (code) => {
+    expect(idsOf(code, 'packages/engine/src/foo.ts')).toEqual([]);
+  });
+
+  it('035: los tests del motor pueden montar fixtures con namespace del store', () => {
+    expect(idsOf("import * as core from '@orbit/core'; new core.ProjectStore();", 'packages/engine/test/foo.test.ts')).toEqual([]);
+  });
 });

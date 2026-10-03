@@ -158,17 +158,18 @@ function isNodeSubpath(source) {
  * lo recorre, así que no hace falta rastrear el árbol a mano.
  */
 function dynamicImportBindings(node) {
-  if (node.type !== 'ImportExpression') return [];
-  const awaitNode = node.parent?.type === 'AwaitExpression' ? node.parent : null;
-  if (!awaitNode) return [];
-  const holder = awaitNode.parent;
+  if (node.type !== 'ImportExpression' && node.type !== 'CallExpression') return [];
+  const value = node.parent?.type === 'AwaitExpression' ? node.parent : node;
+  if (node.type === 'ImportExpression' && value === node) return [];
+  const holder = value.parent;
   if (holder?.type === 'VariableDeclarator' && holder.id.type === 'ObjectPattern') {
     return holder.id.properties
-      .filter((p) => p.type === 'Property' && !p.computed)
-      .map((p) => ({ node: p, name: p.key.type === 'Identifier' ? p.key.name : p.key.value }));
+      .map((p) => ({ node: p, name: p.type === 'Property'
+        ? (!p.computed && p.key.type === 'Identifier' ? p.key.name : p.key.value)
+        : null }));
   }
-  if (holder?.type === 'MemberExpression' && holder.object === awaitNode && !holder.computed) {
-    return [{ node: holder.property, name: holder.property.name }];
+  if (holder?.type === 'MemberExpression' && holder.object === value) {
+    return [{ node: holder.property, name: !holder.computed ? holder.property.name : holder.property.value }];
   }
   return [];
 }
@@ -192,6 +193,8 @@ export default {
         'El índice de `{{from}}` no puede reexportar `{{source}}`: cualquiera que importe `{{from}}` por su alias base se llevaría el lado `node/` sin que el import propio lo delate — y de `{{from}}` puede depender un paquete `browserOnly`. Pedí eso por subruta desde fuera del índice.',
       notModel:
         '`{{from}}` usa de `{{to}}` el modelo, no el estado: `{{name}}` es del store / bus de comandos / historial. El motor compila el proyecto, no lo edita (regla 6 de CLAUDE.md).',
+      modelNamespace:
+        '`{{from}}` no puede pasar o reexportar el namespace completo de `{{to}}`: incluye store / comandos / historial. Seleccioná explícitamente miembros del modelo.',
     },
   },
 
@@ -212,6 +215,61 @@ export default {
     // `browserOnly` que se mantenga limpio? Solo ahí tiene sentido vigilar
     // que no reexporte su propio lado `node/` (agujero C).
     const barrelMustStayClean = BROWSER_RELEVANT.has(from) && ENTRY_OF[from] === filePosix;
+
+    function checkModelName(node, name, to) {
+      if (modelOnly.deny.includes(name)) {
+        context.report({ node, messageId: 'notModel', data: { from, to, name } });
+      }
+    }
+
+    function namespaceEscape(node, to) {
+      context.report({ node, messageId: 'modelNamespace', data: { from, to } });
+    }
+
+    function propertyName(node) {
+      if (!node.computed && node.property?.type === 'Identifier') return node.property.name;
+      if (node.property?.type === 'Literal') return node.property.value;
+      return null;
+    }
+
+    /** Las referencias pertenecen a la variable de ESLint, no a un nombre:
+     * un parámetro llamado igual que el namespace no es ese import. Permitir
+     * solo selecciones estáticas evita escaparlo por alias/rest/argumentos.
+     * Para esos usos se pide importar explícitamente funciones del modelo. */
+    function checkNamespace(declaration, spec, to) {
+      const variable = context.sourceCode.getDeclaredVariables(declaration)
+        .find((v) => v.identifiers.includes(spec.local));
+      for (const ref of variable?.references ?? []) {
+        if (!ref.isRead()) continue; // la inicialización del const no consume el namespace
+        const id = ref.identifier;
+        const parent = id.parent;
+        // Babel conserva los nodos TS; estas posiciones se borran en runtime.
+        let typed = false;
+        for (let p = parent; p; p = p.parent) {
+          if (['TSTypeAnnotation', 'TSTypeQuery', 'TSTypeReference', 'TSTypeAliasDeclaration', 'TSInterfaceDeclaration'].includes(p.type)) {
+            typed = true;
+            break;
+          }
+          if (p.type.endsWith('Statement') || p.type === 'VariableDeclarator') break;
+        }
+        if (typed) continue;
+        if (parent?.type === 'MemberExpression' && parent.object === id) {
+          const name = propertyName(parent);
+          if (typeof name === 'string') checkModelName(parent, name, to);
+          else namespaceEscape(parent, to);
+        } else if (parent?.type === 'VariableDeclarator' && parent.init === id && parent.id.type === 'ObjectPattern') {
+          for (const property of parent.id.properties) {
+            const name = property.type === 'Property'
+              ? (!property.computed && property.key.type === 'Identifier' ? property.key.name : property.key.value)
+              : null;
+            if (typeof name === 'string') checkModelName(property, name, to);
+            else namespaceEscape(property, to);
+          }
+        } else {
+          namespaceEscape(id, to);
+        }
+      }
+    }
 
     function check(node, source) {
       if (typeof source !== 'string' || source === '') return;
@@ -246,25 +304,34 @@ export default {
         return;
       }
       if (modelOnly && to === modelOnly.target) {
+        if (node.importKind === 'type' || node.exportKind === 'type') return;
+        if (node.type === 'ExportAllDeclaration') namespaceEscape(node, to);
         for (const spec of node.specifiers ?? []) {
           // Solo los nombrados en runtime: `import type { HistoryView }` es
           // una anotación, no una dependencia.
-          if (spec.type !== 'ImportSpecifier') continue;
-          if (spec.importKind === 'type' || node.importKind === 'type') continue;
-          const name = spec.imported?.name;
-          if (name && modelOnly.deny.includes(name)) {
-            context.report({ node: spec, messageId: 'notModel', data: { from, to, name } });
+          if (spec.importKind === 'type' || spec.exportKind === 'type') continue;
+          if (spec.type === 'ImportNamespaceSpecifier') {
+            checkNamespace(node, spec, to);
+          } else if (spec.type === 'ExportNamespaceSpecifier') {
+            namespaceEscape(spec, to);
+          } else if (spec.type === 'ImportSpecifier' || spec.type === 'ExportSpecifier') {
+            const nameNode = spec.imported ?? spec.local;
+            checkModelName(spec, nameNode?.name ?? nameNode?.value, to);
           }
         }
-        // `import()` nunca tiene `.specifiers` —ese bucle es un no-op para
-        // él—, así que lo que ata un nombre denegado a una expresión dinámica
-        // es el patrón de alrededor: `const { X } = await import(...)` o
-        // `(await import(...)).X`. Cualquier otra forma (guardar la promesa,
-        // `.then(...)`) no se puede atar a un nombre de forma estática; eso
-        // no lo vigila esta regla y lo dice `dynamicImportBindings`.
+        // Las lecturas directas, la desestructuración y el namespace obtenido
+        // con await import()/require() tienen el mismo contrato. Resolver
+        // promesas almacenadas o callbacks .then queda fuera de esta regla.
         for (const { node: boundNode, name } of dynamicImportBindings(node)) {
-          if (modelOnly.deny.includes(name)) {
-            context.report({ node: boundNode, messageId: 'notModel', data: { from, to, name } });
+          if (typeof name === 'string') checkModelName(boundNode, name, to);
+          else namespaceEscape(boundNode, to);
+        }
+        if (node.type === 'ImportExpression' || node.type === 'CallExpression') {
+          const value = node.parent?.type === 'AwaitExpression' ? node.parent : node;
+          const holder = value.parent;
+          if ((node.type === 'CallExpression' || value !== node) &&
+              holder?.type === 'VariableDeclarator' && holder.id.type === 'Identifier') {
+            checkNamespace(holder, { local: holder.id }, to);
           }
         }
       }
