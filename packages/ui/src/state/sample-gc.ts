@@ -60,19 +60,50 @@ export interface SampleGcEngine {
  * mete en el modelo: un bounce a medio renderizar, una toma que se está
  * escribiendo a disco, un sonido recién arrastrado. Recolectar ahí en medio se
  * llevaría por delante justo lo que se acaba de cargar.
+ *
+ * Es un **contador de referencias** (`Map<string, number>`) y no un `Set`,
+ * porque dos operaciones pueden sujetar el MISMO id a la vez y con un `Set` el
+ * primer `finally` que corre borra la entrada, dejando a la segunda con su
+ * audio a la intemperie aunque crea que lo tiene sujeto. El camino no es
+ * teórico: los ids del Explorador salen del manifest (`browser/sound-actions`)
+ * y son estables entre invocaciones, así que arrastrar dos veces el mismo
+ * sonido a la vez —o soltarlo mientras otra ruta lo está cargando— colisiona
+ * de verdad. La API no cambia: `pinSample` suma una referencia, `unpinSample`
+ * resta una, y `pinnedSamples()` sigue devolviendo las claves (está expuesta
+ * en `window.__orbitAudioCacheStats`, superficie de diagnóstico).
  */
-const pinned = new Set<string>();
+const pinned = new Map<string, number>();
 
 export function pinSample(id: string): void {
-  if (id) pinned.add(id);
+  if (id) pinned.set(id, (pinned.get(id) ?? 0) + 1);
 }
 
+/**
+ * Suelta UNA referencia del id. Un id que no está sujeto es un **no-op
+ * deliberado**, y las tres alternativas eran peores:
+ *
+ * - Dejar el contador en negativo sería el mismo bug con signo cambiado: el
+ *   próximo `pinSample` lo dejaría en 0 y el id aparecería sujeto sin estarlo.
+ * - Borrar la entrada sin contar es exactamente el bug del `Set` que esto
+ *   viene a cerrar: soltaría antes de tiempo el pin de otra operación viva.
+ * - Lanzar iría en un `finally` (`withPinnedSample`) y enmascararía el error
+ *   real de la operación, que es el que importa ver.
+ *
+ * Lo que SÍ queda como responsabilidad del llamante: un soltar de más mientras
+ * otra operación aún sujeta el mismo id le resta una referencia que no es suya.
+ * Ese fallo de llamante no lo tapa un contador (haría falta un token por
+ * operación, y la tarjeta manda no tocar la API); lo que este contrato garantiza
+ * es que jamás suelta a quien ya está en cero.
+ */
 export function unpinSample(id: string): void {
-  pinned.delete(id);
+  const n = pinned.get(id);
+  if (n === undefined) return;
+  if (n <= 1) pinned.delete(id);
+  else pinned.set(id, n - 1);
 }
 
 export function pinnedSamples(): string[] {
-  return [...pinned];
+  return [...pinned.keys()];
 }
 
 /**
@@ -424,7 +455,9 @@ export function collectWorkletSamples(
 ): CollectResult {
   const ui = collectUiAudioCaches(project);
   const keep = sampleKeepSet(project, {
-    pinned,
+    // Las claves, no el `Map`: `pinned` es un contador de referencias y lo que
+    // `sampleKeepSet` pide es la lista de ids sujetos.
+    pinned: pinned.keys(),
     ...(opts.keepRegistered === undefined ? null : { keepRegistered: opts.keepRegistered }),
   });
   if (typeof engine.keepOnlySamples !== 'function') {
