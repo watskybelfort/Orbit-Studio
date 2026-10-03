@@ -375,7 +375,7 @@
 }
 
 .sidebar {
-  width: 240px;
+  width: var(--sidebar-width);
   border-right: 1px solid var(--border);
   background: var(--surface);
   display: flex;
@@ -399,7 +399,7 @@ html[data-theme='acrylic'] .sidebar {
 }
 
 .claude-panel {
-  width: 280px;
+  width: var(--assistant-width);
   border-left: 1px solid var(--border);
   background: var(--surface);
   display: flex;

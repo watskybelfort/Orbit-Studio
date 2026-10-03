@@ -28,6 +28,9 @@
   --radius: 8px;
   --blur-popup: 24px;
   --titlebar-h: 38px;
+  /* Píxeles de layout: los presets leen estos anchos si el panel está cerrado. */
+  --sidebar-width: 240px;
+  --assistant-width: 280px;
 
   /* Apariencia configurable */
   --ui-scale: 1;

@@ -1,6 +1,14 @@
 export interface WorkspaceSize { w: number; h: number }
 export interface WindowBox extends WorkspaceSize { x: number; y: number }
 
+/** Mínimos compartidos por el render de Workspace y sus presets. */
+export const PRESET_EDITOR_MINIMUMS = {
+  channelRack: { w: 320, h: 200 },
+  pianoRoll: { w: 560, h: 200 },
+  playlist: { w: 480, h: 200 },
+  mixer: { w: 560, h: 200 },
+} as const;
+
 /**
  * Geometría visible, no persistida. Al recuperar espacio vuelve el tamaño que
  * el usuario guardó; arrastrar parte de esta caja para que no haya saltos.

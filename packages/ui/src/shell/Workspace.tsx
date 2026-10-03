@@ -3,6 +3,7 @@
 import { InternalWindow } from './InternalWindow';
 import { WorkspaceArea } from './WorkspaceArea';
 import { WorkspaceWelcome } from './WorkspaceWelcome';
+import { PRESET_EDITOR_MINIMUMS as MINIMUMS } from './window-bounds';
 import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
@@ -27,16 +28,16 @@ export function Workspace() {
   return (
     <WorkspaceArea>
       <WorkspaceWelcome />
-      <InternalWindow id="channelRack" title="Channel Rack">
+      <InternalWindow id="channelRack" title="Channel Rack" minW={MINIMUMS.channelRack.w} minH={MINIMUMS.channelRack.h}>
         <ChannelRack />
       </InternalWindow>
-      <InternalWindow id="playlist" title="Playlist" minW={480}>
+      <InternalWindow id="playlist" title="Playlist" minW={MINIMUMS.playlist.w} minH={MINIMUMS.playlist.h}>
         <Playlist />
       </InternalWindow>
-      <InternalWindow id="pianoRoll" title="Piano Roll" minW={560}>
+      <InternalWindow id="pianoRoll" title="Piano Roll" minW={MINIMUMS.pianoRoll.w} minH={MINIMUMS.pianoRoll.h}>
         <PianoRoll />
       </InternalWindow>
-      <InternalWindow id="mixer" title="Mixer" minW={560}>
+      <InternalWindow id="mixer" title="Mixer" minW={MINIMUMS.mixer.w} minH={MINIMUMS.mixer.h}>
         <Mixer />
       </InternalWindow>
       <InternalWindow id="settings" title="Ajustes">

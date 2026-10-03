@@ -1,10 +1,11 @@
 /** Navegación estable por el flujo de producción; el transporte queda aparte. */
 import { useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { IconBrowser, IconChannelRack, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
 import { usePaletteStore } from '../palette';
 import { isWindowId, useUiStore } from '../state/ui';
 import { useProject } from '../state/useProject';
-import { applyLayout, applyPreset, LAYOUT_PRESETS, listLayouts } from '../state/layouts';
+import { applyLayout, applyPreset, LAYOUT_PRESETS, listLayouts, useLayoutNotice } from '../state/layouts';
 import { StudioGuide } from './StudioGuide';
 import './studio-navigation.css';
 
@@ -20,6 +21,8 @@ export function StudioNavigation() {
   const [guideOpen, setGuideOpen] = useState(false);
   const guideTrigger = useRef<HTMLButtonElement>(null);
   const project = useProject();
+  const layoutNotice = useLayoutNotice((s) => s.message);
+  const dismissLayoutNotice = useLayoutNotice((s) => s.dismiss);
   const windows = useUiStore((s) => s.windows);
   const openWindow = useUiStore((s) => s.openWindow);
   const browserOpen = useUiStore((s) => s.browserOpen);
@@ -102,6 +105,13 @@ export function StudioNavigation() {
         </button>
       </div>
       {guideOpen && <StudioGuide onClose={() => setGuideOpen(false)} returnFocusTo={guideTrigger.current} />}
+      {layoutNotice && createPortal(
+        <div className="studio-layout-notice popup" role="status">
+          <p>{layoutNotice}</p>
+          <button onClick={dismissLayoutNotice} aria-label="Cerrar aviso de distribución">×</button>
+        </div>,
+        document.body,
+      )}
     </nav>
     </div>
   );

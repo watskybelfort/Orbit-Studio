@@ -21,12 +21,20 @@
  */
 
 import type { LayoutWindow, Project } from '@orbit/core';
+import { create } from 'zustand';
 import { store } from './app';
+import { PRESET_EDITOR_MINIMUMS } from '../shell/window-bounds';
 import { useUiStore, type WindowId, type WindowState } from './ui';
 
 /** Paneles fijos del shell dentro del layout (no son ventanas internas). */
 export const BROWSER_KEY = 'browser';
 export const CLAUDE_KEY = 'claudePanel';
+
+/** Aviso de presentación local: nunca se serializa en el proyecto. */
+export const useLayoutNotice = create<{ message: string | null; dismiss: () => void }>((set) => ({
+  message: null,
+  dismiss: () => set({ message: null }),
+}));
 
 /** Margen del escritorio para los predefinidos. */
 const GAP = 12;
@@ -83,9 +91,10 @@ export function captureLayout(): Record<string, LayoutWindow> {
  * en que aparecen en el layout, así que la última mandada queda al frente.
  */
 export function applyLayoutWindows(windows: Record<string, LayoutWindow>): void {
+  useLayoutNotice.getState().dismiss();
   const ui = useUiStore.getState();
   const next: Record<WindowId, WindowState> = { ...ui.windows };
-  const area = workspaceArea();
+  const area = workspaceArea(panelsOf(windows));
   let z = 0;
 
   for (const id of Object.keys(next) as WindowId[]) {
@@ -157,6 +166,36 @@ export interface LayoutArea {
   h: number;
 }
 
+export interface LayoutPanels {
+  browserOpen: boolean;
+  claudePanelOpen: boolean;
+  compact: boolean;
+}
+
+/** Píxeles de layout, ya sin zoom: los paneles son hermanos del workspace. */
+export function areaAfterPanels(
+  columns: LayoutArea,
+  widths: { browser: number; claude: number },
+  panels: LayoutPanels,
+): LayoutArea {
+  return {
+    w: Math.max(0, columns.w
+      - (!panels.compact && panels.browserOpen ? widths.browser : 0)
+      - (!panels.compact && panels.claudePanelOpen ? widths.claude : 0)),
+    h: columns.h,
+  };
+}
+
+/** Un layout antiguo puede no declarar paneles: conserva esos flags actuales. */
+function panelsOf(windows: Record<string, LayoutWindow>): LayoutPanels {
+  const ui = useUiStore.getState();
+  return {
+    browserOpen: windows[BROWSER_KEY]?.open ?? ui.browserOpen,
+    claudePanelOpen: windows[CLAUDE_KEY]?.open ?? ui.claudePanelOpen,
+    compact: ui.compact,
+  };
+}
+
 export interface LayoutPreset {
   id: string;
   name: string;
@@ -176,10 +215,18 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
     id: 'componer',
     name: 'Componer',
-    hint: 'Rack a la izquierda y piano roll grande al lado.',
-    build: (area) => {
-      const rackW = clamp(Math.round(area.w * 0.3), 320, 460);
+    hint: 'Ritmos y Notas lado a lado; en espacios reducidos empieza por Ritmos.',
+    build: (area): Record<string, LayoutWindow> => {
+      const { channelRack, pianoRoll } = PRESET_EDITOR_MINIMUMS;
       const h = area.h - GAP * 2;
+      if (area.w < channelRack.w + pianoRoll.w + GAP * 3 || h < Math.max(channelRack.h, pianoRoll.h)) {
+        return {
+          channelRack: box(GAP, GAP, area.w - GAP * 2, h),
+          [BROWSER_KEY]: panelFlag(true),
+          [CLAUDE_KEY]: panelFlag(false),
+        };
+      }
+      const rackW = clamp(Math.round(area.w * 0.3), channelRack.w, Math.min(460, area.w - pianoRoll.w - GAP * 3));
       return {
         channelRack: box(GAP, GAP, rackW, h),
         pianoRoll: box(GAP * 2 + rackW, GAP, area.w - rackW - GAP * 3, h),
@@ -191,10 +238,18 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
   {
     id: 'mezclar',
     name: 'Mezclar',
-    hint: 'Playlist arriba y mixer a lo ancho abajo.',
-    build: (area) => {
+    hint: 'Arreglo arriba y Mezcla abajo; en espacios reducidos prioriza Mezcla.',
+    build: (area): Record<string, LayoutWindow> => {
       const w = area.w - GAP * 2;
-      const topH = Math.round((area.h - GAP * 3) * 0.46);
+      const { playlist, mixer } = PRESET_EDITOR_MINIMUMS;
+      if (area.h < playlist.h + mixer.h + GAP * 3 || w < Math.max(playlist.w, mixer.w)) {
+        return {
+          mixer: box(GAP, GAP, w, area.h - GAP * 2),
+          [BROWSER_KEY]: panelFlag(false),
+          [CLAUDE_KEY]: panelFlag(false),
+        };
+      }
+      const topH = clamp(Math.round((area.h - GAP * 3) * 0.46), playlist.h, area.h - GAP * 3 - mixer.h);
       return {
         playlist: box(GAP, GAP, w, topH),
         mixer: box(GAP, GAP * 2 + topH, w, area.h - topH - GAP * 3),
@@ -220,7 +275,13 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
 export function applyPreset(id: string): boolean {
   const preset = LAYOUT_PRESETS.find((p) => p.id === id);
   if (!preset) return false;
-  applyLayoutWindows(preset.build(workspaceArea()));
+  const windows = buildPresetForWorkspace(preset);
+  applyLayoutWindows(windows);
+  if (id === 'componer' && !windows['pianoRoll']?.open) {
+    useLayoutNotice.setState({ message: 'Espacio reducido: Ritmos ocupa el escritorio. Abre Notas desde la barra para editar melodías.' });
+  } else if (id === 'mezclar' && !windows['playlist']?.open) {
+    useLayoutNotice.setState({ message: 'Espacio reducido: Mezcla ocupa el escritorio. Abre Arreglo desde la barra para organizar la canción.' });
+  }
   return true;
 }
 
@@ -231,7 +292,7 @@ export function savePresetAs(id: string, name?: string): boolean {
   store.dispatch({
     type: 'setLayout',
     name: (name ?? preset.name).trim(),
-    windows: preset.build(workspaceArea()),
+    windows: buildPresetForWorkspace(preset),
   });
   return true;
 }
@@ -239,11 +300,51 @@ export function savePresetAs(id: string, name?: string): boolean {
 // ── Utilidades ───────────────────────────────────────────────────────────────
 
 /**
- * El escritorio real. Antes del primer render (o en tests sin DOM) cae a un
+ * Los flags salen del propio preset, sin duplicar su política de paneles.
+ * Construir es puro: la primera pasada descubre esa política y la segunda
+ * distribuye las ventanas en el área que TENDRÁ. Guardar un preset usa este
+ * mismo camino sin abrir/cerrar paneles ni esperar un render de React.
+ */
+function buildPresetForWorkspace(preset: LayoutPreset): Record<string, LayoutWindow> {
+  const draft = preset.build(workspaceArea());
+  return preset.build(workspaceArea(panelsOf(draft)));
+}
+
+/**
+ * El escritorio real; con `panels`, proyecta el área para esos flags usando
+ * el contenedor de columnas y los anchos CSS. No usa innerWidth ni el área
+ * anterior a un cambio de paneles. clientWidth/getComputedStyle ya hablan
+ * en píxeles de layout con el zoom global, así que no se divide otra vez.
+ * Antes del primer render (o en tests sin DOM) cae a un
  * tamaño de portátil razonable: mejor un layout algo apretado que uno a cero.
  */
-export function workspaceArea(): LayoutArea {
+export function workspaceArea(panels?: LayoutPanels): LayoutArea {
   if (typeof document !== 'undefined') {
+    const view = document.defaultView;
+    if (panels && view) {
+      const columns = document.querySelector('.app-columns');
+      if (columns instanceof HTMLElement && columns.clientWidth > 0 && columns.clientHeight > 0) {
+        const style = view.getComputedStyle(columns);
+        const panelWidth = (selector: string, token: string): number | null => {
+          const panel = document.querySelector(selector);
+          // Respeta un ancho vigente personalizado si el panel está montado.
+          const live = panel instanceof HTMLElement ? Number.parseFloat(view.getComputedStyle(panel).width) : NaN;
+          if (Number.isFinite(live) && live >= 0) return live;
+          // Panel desmontado: el token compartido con CSS evita repetir 240/280.
+          const configured = Number.parseFloat(style.getPropertyValue(token));
+          return Number.isFinite(configured) && configured >= 0 ? configured : null;
+        };
+        const browser = panels.compact || !panels.browserOpen ? 0 : panelWidth('.app-columns > .sidebar', '--sidebar-width');
+        const claude = panels.compact || !panels.claudePanelOpen ? 0 : panelWidth('.app-columns > .claude-panel', '--assistant-width');
+        if (browser !== null && claude !== null) {
+          return areaAfterPanels(
+            { w: columns.clientWidth, h: columns.clientHeight },
+            { browser, claude },
+            panels,
+          );
+        }
+      }
+    }
     const el = document.querySelector('.workspace');
     if (el instanceof HTMLElement && el.clientWidth > 0 && el.clientHeight > 0) {
       return { w: el.clientWidth, h: el.clientHeight };
