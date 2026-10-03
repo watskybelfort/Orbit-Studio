@@ -233,20 +233,25 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
   }
 
   /**
-   * `file:line` de cada `type="range"` REAL — una línea que es exactamente
+   * `file#range-N` de cada `type="range"` REAL — una línea que es exactamente
    * ese atributo JSX, como los escribe este repo (uno por línea). Filtra a
    * propósito un comentario que solo MENCIONE `type="range"` (como el
    * docblock de `patch` en Mixer.tsx, unas líneas arriba en este mismo
    * archivo): esa línea no abre con el atributo pelado, así que no cuenta.
+   * El ordinal es local al archivo, NO un número de línea: mover un bloque
+   * de JSX o documentarlo no añade un slider ni cambia su veredicto. Añadir
+   * o quitar un control sigue cambiando el inventario; los tests siguientes
+   * verifican además el handler y la política de merge de cada control.
    */
   function findRangeInputs(): string[] {
     const sites: string[] = [];
     for (const file of walkTsx(UI_SRC)) {
       const rel = file.slice(UI_SRC.length + 1).replace(/\\/g, '/');
+      let ordinal = 0;
       readText(file)
         .split('\n')
-        .forEach((line, i) => {
-          if (/^\s*type="range"\s*$/.test(line)) sites.push(`${rel}:${i + 1}`);
+        .forEach((line) => {
+          if (/^\s*type="range"\s*$/.test(line)) sites.push(`${rel}#range-${++ordinal}`);
         });
     }
     return sites.sort();
@@ -270,18 +275,18 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
 
   it('son exactamente estos ocho, ni uno más ni uno menos — uno nuevo rompe este test', () => {
     expect(findRangeInputs()).toEqual([
-      'collab/CollabPanel.tsx:451',
-      'editors/mixer/Mixer.tsx:1543',
-      'settings/InputSection.tsx:139',
-      'settings/MidiSection.tsx:186',
-      'settings/MidiSection.tsx:375',
-      'settings/SettingsPanel.tsx:236',
-      'settings/SettingsPanel.tsx:304',
-      'settings/SettingsPanel.tsx:348',
+      'collab/CollabPanel.tsx#range-1',
+      'editors/mixer/Mixer.tsx#range-1',
+      'settings/InputSection.tsx#range-1',
+      'settings/MidiSection.tsx#range-1',
+      'settings/MidiSection.tsx#range-2',
+      'settings/SettingsPanel.tsx#range-1',
+      'settings/SettingsPanel.tsx#range-2',
+      'settings/SettingsPanel.tsx#range-3',
     ]);
   });
 
-  it('CollabPanel:451 (volumen de escucha) no toca el ProjectStore: setStreamVolume es de la sesión, no del proyecto', () => {
+  it('CollabPanel (volumen de escucha) no toca el ProjectStore: setStreamVolume es de la sesión, no del proyecto', () => {
     expect(readSource('collab/CollabPanel.tsx')).toContain(
       'onChange={(e) => setStreamVolume(Number(e.target.value))}',
     );
@@ -290,7 +295,7 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
     expect(body).not.toContain('store.dispatch');
   });
 
-  it('SettingsPanel:236/304/348 (acrílico, escala, radio) no tocan el ProjectStore: son ajustes de la app', () => {
+  it('SettingsPanel (acrílico, escala, radio) no tocan el ProjectStore: son ajustes de la app', () => {
     const panel = readSource('settings/SettingsPanel.tsx');
     expect(panel).toContain(
       'onChange={(e) => commit(theme, { ...overrides, glassAlpha: Number(e.target.value) })}',
@@ -306,7 +311,7 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
     expect(panel).not.toContain('store.dispatch');
   });
 
-  it('MidiSection:186 (octava) no toca el ProjectStore: setMidiOctave es un ajuste de sesión', () => {
+  it('MidiSection (octava) no toca el ProjectStore: setMidiOctave es un ajuste de sesión', () => {
     expect(readSource('settings/MidiSection.tsx')).toContain(
       'onChange={(e) => setMidiOctave(Number(e.target.value))}',
     );
@@ -318,7 +323,7 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
     expect(body).not.toContain('store.dispatch');
   });
 
-  it('InputSection:139 (ganancia de escucha) no toca el ProjectStore: setInputGain es el monitor en vivo, no InputRoute.gain', () => {
+  it('InputSection (ganancia de escucha) no toca el ProjectStore: setInputGain es el monitor en vivo, no InputRoute.gain', () => {
     expect(readSource('settings/InputSection.tsx')).toContain(
       'onChange={(e) => setInputGain(Number(e.target.value))}',
     );
@@ -327,13 +332,13 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
     expect(body).not.toContain('store.dispatch');
   });
 
-  it('MidiSection:375 (ganancia de InputRoute) SÍ toca el ProjectStore, por patchInputRoute — mergeKey ya probada en input-route-merge.test.ts', () => {
+  it('MidiSection (ganancia de InputRoute) SÍ toca el ProjectStore, por patchInputRoute — mergeKey ya probada en input-route-merge.test.ts', () => {
     expect(readSource('settings/MidiSection.tsx')).toContain(
       'declared && patchInputRoute(declared.id, { gain: Number(e.target.value) })',
     );
   });
 
-  it('Mixer:1543 (pan del send) SÍ toca el ProjectStore, por el patch local con mergeKey — probado arriba en este archivo', () => {
+  it('Mixer (pan del send) SÍ toca el ProjectStore, por el patch local con mergeKey — probado arriba en este archivo', () => {
     expect(readSource('editors/mixer/Mixer.tsx')).toContain(
       "onChange={(e) => patch({ pan: Number(e.target.value) }, 'pan')}",
     );
