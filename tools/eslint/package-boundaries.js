@@ -150,6 +150,17 @@ function isNodeSubpath(source) {
   return /(?:^|\/)node\//.test(source);
 }
 
+/** Comillas y backticks sin interpolación son el mismo especificador.
+ * cooked aplica escapes como \u0075; raw no sería la ruta que carga JS.
+ * No se adivinan variables ni templates con expresiones. */
+function staticSpecifier(node) {
+  if (node?.type === 'Literal') return node.value;
+  if (node?.type === 'TemplateLiteral' && node.expressions.length === 0) {
+    return node.quasis[0]?.value.cooked;
+  }
+  return null;
+}
+
 /**
  * Nombres que deja en el ámbito un `import()` dinámico, en las dos formas que
  * se pueden atar a un nombre sin ejecutar nada: desestructurar el resultado
@@ -341,18 +352,16 @@ export default {
       ImportDeclaration: (node) => check(node, node.source?.value),
       ExportNamedDeclaration: (node) => node.source && check(node, node.source.value),
       ExportAllDeclaration: (node) => check(node, node.source?.value),
-      ImportExpression: (node) =>
-        node.source?.type === 'Literal' && check(node, node.source.value),
+      ImportExpression: (node) => check(node, staticSpecifier(node.source)),
       // `require('@orbit/x')` es la misma frontera que un `import`, y sin
       // este listener el visitor nunca lo veía: no hay nodo `CallExpression`
-      // entre los cuatro de arriba (agujero A). Solo el literal: `require(x)`
+      // entre los cuatro de arriba (agujero A). Solo un string estático: `require(x)`
       // con una variable no se puede resolver estáticamente y no es el caso
       // que existe hoy en el repo (los `require('node:...')` de los tests de
       // `ui` no cruzan ningún alias, así que `targetOf` ya los deja pasar).
       CallExpression: (node) => {
         if (node.callee.type !== 'Identifier' || node.callee.name !== 'require') return;
-        const arg = node.arguments[0];
-        if (arg?.type === 'Literal' && typeof arg.value === 'string') check(node, arg.value);
+        check(node, staticSpecifier(node.arguments[0]));
       },
     };
   },

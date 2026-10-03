@@ -453,4 +453,24 @@ describe('el linter de fronteras cierra sus tres puertas traseras', () => {
   it('035: los tests del motor pueden montar fixtures con namespace del store', () => {
     expect(idsOf("import * as core from '@orbit/core'; new core.ProjectStore();", 'packages/engine/test/foo.test.ts')).toEqual([]);
   });
+
+  it.each([
+    ['import(`@orbit/ui`)', 'packages/engine/src/foo.ts', 'forbidden'],
+    ['require(`@orbit/ui`)', 'packages/engine/src/foo.ts', 'forbidden'],
+    ['import(`../../ui/src/App`)', 'packages/engine/src/foo.ts', 'forbidden'],
+    ['import(`@orbit/claude-bridge/node/ws-host`)', 'packages/ui/src/foo.ts', 'nodeSubpath'],
+    ['const { ProjectStore } = await import(`@orbit/core`)', 'packages/engine/src/foo.ts', 'notModel'],
+    ['const core = await import(`@orbit/core`); core.ProjectStore', 'packages/engine/src/foo.ts', 'notModel'],
+    ['import(`@orbit/\\u0075i`)', 'packages/engine/src/foo.ts', 'forbidden'],
+  ])('036: especificador estático con backticks: %s', (code, filename, message) => {
+    expect(idsOf(code, filename)).toContain(message);
+  });
+
+  it.each([
+    'const { midiToHz } = await import(`@orbit/core`); midiToHz(60);',
+    'const local = require(`./helpers`);',
+    `import(\`@orbit/\${runtimeName}\`);`,
+  ])('036: no prohíbe modelo ni inventa destinos de templates dinámicos: %s', (code) => {
+    expect(idsOf(code, 'packages/engine/src/foo.ts')).toEqual([]);
+  });
 });
