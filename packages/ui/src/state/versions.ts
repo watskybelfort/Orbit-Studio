@@ -99,7 +99,12 @@ export async function refreshVersions(canPublish: () => boolean = () => true): P
     const stale =
       resolvePick(state.compareFrom, entries) === null ||
       resolvePick(state.compareTo, entries) === null;
-    const pair = stale || state.compare === null ? defaultPair(entries) : null;
+    // Una lectura pendiente también tiene compare=null. Refrescar la lista
+    // (p. ej. después de guardar) no debe cambiar una selección válida.
+    const initial = state.entries.length === 0 && state.compare === null &&
+      state.compareFrom === CURRENT_KEY && state.compareTo === CURRENT_KEY && !pendingCompare?.isCurrent();
+    const pair = stale || initial ? defaultPair(entries) : null;
+    if (pair && (pair.from !== state.compareFrom || pair.to !== state.compareTo)) cancelCompare();
     useVersions.setState({
       entries,
       ...(pair ? { compareFrom: pair.from, compareTo: pair.to } : null),
@@ -116,7 +121,7 @@ export interface VersionSnapshot {
   readonly epoch: number;
 }
 
-/** Guardar y restaurar comparten SOLO la propiedad del aviso/busy. Perderla
+/** Guardar, restaurar y leer comparten SOLO la propiedad del aviso/busy. Perderla
  * no cancela una escritura ni una restauración musical todavía vigente. */
 let statusRequest = 0;
 
@@ -171,58 +176,98 @@ export async function saveVersion(label: string): Promise<boolean> {
   return saveVersionSnapshot(label, snapshot);
 }
 
-/** Proyecto de una versión, ya parseado. El contexto opcional mantiene los
- * errores de una restauración dentro de la solicitud/sesión que la pidió. */
-async function readVersion(file: string, request?: {
+interface VersionReadRequest {
   projectId: string;
   isCurrent: () => boolean;
-  canPublish?: () => boolean;
-}): Promise<Project | null> {
+  canPublish: () => boolean;
+}
+
+/** Proyecto de una versión, ya parseado. Tanto el resultado como sus errores
+ * pertenecen a la solicitud/sesión que lo pidió. */
+async function readVersion(file: string, request: VersionReadRequest): Promise<Project | null> {
   const api = window.orbit?.versions;
   if (!api) return null;
   try {
-    const json = await api.read(request?.projectId ?? store.project.id, file);
-    if (request && !request.isCurrent()) return null;
+    const json = await api.read(request.projectId, file);
+    if (!request.isCurrent()) return null;
     return parseProject(json);
   } catch {
-    if (!request || (request.canPublish ?? request.isCurrent)()) useVersions.setState({ notice: 'Esa versión no se puede leer' });
+    if (request.canPublish()) useVersions.setState({ notice: 'Esa versión no se puede leer' });
     return null;
   }
 }
 
-/**
- * Secuencia de peticiones por panel. Leer una versión cruza un `await` (IPC),
- * y entre pedirla y recibirla el usuario puede pedir OTRA: sin este número,
- * la respuesta lenta pisa el estado de la nueva (abres A, te arrepientes,
- * abres B, y cuando por fin llega A el panel enseña el diff de A). Cada
- * respuesta comprueba que sigue siendo la última antes de escribir nada.
- */
-let diffRequest = 0;
+interface PanelReadRequest extends VersionReadRequest {
+  finish: () => void;
+}
+
+/** Cancelar una lectura retira su permiso para publicar, aunque el IPC siga
+ * pendiente. Su estado musical es independiente de guardar/restaurar. */
+function beginPanelRead(selectionMatches: () => boolean = () => true): PanelReadRequest {
+  const epoch = store.historyEpoch;
+  const projectId = store.project.id;
+  const status = ++statusRequest;
+  let finished = false;
+  let unsubscribe: () => void = () => undefined;
+  const isActive = () => !finished && epoch === store.historyEpoch;
+  const isCurrent = () => isActive() && selectionMatches();
+  const canPublish = () => isCurrent() && status === statusRequest;
+  const finish = () => {
+    if (finished) return;
+    // Aun si la lista cambió la selección, liberar nuestro busy evita dejar
+    // el panel bloqueado. Nunca se libera el de una operación más reciente.
+    if (isActive() && status === statusRequest) useVersions.setState({ busy: false });
+    finished = true;
+    unsubscribe();
+  };
+  useVersions.setState({ busy: true, notice: null });
+  unsubscribe = store.subscribeBeforeReplace(finish);
+  return { projectId, isCurrent, canPublish, finish };
+}
+
+let pendingCompare: PanelReadRequest | null = null;
+let pendingDiff: { file: string; request: PanelReadRequest } | null = null;
+
+function cancelCompare(): void {
+  pendingCompare?.finish();
+  pendingCompare = null;
+}
+
+function cancelDiff(): void {
+  pendingDiff?.request.finish();
+  pendingDiff = null;
+}
 
 /**
  * Despliega una versión: calcula qué cambió DESDE ella hasta el proyecto de
  * ahora. Volver a pulsar la cierra.
  */
 export async function openVersionDiff(file: string): Promise<void> {
-  if (useVersions.getState().openFile === file) {
+  if (useVersions.getState().openFile === file ||
+      (pendingDiff?.file === file && pendingDiff.request.isCurrent())) {
+    cancelDiff();
     useVersions.setState({ openFile: null, diff: null });
     return;
   }
-  const token = ++diffRequest;
-  useVersions.setState({ busy: true, notice: null });
-  const project = await readVersion(file);
-  if (token !== diffRequest) return; // llegó tarde: hay otra petición en curso
-  if (!project) {
-    useVersions.setState({ busy: false });
-    return;
+  cancelDiff();
+  const request = beginPanelRead();
+  pendingDiff = { file, request };
+  try {
+    const current = parseProject(serializeProject(store.project));
+    const project = await readVersion(file, request);
+    if (!request.isCurrent() || !project) return;
+    const diff = diffProjects(project, current);
+    useVersions.setState({
+      openFile: file,
+      diff,
+      ...(request.canPublish() ? { notice: isEmptyDiff(diff) ? 'Esa versión es igual que el proyecto de ahora' : null } : null),
+    });
+  } catch (err) {
+    if (request.canPublish()) useVersions.setState({ notice: err instanceof Error ? err.message : 'No se pudo comparar esa versión' });
+  } finally {
+    request.finish();
+    if (pendingDiff?.request === request) pendingDiff = null;
   }
-  const diff = diffProjects(project, store.project);
-  useVersions.setState({
-    openFile: file,
-    diff,
-    busy: false,
-    notice: isEmptyDiff(diff) ? 'Esa versión es igual que el proyecto de ahora' : null,
-  });
 }
 
 /**
@@ -305,48 +350,57 @@ export function summarize(diff: ProjectDiff): string {
 
 /** Elige un lado del comparador (sin recalcular: eso lo pide el botón). */
 export function setComparePick(side: 'from' | 'to', key: string): void {
-  useVersions.setState(side === 'from' ? { compareFrom: key } : { compareTo: key });
+  cancelCompare();
+  useVersions.setState({ ...(side === 'from' ? { compareFrom: key } : { compareTo: key }), compare: null });
 }
 
 /** Da la vuelta a la comparación y la recalcula si ya había uno hecho. */
 export function swapCompare(): void {
   const { compareFrom, compareTo, compare } = useVersions.getState();
-  useVersions.setState({ compareFrom: compareTo, compareTo: compareFrom });
+  cancelCompare();
+  useVersions.setState({ compareFrom: compareTo, compareTo: compareFrom, compare: null });
   if (compare) void runCompare();
 }
 
 export function closeCompare(): void {
+  cancelCompare();
   useVersions.setState({ compare: null });
 }
 
 /**
  * El proyecto de un lado: el de ahora, o el que guarda esa versión.
  *
- * El de ahora se clona por serialización antes de compararlo. `diffProjects`
- * solo lee, pero el proyecto vivo puede cambiar entre los dos `await` de esta
- * función (un comando de la sala, Claude, el propio usuario), y comparar dos
- * fotos tomadas en momentos distintos daría un diff que no corresponde a nada.
+ * El de ahora ya se clonó antes de iniciar cualquiera de los IPC, para que
+ * ambos lados representen el mismo instante incluso si el proyecto se edita.
  */
-async function sideProject(key: string): Promise<Project | null> {
-  if (key === CURRENT_KEY) return parseProject(serializeProject(store.project));
-  return readVersion(key);
+async function sideProject(key: string, request: VersionReadRequest, current: Project | null): Promise<Project | null> {
+  if (key === CURRENT_KEY) return current;
+  return readVersion(key, request);
 }
 
 /** Compara los dos lados elegidos y deja el resultado en el estado. */
 export async function runCompare(): Promise<void> {
+  cancelCompare();
   const { compareFrom, compareTo, entries } = useVersions.getState();
-  const from = resolvePick(compareFrom, entries);
-  const to = resolvePick(compareTo, entries);
-  if (!from || !to) {
-    useVersions.setState({ notice: 'Una de las dos versiones ya no está', compare: null });
-    return;
-  }
-  useVersions.setState({ busy: true, notice: null });
+  const request = beginPanelRead(() => {
+    const state = useVersions.getState();
+    return state.compareFrom === compareFrom && state.compareTo === compareTo;
+  });
+  pendingCompare = request;
   try {
+    const from = resolvePick(compareFrom, entries);
+    const to = resolvePick(compareTo, entries);
+    if (!from || !to) {
+      useVersions.setState({ notice: 'Una de las dos versiones ya no está', compare: null });
+      return;
+    }
+    const current = from.key === CURRENT_KEY || to.key === CURRENT_KEY
+      ? parseProject(serializeProject(store.project)) : null;
     const [before, after] = await Promise.all([
-      sideProject(from.key),
-      sideProject(to.key),
+      sideProject(from.key, request, current),
+      sideProject(to.key, request, current),
     ]);
+    if (!request.isCurrent()) return;
     if (!before || !after) {
       useVersions.setState({ compare: null });
       return;
@@ -354,9 +408,12 @@ export async function runCompare(): Promise<void> {
     const diff = diffProjects(before, after);
     useVersions.setState({
       compare: { from, to, direction: compareDirection(from, to), diff },
-      notice: isEmptyDiff(diff) ? 'No hay ni una diferencia entre esas dos' : null,
+      ...(request.canPublish() ? { notice: isEmptyDiff(diff) ? 'No hay ni una diferencia entre esas dos' : null } : null),
     });
+  } catch (err) {
+    if (request.canPublish()) useVersions.setState({ notice: err instanceof Error ? err.message : 'No se pudieron comparar esas versiones' });
   } finally {
-    useVersions.setState({ busy: false });
+    request.finish();
+    if (pendingCompare === request) pendingCompare = null;
   }
 }

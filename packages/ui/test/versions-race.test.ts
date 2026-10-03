@@ -7,8 +7,8 @@
  * nueva: abres la versión A, te arrepientes y abres la B, y cuando por fin
  * llega A el panel enseña el diff de A como si fuera lo que pediste.
  *
- * La salida es un contador de secuencia por panel: cada respuesta comprueba
- * que sigue siendo la última antes de escribir nada.
+ * Cada respuesta comprueba su solicitud, selección y sesión antes de publicar.
+ * Los avisos/busy tienen además un dueño común con guardado/restauración.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +28,7 @@ function deferred<T>() {
 
 async function rig({ deferBackups = false } = {}) {
   vi.resetModules();
-  const pending = new Map<string, ReturnType<typeof deferred<string>>>();
+  const pending = new Map<string, ReturnType<typeof deferred<string>>[]>();
   const backups: { projectId: string; json: string; label: string; gate: ReturnType<typeof deferred<string>> }[] = [];
   const backupWaiters = new Map<number, ReturnType<typeof deferred<(typeof backups)[number]>>>();
   const backupStarted = deferred<void>();
@@ -36,7 +36,9 @@ async function rig({ deferBackups = false } = {}) {
   const read = vi.fn(
     (_projectId: string, file: string) => {
       const gate = deferred<string>();
-      pending.set(file, gate);
+      const reads = pending.get(file) ?? [];
+      reads.push(gate);
+      pending.set(file, reads);
       return gate.promise;
     },
   );
@@ -91,12 +93,12 @@ async function rig({ deferBackups = false } = {}) {
     opens,
     projectFile,
     rehydrate,
-    resolveRead: (file: string, json: string) => {
-      const gate = pending.get(file);
+    resolveRead: (file: string, json: string, index = 0) => {
+      const gate = pending.get(file)?.[index];
       if (!gate) throw new Error(`no hay lectura pendiente de ${file}`);
       gate.resolve(json);
     },
-    rejectRead: (file: string) => pending.get(file)!.reject(new Error('No se puede leer')),
+    rejectRead: (file: string, index = 0) => pending.get(file)![index]!.reject(new Error('No se puede leer')),
   };
 }
 
@@ -444,6 +446,288 @@ describe('BUG022: publicación compartida entre guardado y restauración', () =>
     const before = stateOf(r);
     r.backups[0]!.gate.resolve('automatic.orbit');
     await automaticSave;
+    expect(stateOf(r)).toEqual(before);
+  });
+});
+
+function comparePair(r: Rig, from = 'a', to = 'b') {
+  r.mod.useVersions.setState({
+    entries: ['a', 'b', 'c'].map((file, at) => ({ file, at, bytes: 1, label: file })),
+    compareFrom: from, compareTo: to,
+  });
+}
+
+function versionJson(r: Rig, title: string, tempo = 100) {
+  const project = r.core.createEmptyProject(title);
+  project.tempo = tempo;
+  return r.core.serializeProject(project);
+}
+
+describe('BUG023: las lecturas pertenecen al panel y selección que las pidió', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('A/B lento no pisa B/C ya mostrado', async () => {
+    const r = await rig();
+    comparePair(r);
+    const old = r.mod.runCompare();
+    r.mod.setComparePick('from', 'b');
+    r.mod.setComparePick('to', 'c');
+    const latest = r.mod.runCompare();
+    r.resolveRead('b', versionJson(r, 'B'), 1);
+    r.resolveRead('c', versionJson(r, 'C'));
+    await latest;
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    r.resolveRead('b', versionJson(r, 'B'));
+    await old;
+    expect(stateOf(r)).toEqual(before);
+    expect(r.mod.useVersions.getState().compare).toMatchObject({ from: { key: 'b' }, to: { key: 'c' } });
+  });
+
+  it.each(['selección', 'intercambio', 'cierre'] as const)('%s sin recalcular invalida la comparación pendiente y libera busy', async (action) => {
+    const r = await rig();
+    comparePair(r);
+    const reading = r.mod.runCompare();
+    if (action === 'selección') r.mod.setComparePick('to', 'c');
+    else if (action === 'intercambio') r.mod.swapCompare();
+    else r.mod.closeCompare();
+    expect(r.mod.useVersions.getState().busy).toBe(false);
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    r.resolveRead('b', versionJson(r, 'B'));
+    await reading;
+    expect(stateOf(r)).toEqual(before);
+  });
+
+  it('volver a la misma selección no resucita la lectura cancelada', async () => {
+    const r = await rig();
+    comparePair(r);
+    const reading = r.mod.runCompare();
+    r.mod.setComparePick('to', 'c');
+    r.mod.setComparePick('to', 'b');
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    r.resolveRead('b', versionJson(r, 'B'));
+    await reading;
+    expect(stateOf(r)).toEqual(before);
+  });
+
+  it.each(['compare', 'diff'] as const)('cambiar de epoch con el mismo proyecto invalida %s', async (kind) => {
+    const r = await rig();
+    comparePair(r, 'a', '');
+    const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff('a');
+    r.store.replaceProject(r.store.project);
+    expect(r.mod.useVersions.getState().busy).toBe(false);
+    r.mod.useVersions.setState({ busy: true, notice: 'Operación de la nueva sesión' });
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    await reading;
+    expect(stateOf(r)).toEqual(before);
+  });
+
+  it('error/finally de A/B antiguo no toca B/C que aún está leyendo', async () => {
+    const r = await rig();
+    comparePair(r);
+    const old = r.mod.runCompare();
+    r.mod.setComparePick('from', 'b');
+    r.mod.setComparePick('to', 'c');
+    const latest = r.mod.runCompare();
+    const before = stateOf(r);
+    r.rejectRead('a');
+    r.resolveRead('b', versionJson(r, 'B'));
+    await old;
+    expect(stateOf(r)).toEqual(before);
+    r.resolveRead('b', versionJson(r, 'B'), 1);
+    r.resolveRead('c', versionJson(r, 'C'));
+    await latest;
+  });
+
+  it.each(['compare', 'diff'] as const)('%s usa la foto Current tomada al pedir la lectura', async (kind) => {
+    const r = await rig();
+    r.store.dispatch({ type: 'setTempo', tempo: 140 });
+    comparePair(r, 'a', '');
+    const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff('a');
+    r.store.dispatch({ type: 'setTempo', tempo: 177 });
+    r.resolveRead('a', versionJson(r, 'A', 100));
+    await reading;
+    const state = r.mod.useVersions.getState();
+    expect(kind === 'compare' ? state.compare?.diff.tempo : state.diff?.tempo).toEqual([100, 140]);
+    expect(r.store.project.tempo).toBe(177);
+  });
+
+  it('cerrar el diff A mientras B lee impide que B aparezca después', async () => {
+    const r = await rig();
+    const first = r.mod.openVersionDiff('a');
+    r.resolveRead('a', versionJson(r, 'A'));
+    await first;
+    const second = r.mod.openVersionDiff('b');
+    await r.mod.openVersionDiff('a');
+    const before = stateOf(r);
+    r.resolveRead('b', versionJson(r, 'B'));
+    await second;
+    expect(stateOf(r)).toEqual(before);
+    expect(r.mod.useVersions.getState().openFile).toBeNull();
+  });
+
+  it('pulsar otra vez el diff pendiente cierra sin iniciar otra lectura', async () => {
+    const r = await rig();
+    const first = r.mod.openVersionDiff('a');
+    const close = r.mod.openVersionDiff('a');
+    expect(r.read).toHaveBeenCalledTimes(1);
+    await close;
+    const before = stateOf(r);
+    r.rejectRead('a');
+    await first;
+    expect(stateOf(r)).toEqual(before);
+  });
+
+  it.each(['compare', 'diff'] as const)('un save manual anterior no publica busy/notice sobre %s', async (kind) => {
+    const r = await rig({ deferBackups: true });
+    const save = r.mod.saveVersion('Manual');
+    comparePair(r, 'a', '');
+    const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff('a');
+    const before = stateOf(r);
+    r.backups[0]!.gate.resolve('manual.orbit');
+    await save;
+    expect(stateOf(r)).toEqual(before);
+    r.resolveRead('a', versionJson(r, 'A'));
+    await reading;
+  });
+
+  it.each(['compare', 'diff'] as const)('%s terminado no apaga un save más nuevo', async (kind) => {
+    const r = await rig({ deferBackups: true });
+    comparePair(r, 'a', '');
+    const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff('a');
+    const save = r.mod.saveVersion('Manual');
+    r.resolveRead('a', versionJson(r, 'A'));
+    await reading;
+    expect(r.mod.useVersions.getState()).toMatchObject({ busy: true, notice: null });
+    r.backups[0]!.gate.resolve('manual.orbit');
+    await save;
+    expect(r.mod.useVersions.getState()).toMatchObject({ busy: false, notice: 'Versión guardada: Manual' });
+  });
+
+  it('un lector más nuevo toma UI sin cancelar la restauración musical', async () => {
+    const r = await rig({ deferBackups: true });
+    const restore = r.mod.restoreVersion('restored');
+    comparePair(r, 'a', '');
+    const compare = r.mod.runCompare();
+    r.resolveRead('restored', versionJson(r, 'Restaurado'));
+    const backup = await r.waitForBackup(0);
+    backup.gate.resolve('backup.orbit');
+    await restore;
+    expect(r.store.project.meta.title).toBe('Restaurado');
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    await compare;
+    expect(stateOf(r)).toEqual(before);
+  });
+
+  it('un refresco no restablece una selección válida mientras compare está pendiente', async () => {
+    const r = await rig();
+    comparePair(r, 'a', 'b');
+    const reading = r.mod.runCompare();
+    vi.spyOn(window.orbit!.versions, 'list').mockResolvedValue([
+      { file: 'a', at: 1, bytes: 1 }, { file: 'b', at: 2, bytes: 1 }, { file: 'c', at: 3, bytes: 1 },
+    ]);
+    await r.mod.refreshVersions();
+    expect(r.mod.useVersions.getState()).toMatchObject({ compareFrom: 'a', compareTo: 'b' });
+    r.resolveRead('a', versionJson(r, 'A'));
+    r.resolveRead('b', versionJson(r, 'B'));
+    await reading;
+    expect(r.mod.useVersions.getState().compare).toMatchObject({ from: { key: 'a' }, to: { key: 'b' } });
+  });
+
+  it('intercambiar un resultado visible lo retira y recalcula con la dirección inversa', async () => {
+    const r = await rig();
+    comparePair(r);
+    const initial = r.mod.runCompare();
+    r.resolveRead('a', versionJson(r, 'A', 100));
+    r.resolveRead('b', versionJson(r, 'B', 150));
+    await initial;
+    expect(r.mod.useVersions.getState().compare?.diff.tempo).toEqual([100, 150]);
+    const completed = deferred<void>();
+    const off = r.mod.useVersions.subscribe((state) => { if (state.compare && !state.busy) completed.resolve(); });
+    r.mod.swapCompare();
+    expect(r.mod.useVersions.getState()).toMatchObject({ compareFrom: 'b', compareTo: 'a', compare: null, busy: true });
+    r.resolveRead('a', versionJson(r, 'A', 100), 1);
+    r.resolveRead('b', versionJson(r, 'B', 150), 1);
+    await completed.promise;
+    off();
+    expect(r.mod.useVersions.getState().compare).toMatchObject({
+      from: { key: 'b' }, to: { key: 'a' }, direction: 'backward', diff: { tempo: [150, 100] },
+    });
+  });
+
+  it('el error de un diff anterior no borra el estado de un diff nuevo pendiente', async () => {
+    const r = await rig();
+    const old = r.mod.openVersionDiff('a');
+    const latest = r.mod.openVersionDiff('b');
+    const before = stateOf(r);
+    r.rejectRead('a');
+    await old;
+    expect(stateOf(r)).toEqual(before);
+    r.resolveRead('b', versionJson(r, 'B'));
+    await latest;
+    expect(r.mod.useVersions.getState()).toMatchObject({ openFile: 'b', busy: false, notice: null });
+  });
+
+  it.each(['compare', 'diff'] as const)('el error/finally de %s no apaga ni avisa sobre una restauración nueva', async (kind) => {
+    const r = await rig();
+    comparePair(r, 'a', '');
+    const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff('a');
+    const restore = r.mod.restoreVersion('restored');
+    const before = stateOf(r);
+    r.rejectRead('a');
+    await reading;
+    expect(stateOf(r)).toEqual(before);
+    r.resolveRead('restored', versionJson(r, 'Restaurado'));
+    await restore;
+    expect(r.store.project.meta.title).toBe('Restaurado');
+  });
+
+  it.each(['compare', 'diff'] as const)('%s retira sus suscripciones en éxito, error, cierre y reemplazo', async (kind) => {
+    const r = await rig();
+    const subscribe = r.store.subscribeBeforeReplace.bind(r.store);
+    const disposers: ReturnType<typeof vi.fn>[] = [];
+    vi.spyOn(r.store, 'subscribeBeforeReplace').mockImplementation((listener) => {
+      const off = vi.fn(subscribe(listener));
+      disposers.push(off);
+      return off;
+    });
+    for (const outcome of ['success', 'error', 'close', 'replace'] as const) {
+      comparePair(r, outcome, '');
+      r.mod.useVersions.setState({ entries: [{ file: outcome, at: 1, bytes: 1, label: outcome }] });
+      const reading = kind === 'compare' ? r.mod.runCompare() : r.mod.openVersionDiff(outcome);
+      if (outcome === 'close') {
+        if (kind === 'compare') r.mod.closeCompare();
+        else await r.mod.openVersionDiff(outcome);
+      } else if (outcome === 'replace') r.store.replaceProject(r.store.project);
+      if (outcome === 'error') r.rejectRead(outcome);
+      else r.resolveRead(outcome, versionJson(r, outcome));
+      await reading;
+      expect(disposers.at(-1)).toHaveBeenCalledOnce();
+      expect(r.mod.useVersions.getState().busy).toBe(false);
+    }
+    expect(disposers).toHaveLength(4);
+    r.store.replaceProject(r.store.project);
+    for (const off of disposers) expect(off).toHaveBeenCalledOnce();
+  });
+
+  it('podar una versión elegida cancela su lectura y libera busy', async () => {
+    const r = await rig();
+    comparePair(r);
+    const reading = r.mod.runCompare();
+    vi.spyOn(window.orbit!.versions, 'list').mockResolvedValue([{ file: 'c', at: 3, bytes: 1 }]);
+    await r.mod.refreshVersions();
+    expect(r.mod.useVersions.getState()).toMatchObject({ compareFrom: 'c', compareTo: '', compare: null, busy: false });
+    const before = stateOf(r);
+    r.resolveRead('a', versionJson(r, 'A'));
+    r.resolveRead('b', versionJson(r, 'B'));
+    await reading;
     expect(stateOf(r)).toEqual(before);
   });
 });
