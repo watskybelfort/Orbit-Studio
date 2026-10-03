@@ -128,6 +128,44 @@ function applyOpened(result: { path: string; json: string }): void {
   notify(`Abierto ${fileName(result.path)}.`);
 }
 
+let openRequest = 0;
+
+/**
+ * Diálogo y recientes comparten la intención más reciente. Incluso cancelar
+ * su lectura invalida las anteriores, sin tocar el proyecto que sigue abierto.
+ * Se llama DESPUÉS de confirmDiscard: rechazar esa guardia no inicia nada.
+ *
+ * historyEpoch identifica el escritorio musical reemplazado: cambia también
+ * al recuperar/restaurar el MISMO id o entrar en una sala. version cambia al
+ * editar y no sirve aquí; el id tampoco distingue una restauración. No hace
+ * falta bloquear edición ni suscribirse a cada mutación del store.
+ */
+async function readAndApplyLatest(
+  read: () => Promise<{ path: string; json: string } | null>,
+  onError: (err: unknown) => void,
+): Promise<void> {
+  const request = ++openRequest;
+  const epoch = store.historyEpoch;
+  const isCurrent = () => request === openRequest && epoch === store.historyEpoch;
+  let result;
+  try {
+    result = await read();
+  } catch (err) {
+    // Un error obsoleto tampoco puede pisar avisos o refrescar recientes.
+    // Avisar aquí evita otro await entre validar la identidad y pintar el error.
+    if (isCurrent()) onError(err);
+    return;
+  }
+  if (!result || !isCurrent()) return;
+  // Tramo síncrono: parsear/aplicar solo después de las dos guardas. Sus
+  // errores sí se comunican, aunque el reemplazo ya haya subido historyEpoch.
+  try {
+    applyOpened(result);
+  } catch (err) {
+    onError(err);
+  }
+}
+
 export async function openProject(): Promise<void> {
   const api = window.orbit;
   if (!api) {
@@ -135,13 +173,9 @@ export async function openProject(): Promise<void> {
     return;
   }
   if (!confirmDiscard('Abrir otro proyecto')) return;
-  try {
-    const result = await api.project.open();
-    if (!result) return; // cancelado
-    applyOpened(result);
-  } catch (err) {
+  await readAndApplyLatest(() => api.project.open(), (err) => {
     notify(err instanceof Error ? err.message : 'No se pudo abrir el proyecto.');
-  }
+  });
 }
 
 // ── Proyectos recientes ──────────────────────────────────────────────────────
@@ -178,14 +212,10 @@ export async function openRecentProject(path: string): Promise<void> {
     return;
   }
   if (!confirmDiscard('Abrir ese proyecto')) return;
-  try {
-    const result = await api.project.openRecent(path);
-    if (!result) return;
-    applyOpened(result);
-  } catch (err) {
+  await readAndApplyLatest(() => api.project.openRecent(path), (err) => {
     void refreshRecents();
     notify(err instanceof Error ? err.message : 'No se pudo abrir ese reciente.');
-  }
+  });
 }
 
 /** Vacía la lista de recientes (sin tocar los archivos). */
