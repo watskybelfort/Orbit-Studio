@@ -6,7 +6,8 @@ import { normalizeKeymap } from './model/keymap';
 import { BEND_MAX } from './model/paramref';
 import { normalizeSlicePoints } from './model/slices';
 import { normalizeProjectInputRoutes } from './model/input-routing';
-import { adoptProjectPools } from './model/entity-id';
+import { adoptProjectPools, nullPool } from './model/entity-id';
+import { findProjectProblems, keepExistingIds } from './model/project-validate';
 
 
 export const ORBIT_EXTENSION = '.orbit';
@@ -80,6 +81,19 @@ export function parseProject(json: string): Project {
   // copiar a pools nuevos además se descartan los ids reservados: son claves que
   // ningún direccionamiento legítimo puede alcanzar. Ver `model/entity-id.ts`.
   adoptProjectPools(p as Record<string, unknown>);
+  // Tipos y referencias, ANTES de sanear nada. El esqueleto ya pasó, pero los
+  // campos aditivos y las entidades internas llegaban sin mirar: un
+  // `patternOrder: 42` o un patrón `null` se colaban y se rompían mucho más
+  // tarde, en el compilador, con un TypeError que no nombraba el campo o —peor—
+  // compilando en silencio. Ver `model/project-validate.ts`.
+  const problemas = findProjectProblems(p as Record<string, unknown>);
+  if (problemas.length > 0) {
+    const primero = problemas[0]!;
+    throw new Error(
+      `.orbit inválido: "${primero.field}" ${primero.expected}` +
+        (problemas.length > 1 ? ` (y ${problemas.length - 1} problema(s) más)` : ''),
+    );
+  }
   // El arrangement activo es el filtro con el que el compilador elige qué pistas
   // suenan en modo canción: apuntando a uno que no existe, la canción queda
   // muda sin que nada avise. Se recoloca al primero del orden que exista de
@@ -100,19 +114,19 @@ export function parseProject(json: string): Project {
   p.swing ??= 0;
   // `samples` es aditivo (un proyecto sin audio no lo trae); sin él,
   // `registerSample` y el diff revientan al indexar undefined.
-  p.samples ??= {};
+  p.samples ??= nullPool();
   // `patternOrder` es de siempre, pero un archivo tocado a mano podría no
   // traerlo: se recupera del orden de las claves en vez de reventar más tarde
   // en removeChannel / diff / encodeMidi con un TypeError sin nombre.
   p.patternOrder ??= Object.keys(p.patterns ?? {});
   // Campos añadidos después (aditivos, sin subir formatVersion): los archivos
   // anteriores simplemente no los traen y arrancan vacíos/planos.
-  p.lfos ??= {};
+  p.lfos ??= nullPool();
   // Secciones del arreglo (v2.4): aditivas. Un .orbit anterior abre sin forma
   // dibujada, que es exactamente como estaba antes de que existieran.
-  p.sections ??= {};
+  p.sections ??= nullPool();
   // Carpetas del rack (v1.5): aditivas, los archivos anteriores no las traen.
-  p.channelGroups ??= {};
+  p.channelGroups ??= nullPool();
   p.channelGroupOrder ??= [];
   // Bus de carpeta (v3.6): también aditivo. Una carpeta sin `busTrack` es la de
   // siempre —organización pura— así que un .orbit anterior abre y SUENA igual.
@@ -140,7 +154,7 @@ export function parseProject(json: string): Project {
   // de tabla del kernel o una ganancia, y eso no puede llegar del disco sin
   // mirar. Va DESPUÉS de `playlistTracks` porque comprueba que la pista de
   // cada ruta siga existiendo.
-  p.inputRoutes ??= {};
+  p.inputRoutes ??= nullPool();
   p.inputRouteOrder ??= [];
   normalizeProjectInputRoutes(p);
   // Cortes del Slicer: llegan del disco sin garantías (archivo tocado a mano,
@@ -180,5 +194,21 @@ export function parseProject(json: string): Project {
     track.eqMid ??= 0;
     track.eqHigh ??= 0;
   }
+  // Referencias de las listas de orden. Una entrada que ya no existe —un patrón
+  // que alguien quitó del JSON a mano— se quita, y si la lista se queda VACÍA con
+  // el pool lleno se rehace desde el pool: una lista de orden vacía deja la
+  // canción muda o el rack en blanco, que es peor que un archivo raro. Solo en
+  // las tres que deciden qué se ve y suena; el orden de carpetas y de rutas se
+  // queda como venga (vacío = sin carpetas, que es una manera válida de tener
+  // un proyecto).
+  const rehacerSiQuedaVacia = (orden: string[], pool: Record<string, unknown>): string[] => {
+    const existentes = keepExistingIds(orden, pool);
+    return existentes.length > 0 || Object.keys(pool).length === 0 ? existentes : Object.keys(pool);
+  };
+  p.channelOrder = rehacerSiQuedaVacia(p.channelOrder ?? [], p.channels ?? {}) as typeof p.channelOrder;
+  p.patternOrder = rehacerSiQuedaVacia(p.patternOrder ?? [], p.patterns ?? {}) as typeof p.patternOrder;
+  p.arrangementOrder = rehacerSiQuedaVacia(p.arrangementOrder ?? [], p.arrangements ?? {}) as typeof p.arrangementOrder;
+  p.channelGroupOrder = keepExistingIds(p.channelGroupOrder ?? [], p.channelGroups ?? {}) as typeof p.channelGroupOrder;
+  p.inputRouteOrder = keepExistingIds(p.inputRouteOrder ?? [], p.inputRoutes ?? {}) as typeof p.inputRouteOrder;
   return p as Project;
 }
