@@ -78,3 +78,52 @@ describe('029: smoke comprueba el pack real, además de contar entradas', () => 
     expect(result.stderr).toContain('drums/kick.wav');
   });
 });
+
+describe('030: detección de artefactos sin elegir una versión antigua por orden', () => {
+  it('con dos instaladores falla y pide ruta explícita', () => {
+    const f = fixture();
+    put(join(f.dist, 'Orbit Studio Setup 3.0.0.exe'), 'viejo');
+    put(join(f.dist, 'Orbit Studio Setup 4.0.0.exe'), 'nuevo');
+    const result = f.run();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('varios instaladores');
+    expect(result.stderr).toContain('explícita');
+  });
+
+  it('ruta explícita identifica el instalador aunque haya otros anteriores', () => {
+    const f = fixture();
+    put(join(f.dist, 'Orbit Studio Setup 3.0.0.exe'), 'viejo');
+    const current = join(f.dist, 'Orbit Studio Setup 4.0.0.exe');
+    put(current, 'nuevo');
+    const result = f.run(f.unpacked, current);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`instalador: ${current}`);
+    expect(result.stdout).not.toContain('3.0.0.exe');
+  });
+
+  it('una ruta explícita ausente es error, no un smoke exitoso', () => {
+    const f = fixture();
+    const result = f.run(f.unpacked, join(f.dist, 'missing.exe'));
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('instalador');
+  });
+
+  it('un solo instalador se identifica, ignorando carpetas con sufijo exe', () => {
+    const f = fixture();
+    mkdirSync(join(f.dist, '0-carpeta.exe'));
+    const current = join(f.dist, 'Orbit Studio Setup.exe');
+    put(current, 'instalador');
+    const result = f.run();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`instalador: ${current}`);
+  });
+
+  it('dos unpacked también requieren destino explícito', () => {
+    const f = fixture();
+    mkdirSync(join(f.dist, 'old-unpacked'));
+    const result = f.run();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('varias carpetas');
+    expect(f.run(f.unpacked).status).toBe(0);
+  });
+});

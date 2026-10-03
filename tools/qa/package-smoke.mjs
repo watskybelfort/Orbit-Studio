@@ -21,7 +21,8 @@
 //
 // Sin argumentos: busca dentro de apps/desktop/dist/ una carpeta *-unpacked
 // (la que deja electron-builder con target nsis antes de armar el instalador)
-// y un *.exe suelto (el instalador).
+// y un *.exe suelto (el instalador). Si hay varios, exige rutas explícitas:
+// elegir por nombre, fecha o versión más alta podría validar otro build.
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -49,16 +50,24 @@ function findUnpackedDir() {
   if (!existsSync(distDir)) {
     fail(`no existe ${distDir} — ¿corriste "npm run dist -w @orbit/desktop" antes?`);
   }
-  const candidate = readdirSync(distDir).find((name) => name.endsWith('-unpacked'));
-  if (!candidate) fail(`no encontré ninguna carpeta *-unpacked dentro de ${distDir}`);
-  return join(distDir, candidate);
+  const candidates = readdirSync(distDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith('-unpacked'));
+  if (candidates.length === 0) fail(`no encontré ninguna carpeta *-unpacked dentro de ${distDir}`);
+  if (candidates.length > 1) fail(`hay varias carpetas *-unpacked en ${distDir}; indicá su ruta explícita como primer argumento`);
+  return join(distDir, candidates[0].name);
 }
 
 function findInstaller() {
-  if (process.argv[3]) return resolve(process.argv[3]);
+  if (process.argv[3]) {
+    const explicit = resolve(process.argv[3]);
+    if (!existsSync(explicit) || !statSync(explicit).isFile()) fail(`no existe el archivo instalador indicado: ${explicit}`);
+    return explicit;
+  }
   if (!existsSync(distDir)) return null;
-  const candidate = readdirSync(distDir).find((name) => name.toLowerCase().endsWith('.exe'));
-  return candidate ? join(distDir, candidate) : null;
+  const candidates = readdirSync(distDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.exe'));
+  if (candidates.length > 1) fail(`hay varios instaladores en ${distDir}; indicá la ruta explícita del build actual como segundo argumento`);
+  return candidates.length === 1 ? join(distDir, candidates[0].name) : null;
 }
 
 const unpackedDir = findUnpackedDir();
