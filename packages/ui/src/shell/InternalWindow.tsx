@@ -3,11 +3,13 @@
  * En tema acrílico usa la clase .popup (único sitio permitido para blur).
  */
 
-import { useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
 import { useDetachedStore } from '../state/detached';
 import { useUiStore, type WindowId } from '../state/ui';
 import { capturePointer } from '../widgets/pointer';
 import { DetachedWindow } from './DetachedWindow';
+import { WorkspaceAreaContext } from './WorkspaceArea';
+import { fitWindowToWorkspace } from './window-bounds';
 import './shell.css';
 
 export interface InternalWindowProps {
@@ -27,6 +29,9 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
   const isDetached = useDetachedStore((s) => s.detached[id] === true);
   const detach = useDetachedStore((s) => s.detach);
   const attach = useDetachedStore((s) => s.attach);
+  const area = useContext(WorkspaceAreaContext);
+  // La ventana nativa tiene su propio monitor y tamaño: solo acotamos internas.
+  const box = fitWindowToWorkspace(win, isDetached ? null : area, { w: minW, h: minH });
 
   const drag = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; x: number; y: number; w: number; h: number } | null>(null);
   /** Suelta los listeners del documento cuando el gesto va sin captura. */
@@ -71,7 +76,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
    */
   const beginDrag = useCallback(
     (e: React.PointerEvent, mode: 'move' | 'resize') => {
-      drag.current = { mode, startX: e.clientX, startY: e.clientY, x: win.x, y: win.y, w: win.w, h: win.h };
+      drag.current = { mode, startX: e.clientX, startY: e.clientY, x: box.x, y: box.y, w: box.w, h: box.h };
       release.current?.();
       release.current = null;
       if (capturePointer(e.currentTarget, e.pointerId)) return;
@@ -87,7 +92,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
         doc.removeEventListener('pointercancel', up);
       };
     },
-    [win.x, win.y, win.w, win.h, applyDrag, onPointerUp],
+    [box.x, box.y, box.w, box.h, applyDrag, onPointerUp],
   );
 
   const onTitlePointerDown = useCallback(
@@ -136,7 +141,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
   return (
     <section
       className="iw popup"
-      style={{ left: win.x, top: win.y, width: win.w, height: win.h, zIndex: win.z }}
+      style={{ left: box.x, top: box.y, width: box.w, height: box.h, zIndex: win.z }}
       // En CADA pointerdown, y sale barato: si la ventana ya está arriba el
       // store devuelve el MISMO objeto de estado y zustand ni avisa a los
       // suscriptores (comprobación `Object.is`), así que no se repinta nada.

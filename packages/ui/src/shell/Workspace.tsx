@@ -1,6 +1,7 @@
 /** Área de trabajo: aloja las ventanas internas de los editores. */
 
 import { InternalWindow } from './InternalWindow';
+import { WorkspaceArea } from './WorkspaceArea';
 import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
@@ -23,7 +24,7 @@ import './shell.css';
 
 export function Workspace() {
   return (
-    <div className="workspace">
+    <WorkspaceArea>
       <InternalWindow id="channelRack" title="Channel Rack">
         <ChannelRack />
       </InternalWindow>
@@ -78,6 +79,6 @@ export function Workspace() {
       <InternalWindow id="graph" title="Enrutado" minW={520} minH={320}>
         <GraphEditor />
       </InternalWindow>
-    </div>
+    </WorkspaceArea>
   );
 }
