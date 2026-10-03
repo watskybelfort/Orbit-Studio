@@ -838,7 +838,74 @@ export async function sweepRecordingFiles(
   if (plan.reclaim.length === 0) {
     return { before, after: before, discarded: [], kept, sent: true };
   }
+  // La poda del libro va por IDENTIDAD de la entrada, no por clave. Mientras la
+  // confirmación del almacén está en vuelo, el mundo puede cambiar: el proyecto
+  // se sustituye y —con nombres por contenido— el MISMO archivo puede volver a
+  // escribirse para el proyecto nuevo. La entrada nueva no es la que se decidió
+  // reclamar, y una confirmación tardía no puede olvidarla: es audio que acaba
+  // de nacer. Lo que sí se poda es la entrada que se planificó, si sigue
+  // siendo la misma.
+  const planned = new Map(plan.reclaim.map((e) => [e.file, e]));
   const discarded = await store.discard(plan.reclaim.map((e) => e.file));
-  for (const file of discarded) recordingLedger.delete(file);
+  for (const file of discarded) {
+    if (recordingLedger.get(file) === planned.get(file)) recordingLedger.delete(file);
+  }
   return { before, after: recordingLedgerStats(), discarded: [...discarded], kept, sent: true };
+}
+
+// ── El barrido va ANTES de que el proyecto deje de ser el sujeto ────────────
+
+/** Lo que el enganche necesita del store, inyectado (este archivo no depende de `state/app`). */
+export interface RecordingSweepHookStore {
+  readonly project: Project;
+  unreachableIds(ids: Iterable<string>): string[];
+  subscribeBeforeReplace(listener: () => void): () => void;
+}
+
+/**
+ * Engancha el barrido de disco al único punto por el que pasan las puertas que
+ * SUSTITUYEN el proyecto entero (abrir un `.orbit`, recuperar el autosave,
+ * restaurar una versión, plantilla, `newProject`, entrar en una sala).
+ *
+ * El momento es la parte difícil, y por eso cuelga de `subscribeBeforeReplace`
+ * y no de `rehydrateSamples()` ni de llamadas sueltas en cada puerta:
+ *
+ * - **JUSTO ANTES de la sustitución** es cuando la decisión tiene sentido:
+ *   mira el proyecto y el HISTORIAL que se van —un undo, un redo o una rama
+ *   archivada pueden volver a nombrar un archivo—. Después ya es tarde: el
+ *   historial nuevo está vacío, TODO se vería abandonado y se tiraría audio
+ *   que el `.orbit` guardado sigue nombrando. `rehydrateSamples()` corre ya
+ *   sustituido.
+ * - Y con `subscribeBeforeReplace` las puertas de ahora y las que se añadan
+ *   están cubiertas por construcción, no por memoria.
+ *
+ * La decisión se captura en el tramo SÍNCRONO del listener (el plan de
+ * `sweepRecordingFiles` se calcula antes de su primer `await`); la petición al
+ * almacén va detrás, por IPC. Y el libro se olvida en el mismo momento: lo que
+ * quede está juzgado contra un mundo que ya no existe, y sin sujeto la pregunta
+ * no tiene respuesta (y sin respuesta se conserva). Lo que una confirmación
+ * TARDÍA del almacén pueda llegar a borrar ya está acotado arriba: poda por
+ * IDENTIDAD, nunca por clave — una escritura nueva del proyecto entrante con el
+ * mismo nombre de archivo no se va con la confirmación de la generación
+ * anterior.
+ */
+export function installRecordingSweepHook(store: RecordingSweepHookStore): void {
+  store.subscribeBeforeReplace(() => {
+    if (typeof window !== 'undefined') {
+      const recording = window.orbit?.recording;
+      // Con capacidad se barre; sin ella no se manda nada (igual que
+      // `keepOnlySamples` en el hilo de audio: mejor no recuperar disco que
+      // recuperarlo mal). El olvido de abajo va en los dos casos.
+      if (typeof recording?.discard === 'function') {
+        void sweepRecordingFiles(
+          {
+            project: store.project,
+            unreachableIds: (ids) => store.unreachableIds(ids),
+          },
+          recording,
+        ).catch(() => undefined); // mejor esfuerzo: un IPC roto no cancela un Ctrl+O
+      }
+    }
+    forgetRecordingLedger();
+  });
 }
