@@ -45,6 +45,7 @@ import {
   renderProject,
   renderStems,
   secondsAtBeat,
+  type CompiledProject,
   type FlacDepth,
   type RenderResult,
   type WavDepth,
@@ -229,14 +230,17 @@ function applyGain(res: RenderResult, db: number): void {
 }
 
 /**
- * Pistas de mixer usadas: las que reciben al menos un canal del rack.
+ * Pistas de mixer usadas: canales del rack y clips de audio de la fuente.
  *
  * Va por `trackOfChannel` y no por `ch.mixerTrack` crudo porque un canal dentro
  * de una carpeta con bus **no se compila en su pista**, sino en la del bus. Leer
  * el campo directo dejaría la pista del bus fuera de la lista, y el export de
  * stems se saltaría justo la que lleva el sonido del grupo entero.
  */
-export function usedMixerTracks(project: Project): { idx: number; name: string }[] {
+export function usedMixerTracks(
+  project: Project,
+  rendered: Pick<CompiledProject, 'audioClips'> = compileProject(project, { mode: 'song' }),
+): { idx: number; name: string }[] {
   const used = new Set<number>();
   for (const id of project.channelOrder) {
     const ch = project.channels[id];
@@ -251,6 +255,10 @@ export function usedMixerTracks(project: Project): { idx: number; name: string }
     if (!ownValid && track === 0) continue;
     if (track >= 0 && track < project.mixer.length) used.add(track);
   }
+  // El compilador ya aplica arreglo activo, mute de clip/carril y destino del
+  // carril. Usar su resultado evita que el stem difiera del WAV principal.
+  // En modo patrón no hay clips de playlist: tampoco se ofrecen esos stems.
+  for (const clip of rendered.audioClips) used.add(clip.mixerTrack);
   return [...used]
     .sort((a, b) => a - b)
     .map((idx) => ({ idx, name: project.mixer[idx]?.name ?? `Pista ${idx}` }));
@@ -391,13 +399,30 @@ async function renderAndWrite(
   const proj = parseProject(serializeProject(store.project));
   const warnings: string[] = [];
 
+  const patternId =
+    opts.source === 'pattern' && opts.patternId && proj.patterns[opts.patternId]
+      ? opts.patternId
+      : null;
+  if (opts.source === 'pattern' && !patternId) {
+    throw new Error('El patrón que se quiere exportar ya no existe en el proyecto.');
+  }
+  const region = opts.source === 'selection' ? opts.region : null;
+  if (opts.source === 'selection' && !region) {
+    throw new Error('No hay ninguna región marcada en la playlist.');
+  }
+  if (region && (!Number.isFinite(region.start) || !Number.isFinite(region.end) || region.start < 0 || region.end <= region.start)) {
+    throw new Error('La región marcada debe tener un inicio y fin válidos, con fin posterior al inicio.');
+  }
+  const playMode = patternId ? ({ mode: 'pattern', patternId } as const) : ({ mode: 'song' } as const);
+  const compiled = compileProject(proj, playMode);
+
   // Cancelación: qué se sabe del export en el momento de cortar. `stemTracks`
   // vive aquí (no donde estaba antes, pegado al bucle de stems) porque
   // `partialSummary` puede llamarse desde un checkpoint ANTERIOR a esa fase
   // (mientras se renderiza la mezcla principal, por ejemplo) y `totalStems`
-  // tiene que existir ya en ese momento — es un cálculo puro sobre `proj`
-  // (`usedMixerTracks`), así que adelantarlo no cambia nada más.
-  const stemTracks = opts.stems ? usedMixerTracks(proj) : [];
+  // tiene que existir ya en ese momento. Se calcula con la misma compilación
+  // que va a sonar, incluidos los clips de audio de la playlist.
+  const stemTracks = opts.stems ? usedMixerTracks(proj, compiled) : [];
   const totalStems = stemTracks.length;
   /** Ruta del WAV principal una vez escrita (null hasta entonces). */
   let mainPathWritten: string | null = null;
@@ -415,26 +440,8 @@ async function renderAndWrite(
     if (cancelRequested) throw new ExportCancelledError(partialSummary());
   };
 
-  const patternId =
-    opts.source === 'pattern' && opts.patternId && proj.patterns[opts.patternId]
-      ? opts.patternId
-      : null;
-  if (opts.source === 'pattern' && !patternId) {
-    throw new Error('El patrón que se quiere exportar ya no existe en el proyecto.');
-  }
-  const region = opts.source === 'selection' ? opts.region : null;
-  if (opts.source === 'selection' && !region) {
-    throw new Error('No hay ninguna región marcada en la playlist.');
-  }
-  if (region && (!Number.isFinite(region.start) || !Number.isFinite(region.end) || region.start < 0 || region.end <= region.start)) {
-    throw new Error('La región marcada debe tener un inicio y fin válidos, con fin posterior al inicio.');
-  }
-
   await report('Renderizando…');
   throwIfCancelled();
-
-  const playMode = patternId ? ({ mode: 'pattern', patternId } as const) : ({ mode: 'song' } as const);
-  const compiled = compileProject(proj, playMode);
 
   const { samples, missing } = await collectSamples(proj, compiled);
   throwIfCancelled();

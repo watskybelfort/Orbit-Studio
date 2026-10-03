@@ -98,7 +98,10 @@ export function ExportPanel() {
     patternOptions[0] ??
     null;
 
-  const stemTracks = useMemo(() => usedMixerTracks(project), [project]);
+  const stemTracks = useMemo(
+    () => usedMixerTracks(project, opts.source === 'pattern' ? { audioClips: [] } : undefined),
+    [project, opts.source],
+  );
   const beatsPerBar = Math.max(1, project.timeSig.num);
 
   /** Lo que se exporta de verdad: las opciones del panel + lo que hay vivo. */
