@@ -173,7 +173,9 @@ export async function peaksOf(sample: SampleRef): Promise<Peaks | null> {
       );
       cache.set(key, peaks);
       failed.delete(key);
-      for (const cb of listeners) cb();
+      // Sobre una copia: un callback que se dé de baja dentro de su propio
+      // callback no decide quién recibe ESTE aviso.
+      for (const cb of [...listeners]) cb();
       return peaks;
     } catch {
       failed.add(key);

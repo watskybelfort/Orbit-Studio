@@ -22,16 +22,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readSource } from './read-source';
 
 /**
- * `sample-peaks` importa `readSampleBytes`; nada de este test decodifica nada,
- * así que se corta ahí el grafo de módulos (igual que en
- * `audio-cache-policy.test.ts`).
+ * `sample-peaks` importa `readSampleBytes`; nada de este test decodifica nada
+ * de verdad, así que se corta ahí el grafo de módulos (igual que en
+ * `audio-cache-policy.test.ts`) y, cuando hace falta que el job TERMINE, el
+ * `OfflineAudioContext` es de mentira.
  */
-async function freshPeaks() {
+async function freshPeaks(bytes: ArrayBuffer | null = null) {
   vi.resetModules();
   vi.doMock('../src/browser/sound-actions', () => ({
-    readSampleBytes: async () => null,
+    readSampleBytes: async () => bytes,
   }));
   return import('../src/state/sample-peaks');
+}
+
+/** Contexto de mentira: devuelve un decodificado de 100 muestras planas. */
+function fakeOfflineAudioContext(): void {
+  vi.stubGlobal(
+    'OfflineAudioContext',
+    class {
+      async decodeAudioData(): Promise<unknown> {
+        const data = new Float32Array(100).fill(0.5);
+        return { numberOfChannels: 2, duration: 1, getChannelData: () => data };
+      }
+    },
+  );
 }
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -43,6 +57,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock('../src/browser/sound-actions');
+  vi.unstubAllGlobals();
 });
 
 describe('los suscriptores de picos se pueden contar', () => {
@@ -121,5 +136,32 @@ describe('el único suscriptor real devuelve su baja', () => {
     // alguien la cambiara por `useEffect(() => { onPeaksReady(draw); }, ...)`
     // —con llaves, tirando la baja— esto lo dice.
     expect(file).toMatch(/useEffect\(\(\) => onPeaksReady\(\w+\), \[\w+\]\)/);
+  });
+});
+
+describe('la emisión de «picos nuevos» es sobre una copia del Set', () => {
+  it('quien da de baja a otro dentro de su propio callback no le roba a ese otro este aviso', async () => {
+    fakeOfflineAudioContext();
+    const { onPeaksReady, peaksOf } = await freshPeaks(new ArrayBuffer(8));
+    const sample = (id: string) => ({ id, name: id, path: `recording:${id}.wav`, hash: id, duration: 1 });
+    const avisos: string[] = [];
+
+    let bajaB: () => void = () => undefined;
+    // A va PRIMERO en el Set: con la iteración sobre el Set vivo, el iterador
+    // se salta a B (borrado en este mismo aviso) y su callback no correría.
+    const bajaA = onPeaksReady(() => {
+      avisos.push('a');
+      bajaB();
+    });
+    bajaB = onPeaksReady(() => avisos.push('b'));
+
+    await peaksOf(sample('uno'));
+    expect(avisos).toEqual(['a', 'b']);
+
+    // La baja sí cuenta para el SIGUIENTE aviso.
+    avisos.length = 0;
+    await peaksOf(sample('dos'));
+    expect(avisos).toEqual(['a']);
+    bajaA();
   });
 });

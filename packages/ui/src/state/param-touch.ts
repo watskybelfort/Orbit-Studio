@@ -32,7 +32,9 @@ export function touchParam(ref: ParamRef): void {
   if (useParamTouch.getState().key !== key) {
     useParamTouch.setState({ last: ref, key });
   }
-  for (const listener of listeners) listener(ref);
+  // Sobre una copia: un listener que se dé de baja dentro de su propio
+  // callback no decide quién recibe ESTE aviso.
+  for (const listener of [...listeners]) listener(ref);
 }
 
 export type ParamTouchListener = (ref: ParamRef) => void;
@@ -43,4 +45,9 @@ const listeners = new Set<ParamTouchListener>();
 export function onParamTouch(listener: ParamTouchListener): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/** Cuántos listeners vivos hay (diagnóstico: una fuga es un número). */
+export function paramTouchListenerCount(): number {
+  return listeners.size;
 }
