@@ -27,6 +27,7 @@ export function StudioNavigation() {
   const front = Object.entries(windows).filter(([, w]) => w.open).sort((a, b) => b[1].z - a[1].z)[0]?.[0];
 
   return (
+    <div className="studio-nav-container">
     <nav className="studio-nav" aria-label="Herramientas del estudio">
       <div className="studio-nav__editors">
         {EDITORS.map(({ id, label, detail, key, Icon }) => (
@@ -102,5 +103,6 @@ export function StudioNavigation() {
       </div>
       {guideOpen && <StudioGuide onClose={() => setGuideOpen(false)} returnFocusTo={guideTrigger.current} />}
     </nav>
+    </div>
   );
 }

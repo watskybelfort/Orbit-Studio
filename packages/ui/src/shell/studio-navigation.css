@@ -1,13 +1,23 @@
 /* Cada banda es una región del shell. Sin blur ni veladuras superpuestas. */
+.studio-nav-container {
+  /* El viewport de @media no descuenta el zoom CSS. Este contenedor mide
+     el ancho de layout que realmente queda para los botones a cada escala. */
+  container-name: studio-navigation;
+  container-type: inline-size;
+  flex: none;
+  min-width: 0;
+}
+
 .studio-nav {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 4px 16px;
   padding: 0 12px;
   min-height: 44px;
   flex: none;
-  overflow-x: auto;
+  min-width: 0;
   background: var(--titlebar-bg);
   border-bottom: 1px solid var(--border);
 }
@@ -15,10 +25,14 @@
 .studio-nav__editors,
 .studio-nav__utilities {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
+
+.studio-nav__utilities { padding-block: 5px; }
 
 .studio-nav__editor,
 .studio-nav__utility,
@@ -81,15 +95,14 @@
   border-radius: 6px;
 }
 
-.studio-nav__tools { width: 146px; }
+.studio-nav__tools { width: 146px; flex: none; max-width: 100%; }
 .studio-nav__layout { width: 105px; margin-right: 4px; }
 .studio-nav__utility { padding: 6px 8px; border-radius: 6px; font-size: 11px; }
 .studio-nav__utility[aria-pressed='true'] { color: var(--accent); }
 .studio-nav__search { margin-left: 6px; gap: 16px; }
 
-@media (max-width: 1200px) {
-  .studio-nav { gap: 8px; padding-inline: 8px; }
-  .studio-nav__editor { padding-inline: 8px; }
+@container studio-navigation (max-width: 1200px) {
+  .studio-nav { gap: 4px 8px; padding-inline: 8px; }
   .studio-nav__editor kbd { display: none; }
   .studio-nav__editor > svg { display: none; }
   .studio-nav__editor { gap: 5px; padding-inline: 7px; }
@@ -97,7 +110,7 @@
   .studio-nav__utilities { gap: 0; }
 }
 
-@media (max-width: 1050px) {
+@container studio-navigation (max-width: 1050px) {
   .studio-nav__search kbd { display: none; }
   .studio-nav__utility { padding-inline: 6px; }
 }
