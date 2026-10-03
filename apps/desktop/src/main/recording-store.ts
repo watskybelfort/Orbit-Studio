@@ -10,19 +10,29 @@
  *    cubre la única duda que ningún cálculo del renderer puede cerrar: el
  *    `.orbit` guardado, la versión restaurable, la otra ventana de la app (que
  *    con nombres por contenido puede estar escribiendo el MISMO archivo). Sin
- *    reversibilidad, «reversible» es una palabra.
+ *    reversibilidad, «reversible» es una palabra. **La ventana corre desde el
+ *    DESCARTE, no desde la escritura**: un archivo escrito hace meses y
+ *    descartado hoy tiene sus 90 días por delante, o la reversibilidad no
+ *    cubriría ni su propio caso.
  * 2. **`read` resuelve también la papelera**: si el archivo ya no está donde
  *    debía pero sí en `.papelera/`, se lee de ahí. Es la otra mitad del
  *    contrato de arriba.
  * 3. **La papelera se purga** (por antigüedad y por bytes) o es la fuga con
  *    otro nombre. Los umbrales, medidos, más abajo.
  *
- * Y una guarda que no se negocia: ninguna operación sale de su carpeta
- * (`isRealPathWithin`, la misma que `recording:read` ya usaba) — este proceso
- * desconfía a propósito de las rutas que le pasa el renderer.
+ * Y dos guardas que no se negocian, porque este proceso desconfía a propósito
+ * de las rutas que le pasa el renderer:
+ *
+ * - Ninguna operación sale de su carpeta (`isRealPathWithin`, la misma que
+ *   `recording:read` ya usaba), en las DOS puntas de un descarte.
+ * - **La papelera misma tiene que estar dentro de `recordings/`** resuelta de
+ *   verdad: `.papelera` puede ser un junction plantado hacia una carpeta
+ *   hermana, y con él `read` serviría bytes de fuera y `purgeTrash` BORRARÍA
+ *   archivos ajenos. Se valida antes de leer, antes de mover y antes de
+ *   purgar; si la papelera no pasa la guarda, se trata como si no existiera.
  */
 
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRealPathWithin } from './path-guard';
 
@@ -64,7 +74,10 @@ export const RECORDING_NAME_BASE_BUDGET_BYTES = 200;
  *   convierte la papelera en «acotada» en vez de en la fuga con otro nombre.
  *
  * Al pasar los dos, se tira lo más VIEJO primero: la retención es la que da
- * sentido al tope de bytes.
+ * sentido al tope de bytes. Y la edad del archivo es su edad EN LA PAPELERA
+ * (al mover se le pone el reloj en cero): si fuera la de la escritura, un
+ * archivo viejo descartado hoy perdería su ventana de reversibilidad en el
+ * primer arranque.
  */
 export const RECORDINGS_TRASH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 export const RECORDINGS_TRASH_MAX_BYTES = 2 * 1024 * 1024 * 1024;
@@ -75,6 +88,9 @@ export const RECORDINGS_TRASH_MAX_BYTES = 2 * 1024 * 1024 * 1024;
  */
 export function sanitizeRecordingName(name: string): string {
   const safe = name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'toma.wav';
+  // `.` y `..` no llevan separadores pero se salen igual (o apuntan a la
+  // carpeta misma): no son nombres de archivo.
+  if (safe === '.' || safe === '..') return 'toma.wav';
   const dot = safe.lastIndexOf('.');
   // `.wav` de `toma.wav` es extensión; un `.gitignore` sin base no lo es.
   const hasExt = dot > 0;
@@ -121,18 +137,35 @@ export interface RecordingStore {
 export function createRecordingStore(dir: () => string): RecordingStore {
   const trashDir = () => join(dir(), RECORDINGS_TRASH);
 
+  /**
+   * ¿La papelera está de verdad DENTRO de `recordings/`? Un `.papelera` que
+   * sea un junction hacia una carpeta hermana resuelve hacia fuera, y con él
+   * `read` serviría bytes ajenos y `purgeTrash` BORRARÍA archivos ajenos. Se
+   * comprueba en cada operación que toque la papelera; si no pasa, la papelera
+   * se trata como inexistente: mejor no reutilizarla que reutilizarla mal.
+   */
+  async function trashOk(): Promise<boolean> {
+    return isRealPathWithin(trashDir(), dir());
+  }
+
   async function save(name: string, bytes: Uint8Array): Promise<string> {
     const safe = sanitizeRecordingName(name);
+    const target = resolve(join(dir(), safe));
+    // Coherente con las demás guardas: el sanitizado quita separadores, pero la
+    // comprobación de contención no depende de que la regex acierte siempre.
+    if (!(await isRealPathWithin(target, dir()))) {
+      throw new Error('recording:save solo escribe dentro de la carpeta de grabaciones');
+    }
     await mkdir(dir(), { recursive: true });
-    await writeFile(join(dir(), safe), bytes);
+    await writeFile(target, bytes);
     return safe;
   }
 
   async function read(file: string): Promise<ArrayBuffer> {
-    const candidates: [string, string][] = [
-      [resolve(join(dir(), file)), dir()],
-      [resolve(join(trashDir(), file)), trashDir()],
-    ];
+    // El fallback a la papelera solo existe si la papelera es de verdad: un
+    // `.papelera` plantado como junction hacia fuera no puede servir bytes.
+    const candidates: [string, string][] = [[resolve(join(dir(), file)), dir()]];
+    if (await trashOk()) candidates.push([resolve(join(trashDir(), file)), trashDir()]);
     let guarded = false;
     for (const [target, root] of candidates) {
       if (!(await isRealPathWithin(target, root))) continue;
@@ -144,8 +177,8 @@ export function createRecordingStore(dir: () => string): RecordingStore {
         // No está en esta carpeta: sigue la papelera.
       }
     }
-    // Nadie pasó la guarda: el nombre se sale de las dos carpetas. Este error
-    // es el de siempre, no uno de «no encontrado» — es la diferencia entre
+    // Nadie pasó la guarda: el nombre se sale de las carpetas. Este error es
+    // el de siempre, no uno de «no encontrado» — es la diferencia entre
     // «ya no está» y «me estás pidiendo leer fuera».
     if (!guarded) {
       throw new Error('recording:read solo sirve archivos de la carpeta de grabaciones');
@@ -154,6 +187,7 @@ export function createRecordingStore(dir: () => string): RecordingStore {
   }
 
   async function discard(files: readonly string[]): Promise<string[]> {
+    if (!(await trashOk())) return [];
     await mkdir(trashDir(), { recursive: true });
     const discarded: string[] = [];
     for (const file of files) {
@@ -166,8 +200,7 @@ export function createRecordingStore(dir: () => string): RecordingStore {
       try {
         // ¿Sigue en la carpeta viva? Si no, puede que una confirmación anterior
         // ya lo haya movido: si está en la papelera es exactamente el estado
-        // pedido y cuenta como hecho. Se comprueba ANTES de tocar nada, o el
-        // `rm` de abajo se cargaría la evidencia.
+        // pedido y cuenta como hecho.
         await stat(from);
       } catch {
         try {
@@ -179,17 +212,31 @@ export function createRecordingStore(dir: () => string): RecordingStore {
         continue;
       }
       try {
-        // Si ya hay uno con ese nombre en la papelera se pisa: con nombres por
-        // contenido, mismo nombre es el MISMO contenido (lo distinto que
-        // hubiera con ese nombre ya se pisó en la carpeta viva, antes de que
-        // existiera esta papelera). El `rm` previo además es lo que hace
-        // `rename` sobre destino existente en Windows.
-        await rm(to, { force: true });
+        // `rename` es atómico y SUSTITUYE destino existente (libuv lo hace con
+        // MOVEFILE_REPLACE_EXISTING en Windows; en POSIX la sustitución es
+        // atómica por definición). NO hay `rm` previo a propósito: entre un
+        // `rm` y el `rename`, otra confirmación cruzada puede dejar su copia en
+        // la papelera y el `rm` se la borraría — pérdida de audio reproducida
+        // con dos discard en paralelo sobre la misma carpeta. Si ya había uno
+        // con ese nombre, se pisa: con nombres por contenido, mismo nombre es
+        // el MISMO contenido (lo distinto con ese nombre ya se pisó en la
+        // carpeta viva, antes de que existiera esta papelera).
         await rename(from, to);
+        // El reloj de la ventana de retención arranca AHORA (ver el TTL): la
+        // edad que importa es la de la papelera, no la de la escritura.
+        await utimes(to, new Date(), new Date()).catch(() => undefined);
         discarded.push(file);
       } catch {
-        // Fallo parcial (disco, permisos): sigue vivo donde estaba, no se
-        // confirma y el libro del renderer lo reintenta en el próximo barrido.
+        // No se movió (una confirmación cruzada se llevó el archivo, disco,
+        // permisos): si ya está en la papelera el estado pedido se cumplió
+        // igual; si no, sigue donde estaba, no se confirma y el libro del
+        // renderer lo reintenta en el próximo barrido.
+        try {
+          await stat(to);
+          discarded.push(file);
+        } catch {
+          /* no se confirma */
+        }
       }
     }
     return discarded;
@@ -204,6 +251,9 @@ export function createRecordingStore(dir: () => string): RecordingStore {
       maxBytes: RECORDINGS_TRASH_MAX_BYTES,
     },
   ): Promise<{ removed: string[]; bytes: number }> {
+    // La papelera primero: un `.papelera` junctionado hacia fuera convierte
+    // esta función en un borrador de archivos ajenos.
+    if (!(await trashOk())) return { removed: [], bytes: 0 };
     let entries;
     try {
       entries = await readdir(trashDir(), { withFileTypes: true });

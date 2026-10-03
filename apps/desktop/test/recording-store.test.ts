@@ -17,7 +17,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -98,6 +98,27 @@ describe('discard: baja REVERSIBLE, no borrado', () => {
     expect(await listarRelativo(join(root, RECORDINGS_TRASH))).toEqual([a, b].sort());
   });
 
+  it('dos descartes cruzados del mismo archivo no pierden el audio', async () => {
+    // La carrera que costó un dato perdido: dos planes que se cruzan sobre el
+    // MISMO nombre. Con un `rm` previo al `rename`, el segundo borraba la
+    // copia que el primero acababa de mover y luego fallaba su rename — el
+    // archivo no quedaba ni vivo ni en la papelera. Con `rename` atómico no
+    // hay ventana de pérdida: solo puede quedar una copia, y queda.
+    for (let i = 0; i < 20; i++) {
+      const nombre = `cruzado-${i}.wav`;
+      const s1 = store();
+      const s2 = store();
+      await s1.save(nombre, bytes(i));
+
+      const [r1, r2] = await Promise.all([s1.discard([nombre]), s2.discard([nombre])]);
+
+      // Al menos una confirmación, y el audio legible en la papelera.
+      expect([...r1, ...r2].length).toBeGreaterThan(0);
+      expect(new Uint8Array(await s1.read(nombre))).toEqual(bytes(i));
+      expect(await listarRelativo(root)).not.toContain(nombre);
+    }
+  });
+
   it('una ruta que se sale de recordings no se toca, ni se lee ni se descarta', async () => {
     const s = store();
     // Un archivo FUERA de la carpeta de grabaciones, como si el renderer
@@ -134,6 +155,22 @@ describe('purgeTrash: la papelera no es la fuga con otro nombre', () => {
     expect(await listarRelativo(trash)).toEqual([nuevo]);
   });
 
+  it('la ventana corre desde el DESCARTE: un archivo viejo descartado hoy tiene sus 90 días', async () => {
+    const s = store();
+    const file = await s.save('viejo.wav', bytes(1));
+    // Escrito hace MÁS de la ventana…
+    const hace = new Date(Date.now() - (RECORDINGS_TRASH_TTL_MS + 24 * 60 * 60 * 1000));
+    await utimes(join(root, file), hace, hace);
+    // …pero descartado HOY. Si el reloj de la retención fuera el de la
+    // escritura, la reversibilidad perdería su ventana en el primer arranque.
+    await s.discard([file]);
+
+    const { removed } = await s.purgeTrash();
+
+    expect(removed).toEqual([]);
+    expect(await listarRelativo(join(root, RECORDINGS_TRASH))).toEqual([file]);
+  });
+
   it('con el tope de bytes pisado, tira lo más viejo primero', async () => {
     const s = store();
     const primero = await s.save('primero.wav', bytes(1, 300));
@@ -154,6 +191,54 @@ describe('purgeTrash: la papelera no es la fuga con otro nombre', () => {
 
   it('sin papelera no hay nada que purgar', async () => {
     await expect(store().purgeTrash()).resolves.toEqual({ removed: [], bytes: 0 });
+  });
+});
+
+describe('una papelera plantada como junction hacia fuera no vale', () => {
+  /**
+   * `.papelera` → carpeta HERMANA (fuera de `recordings/`). Con un junction
+   * así, sin la comprobación de contención de la papelera misma, `read`
+   * serviría bytes de fuera y `purgeTrash` borraría archivos ajenos.
+   */
+  async function papeleraJunctionada(): Promise<string> {
+    const hermana = await mkdtemp(join(tmpdir(), 'orbit-rec-fuera-'));
+    await writeFile(join(hermana, 'outside.wav'), bytes(9, 3));
+    // 'junction' funciona sin privilegios en Windows; en Linux es un symlink.
+    await symlink(hermana, join(root, RECORDINGS_TRASH), 'junction');
+    return hermana;
+  }
+
+  it('read no sirve bytes de la carpeta de fuera', async () => {
+    const hermana = await papeleraJunctionada();
+    try {
+      await expect(store().read('outside.wav')).rejects.toThrow(/no encontró/);
+    } finally {
+      await rm(hermana, { recursive: true, force: true });
+    }
+  });
+
+  it('purgeTrash no borra archivos de la carpeta de fuera', async () => {
+    const hermana = await papeleraJunctionada();
+    try {
+      await expect(store().purgeTrash()).resolves.toEqual({ removed: [], bytes: 0 });
+      expect(await listarRelativo(hermana)).toEqual(['outside.wav']);
+    } finally {
+      await rm(hermana, { recursive: true, force: true });
+    }
+  });
+
+  it('discard no mueve nada hacia la carpeta de fuera', async () => {
+    const hermana = await papeleraJunctionada();
+    const s = store();
+    const file = await s.save('viva.wav', bytes(1));
+    try {
+      await expect(s.discard([file])).resolves.toEqual([]);
+      // Sigue viva donde estaba: mejor no dar de baja que darla hacia fuera.
+      expect(new Uint8Array(await s.read(file))).toEqual(bytes(1));
+      expect(await listarRelativo(hermana)).toEqual(['outside.wav']);
+    } finally {
+      await rm(hermana, { recursive: true, force: true });
+    }
   });
 });
 
