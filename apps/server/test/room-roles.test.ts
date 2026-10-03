@@ -108,6 +108,29 @@ describe('validación de entradas del log', () => {
     expect(checkEntry(entry, 'productor', false).allowed).toBe(true);
   });
 
+  it('una entrada con id heredado no entra al log, ni del productor', () => {
+    // BUG 016: `project.clips['__proto__']` devuelve el prototipo, no `undefined`,
+    // así que un patch con ese id escribía sobre `Object.prototype` al aplicar.
+    const id = '__proto__';
+    const entradas = [
+      { type: 'patchClips', patches: [{ id, start: 9 }] },
+      { type: 'addChannel', channel: { id } },
+      { type: 'removeClips', clipIds: [id] },
+      { type: 'patchChannel', channelId: id, patch: { volume: 0.5 } },
+    ] as const;
+    // El bus ya rechaza esto al aplicar, pero la entrada se reparte y se
+    // REGISTRA: si el servidor la aceptara, el log guardaría el comando que
+    // todos van a rechazar y los peers divergirían según quién lo aplicó antes.
+    for (const cmd of entradas) {
+      for (const role of ['productor', 'invitado', 'oyente'] as const) {
+        const v = checkEntry({ cmd, client: 5, seq: 1, role }, role, true);
+        expect(v.allowed).toBe(false);
+        expect(v.reason).toContain(id);
+      }
+    }
+    expect(({} as Record<string, unknown>).start).toBeUndefined();
+  });
+
   it('un invitado no borra canales ajenos pero sí los suyos (ownCreation del servidor)', () => {
     // ajeno: el servidor pasa ownCreation=false → denegado.
     expect(checkEntry({ cmd: borrarCanal, client: 5, seq: 1 }, 'invitado', false).allowed).toBe(

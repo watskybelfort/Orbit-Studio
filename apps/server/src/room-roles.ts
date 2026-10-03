@@ -16,7 +16,7 @@
  */
 
 import { checkRole, trackDeletionTargets, type CollabRole } from '@orbit/collab';
-import type { Command, Id } from '@orbit/core';
+import { assertNoReservedIds, type Command, type Id } from '@orbit/core';
 
 /** Rol de quien entra en una sala que ya tiene productor. */
 export const JOIN_ROLE: CollabRole = 'invitado';
@@ -144,6 +144,16 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: bo
   const cmd = entry.cmd;
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return { allowed: false, reason: 'Entrada sin comando válido.' };
+  }
+  // Un id RESERVADO no puede entrar en el log. El bus de core ya lo rechaza al
+  // aplicar, pero aquí importa otra cosa: la entrada se reparte a TODOS los
+  // peers y se registra, así que si el servidor la aceptara y el bus la
+  // rechazara en unos y no en otros, la sala divergiría —y el log guardaría
+  // justo el comando que todos van a rechazar—. Se decide antes de escribir.
+  try {
+    assertNoReservedIds(cmd, (cmd as Command).type);
+  } catch (error) {
+    return { allowed: false, reason: (error as Error).message };
   }
   return checkRole(role, cmd as Command, { ownCreation });
 }
