@@ -26,6 +26,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -97,6 +98,9 @@ if (entries.length !== sourceEntries.length) {
       `tiene ${sourceEntries.length} — se desalineó el extraResources`,
   );
 }
+if (!isDeepStrictEqual(manifest, sourceManifest)) {
+  fail('el manifest empaquetado no coincide con el fuente: cambió la identidad, ruta o metadata del pack');
+}
 
 // 3) Cada archivo que el manifest referencia existe de verdad en el pack.
 const missing = [];
@@ -109,7 +113,21 @@ if (missing.length > 0) {
       `ej.: ${missing.slice(0, 5).join(', ')}`,
   );
 }
-console.log(`OK — pack de sonidos completo: ${entries.length} entradas, todas presentes en ${packDir}`);
+// El manifest no contiene necesariamente hashes. Dos WAV con el mismo nombre
+// y tamaño pueden sonar distinto: comparar bytes evita aprobar una copia vieja
+// aunque también se haya copiado el manifest nuevo. Solo un archivo por vez.
+for (const entry of sourceEntries) {
+  const sourceFile = join(dirname(sourceManifestPath), entry.file);
+  const packedFile = join(packDir, entry.file);
+  try {
+    if (!readFileSync(sourceFile).equals(readFileSync(packedFile))) {
+      fail(`contenido distinto del fuente en el audio empaquetado: ${entry.file}`);
+    }
+  } catch (err) {
+    fail(`no pude comparar el contenido de ${entry.file}: ${err.message}`);
+  }
+}
+console.log(`OK — pack de sonidos completo: ${entries.length} entradas, manifest y contenido iguales al fuente en ${packDir}`);
 
 // 4) El ejecutable principal existe en la raíz del unpacked.
 const exeInRoot = readdirSync(unpackedDir).find((name) => name.toLowerCase().endsWith('.exe'));
