@@ -21,7 +21,7 @@ import { sha1Hex } from '../browser/sound-actions';
 // toca el store del otro fuera de una función, así que el ciclo no muerde.
 import { useMasterStream } from '../collab/master-stream';
 import { currentBeat, engine, store, togglePlay } from './app';
-import { withPinnedSample } from './sample-gc';
+import { noteRecordingWritten, withPinnedSample } from './sample-gc';
 import { useUiStore } from './ui';
 
 interface TrackCaptureState {
@@ -120,13 +120,31 @@ export async function stopTrackCapture(): Promise<void> {
     const trackName = project.mixer[trackIndex]?.name ?? `Insert ${trackIndex}`;
     const wav = encodeWav(left, right, sampleRate, 24);
     const buffer = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
-    const file = await api.recording.save(`Pista ${trackName}.wav`, wav);
 
+    // Nombre por CONTENIDO, como el de las ediciones del editor
+    // (`editFileName`) y lo importado (`storedNameFor`). Aquí el borrado
+    // silencioso era el peor de los tres escritores: `recording:save` pisa por
+    // nombre y `Pista <nombre>.wav` colisionaba SIEMPRE —la segunda captura de
+    // la misma pista se llevaba por delante el audio de la primera, una pasada
+    // EN VIVO que no se puede volver a tocar— y ni siquiera hacían falta dos
+    // relojes iguales. Con el sha1 del wav en el nombre, «mismo nombre»
+    // significa «mismo contenido»: pisar es escribir lo mismo encima. El hash
+    // va ANTES del save porque el nombre sale de él —y aquí todavía no hay
+    // nada subido al motor, así que este `await` no abre ventana alguna.
     const sampleId = newId();
+    const hash = (await sha1Hex(buffer)) ?? sampleId;
+    const file = await api.recording.save(`Pista ${trackName} ${hash}.wav`, wav);
+    const path = `recording:${file}`;
+    // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
+    // dispatch: un fallo entre las dos deja el `.wav` en disco sin que nada lo
+    // nombre jamás, y es justo el que hay que poder reclamar (política y
+    // porqués en `state/sample-gc.ts`).
+    noteRecordingWritten({ sampleId, path, bytes: wav.byteLength });
+
     // Sujeto desde antes de subirlo y hasta DESPUÉS del dispatch, como en el
     // editor de audio y por lo mismo (`state/sample-gc.ts`): entre `loadSample`
-    // y `registerSample` ese id no lo nombra nada del modelo, y el `await` de
-    // `sha1Hex` que hay en medio es justo por donde entra el
+    // y `registerSample` ese id no lo nombra nada del modelo, y el
+    // `decodeAudioData` que hay en medio es justo por donde entra el
     // `collectSessionSamples()` del Ctrl+Z. Aquí, además, lo que se perdería es
     // una PASADA EN VIVO —con las perillas que se movieron en ese momento— que
     // no se puede volver a renderizar: repetirla es volver a tocarla.
@@ -137,9 +155,11 @@ export async function stopTrackCapture(): Promise<void> {
       const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
       const sample: SampleRef = {
         id: sampleId,
-        name: file.replace(/\.wav$/i, ''),
-        path: `recording:${file}`,
-        hash: (await sha1Hex(buffer)) ?? sampleId,
+        // El NOMBRE es el humano, no el del archivo: el auto-mapa de notas lee
+        // los nombres y un hash hexadecimal es puro falso positivo.
+        name: `Pista ${trackName}`,
+        path,
+        hash,
         duration,
       };
 
