@@ -31,7 +31,7 @@ import {
 } from '@orbit/sound-library';
 import { countSampleRefs, sampleIsUsed } from '@orbit/engine';
 import { engine, store } from '../state/app';
-import { collectWorkletSamples, pinSample, unpinSample } from '../state/sample-gc';
+import { collectWorkletSamples, withPinnedSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
 
 /** MIME propio para arrastrar sonidos del browser dentro de la app. */
@@ -304,12 +304,13 @@ async function withLoadedSounds<T>(
   run: (loaded: LoadedSound[]) => Promise<T>,
 ): Promise<T> {
   const jobs = loadJobs(entries);
-  for (const job of jobs) pinSample(job.id);
-  try {
-    return await run(await loadAll(entries, jobs));
-  } finally {
-    for (const job of jobs) unpinSample(job.id);
-  }
+  // Los ids salen de `loadJobs` antes de leer nada, y el envoltorio los suelta
+  // todos en su `finally`: una lectura que revienta a mitad no deja sujeto lo
+  // que ya subió, igual de larga la lista que si hubiera terminado.
+  return withPinnedSamples(
+    jobs.map((job) => job.id),
+    async () => run(await loadAll(entries, jobs)),
+  );
 }
 
 /**

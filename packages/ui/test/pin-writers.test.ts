@@ -57,7 +57,7 @@ interface RigOpts {
   /**
    * `false` neutraliza la sujeción y deja el resto del módulo intacto: es el
    * control. `collectWorkletSamples` sigue siendo el de verdad y sigue leyendo
-   * el `Set` de verdad (que así nunca se llena).
+   * el contador de verdad (que así nunca se llena).
    */
   sujeta?: boolean;
   /** Bytes que devuelve una lectura de disco del Explorador. */
@@ -79,6 +79,8 @@ async function rig(opts: RigOpts = {}) {
         // export, así que sustituir el export no lo desactiva. Aquí queda como
         // lo que era el código antes del arreglo — ejecutar el bloque a pelo.
         withPinnedSample: <T,>(_id: string, run: () => Promise<T>) => run(),
+        // Y el plural, mismo motivo: `withLoadedSounds` ya no suelta a mano.
+        withPinnedSamples: <T,>(_ids: Iterable<string>, run: () => Promise<T>) => run(),
       };
     });
   }
@@ -456,8 +458,13 @@ describe('los tres archivos sujetan de verdad, y hasta después del dispatch', (
     // `registerCommands` por fuera).
     const llamadas = file.split('loadAll(entries').length - 1;
     expect(llamadas).toBe(2); // la definición y la de `withLoadedSounds`
-    expect(file).toMatch(/return await run\(await loadAll\(entries, jobs\)\);/);
-    expect(file).toMatch(/\}\s*finally\s*\{\s*for \(const job of jobs\) unpinSample\(job\.id\);/);
+    expect(file).toMatch(/return withPinnedSamples\(/);
+    expect(file).toMatch(/async \(\) => run\(await loadAll\(entries, jobs\)\),/);
+    // La baja es el `finally` de `withPinnedSamples` (sample-gc): aquí no puede
+    // quedar un `unpinSample` a mano, que dependería de que no haya una
+    // excepción entre pin y pin.
+    expect(file).not.toMatch(/\bpinSample\(/);
+    expect(file).not.toMatch(/\bunpinSample\(/);
     // Y las tres rutas que cargan sonidos pasan por él.
     expect(file.split('withLoadedSounds(entries').length - 1).toBe(3);
     for (const fn of ['addSamplerChannels', 'addKeymapZones', 'addAudioClips']) {

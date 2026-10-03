@@ -45,7 +45,7 @@ import {
 } from './input-monitor';
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
 import { compensateClipStart } from './input-latency';
-import { pinSample, unpinSample } from './sample-gc';
+import { withPinnedSamples } from './sample-gc';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -590,112 +590,109 @@ async function stopRecording(): Promise<void> {
    *  - **Rompe el todo-o-nada.** El `batch` de core hace rollback entero; en
    *    trozos, un fallo a mitad deja registradas unas tomas y otras no.
    *
-   * El coste de sostenerlas todas es un `Set` con N ids durante esos
+   * El coste de sostenerlas todas es una lista con N ids durante esos
    * milisegundos: el pin no retiene audio, solo impide soltarlo.
    *
-   * La baja va en el `finally` de abajo, que cubre también el camino de error
-   * (un `recording.save` que revienta con dos tomas ya subidas) — un pin que se
-   * queda puesto es la misma fuga del otro lado.
+   * La sujeción es `withPinnedSamples`, que los ata a todos desde antes del
+   * primer `recording.save` y los suelta en su `finally` — también si el
+   * guardado revienta con dos tomas ya subidas, que un pin que se queda puesto
+   * es la misma fuga del otro lado. Los ids se generan ANTES del bucle para
+   * poder sujetarlos de una vez; generarlos dentro era lo que obligaba a
+   * acumular y soltar a mano.
    */
-  const pinnedTakes: string[] = [];
+  const takeIds = recorded.map(() => newId());
 
-  try {
-    const api = window.orbit;
-    if (!api) throw new Error('Sin puente de escritorio');
-    if (recorded.length === 0) throw new Error('La toma salió vacía');
+  await withPinnedSamples(takeIds, async () => {
+    try {
+      const api = window.orbit;
+      if (!api) throw new Error('Sin puente de escritorio');
+      if (recorded.length === 0) throw new Error('La toma salió vacía');
 
-    const project = store.project;
-    // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
-    // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
-    // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
-    // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
-    // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
-    // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
-    //
-    // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
-    // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
-    // por separado sería inventarse diferencias que no existen.
-    const placedStart = compensateClipStart(
-      startBeat,
-      getLatencyCompensationSamples(),
-      sampleRate,
-      project.tempo,
-    );
+      const project = store.project;
+      // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
+      // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
+      // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
+      // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
+      // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
+      // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
+      //
+      // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
+      // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
+      // por separado sería inventarse diferencias que no existen.
+      const placedStart = compensateClipStart(
+        startBeat,
+        getLatencyCompensationSamples(),
+        sampleRate,
+        project.tempo,
+      );
 
-    const stamp = new Date();
-    const two = (n: number) => String(n).padStart(2, '0');
-    const clock = `${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
+      const stamp = new Date();
+      const two = (n: number) => String(n).padStart(2, '0');
+      const clock = `${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
 
-    const commands: Command[] = [];
-    const claimed = new Set<Id>();
-    const names: string[] = [];
+      const commands: Command[] = [];
+      const claimed = new Set<Id>();
+      const names: string[] = [];
 
-    for (const { take, left, right } of recorded) {
-      // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
-      const wav = encodeWav(left, right, sampleRate, 24);
-      const duration = left.length / sampleRate;
-      const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
+      for (const [i, { take, left, right }] of recorded.entries()) {
+        // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
+        const wav = encodeWav(left, right, sampleRate, 24);
+        const duration = left.length / sampleRate;
+        const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
 
-      // El nombre lleva la entrada cuando hay más de una: dos tomas del mismo
-      // segundo comparten archivo si no, y la segunda pisa a la primera.
-      const name =
-        recorded.length > 1 ? `Toma ${clock} ${take.route.name}.wav` : `Toma ${clock}.wav`;
-      const file = await api.recording.save(name, wav);
+        // El nombre lleva la entrada cuando hay más de una: dos tomas del mismo
+        // segundo comparten archivo si no, y la segunda pisa a la primera.
+        const name =
+          recorded.length > 1 ? `Toma ${clock} ${take.route.name}.wav` : `Toma ${clock}.wav`;
+        const file = await api.recording.save(name, wav);
 
-      const sampleId = newId();
-      // Sujeta ANTES de subir y hasta el `finally` de esta función: ver el
-      // bloque de `pinnedTakes` arriba.
-      pinSample(sampleId);
-      pinnedTakes.push(sampleId);
-      const wavBuf = wav.buffer.slice(
-        wav.byteOffset,
-        wav.byteOffset + wav.byteLength,
-      ) as ArrayBuffer;
-      await engine.loadSample(sampleId, wavBuf);
+        const sampleId = takeIds[i]!;
+        const wavBuf = wav.buffer.slice(
+          wav.byteOffset,
+          wav.byteOffset + wav.byteLength,
+        ) as ArrayBuffer;
+        await engine.loadSample(sampleId, wavBuf);
 
-      const sample: SampleRef = {
-        id: sampleId,
-        name: file.replace(/\.wav$/i, ''),
-        path: `recording:${file}`,
-        hash: (await sha1Hex(wavBuf)) ?? sampleId,
-        duration,
-      };
-      commands.push({ type: 'registerSample', sample });
-      names.push(sample.name);
+        const sample: SampleRef = {
+          id: sampleId,
+          name: file.replace(/\.wav$/i, ''),
+          path: `recording:${file}`,
+          hash: (await sha1Hex(wavBuf)) ?? sampleId,
+          duration,
+        };
+        commands.push({ type: 'registerSample', sample });
+        names.push(sample.name);
 
-      const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands);
-      const lane = take.lane ?? 0;
-      const clip: Clip = {
-        id: newId(),
-        kind: 'audio',
-        playlistTrackId: trackId,
-        start: placedStart,
-        length: lengthBeats,
-        muted: false,
-        sampleId,
-        audioOffset: 0,
-        audioGain: 1,
-        ...(lane > 0 ? { lane } : null),
-      };
-      commands.push({ type: 'addClips', clips: [clip] });
+        const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands);
+        const lane = take.lane ?? 0;
+        const clip: Clip = {
+          id: newId(),
+          kind: 'audio',
+          playlistTrackId: trackId,
+          start: placedStart,
+          length: lengthBeats,
+          muted: false,
+          sampleId,
+          audioOffset: 0,
+          audioGain: 1,
+          ...(lane > 0 ? { lane } : null),
+        };
+        commands.push({ type: 'addClips', clips: [clip] });
+      }
+
+      // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y
+      // deshacerlas de una en una dejaría media grabación puesta.
+      const label =
+        names.length === 1 ? `Grabar "${names[0]}"` : `Grabar ${names.length} entradas`;
+      store.dispatch({ type: 'batch', label, commands }, { label });
+      useRecorderStore.setState({ phase: 'idle', error: null });
+    } catch (err) {
+      useRecorderStore.setState({
+        phase: 'idle',
+        error: err instanceof Error ? err.message : 'No se pudo guardar la toma',
+      });
     }
-
-    // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y
-    // deshacerlas de una en una dejaría media grabación puesta.
-    const label =
-      names.length === 1 ? `Grabar "${names[0]}"` : `Grabar ${names.length} entradas`;
-    store.dispatch({ type: 'batch', label, commands }, { label });
-    useRecorderStore.setState({ phase: 'idle', error: null });
-  } catch (err) {
-    useRecorderStore.setState({
-      phase: 'idle',
-      error: err instanceof Error ? err.message : 'No se pudo guardar la toma',
-    });
-  } finally {
-    // La baja de TODAS, y estructural: llegue el dispatch o reviente el guardado
-    // con dos tomas ya subidas, aquí no queda ningún id sujeto.
-    for (const id of pinnedTakes) unpinSample(id);
-  }
+  });
 }
 
 /**

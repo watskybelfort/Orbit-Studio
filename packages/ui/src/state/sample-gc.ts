@@ -112,11 +112,45 @@ export function pinnedSamples(): string[] {
  * id sujeto para siempre — sería una fuga con otro nombre.
  */
 export async function withPinnedSample<T>(id: string, run: () => Promise<T>): Promise<T> {
-  pinSample(id);
+  return withPinnedSamples([id], run);
+}
+
+/**
+ * El caso plural: sujeta N samples mientras dura la operación que los crea.
+ *
+ * Existía escrito a mano DOS veces —`recorder.ts` y `withLoadedSounds` de
+ * `browser/sound-actions.ts`— por una razón circunstancial (este archivo estaba
+ * prohibido en el reparto de archivos de aquella tanda), y las dos copias
+ * repetían el patrón «sujetar N, soltar en `finally`» que este envoltorio
+ * garantiza de una vez.
+ *
+ * Los ids van por adelantado porque en los dos llamantes se pueden saber:
+ * `withLoadedSounds` los deriva de `loadJobs` antes de leer nada, y el grabador
+ * los genera (`newId()`) para sus N tomas antes de entrar al bucle — su
+ * `stopRecording` envuelve el cuerpo entero, así que la sujeción empieza antes
+ * del primer `recording.save` y llega hasta después del dispatch (o hasta el
+ * `catch`, si algo revienta). Sujetar antes de tiempo no cuesta nada: el pin no
+ * retiene audio, solo impide soltarlo.
+ */
+export async function withPinnedSamples<T>(
+  ids: Iterable<string>,
+  run: () => Promise<T>,
+): Promise<T> {
+  const held: string[] = [];
   try {
+    // La adquisición va DENTRO del try, no antes: `ids` puede ser un generator
+    // que revienta tras el primer yield, y lo ya adquirido tendría su `finally`
+    // sin haber entrado nunca en él — la misma fuga con otro nombre.
+    for (const id of ids) {
+      pinSample(id);
+      held.push(id);
+    }
     return await run();
   } finally {
-    unpinSample(id);
+    // La baja de TODOS los adquiridos, y estructural: llegue el dispatch o
+    // reviente la operación con media lista ya subida, aquí no queda ningún id
+    // sujeto.
+    for (const id of held) unpinSample(id);
   }
 }
 
