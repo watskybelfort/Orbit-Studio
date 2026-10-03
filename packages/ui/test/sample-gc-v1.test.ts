@@ -107,3 +107,77 @@ describe('collectWorkletSamples', () => {
     expect(pinnedSamples()).not.toContain('roto');
   });
 });
+
+/**
+ * La sujeción es un CONTADOR de referencias, no un `Set`.
+ *
+ * Con un `Set`, la primera operación en terminar borraba la entrada y la
+ * segunda se quedaba con su audio a la intemperie. El primer test de aquí es
+ * exactamente esa carrera, con dos operaciones de verdad solapadas (cada una
+ * termina cuando su compuerta se abre, no al azar): contra la implementación
+ * con `Set` falla en la aserción de «sigue sujeto tras terminar la primera»,
+ * que es el síntoma —el audio vivo para la segunda— y no el mecanismo.
+ */
+describe('la sujeción es un contador de referencias', () => {
+  /** Compuerta que una operación espera antes de terminar. */
+  function compuerta(): { abrir: () => void; lista: Promise<void> } {
+    let abrir!: () => void;
+    const lista = new Promise<void>((resolve) => {
+      abrir = resolve;
+    });
+    return { abrir, lista };
+  }
+
+  it('dos operaciones sobre el mismo id: la primera en terminar no se lleva el audio de la segunda', async () => {
+    const engine = fakeEngine(true);
+    const a = compuerta();
+    const b = compuerta();
+
+    const primera = withPinnedSample('compartido', async () => {
+      await a.lista;
+    });
+    const segunda = withPinnedSample('compartido', async () => {
+      await b.lista;
+    });
+
+    // Las dos sujetan ya: una sola entrada, dos referencias.
+    expect(pinnedSamples()).toEqual(['compartido']);
+
+    a.abrir();
+    await primera;
+    // La primera terminó y soltó SU referencia. Con un `Set` aquí ya no queda
+    // nada sujeto, y la segunda operación —que sigue en vuelo— perdería el
+    // audio justo en su ventana vulnerable.
+    expect(pinnedSamples()).toEqual(['compartido']);
+    expect(collectWorkletSamples(engine, project()).keep).toContain('compartido');
+
+    b.abrir();
+    await segunda;
+    expect(pinnedSamples()).toEqual([]);
+  });
+
+  it('el mismo id anidado pide dos soltados: el inner no deja a la outer en la intemperie', async () => {
+    await withPinnedSample('anidado', async () => {
+      await withPinnedSample('anidado', async () => {
+        /* la operación interna termina primero */
+      });
+      expect(pinnedSamples()).toEqual(['anidado']);
+    });
+    expect(pinnedSamples()).toEqual([]);
+  });
+
+  it('unpinSample de un id que no está sujeto es un no-op: el contador nunca baja de cero', () => {
+    unpinSample('nunca-sujeto');
+    pinSample('una-vez');
+    unpinSample('una-vez');
+    unpinSample('una-vez'); // de más: el bug simétrico
+    expect(pinnedSamples()).toEqual([]);
+    // Con contador en negativo este pin lo dejaría en 0 y el id NO aparecería
+    // sujeto: el suelo en cero es el que decide que sueltes de más no roben
+    // referencias de pins futuros.
+    pinSample('una-vez');
+    expect(pinnedSamples()).toEqual(['una-vez']);
+    unpinSample('una-vez');
+    expect(pinnedSamples()).toEqual([]);
+  });
+});
