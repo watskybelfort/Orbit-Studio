@@ -5,7 +5,9 @@
 # cuando app.isPackaged.
 appId: studio.orbit.desktop
 productName: Orbit Studio
-electronVersion: 43.4.0
+# Electron está hoisted en la raíz del workspace. El empaquetador necesita la
+# versión exacta aquí; tools/qa/packaged-electron.test.ts la contrasta con el lock.
+electronVersion: 43.7.7
 directories:
   output: dist
 files:
