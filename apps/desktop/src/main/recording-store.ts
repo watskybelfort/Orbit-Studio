@@ -138,6 +138,26 @@ export function createRecordingStore(dir: () => string): RecordingStore {
   const trashDir = () => join(dir(), RECORDINGS_TRASH);
 
   /**
+   * Exclusión mutua entre lo que barre y lo que mueve. Sin ella hay una
+   * carrera con pérdida reproducida: `purgeTrash` saca el `stat` de una copia
+   * vieja, un `discard` la sustituye por una baja NUEVA con su ventana
+   * recién puesta, y la purga sigue con el `stat` rancio y tira la copia
+   * recién descartada. Serializándolas, la purga o ve el mundo de antes (y
+   * entonces lo que tira era de verdad viejo) o el de después (y lo nuevo
+   * tiene su fecha): ninguna purga puede borrar una baja posterior.
+   *
+   * Es por ALMACÉN, que es lo que hay en la app: `index.ts` crea UNA
+   * instancia y por ella pasan el arranque y todos los IPC. Si algún día
+   * hubiera dos procesos sobre la misma carpeta, esto pide un lock de archivo.
+   */
+  let trashLock: Promise<unknown> = Promise.resolve();
+  function withTrashLock<T>(run: () => Promise<T>): Promise<T> {
+    const next = trashLock.then(run, run);
+    trashLock = next.catch(() => undefined);
+    return next;
+  }
+
+  /**
    * ¿La papelera está de verdad DENTRO de `recordings/`? Un `.papelera` que
    * sea un junction hacia una carpeta hermana resuelve hacia fuera, y con él
    * `read` serviría bytes ajenos y `purgeTrash` BORRARÍA archivos ajenos. Se
@@ -186,7 +206,7 @@ export function createRecordingStore(dir: () => string): RecordingStore {
     throw new Error(`recording:read no encontró el archivo: ${file}`);
   }
 
-  async function discard(files: readonly string[]): Promise<string[]> {
+  async function discardLocked(files: readonly string[]): Promise<string[]> {
     if (!(await trashOk())) return [];
     await mkdir(trashDir(), { recursive: true });
     const discarded: string[] = [];
@@ -212,6 +232,27 @@ export function createRecordingStore(dir: () => string): RecordingStore {
         continue;
       }
       try {
+        // Primero la FECHA de la ventana y después el movimiento. Si la fecha
+        // no se puede registrar, el descarte NO se confirma: un archivo en la
+        // papelera sin reloj de retención se purgaría por su fecha de
+        // escritura —la ventana desaparecería en el primer arranque—, que es
+        // peor que dejarlo vivo y reintentarlo en el próximo barrido. Y poniendo
+        // la fecha antes del `rename` no queda ventana de crash entre las dos:
+        // el archivo o está vivo (sin mover) o está en la papelera YA fechado.
+        await utimes(from, new Date(), new Date());
+      } catch {
+        // No se pudo fechar: puede que otra confirmación cruzada ya haya
+        // movido el archivo (el `utimes` falla también sobre un `from` que ya
+        // no existe) — si está en la papelera, el estado pedido se cumplió.
+        try {
+          await stat(to);
+          discarded.push(file);
+        } catch {
+          /* sin fecha no hay descarte: sigue vivo y no se confirma */
+        }
+        continue;
+      }
+      try {
         // `rename` es atómico y SUSTITUYE destino existente (libuv lo hace con
         // MOVEFILE_REPLACE_EXISTING en Windows; en POSIX la sustitución es
         // atómica por definición). NO hay `rm` previo a propósito: entre un
@@ -222,9 +263,6 @@ export function createRecordingStore(dir: () => string): RecordingStore {
         // el MISMO contenido (lo distinto con ese nombre ya se pisó en la
         // carpeta viva, antes de que existiera esta papelera).
         await rename(from, to);
-        // El reloj de la ventana de retención arranca AHORA (ver el TTL): la
-        // edad que importa es la de la papelera, no la de la escritura.
-        await utimes(to, new Date(), new Date()).catch(() => undefined);
         discarded.push(file);
       } catch {
         // No se movió (una confirmación cruzada se llevó el archivo, disco,
@@ -242,7 +280,12 @@ export function createRecordingStore(dir: () => string): RecordingStore {
     return discarded;
   }
 
-  async function purgeTrash(
+  /** `discard`, serializado con la purga (ver `withTrashLock`). */
+  function discard(files: readonly string[]): Promise<string[]> {
+    return withTrashLock(() => discardLocked(files));
+  }
+
+  async function purgeTrashLocked(
     now = Date.now(),
     // Los límites se pueden inyectar para TESTS (probar el tope de bytes sin
     // escribir dos gigas); los de producción y su medición, en la cabecera.
@@ -279,6 +322,13 @@ export function createRecordingStore(dir: () => string): RecordingStore {
       const tooBig = bytes > limits.maxBytes;
       if (!tooOld && !tooBig) continue;
       try {
+        // Re-`stat` justo antes de tirar: el `stat` de la enumeración puede ser
+        // rancio (otro proceso, otra instancia de test), y tirar con
+        // metadatos viejos borraría una baja NUEVA con su ventana recién
+        // puesta. Con la exclusión de arriba esto no puede pasar dentro del
+        // almacén; aquí se cierra también el borde de dos instancias.
+        const fresh = await stat(join(trashDir(), f.file));
+        if (fresh.mtimeMs !== f.at) continue;
         await rm(join(trashDir(), f.file), { force: true });
         removed.push(f.file);
         bytes -= f.bytes;
@@ -287,6 +337,14 @@ export function createRecordingStore(dir: () => string): RecordingStore {
       }
     }
     return { removed, bytes };
+  }
+
+  /** `purgeTrash`, serializado con los descartes (ver `withTrashLock`). */
+  function purgeTrash(
+    now?: number,
+    limits?: { ttlMs: number; maxBytes: number },
+  ): Promise<{ removed: string[]; bytes: number }> {
+    return withTrashLock(() => purgeTrashLocked(now, limits));
   }
 
   return { save, read, discard, purgeTrash };

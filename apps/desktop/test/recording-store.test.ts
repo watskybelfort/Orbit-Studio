@@ -16,7 +16,7 @@
  *     pueden quedar con el mismo nombre.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -35,6 +35,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.doUnmock('node:fs/promises');
+  vi.resetModules();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -51,6 +53,29 @@ async function listarRelativo(dir: string): Promise<string[]> {
 }
 
 describe('save/read: escribir y volver a leer', () => {
+  it('el primer save a una carpeta que aún no existe pasa la guarda', async () => {
+    // El repro de la sonda de revisión: `save` guarda ANTES de crear la
+    // carpeta, y con la base inexistente la comparación se desalineaba. Aquí
+    // además el padre se alcanza por DOS nombres distintos —lo que en el repro
+    // era el alias corto de `%TEMP%` (MXRNIN~1 vs su forma larga), aquí un
+    // link a la carpeta real—: resolver el destino por ancestro real y la base
+    // a pelo deja las dos cadenas apuntando al mismo sitio sin que la
+    // comparación lo vea.
+    const real = await mkdtemp(join(tmpdir(), 'orbit-rec-real-'));
+    const alias = join(tmpdir(), `orbit-rec-alias-${Date.now()}`);
+    await symlink(real, alias, 'junction');
+    try {
+      const s = createRecordingStore(() => join(alias, 'recordings'));
+      const file = await s.save('primera.wav', bytes(5));
+      expect(new Uint8Array(await s.read(file))).toEqual(bytes(5));
+      // Y el archivo vive de verdad en la carpeta REAL.
+      expect(new Uint8Array(await readFile(join(real, 'recordings', file)))).toEqual(bytes(5));
+    } finally {
+      await rm(alias, { force: true });
+      await rm(real, { recursive: true, force: true });
+    }
+  });
+
   it('roundtrip por nombre, con sanitizado del nombre', async () => {
     const s = store();
     const file = await s.save('Toma rara: ¿sí?.wav', bytes(7));
@@ -117,6 +142,81 @@ describe('discard: baja REVERSIBLE, no borrado', () => {
       expect(new Uint8Array(await s1.read(nombre))).toEqual(bytes(i));
       expect(await listarRelativo(root)).not.toContain(nombre);
     }
+  });
+
+  it('si la fecha de retención no se puede registrar, no se descarta y el archivo sigue vivo', async () => {
+    // `utimes` revienta (EPERM de permisos, FS raro): sin fecha no hay ventana
+    // de reversibilidad, y un archivo en la papelera sin reloj se purgaría por
+    // su fecha de ESCRITURA —confirmar el descarte aquí es confirmar una
+    // pérdida—. Se queda vivo y el libro del renderer lo reintenta.
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const real = await importOriginal<typeof import('node:fs/promises')>();
+      return { ...real, utimes: () => Promise.reject(new Error('EPERM')) };
+    });
+    const { createRecordingStore } = await import('../src/main/recording-store');
+    const s = createRecordingStore(() => root);
+    const file = await s.save('viejo.wav', bytes(1));
+
+    await expect(s.discard([file])).resolves.toEqual([]);
+    expect(await listarRelativo(root)).toContain(file);
+    expect(new Uint8Array(await s.read(file))).toEqual(bytes(1));
+  });
+
+  it('una purga suspendida entre su stat y su rm no borra una baja posterior', async () => {
+    // La repro de la sonda de revisión, hecha determinista: la purga saca el
+    // `stat` de una copia VIEJA de la papelera y queda pendiente; un descarte
+    // la sustituye por una baja NUEVA con su ventana recién puesta; la purga
+    // sigue con metadatos RANCIOS. El re-stat justo antes de tirar es el que
+    // lo cierra —y la exclusión por almacén evita que el entrelazado exista
+    // dentro de una instancia—. Aquí el descarte va por OTRA instancia, que es
+    // el caso que la exclusión no cubre.
+    const file = 'misma-copia.wav';
+    const s = store();
+    await s.save(file, bytes(1));
+    await s.discard([file]);
+    const hace = new Date(Date.now() - RECORDINGS_TRASH_TTL_MS * 2);
+    await utimes(join(root, RECORDINGS_TRASH, file), hace, hace);
+    await s.save(file, bytes(2)); // la baja nueva, mismo nombre
+
+    // Se congela la purga en el `stat` de su enumeración: captura el mtime
+    // viejo y se queda esperando.
+    let purgaEnSuStat: () => void = () => undefined;
+    const enStat = new Promise<void>((r) => (purgaEnSuStat = r));
+    let soltarPurga: () => void = () => undefined;
+    const libre = new Promise<void>((r) => (soltarPurga = r));
+    vi.resetModules();
+    vi.doMock('node:fs/promises', async (importOriginal) => {
+      const real = await importOriginal<typeof import('node:fs/promises')>();
+      let primero = true;
+      return {
+        ...real,
+        stat: async (p: Parameters<typeof real.stat>[0]) => {
+          const info = await real.stat(p);
+          if (primero && String(p).includes(RECORDINGS_TRASH)) {
+            primero = false;
+            purgaEnSuStat();
+            await libre;
+          }
+          return info;
+        },
+      };
+    });
+    const { createRecordingStore } = await import('../src/main/recording-store');
+    const s1 = createRecordingStore(() => root);
+    const s2 = createRecordingStore(() => root);
+
+    const purga = s1.purgeTrash();
+    await enStat; // la purga ya tiene el stat viejo y está parada
+    const descarte = await s2.discard([file]); // la baja nueva, completa
+    expect(descarte).toEqual([file]);
+    soltarPurga(); // la purga sigue con sus metadatos rancios
+    await purga;
+
+    // La copia recién descartada está viva en la papelera: con los metadatos
+    // rancios, la purga la habría borrado y el audio no quedaría ni vivo ni
+    // descartado.
+    expect(new Uint8Array(await s1.read(file))).toEqual(bytes(2));
   });
 
   it('una ruta que se sale de recordings no se toca, ni se lee ni se descarta', async () => {

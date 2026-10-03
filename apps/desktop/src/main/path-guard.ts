@@ -57,7 +57,14 @@ export async function realpathOrNearest(p: string): Promise<string> {
 
 /** ¿El destino REAL queda dentro de la base REAL (siguiendo enlaces)? */
 export async function isRealPathWithin(target: string, base: string): Promise<boolean> {
-  const realBase = await realpath(base).catch(() => resolve(base));
+  // Los DOS lados por `realpathOrNearest`, y no porque sea simétrico por
+  // estética: la base puede no existir todavía (el primer `save` crea
+  // `recordings/`), y resolverla con `realpath().catch(resolve)` la deja en la
+  // forma NO resuelta mientras el destino sí se resuelve por ancestro real —
+  // en un `%TEMP%` con alias corto (`MXRNIN~1` contra su forma larga) las dos
+  // cadenas apuntan al mismo sitio y la comparación dice que no. Medido con la
+  // sonda de revisión: primer save a la carpeta inexistente rechazado.
+  const realBase = await realpathOrNearest(base);
   const realTarget = await realpathOrNearest(target);
   return pathWithin(realTarget, realBase);
 }
