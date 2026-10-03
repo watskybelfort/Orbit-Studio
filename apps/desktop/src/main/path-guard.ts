@@ -1,10 +1,13 @@
 /**
- * Dos guardas puras del proceso principal, aparte para poder probarlas sin
- * levantar Electron:
+ * Guardas del proceso principal, aparte para poder probarlas sin levantar
+ * Electron:
  *
  * - `pathWithin`: ¿una ruta queda dentro de una base? (tras resolver realpath en
  *   el llamador). Cierra el escape por symlink/junction de las lecturas y
  *   escrituras acotadas.
+ * - `realpathOrNearest` / `isRealPathWithin`: la misma pregunta resolviendo de
+ *   verdad los enlaces (fs, no es puro — pero tampoco necesita Electron, y es
+ *   lo que usan `recording:*` y el resto de operaciones acotadas a una carpeta).
  * - `isBlockedIp`: ¿una IP cae en un rango que una descarga externa no debe
  *   alcanzar? Es la guarda anti-SSRF de `gallery:fetch` — el único sitio desde
  *   el que el renderer (sin red por CSP) puede llegar a la red, incluida la
@@ -20,7 +23,8 @@
  * dejar la puerta de atrás abierta.
  */
 
-import { sep } from 'node:path';
+import { realpath } from 'node:fs/promises';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 
 /** Igualdad o prefijo de ruta, sin distinguir mayúsculas en Windows. */
 export function pathWithin(target: string, base: string): boolean {
@@ -28,6 +32,41 @@ export function pathWithin(target: string, base: string): boolean {
   const t = norm(target);
   const b = norm(base);
   return t === b || t.startsWith((b.endsWith(sep) ? b : b + sep));
+}
+
+/**
+ * realpath del destino, o —si aún no existe (una escritura)— realpath del
+ * ancestro existente más cercano con el tramo que falta pegado detrás. Ese
+ * tramo no puede contener enlaces (no existe), así que es seguro.
+ */
+export async function realpathOrNearest(p: string): Promise<string> {
+  let cur = resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = await realpath(cur);
+      return tail.length ? join(real, ...tail.reverse()) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return resolve(p); // raíz sin resolver
+      tail.push(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/** ¿El destino REAL queda dentro de la base REAL (siguiendo enlaces)? */
+export async function isRealPathWithin(target: string, base: string): Promise<boolean> {
+  // Los DOS lados por `realpathOrNearest`, y no porque sea simétrico por
+  // estética: la base puede no existir todavía (el primer `save` crea
+  // `recordings/`), y resolverla con `realpath().catch(resolve)` la deja en la
+  // forma NO resuelta mientras el destino sí se resuelve por ancestro real —
+  // en un `%TEMP%` con alias corto (`MXRNIN~1` contra su forma larga) las dos
+  // cadenas apuntan al mismo sitio y la comparación dice que no. Medido con la
+  // sonda de revisión: primer save a la carpeta inexistente rechazado.
+  const realBase = await realpathOrNearest(base);
+  const realTarget = await realpathOrNearest(target);
+  return pathWithin(realTarget, realBase);
 }
 
 /**
