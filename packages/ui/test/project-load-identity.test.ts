@@ -33,13 +33,23 @@ function deferred<T>() {
 }
 
 /** Arnés: store y parse REALES; el IPC son promesas que el test controla. */
-async function rig() {
+async function rig({ deferSaves = false } = {}) {
   vi.resetModules();
   const guardados: Guardado[] = [];
 
   const openings: ReturnType<typeof deferred<OpenResult>>[] = [];
   const recents: ReturnType<typeof deferred<OpenResult>>[] = [];
   const refreshRecents = vi.fn(async () => []);
+  const saves: (Guardado & ReturnType<typeof deferred<string | null>>)[] = [];
+  const saveWaiters = new Map<number, ReturnType<typeof deferred<(typeof saves)[number]>>>();
+  const versionWrites: { projectId: string; label: string; json: string }[] = [];
+  const versionsApi = {
+    save: vi.fn(async (projectId: string, label: string, json: string) => {
+      versionWrites.push({ projectId, label, json });
+      return 'version.orbit';
+    }),
+    list: vi.fn(async (): Promise<{ file: string; at: number; bytes: number }[]> => []),
+  };
 
   vi.stubGlobal('window', {
     confirm: () => true,
@@ -60,11 +70,18 @@ async function rig() {
         },
         save: async (path: string | null, json: string) => {
           guardados.push({ path, json });
+          if (deferSaves) {
+            const pending = { path, json, ...deferred<string | null>() };
+            saves.push(pending);
+            saveWaiters.get(saves.length - 1)?.resolve(pending);
+            return pending.promise;
+          }
           return path ?? 'C:/Music/nuevo-orbit';
         },
         recent: refreshRecents,
         forgetRecent: async () => undefined,
       },
+      versions: versionsApi,
       autosave: {
         check: async () => null,
         clear: async () => undefined,
@@ -86,6 +103,7 @@ async function rig() {
   vi.spyOn(app.engine, 'init').mockResolvedValue(undefined);
   const projectFile = await import('../src/state/project-file');
   const autosave = await import('../src/state/autosave');
+  const versions = await import('../src/state/versions');
   const sounds = await import('../src/browser/sound-actions');
   const rehydrate = vi.spyOn(sounds, 'rehydrateSamples').mockResolvedValue([]);
 
@@ -99,6 +117,16 @@ async function rig() {
     recents,
     refreshRecents,
     rehydrate,
+    versions,
+    versionsApi,
+    versionWrites,
+    saves,
+    waitForSave: (index: number) => {
+      if (saves[index]) return Promise.resolve(saves[index]);
+      const waiter = deferred<(typeof saves)[number]>();
+      saveWaiters.set(index, waiter);
+      return waiter.promise;
+    },
   };
 }
 
@@ -349,5 +377,246 @@ describe('BUG 020: solo la apertura vigente puede sustituir el proyecto', () => 
     expect(r.projectFile.useProjectFile.getState().notice).toBeTruthy();
     const after = currentState(r);
     expect({ ...after, file: { ...after.file, notice: before.file.notice } }).toEqual(before);
+  });
+});
+
+describe('BUG 021: guardar conserva la identidad y la foto del proyecto solicitado', () => {
+  it.each([false, true])('saveAs=%s de A no adopta ruta/clean/aviso tras crear B', async (saveAs) => {
+    const r = await rig({ deferSaves: true });
+    r.projectFile.useProjectFile.setState({ path: 'C:/Music/A.orbit' });
+    const originalId = r.app.store.project.id;
+    const originalJson = serializeProject(r.app.store.project);
+    const saving = r.projectFile.saveProject(saveAs);
+    r.projectFile.newProject();
+    r.app.store.dispatch({ type: 'setTempo', tempo: 177 });
+    const before = currentState(r);
+    const versionsBefore = { ...r.versions.useVersions.getState() };
+    r.saves[0]!.resolve('C:/Music/A.orbit');
+    await saving;
+    expect(currentState(r)).toEqual(before);
+    expect(r.versions.useVersions.getState()).toEqual(versionsBefore);
+    expect(r.versionWrites.every((v) => v.projectId === originalId && v.json === originalJson)).toBe(true);
+  });
+
+  it('abrir B antes de que termine Guardar A conserva la ruta de B y su dirty', async () => {
+    const r = await rig({ deferSaves: true });
+    const saving = r.projectFile.saveProject(true);
+    const b = beginOpen(r, 'dialog');
+    b.resolve(orbitDe(r, 'B'));
+    await b.done;
+    const before = currentState(r);
+    r.saves[0]!.resolve('C:/Music/A.orbit');
+    await saving;
+    expect(currentState(r)).toEqual(before);
+  });
+
+  it('restaurar el mismo id invalida metadatos de un guardado anterior', async () => {
+    const r = await rig({ deferSaves: true });
+    const saving = r.projectFile.saveProject();
+    r.app.store.replaceProject(r.app.store.project);
+    const before = currentState(r);
+    r.saves[0]!.resolve('C:/Music/A.orbit');
+    await saving;
+    expect(currentState(r)).toEqual(before);
+  });
+
+  it('la versión archivada contiene el mismo JSON enviado al archivo y editar durante el save sigue dirty', async () => {
+    const r = await rig({ deferSaves: true });
+    const originalJson = serializeProject(r.app.store.project);
+    const originalId = r.app.store.project.id;
+    const saving = r.projectFile.saveProject();
+    r.app.store.dispatch({ type: 'setTempo', tempo: 177 });
+    r.saves[0]!.resolve('C:/Music/A.orbit');
+    await saving;
+    expect(r.saves[0]!.json).toBe(originalJson);
+    expect(r.versionWrites).toEqual([{ projectId: originalId, label: 'guardado', json: originalJson }]);
+    expect(r.autosave.isDirty()).toBe(true);
+  });
+
+  it('dos guardados se escriben en orden y capturan la foto al solicitar, no al entrar a la cola', async () => {
+    const r = await rig({ deferSaves: true });
+    r.projectFile.useProjectFile.setState({ path: 'C:/Music/old.orbit' });
+    const firstJson = serializeProject(r.app.store.project);
+    const first = r.projectFile.saveProject(true);
+    r.app.store.dispatch({ type: 'setTempo', tempo: 155 });
+    const secondJson = serializeProject(r.app.store.project);
+    const second = r.projectFile.saveProject();
+    r.app.store.dispatch({ type: 'setTempo', tempo: 177 });
+    // Control negativo de la carrera: sin cola ya habría dos IPC en vuelo y
+    // el primero podría escribir su foto vieja DESPUÉS de la foto del segundo.
+    expect(r.saves).toHaveLength(1);
+    r.saves[0]!.resolve('C:/Music/renamed.orbit');
+    await first;
+    const secondWrite = await r.waitForSave(1);
+    expect(secondWrite.path).toBe('C:/Music/renamed.orbit');
+    expect(secondWrite.json).toBe(secondJson);
+    secondWrite.resolve('C:/Music/renamed.orbit');
+    await second;
+    expect(r.versionWrites.map((v) => v.json)).toEqual([firstJson, secondJson]);
+    expect(r.autosave.isDirty()).toBe(true);
+  });
+
+  it.each(['cancelar', 'fallar'] as const)('SaveAs puede %s y la cola continúa usando la ruta anterior de su sesión', async (outcome) => {
+    const r = await rig({ deferSaves: true });
+    r.projectFile.useProjectFile.setState({ path: 'C:/Music/old.orbit' });
+    const first = r.projectFile.saveProject(true);
+    const second = r.projectFile.saveProject();
+    expect(r.saves).toHaveLength(1);
+    if (outcome === 'cancelar') r.saves[0]!.resolve(null);
+    else r.saves[0]!.reject(new Error('Disco lleno'));
+    await first;
+    const secondWrite = await r.waitForSave(1);
+    expect(secondWrite.path).toBe('C:/Music/old.orbit');
+    secondWrite.resolve('C:/Music/old.orbit');
+    await second;
+    expect(r.projectFile.useProjectFile.getState().path).toBe('C:/Music/old.orbit');
+    expect(r.autosave.isDirty()).toBe(false);
+  });
+
+  it('SaveAs A → nuevo B → Save B no hereda el destino A aunque esté en la cola', async () => {
+    const r = await rig({ deferSaves: true });
+    const a = r.projectFile.saveProject(true);
+    r.projectFile.newProject();
+    const b = r.projectFile.saveProject();
+    expect(r.saves).toHaveLength(1);
+    r.saves[0]!.resolve('C:/Music/A.orbit');
+    await a;
+    const secondWrite = await r.waitForSave(1);
+    expect(secondWrite.path).toBeNull();
+    secondWrite.resolve('C:/Music/B.orbit');
+    await b;
+    expect(r.projectFile.useProjectFile.getState().path).toBe('C:/Music/B.orbit');
+  });
+
+  it('un fallo tardío de A no reemplaza el aviso ni el dirty de B', async () => {
+    const r = await rig({ deferSaves: true });
+    const saving = r.projectFile.saveProject();
+    r.projectFile.newProject();
+    const before = currentState(r);
+    r.saves[0]!.reject(new Error('Fallo escribiendo A'));
+    await saving;
+    expect(currentState(r)).toEqual(before);
+  });
+
+  it('cancelar el guardado vigente no cambia ruta, limpio o versiones', async () => {
+    const r = await rig({ deferSaves: true });
+    r.projectFile.useProjectFile.setState({ path: 'C:/Music/old.orbit' });
+    r.app.store.dispatch({ type: 'setTempo', tempo: 177 });
+    const before = currentState(r);
+    const saving = r.projectFile.saveProject(true);
+    r.saves[0]!.resolve(null);
+    await saving;
+    expect(currentState(r)).toEqual(before);
+    expect(r.versionWrites).toEqual([]);
+  });
+
+  it('dos Guardar como conservan su orden, y cancelar el segundo no revierte el primero', async () => {
+    const r = await rig({ deferSaves: true });
+    const first = r.projectFile.saveProject(true);
+    r.app.store.dispatch({ type: 'setTempo', tempo: 177 });
+    const second = r.projectFile.saveProject(true);
+    r.saves[0]!.resolve('C:/Music/first.orbit');
+    await first;
+    const secondWrite = await r.waitForSave(1);
+    expect(secondWrite.path).toBeNull();
+    secondWrite.resolve(null);
+    await second;
+    expect(r.projectFile.useProjectFile.getState().path).toBe('C:/Music/first.orbit');
+    expect(r.autosave.isDirty()).toBe(true);
+    expect(r.versionWrites).toHaveLength(1);
+  });
+
+  it('dos Guardar como exitosos dejan el destino elegido por el segundo', async () => {
+    const r = await rig({ deferSaves: true });
+    const first = r.projectFile.saveProject(true);
+    const second = r.projectFile.saveProject(true);
+    r.saves[0]!.resolve('C:/Music/first.orbit');
+    await first;
+    const secondWrite = await r.waitForSave(1);
+    expect(secondWrite.path).toBeNull();
+    secondWrite.resolve('C:/Music/second.orbit');
+    await second;
+    expect(r.projectFile.useProjectFile.getState().path).toBe('C:/Music/second.orbit');
+    expect(r.autosave.isDirty()).toBe(false);
+  });
+});
+
+describe('BUG 021: archivo histórico del snapshot sin publicar sobre otra sesión', () => {
+  it.each(['éxito', 'error'] as const)('la versión que acaba con %s tras cambiar a B no toca su estado', async (outcome) => {
+    const r = await rig();
+    const gate = deferred<string>();
+    r.versionsApi.save.mockImplementationOnce(() => gate.promise);
+    const saving = r.versions.saveVersion('A');
+    expect(r.versions.useVersions.getState().busy).toBe(true);
+    r.projectFile.newProject();
+    expect(r.versions.useVersions.getState().busy).toBe(false);
+    r.versions.useVersions.setState({ busy: true, notice: 'Operación de B' });
+    const before = { ...r.versions.useVersions.getState() };
+    if (outcome === 'éxito') gate.resolve('a.orbit');
+    else gate.reject(new Error('Fallo viejo de A'));
+    expect(await saving).toBe(outcome === 'éxito');
+    expect(r.versions.useVersions.getState()).toEqual(before);
+    expect(r.versionsApi.list).not.toHaveBeenCalled();
+  });
+
+  it.each(['éxito', 'error'] as const)('el listener busy se desuscribe tras %s sin cambiar de proyecto', async (outcome) => {
+    const r = await rig();
+    const subscribe = r.app.store.subscribeBeforeReplace.bind(r.app.store);
+    const unsubscribe = vi.fn();
+    vi.spyOn(r.app.store, 'subscribeBeforeReplace').mockImplementation((listener) => {
+      const off = subscribe(listener);
+      return () => { unsubscribe(); off(); };
+    });
+    if (outcome === 'error') r.versionsApi.save.mockRejectedValueOnce(new Error('No cabe'));
+    expect(await r.versions.saveVersion('Actual')).toBe(outcome === 'éxito');
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(r.versions.useVersions.getState().busy).toBe(false);
+  });
+
+  it('el finally de una versión anterior no apaga busy de la siguiente en la misma sesión', async () => {
+    const r = await rig();
+    const first = deferred<string>();
+    const second = deferred<string>();
+    r.versionsApi.save.mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const a = r.versions.saveVersion('Primera');
+    const b = r.versions.saveVersion('Segunda');
+    first.resolve('first.orbit');
+    await a;
+    expect(r.versions.useVersions.getState()).toMatchObject({ busy: true, notice: null });
+    second.resolve('second.orbit');
+    await b;
+    expect(r.versions.useVersions.getState()).toMatchObject({ busy: false, notice: 'Versión guardada: Segunda' });
+  });
+
+  it.each(['éxito', 'error'] as const)('el refresco que acaba con %s tras guardar A tampoco publica sobre B', async (outcome) => {
+    const r = await rig();
+    const started = deferred<void>();
+    const list = deferred<{ file: string; at: number; bytes: number }[]>();
+    r.versionsApi.list.mockImplementationOnce(() => { started.resolve(); return list.promise; });
+    const saving = r.versions.saveVersion('A');
+    await started.promise;
+    r.projectFile.newProject();
+    const bEntry = { file: '1700000000000-b.orbit', at: 1, bytes: 1, label: 'B' };
+    r.versions.useVersions.setState({ entries: [bEntry], busy: true, notice: 'Lista de B' });
+    const before = { ...r.versions.useVersions.getState() };
+    if (outcome === 'éxito') list.resolve([{ file: '1700000000000-a.orbit', at: 1, bytes: 1 }]);
+    else list.reject(new Error('No se puede listar A'));
+    await saving;
+    expect(r.versions.useVersions.getState()).toEqual(before);
+  });
+
+  it('refrescos simultáneos dejan la lista más reciente incluso en la misma epoch', async () => {
+    const r = await rig();
+    const first = deferred<{ file: string; at: number; bytes: number }[]>();
+    const second = deferred<{ file: string; at: number; bytes: number }[]>();
+    r.versionsApi.list.mockImplementationOnce(() => first.promise).mockImplementationOnce(() => second.promise);
+    const a = r.versions.refreshVersions();
+    const b = r.versions.refreshVersions();
+    second.resolve([{ file: '1700000000000-b.orbit', at: 2, bytes: 1 }]);
+    await b;
+    const before = { ...r.versions.useVersions.getState() };
+    first.resolve([{ file: '1700000000000-a.orbit', at: 1, bytes: 1 }]);
+    await a;
+    expect(r.versions.useVersions.getState()).toEqual(before);
   });
 });

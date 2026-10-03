@@ -14,7 +14,7 @@ import {
   type Command,
   type Note,
 } from '@orbit/core';
-import { saveVersion } from './versions';
+import { saveVersionSnapshot } from './versions';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { engine, setActivePattern, store } from './app';
@@ -285,35 +285,65 @@ export async function importMidi(): Promise<void> {
   }
 }
 
-/** Guarda el proyecto; con saveAs=true fuerza el diálogo aunque haya ruta. */
+interface SaveSession { epoch: number; path: string | null }
+let saveSession: SaveSession | null = null;
+let saveQueue: Promise<void> | null = null;
+
+/** Guarda el proyecto; con saveAs=true fuerza el diálogo aunque haya ruta.
+ * Las fotos se capturan al pedirlas y el IPC se envía en ese orden: dos writes
+ * simultáneos sobre la misma ruta podrían dejar la foto más vieja en disco.
+ * El destino elegido por Guardar como se hereda SOLO dentro de su sesión. */
 export async function saveProject(saveAs = false): Promise<void> {
   const api = window.orbit;
   if (!api) {
     notify('Guardar proyectos requiere la app de escritorio.');
     return;
   }
+  const epoch = store.historyEpoch;
   try {
-    const current = useProjectFile.getState().path;
     const title = store.project.meta.title || 'proyecto';
     // Se captura la versión JUNTO al JSON, antes del diálogo: lo que se marca
     // limpio es esta foto, no el estado de después (que un peer/Claude pudo
     // mover mientras el diálogo estaba abierto).
     const savedVersion = store.version;
+    const projectId = store.project.id;
     const json = serializeProject(store.project);
-    const path = await api.project.save(
-      saveAs ? null : current,
-      json,
-      `${title.replace(/[<>:"/\\|?*]/g, '-')}.orbit`,
-    );
-    if (!path) return; // cancelado
-    useProjectFile.setState({ path });
-    markCleanAt(savedVersion);
-    void refreshRecents();
-    // Cada guardado deja también una VERSIÓN: es el punto que uno considera
-    // digno de guardar, así que es exactamente el punto al que querrá volver.
-    void saveVersion('guardado');
-    notify(`Guardado en ${fileName(path)}.`);
+    if (!saveQueue || saveSession?.epoch !== epoch) {
+      saveSession = { epoch, path: useProjectFile.getState().path };
+    }
+    const session = saveSession;
+    const write = async () => {
+      try {
+        const path = await api.project.save(
+          saveAs ? null : session.path,
+          json,
+          `${title.replace(/[<>:"/\\|?*]/g, '-')}.orbit`,
+        );
+        if (!path) return; // Cancelar conserva el destino previo de esta sesión.
+        session.path = path;
+        if (epoch === store.historyEpoch) {
+          useProjectFile.setState({ path });
+          markCleanAt(savedVersion);
+          void refreshRecents();
+          notify(`Guardado en ${fileName(path)}.`);
+        }
+        // La copia histórica es EXACTAMENTE lo escrito, nunca una lectura del
+        // store al terminar el diálogo. Una foto de A no publica UI sobre B.
+        void saveVersionSnapshot('guardado', { projectId, json, epoch });
+      } catch (err) {
+        if (epoch === store.historyEpoch) notify(err instanceof Error ? err.message : 'No se pudo guardar el proyecto.');
+      }
+    };
+    // El primer IPC empieza en este mismo turno; los siguientes conservan su
+    // Promise y avanzan también tras una cancelación o un fallo del anterior.
+    const task = saveQueue ? saveQueue.then(write, write) : write();
+    saveQueue = task;
+    try {
+      await task;
+    } finally {
+      if (saveQueue === task) saveQueue = null;
+    }
   } catch (err) {
-    notify(err instanceof Error ? err.message : 'No se pudo guardar el proyecto.');
+    if (epoch === store.historyEpoch) notify(err instanceof Error ? err.message : 'No se pudo guardar el proyecto.');
   }
 }

@@ -79,11 +79,17 @@ function labelOf(file: string): string {
   return slug.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
 
+let refreshRequest = 0;
+
 export async function refreshVersions(): Promise<void> {
   const api = window.orbit?.versions;
   if (!api) return;
+  const epoch = store.historyEpoch;
+  const request = ++refreshRequest;
+  const isCurrent = () => epoch === store.historyEpoch && request === refreshRequest;
   try {
     const list = await api.list(store.project.id);
+    if (!isCurrent()) return;
     const entries = list.map((v) => ({ ...v, label: labelOf(v.file) }));
     const state = useVersions.getState();
     // Si un lado del comparador apunta a una versión que ya no está (borrada, o
@@ -99,28 +105,63 @@ export async function refreshVersions(): Promise<void> {
       ...(stale ? { compare: null } : null),
     });
   } catch {
-    useVersions.setState({ notice: 'No se pudieron leer las versiones' });
+    if (isCurrent()) useVersions.setState({ notice: 'No se pudieron leer las versiones' });
+  }
+}
+
+export interface VersionSnapshot {
+  readonly projectId: string;
+  readonly json: string;
+  readonly epoch: number;
+}
+
+let saveRequest = 0;
+
+/** Archiva una foto ya serializada, aunque su proyecto haya dejado de estar
+ * abierto. Solo publica estado de UI si esa sesión y ese guardado siguen vivos. */
+export async function saveVersionSnapshot(label: string, snapshot: VersionSnapshot): Promise<boolean> {
+  const api = window.orbit?.versions;
+  if (!api) return false;
+  const { projectId, json, epoch } = snapshot;
+  const request = epoch === store.historyEpoch ? ++saveRequest : null;
+  const isCurrent = () => epoch === store.historyEpoch && request === saveRequest;
+  let unsubscribe: () => void = () => undefined;
+  if (isCurrent()) {
+    useVersions.setState({ busy: true, notice: null });
+    // Limpiar ANTES de sustituir A evita heredar su busy en B. Un finally
+    // tardío no puede limpiarlo: podría apagar un guardado que ya pertenece a B.
+    unsubscribe = store.subscribeBeforeReplace(() => {
+      if (isCurrent()) useVersions.setState({ busy: false });
+    });
+  }
+  try {
+    await api.save(projectId, label, json);
+    if (isCurrent()) {
+      await refreshVersions();
+      if (isCurrent()) useVersions.setState({ notice: `Versión guardada: ${label || 'sin nombre'}` });
+    }
+    return true;
+  } catch (err) {
+    if (isCurrent()) useVersions.setState({
+      notice: err instanceof Error ? err.message : 'No se pudo guardar la versión',
+    });
+    return false;
+  } finally {
+    unsubscribe();
+    if (isCurrent()) useVersions.setState({ busy: false });
   }
 }
 
 /** Guarda el proyecto tal y como está ahora. Devuelve si de verdad se guardó. */
 export async function saveVersion(label: string): Promise<boolean> {
-  const api = window.orbit?.versions;
-  if (!api) return false;
-  useVersions.setState({ busy: true, notice: null });
+  let snapshot: VersionSnapshot;
   try {
-    await api.save(store.project.id, label, serializeProject(store.project));
-    await refreshVersions();
-    useVersions.setState({ notice: `Versión guardada: ${label || 'sin nombre'}` });
-    return true;
+    snapshot = { projectId: store.project.id, json: serializeProject(store.project), epoch: store.historyEpoch };
   } catch (err) {
-    useVersions.setState({
-      notice: err instanceof Error ? err.message : 'No se pudo guardar la versión',
-    });
+    useVersions.setState({ notice: err instanceof Error ? err.message : 'No se pudo guardar la versión' });
     return false;
-  } finally {
-    useVersions.setState({ busy: false });
   }
+  return saveVersionSnapshot(label, snapshot);
 }
 
 /** Proyecto de una versión, ya parseado. */
