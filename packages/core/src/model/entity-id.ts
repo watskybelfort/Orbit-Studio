@@ -21,21 +21,16 @@
 
 /**
  * Claves que un objeto plano hereda y que, escritas como dato, cambian el
- * prototipo en vez de añadir una propiedad. `toString` y compañía no mutan nada
- * por sí solas, pero se rechazan igual: son las que hacen que una lectura
- * devuelva un valor heredado en vez de `undefined` (y por tanto que un `patch`
- * escriba sobre el objeto equivocado sin querer).
+ * prototipo en vez de añadir una propiedad. La lista se toma de lo que
+ * `Object.prototype` TIENE hoy en vez de ir a mano: si el entorno trae otra
+ * propiedad heredada —o alguien ya contaminó el prototipo antes de que llegara
+ * aquí—, esa también queda reservada, que es justo lo que importa. `prototype`
+ * no está ahí (es propiedad de las funciones, no del prototipo) pero se reserva
+ * igual: es el otro nombre con el que se llama a un id en la práctica.
  */
-const RESERVED_IDS = new Set([
-  '__proto__',
+const RESERVED_IDS: ReadonlySet<string> = new Set([
   'prototype',
-  'constructor',
-  'toString',
-  'valueOf',
-  'hasOwnProperty',
-  'isPrototypeOf',
-  'propertyIsEnumerable',
-  'toLocaleString',
+  ...Object.getOwnPropertyNames(Object.prototype),
 ]);
 
 /** Campos cuyo valor ES un id (o una lista de ids): `id`, `channelId`, `clipIds`… */
@@ -88,15 +83,31 @@ export function adoptPool<T>(source: unknown): Record<string, T> {
 }
 
 /**
- * Rechaza, ANTES de tocar nada, cualquier comando que lleve un id reservado en
- * un campo de id. Recorre el payload con un tope de profundidad (un comando es un
- * objeto pequeño; el tope es una red de seguridad, no una política) y solo mira
- * los campos que son ids: un TÍTULO o un nombre de archivo que valga '__proto__'
- * son datos y se dejan en paz.
+ * Rechaza, ANTES de tocar nada, un comando que lleve un id reservado.
+ *
+ * Se miran los VALORES de los campos de id (`id`, `channelId`, `clipIds`…) y
+ * también las CLAVES de cualquier objeto del payload: hay mapas cuyas claves son
+ * ids y cuyo nombre no lo dice —`notesByPattern` va de id de patrón a sus
+ * notas—, y con una clave heredada el consumidor `pool[clave]` leería el
+ * prototipo. Un TÍTULO o un nombre que valgan `'__proto__'` sí se dejan: son
+ * datos, no claves.
+ *
+ * El recorrido lleva tope de profundidad y de pasos porque el bus también lo
+ * llama desde el renderer con objetos vivos: sin eso, un comando con una
+ * referencia circular se comía el hilo. Es una red de seguridad, no una política.
  */
 export function assertNoReservedIds(command: unknown, what = 'comando'): void {
-  walk(command, 0, what);
+  walk(command, what);
 }
+
+/**
+ * Presupuesto de nodos para UN comando. No es política de tamaño: es el tope del
+ * recorrido, y pasarse RECHAZA en vez de dejar de mirar —un recorrido que se
+ * rinde a mitad deja sin validar justo lo que vino detrás, que es la parte que
+ * nadie revisa—. Ningún comando legítimo se acerca: son ediciones (batches de
+ * clips o de notas), ninguno lleva un proyecto entero.
+ */
+const MAX_NODOS = 20_000;
 
 function checkIdValue(value: unknown, what: string): void {
   if (typeof value === 'string') {
@@ -110,15 +121,36 @@ function checkIdValue(value: unknown, what: string): void {
   }
 }
 
-function walk(value: unknown, depth: number, what: string): void {
-  if (depth > 6 || value === null || typeof value !== 'object') return;
-  if (Array.isArray(value)) {
-    for (const item of value) walk(item, depth + 1, what);
-    return;
-  }
-  for (const [key, item] of Object.entries(value)) {
-    if (ID_FIELD.test(key)) checkIdValue(item, what);
-    walk(item, depth + 1, what);
+/**
+ * Recorrido ITERATIVO a propósito. Con recursión hacía falta un tope de
+ * profundidad, y un tope de profundidad es justo un agujero: lo que iba más
+ * hondo se quedaba sin mirar y pasaba. Con una pila explícita no hay tope —la
+ * anidación ya la limita `JSON.parse` al entrar de la red— y lo único que puede
+ * acabar el recorrido antes es el presupuesto, que falla con su nombre.
+ */
+function walk(root: unknown, what: string): void {
+  const pendientes: unknown[] = [root];
+  let nodos = 0;
+  while (pendientes.length > 0) {
+    const value = pendientes.pop();
+    if (value === null || typeof value !== 'object') continue;
+    if (++nodos > MAX_NODOS) {
+      throw new Error(`Comando ${what} demasiado grande para validar (más de ${MAX_NODOS} nodos)`);
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) pendientes.push(item);
+      continue;
+    }
+    for (const [key, item] of Object.entries(value)) {
+      // Una clave heredada en CUALQUIER objeto del payload, no solo en los campos
+      // de id: hay mapas cuyas claves son ids y cuyo nombre no lo dice
+      // (`notesByPattern` va de id de patrón a sus notas, `notes` de id de canal a
+      // las suyas). Con una clave así, el consumidor `pool[clave]` leería el
+      // prototipo.
+      assertEntityId(key, `${what} (clave)`);
+      if (ID_FIELD.test(key)) checkIdValue(item, what);
+      pendientes.push(item);
+    }
   }
 }
 

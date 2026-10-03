@@ -47,8 +47,13 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
     expect(serializeProject(p)).toBe(antes);
   });
 
-  it('ningún id heredado colado llega a un pool: constructor, toString, valueOf…', () => {
-    for (const id of ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty']) {
+  it('ningún id heredado colado llega a un pool: TODOS, no solo los cinco', () => {
+    // La lista sale de `Object.getOwnPropertyNames(Object.prototype)`, así que
+    // aquí se prueba contra lo que el runtime tiene de verdad —incluidos los
+    // accesores `__defineGetter__` y compañía— más `prototype`.
+    const heredados = [...Object.getOwnPropertyNames(Object.prototype), 'prototype'];
+    expect(heredados).toContain('__proto__');
+    for (const id of heredados) {
       const p = createEmptyProject();
       const antes = serializeProject(p);
       expect(() => applyCommand(p, { type: 'patchClips', patches: [{ id, start: 9 } as never] })).toThrow(
@@ -74,6 +79,94 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
       /__proto__/,
     );
     expect(serializeProject(p)).toBe(antes);
+  });
+
+  it('también las CLAVES de mapas anidados, no solo los campos de id', () => {
+    // `notesByPattern` es un mapa de id de patrón -> notas: el nombre del campo no
+    // dice "id", pero sus claves SÍ son ids y se leen como `patterns[clave]`.
+    // Antes de este cierre una clave heredada ahí pasaba el chequeo de campos.
+    const p = createEmptyProject();
+    const channel = createChannel('synth', 0);
+    const channelId = channel.id;
+    // El comando llega de la red, o sea que es JSON.parse: ahí `'__proto__'` sí
+    // es una clave PROPIA (en un literal de JS sería el prototipo, que es otro
+    // bug entero y no el que se está cerrando).
+    const notesByPattern = JSON.parse('{"__proto__":[]}') as Record<string, unknown>;
+    const cmd = JSON.parse(JSON.stringify({ type: 'addChannel', channel, notesByPattern })) as never;
+    expect(Object.prototype.hasOwnProperty.call(notesByPattern, '__proto__')).toBe(true);
+    expect(() => applyCommand(p, cmd)).toThrow(/__proto__/);
+    expect(p.channels[channelId]).toBeUndefined();
+    expect(({} as Record<string, unknown>).length).toBeUndefined();
+  });
+
+  it('un payload anidado de verdad se recorre entero', () => {
+    // clip -> pattern -> notes -> note: cuatro niveles. El rechazo tiene que
+    // ver el id de la nota del fondo, no solo el del comando.
+    const p = createEmptyProject();
+    const cmd = {
+      type: 'addClips',
+      clips: [
+        {
+          id: 'clip1',
+          trackId: 't1',
+          start: 0,
+          pattern: {
+            id: 'pat1',
+            notes: [{ id: '__proto__', key: 60, start: 0, length: 1, velocity: 100 }],
+          },
+        },
+      ],
+    } as never;
+    expect(() => applyCommand(p, cmd)).toThrow(/__proto__/);
+    expect(Object.keys(p.clips)).toHaveLength(0);
+  });
+
+  it('texto libre con "__proto__" se permite: es dato, no clave', () => {
+    // Falso positivo que hay que evitar: un título o un nombre de canal no
+    // indexan ningún pool, así que '__proto__' ahí es un nombre legitimo.
+    const p = createEmptyProject();
+    const channel = { ...createChannel('synth', 0), name: '__proto__' };
+    expect(() => applyCommand(p, { type: 'addChannel', channel })).not.toThrow();
+    expect(p.channels[channel.id]?.name).toBe('__proto__');
+
+    const q = createEmptyProject();
+    expect(() => applyCommand(q, { type: 'setMeta', patch: { title: '__proto__' } })).not.toThrow();
+    expect(q.meta.title).toBe('__proto__');
+
+    const r = createEmptyProject();
+    const grupo = { id: 'g1', name: 'constructor', color: 'rojo', collapsed: false };
+    expect(() => applyCommand(r, { type: 'addChannelGroup', group: grupo })).not.toThrow();
+    expect(r.channelGroups.g1?.name).toBe('constructor');
+  });
+
+  it('un id reservado bajo batches anidados también se rechaza', () => {
+    // El control de review: con el recorrido por niveles, un id metido cuatro
+    // batches dentro se quedaba SIN MIRAR y pasaba entero. El recorrido ahora es
+    // iterativo y no tiene fondo: se rechaza a la profundidad que venga.
+    const p = createEmptyProject();
+    const antes = serializeProject(p);
+    const cmd = {
+      type: 'patchClips',
+      batches: [[[[{ id: '__proto__', start: 9 }]]]],
+    } as never;
+    expect(() => applyCommand(p, cmd)).toThrow(/__proto__/);
+    expect(serializeProject(p)).toBe(antes);
+  });
+
+  it('pasarse del presupuesto RECHAZA: nunca se deja de validar a medias', () => {
+    // El otro control: si el recorrido se rinde cuando es grande, lo que venga
+    // después es justo lo que nadie revisa. Uno enorme tiene que FALLAR.
+    const p = createEmptyProject();
+    const cmd = { type: 'addClips', clips: new Array(30_000).fill({ id: 'c', start: 0 }) } as never;
+    expect(() => applyCommand(p, cmd)).toThrow(/demasiado grande para validar/);
+  });
+
+  it('un id "__defineGetter__" (accesor heredado) también se rechaza', () => {
+    const p = createEmptyProject();
+    expect(() =>
+      applyCommand(p, { type: 'patchClips', patches: [{ id: '__defineGetter__', start: 9 } as never] }),
+    ).toThrow(/__defineGetter__/);
+    expect(protoOwn('start')).toBe(false);
   });
 
   it('un id normal sigue funcionando y su inverso sigue siendo válido', () => {
