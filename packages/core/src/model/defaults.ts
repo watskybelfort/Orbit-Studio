@@ -1,6 +1,7 @@
 /** Fábricas de entidades y proyecto vacío. */
 
 import { newId } from '../ids';
+import { nullPool } from './entity-id';
 import { DEFAULT_NOVA_PRESET, findNovaPreset } from './nova';
 import { DEFAULT_PRISMA_PRESET, findPrismaPreset, prismaPresetParams } from './prisma';
 import {
@@ -148,11 +149,21 @@ export const DEFAULT_MIXER_TRACKS = 26; // Master + 25 inserts (crece bajo deman
 export function createEmptyProject(title = 'Nuevo proyecto'): Project {
   const arrangement: Arrangement = { id: newId(), name: 'Arrangement 1' };
   const pattern = createPattern(0);
-  const tracks: Record<string, PlaylistTrack> = {};
+  // Los pools de entidad nacen SIN PROTOTIPO: son claves en objetos planos y una
+  // clave heredada (`__proto__`) se leería como si existiera —y un `patch` encima
+  // escribiría sobre el prototipo de todo el proceso—. Con el pool sin
+  // prototipo, una clave así es un dato inerte. El rechazo con nombre lo hace el
+  // bus al aplicar (`assertNoReservedIds`); esto es la barrera de fondo.
+  // Ver `model/entity-id.ts`.
+  const tracks: Record<string, PlaylistTrack> = nullPool();
   for (let i = 0; i < 8; i++) {
     const t = createPlaylistTrack(arrangement.id, i);
     tracks[t.id] = t;
   }
+  const patterns: Record<string, Pattern> = nullPool();
+  patterns[pattern.id] = pattern;
+  const arrangements: Record<string, Arrangement> = nullPool();
+  arrangements[arrangement.id] = arrangement;
   return {
     formatVersion: FORMAT_VERSION,
     id: newId(),
@@ -160,25 +171,25 @@ export function createEmptyProject(title = 'Nuevo proyecto'): Project {
     tempo: 140,
     timeSig: { num: 4, den: 4 },
     swing: 0,
-    channels: {},
+    channels: nullPool(),
     channelOrder: [],
-    channelGroups: {},
+    channelGroups: nullPool(),
     channelGroupOrder: [],
-    patterns: { [pattern.id]: pattern },
+    patterns,
     patternOrder: [pattern.id],
-    arrangements: { [arrangement.id]: arrangement },
+    arrangements,
     arrangementOrder: [arrangement.id],
     activeArrangementId: arrangement.id,
     playlistTracks: tracks,
-    clips: {},
-    markers: {},
-    sections: {},
-    lfos: {},
+    clips: nullPool(),
+    markers: nullPool(),
+    sections: nullPool(),
+    lfos: nullPool(),
     // Sin rutas declaradas: la entrada se resuelve a la implícita (el par 1-2
     // con los ajustes de la app), que es como grabó Orbit desde el principio.
-    inputRoutes: {},
+    inputRoutes: nullPool(),
     inputRouteOrder: [],
     mixer: Array.from({ length: DEFAULT_MIXER_TRACKS }, (_, i) => createMixerTrack(i)),
-    samples: {},
+    samples: nullPool(),
   };
 }
