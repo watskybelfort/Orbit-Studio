@@ -3,13 +3,15 @@
  * En tema acrílico usa la clase .popup (único sitio permitido para blur).
  */
 
-import { useCallback, useContext, useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useDetachedStore } from '../state/detached';
 import { useUiStore, type WindowId } from '../state/ui';
 import { capturePointer } from '../widgets/pointer';
 import { DetachedWindow } from './DetachedWindow';
 import { WorkspaceAreaContext } from './WorkspaceArea';
 import { fitWindowToWorkspace } from './window-bounds';
+import { EDITOR_GUIDES } from './editor-guides';
+import './studio-guide.css';
 import './shell.css';
 
 export interface InternalWindowProps {
@@ -21,6 +23,7 @@ export interface InternalWindowProps {
 }
 
 export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: InternalWindowProps) {
+  const [helpOpen, setHelpOpen] = useState(false);
   const win = useUiStore((s) => s.windows[id]);
   const focusWindow = useUiStore((s) => s.focusWindow);
   const closeWindow = useUiStore((s) => s.closeWindow);
@@ -97,7 +100,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
 
   const onTitlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if ((e.target as HTMLElement).closest('.iw-close, .iw-detach')) return;
+      if ((e.target as HTMLElement).closest('button')) return;
       beginDrag(e, 'move');
     },
     [beginDrag],
@@ -156,8 +159,10 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
         onLostPointerCapture={onPointerUp}
       >
         <span className="iw-title-text">{title}</span>
+        <button className="iw-help" aria-label={`Ayuda de ${title}`} aria-expanded={helpOpen} aria-controls={`editor-guide-${id}`} onClick={() => setHelpOpen(!helpOpen)}>?</button>
         <button
           className="iw-detach"
+          aria-label={`Sacar ${title} a una ventana aparte`}
           title="Sacar a una ventana aparte (la X nativa la devuelve aquí)"
           onClick={() => detach(id)}
         >
@@ -172,6 +177,7 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
         </button>
         <button
           className="iw-close"
+          aria-label={`Cerrar ${title}`}
           title="Cerrar"
           onClick={() => closeWindow(id)}
         >
@@ -180,6 +186,12 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
           </svg>
         </button>
       </header>
+      {helpOpen && (
+        <aside className="iw-guide" id={`editor-guide-${id}`} aria-label={`Cómo usar ${title}`}>
+          <p>{EDITOR_GUIDES[id].purpose}</p>
+          <ol>{EDITOR_GUIDES[id].steps.map((step) => <li key={step}>{step}</li>)}</ol>
+        </aside>
+      )}
       <div className="iw-body">{children}</div>
       <div
         className="iw-resize"

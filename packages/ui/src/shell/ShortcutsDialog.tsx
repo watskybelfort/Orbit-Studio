@@ -7,7 +7,7 @@
  * fila—, que es como se usa una chuleta de verdad.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SHORTCUTS, type ShortcutRow } from './shortcuts-catalog';
 import { useUiStore } from '../state/ui';
 import './shortcuts.css';
@@ -44,36 +44,46 @@ function keyCombos(keys: string): string[][] {
 }
 
 export function ShortcutsDialog() {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
   const close = () => useUiStore.setState({ shortcutsOpen: false });
   const groups = useMemo(() => filterGroups(query), [query]);
 
-  // Esc cierra, como cualquier diálogo de la app.
+  // El diálogo nativo confina Tab y deja inerte el estudio mientras se lee.
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        useUiStore.setState({ shortcutsOpen: false });
-      }
+    const dialog = dialogRef.current;
+    const previousFocus = dialog?.ownerDocument.activeElement;
+    dialog?.showModal();
+    searchRef.current?.focus({ preventScroll: true });
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   return (
-    <div
-      className="sc-backdrop"
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) close();
+    <dialog
+      ref={dialogRef}
+      className="sc popup"
+      aria-label="Atajos de teclado"
+      onCancel={(event) => { event.preventDefault(); close(); }}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.code === 'F1') { event.preventDefault(); close(); }
+      }}
+      onPointerDown={(event) => {
+        const box = event.currentTarget.getBoundingClientRect();
+        if (event.target === event.currentTarget && (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom)) close();
       }}
     >
-      <div className="sc popup" role="dialog" aria-label="Atajos de teclado">
         <div className="sc-head">
           <span className="sc-title">Atajos de teclado</span>
           <input
+            ref={searchRef}
             className="sc-search"
             type="text"
-            autoFocus
+            aria-label="Buscar atajos de teclado"
             spellCheck={false}
             placeholder="Buscar (pegar, ctrl+v, piano…)"
             value={query}
@@ -113,7 +123,6 @@ export function ShortcutsDialog() {
           ))}
           {groups.length === 0 && <div className="sc-empty">Ningún atajo casa con eso.</div>}
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }

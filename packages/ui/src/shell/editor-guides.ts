@@ -1,0 +1,25 @@
+import type { WindowId } from '../state/ui';
+
+interface EditorGuide { purpose: string; steps: readonly string[] }
+
+/** Ayuda breve del flujo real; disponible junto al editor, sin salir del estudio. */
+export const EDITOR_GUIDES: Record<WindowId, EditorGuide> = {
+  channelRack: { purpose: 'Aquí construyes un patrón: una idea de batería, bajo o melodía que luego puedes repetir en la canción.', steps: ['Marca pasos en las filas para dibujar el ritmo; el clic derecho los borra.', 'Pulsa Patrón en el transporte para escuchar esta idea.', 'Abre Notas para editar una melodía y Arreglo para colocar el patrón en la canción.'] },
+  pianoRoll: { purpose: 'Edita las notas del canal y patrón elegidos: altura, duración y fuerza de cada golpe.', steps: ['Elige el canal y el patrón en la cabecera antes de dibujar.', 'Arrastra al crear una nota para darle duración; usa su borde para cambiarla.', 'Ctrl+B duplica la selección. El carril inferior ajusta la intensidad de las notas.'] },
+  playlist: { purpose: 'Aquí ordenas la canción completa con patrones, audio y automatización.', steps: ['Coloca tus patrones y grabaciones en los carriles de la línea de tiempo.', 'Ctrl+arrastre duplica un clip; Alt+arrastre lo mueve sin la rejilla.', 'Pulsa Canción en el transporte para escuchar el arreglo, en vez del patrón aislado.'] },
+  mixer: { purpose: 'Equilibra el beat y la voz, y controla por dónde pasa cada señal.', steps: ['Selecciona una pista para ver su cadena de efectos.', 'Ajusta niveles y panorama; vigila el master para evitar saturación.', 'Abre Enrutado si necesitas ver las conexiones entre pistas.'] },
+  settings: { purpose: 'Personaliza la lectura y configura el equipo con el que trabajas.', steps: ['Busca una palabra como «micro», «tema» o «latencia» para encontrar su categoría.', 'Apariencia cambia tamaño, color y tipografía al instante.', 'Audio y MIDI reúne dispositivos, rutas físicas y compensación de grabación.'] },
+  export: { purpose: 'Convierte tu trabajo en archivos para compartirlo o continuar en otro DAW.', steps: ['Revisa el formato, el rango y las opciones de mezcla antes de exportar.', 'Usa WAV para llevar audio a FL Studio y MIDI para seguir editando las notas.', 'Ctrl+E repite la configuración del último export.'] },
+  automation: { purpose: 'Dibuja cómo cambia un parámetro a lo largo de la canción.', steps: ['Abre el clip de automatización del parámetro que quieres editar.', 'En modo Puntos, doble clic añade un punto. Clic derecho lo borra, salvo que sea el último.', 'Usa Puntos, Lápiz o Recta según el tipo de movimiento que necesitas.'] },
+  lfo: { purpose: 'Repite un movimiento sobre un parámetro para crear pulsos, vibrato o variaciones.', steps: ['Elige el parámetro de destino.', 'Ajusta la forma, velocidad y profundidad mientras escuchas la canción.'] },
+  nova: { purpose: 'Diseña el timbre del canal que usa Orbit Nova.', steps: ['Selecciona un canal Nova desde el rack para editar su sonido.', 'Prueba un preset como punto de partida y ajusta sus controles mientras tocas.'] },
+  prisma: { purpose: 'Diseña el sonido del canal que usa Orbit Prisma.', steps: ['Selecciona un canal Prisma desde el rack.', 'Escucha el resultado al cambiar los controles y compruébalo dentro de la mezcla.'] },
+  channelEditor: { purpose: 'Ajusta el sonido y la salida del canal seleccionado.', steps: ['Abre el editor desde el canal del rack que quieres modificar.', 'Comprueba su destino de mezcla antes de añadir efectos a una pista.'] },
+  history: { purpose: 'Revisa los cambios y las versiones del proyecto para recuperar una idea.', steps: ['Revisa qué cambió antes de volver a un estado anterior.', 'Ctrl+Z deshace tus acciones; los cambios de colaboradores conservan su propio origen.'] },
+  projectInfo: { purpose: 'Pon nombre y contexto a la sesión para reconocerla cuando vuelvas.', steps: ['Escribe el título, autor y notas del proyecto.', 'Guarda con Ctrl+S para conservar la información junto a la música.'] },
+  collab: { purpose: 'Trabaja en una misma sesión con otras personas.', steps: ['Crea una sala o entra en una existente con los datos de conexión.', 'Comprueba quién está conectado antes de empezar a editar juntos.'] },
+  scope: { purpose: 'Mira la señal para entender lo que estás oyendo.', steps: ['Elige la pista que quieres observar.', 'Reproduce audio para ver su forma y relacionarla con tus ajustes.'] },
+  audioEditor: { purpose: 'Edita un clip de audio de la canción.', steps: ['Abre un clip de audio de la Playlist para cargarlo aquí.', 'Revisa el recorte y la afinación escuchando el clip dentro del arreglo.'] },
+  liveView: { purpose: 'Prueba combinaciones de patrones en vivo antes de decidir el arreglo.', steps: ['Lanza los patrones y escenas desde sus pads.', 'Usa el menú de un pad para gestionar el patrón correspondiente.'] },
+  graph: { purpose: 'Sigue el camino del sonido desde los canales hasta el master.', steps: ['Arrastra desde un puerto hasta una pista para cambiar una conexión.', 'Las conexiones muestran las salidas y los envíos entre pistas.', 'Comprueba el destino y nivel de cada conexión mientras escuchas.'] },
+};

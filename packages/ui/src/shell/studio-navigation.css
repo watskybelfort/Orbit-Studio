@@ -82,6 +82,7 @@
 }
 
 .studio-nav__tools { width: 146px; }
+.studio-nav__layout { width: 105px; margin-right: 4px; }
 .studio-nav__utility { padding: 6px 8px; border-radius: 6px; font-size: 11px; }
 .studio-nav__utility[aria-pressed='true'] { color: var(--accent); }
 .studio-nav__search { margin-left: 6px; gap: 16px; }
@@ -90,5 +91,13 @@
   .studio-nav { gap: 8px; padding-inline: 8px; }
   .studio-nav__editor { padding-inline: 8px; }
   .studio-nav__editor kbd { display: none; }
+  .studio-nav__editor > svg { display: none; }
+  .studio-nav__editor { gap: 5px; padding-inline: 7px; }
+  .studio-nav__search { gap: 8px; }
   .studio-nav__utilities { gap: 0; }
+}
+
+@media (max-width: 1050px) {
+  .studio-nav__search kbd { display: none; }
+  .studio-nav__utility { padding-inline: 6px; }
 }

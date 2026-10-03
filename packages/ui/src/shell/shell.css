@@ -159,6 +159,16 @@
   flex-shrink: 0;
 }
 
+/* En portátiles/zoom alto prioriza una fila de transporte sin perder mandos. */
+@media (max-width: 1200px) {
+  .toolbar { gap: 4px 8px; padding-inline: 8px; }
+  .menu-btn { padding-inline: 6px; }
+  .transport { gap: 8px; }
+  .transport-group { gap: 4px; }
+  .transport .tbtn { min-width: 24px; padding-inline: 5px; }
+  .transport .tbtn.play { padding-inline: 6px; }
+}
+
 .tbtn {
   display: inline-flex;
   align-items: center;

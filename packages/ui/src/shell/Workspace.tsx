@@ -2,6 +2,7 @@
 
 import { InternalWindow } from './InternalWindow';
 import { WorkspaceArea } from './WorkspaceArea';
+import { WorkspaceWelcome } from './WorkspaceWelcome';
 import { CollabPanel } from '../collab';
 import { AudioEditor } from '../editors/audio';
 import { AutomationEditor } from '../editors/automation';
@@ -25,6 +26,7 @@ import './shell.css';
 export function Workspace() {
   return (
     <WorkspaceArea>
+      <WorkspaceWelcome />
       <InternalWindow id="channelRack" title="Channel Rack">
         <ChannelRack />
       </InternalWindow>

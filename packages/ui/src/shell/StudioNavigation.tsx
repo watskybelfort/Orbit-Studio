@@ -1,7 +1,11 @@
 /** Navegación estable por el flujo de producción; el transporte queda aparte. */
-import { IconBrowser, IconChannelRack, IconClaude, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
+import { useRef, useState } from 'react';
+import { IconBrowser, IconChannelRack, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
 import { usePaletteStore } from '../palette';
 import { isWindowId, useUiStore } from '../state/ui';
+import { useProject } from '../state/useProject';
+import { applyLayout, applyPreset, LAYOUT_PRESETS, listLayouts } from '../state/layouts';
+import { StudioGuide } from './StudioGuide';
 import './studio-navigation.css';
 
 const EDITORS = [
@@ -13,10 +17,12 @@ const EDITORS = [
 ] as const;
 
 export function StudioNavigation() {
+  const [guideOpen, setGuideOpen] = useState(false);
+  const guideTrigger = useRef<HTMLButtonElement>(null);
+  const project = useProject();
   const windows = useUiStore((s) => s.windows);
   const openWindow = useUiStore((s) => s.openWindow);
   const browserOpen = useUiStore((s) => s.browserOpen);
-  const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
   const front = Object.entries(windows).filter(([, w]) => w.open).sort((a, b) => b[1].z - a[1].z)[0]?.[0];
 
@@ -43,6 +49,7 @@ export function StudioNavigation() {
           value=""
           onChange={(event) => {
             if (isWindowId(event.target.value)) openWindow(event.target.value);
+            else if (event.target.value === 'assistant') useUiStore.setState((s) => ({ claudePanelOpen: !s.claudePanelOpen || s.compact, compact: false }));
           }}
         >
           <option value="" disabled>Más herramientas…</option>
@@ -58,29 +65,42 @@ export function StudioNavigation() {
             <option value="history">Historial · revisar cambios</option>
             <option value="collab">Colaboración · abrir una sesión</option>
             <option value="projectInfo">Información del proyecto</option>
+            <option value="assistant">Asistente Claude · mostrar u ocultar</option>
           </optgroup>
         </select>
       </div>
       <div className="studio-nav__utilities">
+        <select
+          className="studio-nav__tools studio-nav__layout"
+          aria-label="Organizar el escritorio"
+          title="Distribuir ventanas para componer, arreglar o mezclar"
+          value=""
+          onChange={(event) => {
+            const value = event.target.value;
+            useUiStore.setState({ compact: false });
+            if (value.startsWith('preset:')) applyPreset(value.slice(7));
+            else if (value.startsWith('saved:')) applyLayout(value.slice(6));
+          }}
+        >
+          <option value="" disabled>Organizar…</option>
+          <optgroup label="Según tu tarea">{LAYOUT_PRESETS.map((preset) => <option key={preset.id} value={`preset:${preset.id}`}>{preset.name}</option>)}</optgroup>
+          {listLayouts(project).length > 0 && <optgroup label="Guardados en el proyecto">{listLayouts(project).map((name) => <option key={name} value={`saved:${name}`}>{name}</option>)}</optgroup>}
+        </select>
         <button
           className="studio-nav__utility"
           aria-pressed={browserOpen && !compact}
           title="Mostrar u ocultar la biblioteca de sonidos"
           onClick={() => useUiStore.setState({ browserOpen: !browserOpen || compact, compact: false })}
         ><IconBrowser size={15} /><span>Sonidos</span></button>
-        <button
-          className="studio-nav__utility"
-          aria-pressed={claudePanelOpen && !compact}
-          title="Mostrar u ocultar el asistente Claude"
-          onClick={() => useUiStore.setState({ claudePanelOpen: !claudePanelOpen || compact, compact: false })}
-        ><IconClaude size={15} /><span>Asistente</span></button>
         <button className="studio-nav__utility" title="Personalizar el estudio y configurar dispositivos" onClick={() => openWindow('settings')}>
           <IconSettings size={15} /><span>Ajustes</span>
         </button>
+        <button ref={guideTrigger} className="studio-nav__utility" onClick={() => setGuideOpen(true)} aria-haspopup="dialog">Guía</button>
         <button className="studio-nav__search" title="Buscar comandos, editores y acciones (Ctrl+K)" onClick={() => usePaletteStore.getState().openPalette()}>
           Buscar acciones <kbd>Ctrl K</kbd>
         </button>
       </div>
+      {guideOpen && <StudioGuide onClose={() => setGuideOpen(false)} returnFocusTo={guideTrigger.current} />}
     </nav>
   );
 }

@@ -1,27 +1,23 @@
-/* Diálogo de atajos. Mismo escalón que "Acerca de" (1100): por encima de los
-   menús (1000) y los banners, por debajo de la paleta (1200). */
+/* Diálogo de atajos nativo: el navegador confina el foco en la capa modal. */
 
-.sc-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.sc::backdrop {
   background: var(--modal-backdrop);
 }
 
 .sc {
   display: flex;
   flex-direction: column;
-  width: min(720px, calc(100vw - 40px));
-  max-height: min(78vh, 720px);
+  width: min(720px, calc(100vw / var(--ui-scale) - 40px));
+  max-height: min(calc(100vh / var(--ui-scale) - 40px), 720px);
+  padding: 0;
   border-radius: 12px;
   border: 1px solid var(--border);
   color: var(--text);
   font-size: 12px;
   box-shadow: var(--shadow-modal);
 }
+
+.sc:not([open]) { display: none; }
 
 .sc-head {
   display: flex;
