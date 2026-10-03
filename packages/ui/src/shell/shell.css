@@ -4,9 +4,10 @@
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
-  padding: 4px 10px;
+  gap: 6px 16px;
+  padding: 6px 12px;
   background: var(--titlebar-bg);
   border-bottom: 1px solid var(--border);
   min-height: 44px;
@@ -140,9 +141,10 @@
 .transport {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex: 1;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 /* Empuja los grupos de la derecha (medidores, CPU, Zen) al borde. */
@@ -154,6 +156,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .tbtn {

@@ -7,6 +7,7 @@ import { AboutDialog } from './shell/AboutDialog';
 import { ShortcutsDialog } from './shell/ShortcutsDialog';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
+import { StudioNavigation } from './shell/StudioNavigation';
 import { Browser } from './browser';
 import { ClaudePanel } from './claude/ClaudePanel';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
@@ -132,12 +133,13 @@ export function App() {
         <MenuBar />
         <Transport />
       </div>
+      <StudioNavigation />
       <div className="app-columns">
         {/* En modo compacto los paneles no se montan pero conservan su flag:
             al salir del modo vuelven solos tal y como estaban. */}
         {browserOpen && !compact && (
           <aside className="sidebar">
-            <div className="sidebar-header">Browser</div>
+            <div className="sidebar-header">Biblioteca de sonidos</div>
             <Browser />
           </aside>
         )}

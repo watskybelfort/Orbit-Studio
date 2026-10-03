@@ -1,0 +1,94 @@
+/* Cada banda es una región del shell. Sin blur ni veladuras superpuestas. */
+.studio-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 12px;
+  min-height: 44px;
+  flex: none;
+  overflow-x: auto;
+  background: var(--titlebar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.studio-nav__editors,
+.studio-nav__utilities {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.studio-nav__editor,
+.studio-nav__utility,
+.studio-nav__search {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: var(--text-dim);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.studio-nav__editor {
+  position: relative;
+  padding: 12px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 2px solid transparent;
+}
+
+.studio-nav__editor:hover,
+.studio-nav__utility:hover,
+.studio-nav__search:hover {
+  background: var(--titlebar-hover);
+  color: var(--text);
+}
+
+.studio-nav__editor.is-front {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.studio-nav kbd {
+  font: inherit;
+  font-size: 10px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+.studio-nav__indicator {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.studio-nav__indicator.is-open { background: currentColor; }
+
+.studio-nav__tools,
+.studio-nav__search {
+  padding: 6px 9px;
+  font: inherit;
+  font-size: 11px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.studio-nav__tools { width: 146px; }
+.studio-nav__utility { padding: 6px 8px; border-radius: 6px; font-size: 11px; }
+.studio-nav__utility[aria-pressed='true'] { color: var(--accent); }
+.studio-nav__search { margin-left: 6px; gap: 16px; }
+
+@media (max-width: 1200px) {
+  .studio-nav { gap: 8px; padding-inline: 8px; }
+  .studio-nav__editor { padding-inline: 8px; }
+  .studio-nav__editor kbd { display: none; }
+  .studio-nav__utilities { gap: 0; }
+}
