@@ -19,6 +19,7 @@ import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { engine, setActivePattern, store } from './app';
 import { collectWorkletSamples } from './sample-gc';
+import { projectLoadRequests } from './project-load-request';
 import { confirmDiscard, markClean, markCleanAt } from './autosave';
 import {
   describeTemplateLoad,
@@ -128,10 +129,8 @@ function applyOpened(result: { path: string; json: string }): void {
   notify(`Abierto ${fileName(result.path)}.`);
 }
 
-let openRequest = 0;
-
 /**
- * Diálogo y recientes comparten la intención más reciente. Incluso cancelar
+ * Diálogo, recientes y restaurar comparten la intención más reciente. Cancelar
  * su lectura invalida las anteriores, sin tocar el proyecto que sigue abierto.
  * Se llama DESPUÉS de confirmDiscard: rechazar esa guardia no inicia nada.
  *
@@ -144,9 +143,8 @@ async function readAndApplyLatest(
   read: () => Promise<{ path: string; json: string } | null>,
   onError: (err: unknown) => void,
 ): Promise<void> {
-  const request = ++openRequest;
-  const epoch = store.historyEpoch;
-  const isCurrent = () => request === openRequest && epoch === store.historyEpoch;
+  const request = projectLoadRequests.begin(store.historyEpoch);
+  const isCurrent = () => request.isCurrent(store.historyEpoch);
   let result;
   try {
     result = await read();

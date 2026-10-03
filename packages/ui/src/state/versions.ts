@@ -22,6 +22,7 @@ import {
 } from '@orbit/core';
 import { create } from 'zustand';
 import { store } from './app';
+import { projectLoadRequests } from './project-load-request';
 import { rehydrateSamples } from '../browser/sound-actions';
 import {
   CURRENT_KEY,
@@ -81,12 +82,12 @@ function labelOf(file: string): string {
 
 let refreshRequest = 0;
 
-export async function refreshVersions(): Promise<void> {
+export async function refreshVersions(canPublish: () => boolean = () => true): Promise<void> {
   const api = window.orbit?.versions;
   if (!api) return;
   const epoch = store.historyEpoch;
   const request = ++refreshRequest;
-  const isCurrent = () => epoch === store.historyEpoch && request === refreshRequest;
+  const isCurrent = () => epoch === store.historyEpoch && request === refreshRequest && canPublish();
   try {
     const list = await api.list(store.project.id);
     if (!isCurrent()) return;
@@ -115,16 +116,22 @@ export interface VersionSnapshot {
   readonly epoch: number;
 }
 
-let saveRequest = 0;
+/** Guardar y restaurar comparten SOLO la propiedad del aviso/busy. Perderla
+ * no cancela una escritura ni una restauración musical todavía vigente. */
+let statusRequest = 0;
 
 /** Archiva una foto ya serializada, aunque su proyecto haya dejado de estar
  * abierto. Solo publica estado de UI si esa sesión y ese guardado siguen vivos. */
-export async function saveVersionSnapshot(label: string, snapshot: VersionSnapshot): Promise<boolean> {
+export async function saveVersionSnapshot(
+  label: string,
+  snapshot: VersionSnapshot,
+  options: { publish?: boolean } = {},
+): Promise<boolean> {
   const api = window.orbit?.versions;
   if (!api) return false;
   const { projectId, json, epoch } = snapshot;
-  const request = epoch === store.historyEpoch ? ++saveRequest : null;
-  const isCurrent = () => epoch === store.historyEpoch && request === saveRequest;
+  const request = options.publish !== false && epoch === store.historyEpoch ? ++statusRequest : null;
+  const isCurrent = () => epoch === store.historyEpoch && request === statusRequest;
   let unsubscribe: () => void = () => undefined;
   if (isCurrent()) {
     useVersions.setState({ busy: true, notice: null });
@@ -137,7 +144,7 @@ export async function saveVersionSnapshot(label: string, snapshot: VersionSnapsh
   try {
     await api.save(projectId, label, json);
     if (isCurrent()) {
-      await refreshVersions();
+      await refreshVersions(isCurrent);
       if (isCurrent()) useVersions.setState({ notice: `Versión guardada: ${label || 'sin nombre'}` });
     }
     return true;
@@ -164,14 +171,21 @@ export async function saveVersion(label: string): Promise<boolean> {
   return saveVersionSnapshot(label, snapshot);
 }
 
-/** Proyecto de una versión, ya parseado. */
-async function readVersion(file: string): Promise<Project | null> {
+/** Proyecto de una versión, ya parseado. El contexto opcional mantiene los
+ * errores de una restauración dentro de la solicitud/sesión que la pidió. */
+async function readVersion(file: string, request?: {
+  projectId: string;
+  isCurrent: () => boolean;
+  canPublish?: () => boolean;
+}): Promise<Project | null> {
   const api = window.orbit?.versions;
   if (!api) return null;
   try {
-    return parseProject(await api.read(store.project.id, file));
+    const json = await api.read(request?.projectId ?? store.project.id, file);
+    if (request && !request.isCurrent()) return null;
+    return parseProject(json);
   } catch {
-    useVersions.setState({ notice: 'Esa versión no se puede leer' });
+    if (!request || (request.canPublish ?? request.isCurrent)()) useVersions.setState({ notice: 'Esa versión no se puede leer' });
     return null;
   }
 }
@@ -184,7 +198,6 @@ async function readVersion(file: string): Promise<Project | null> {
  * respuesta comprueba que sigue siendo la última antes de escribir nada.
  */
 let diffRequest = 0;
-let restoreRequest = 0;
 
 /**
  * Despliega una versión: calcula qué cambió DESDE ella hasta el proyecto de
@@ -217,35 +230,60 @@ export async function openVersionDiff(file: string): Promise<void> {
  * restaurar": restaurar no puede ser una puerta de un solo sentido.
  */
 export async function restoreVersion(file: string): Promise<void> {
-  const token = ++restoreRequest;
+  const epoch = store.historyEpoch;
+  const projectId = store.project.id;
+  let unsubscribe: () => void = () => undefined;
+  let finished = false;
+  const request = projectLoadRequests.begin(epoch, finish);
+  const isCurrent = () => request.isCurrent(store.historyEpoch);
+  const status = ++statusRequest;
+  const canPublish = () => isCurrent() && status === statusRequest;
+  function finish() {
+    if (finished) return;
+    finished = true;
+    unsubscribe();
+    if (canPublish()) useVersions.setState({ busy: false });
+    request.finish();
+  }
   useVersions.setState({ busy: true, notice: null });
-  const project = await readVersion(file);
-  if (token !== restoreRequest) return; // llegó tarde: no se restaura nada
-  if (!project) {
-    useVersions.setState({ busy: false });
-    return;
-  }
-  // El respaldo "antes de restaurar" es la red que hace de restaurar algo
-  // reversible: si NO se pudo guardar, se aborta en vez de reemplazar el estado
-  // actual sin vuelta atrás.
-  const backedUp = await saveVersion('antes de restaurar');
-  if (token !== restoreRequest) return; // otra restauración pidió paso entretanto
-  if (!backedUp) {
+  // El cambio puede venir de nuevo/recuperar/sala, sin pasar por este módulo.
+  // Se libera busy ANTES de que ese nuevo proyecto herede el panel.
+  unsubscribe = store.subscribeBeforeReplace(finish);
+  try {
+    const project = await readVersion(file, { projectId, isCurrent, canPublish });
+    if (!isCurrent() || !project) return;
+    const backedUpVersion = store.version;
+    const snapshot = { projectId, epoch, json: serializeProject(store.project) };
+    // La restauración es dueña del aviso y busy. Un respaldo suyo que llegue
+    // tarde no debe publicar sobre otra restauración que todavía está leyendo.
+    const backedUp = await saveVersionSnapshot('antes de restaurar', snapshot, { publish: false });
+    if (!isCurrent()) return;
+    if (!backedUp) {
+      if (canPublish()) useVersions.setState({ notice: 'No se restauró: no se pudo guardar el respaldo del estado actual' });
+      return;
+    }
+    if (store.version !== backedUpVersion) {
+      if (canPublish()) {
+        useVersions.setState({ notice: 'No se restauró: el proyecto cambió mientras se guardaba el respaldo. Tus cambios se conservan; vuelve a intentarlo.' });
+        void refreshVersions(canPublish);
+      }
+      return;
+    }
+    const publishResult = canPublish();
+    const statusAtCommit = statusRequest;
+    store.replaceProject(project);
+    void rehydrateSamples();
     useVersions.setState({
-      busy: false,
-      notice: 'No se restauró: no se pudo guardar el respaldo del estado actual',
+      openFile: null,
+      diff: null,
+      ...(publishResult ? { busy: false, notice: `Restaurada: ${labelOf(file)}` } : null),
     });
-    return;
+    void refreshVersions(() => statusAtCommit === statusRequest);
+  } catch (err) {
+    if (canPublish()) useVersions.setState({ notice: err instanceof Error ? err.message : 'No se pudo restaurar esa versión' });
+  } finally {
+    finish();
   }
-  store.replaceProject(project);
-  // El proyecto nuevo llega lleno de referencias y el kernel, vacío.
-  void rehydrateSamples();
-  useVersions.setState({
-    busy: false,
-    openFile: null,
-    diff: null,
-    notice: `Restaurada: ${labelOf(file)}`,
-  });
 }
 
 export async function removeVersion(file: string): Promise<void> {
