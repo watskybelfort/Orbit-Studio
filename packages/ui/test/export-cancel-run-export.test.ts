@@ -159,6 +159,53 @@ describe('cancelar un export: entre lotes de stems', () => {
     vi.unstubAllGlobals();
   });
 
+  it.each([
+    ['mp3', 'Codificando MP3…'],
+    ['flac', 'Codificando FLAC…'],
+    ['ogg', 'Empaquetando OGG…'],
+    ['opus', 'Codificando Opus…'],
+  ] as const)('cancelar en progreso %s impide codificar/escribir y no se convierte en warning', async (format, label) => {
+    const r = await rig();
+    const result: unknown = await r.runExport('/salida/cancel.wav', {
+      ...BASE_OPTS, stems: false, sampleRate: 48000, [format]: true,
+    }, { onProgress: (phase) => { if (phase === label) r.cancelExport(); } }).catch((e: unknown) => e);
+    expect(result).toBeInstanceOf(r.ExportCancelledError);
+    expect((result as InstanceType<typeof r.ExportCancelledError>).partial).toMatchObject({
+      path: '/salida/cancel.wav', stemsWritten: 0, warnings: [],
+    });
+    expect(r.writes.map((write) => write.path)).toEqual(['/salida/cancel.wav']);
+  });
+
+  it.each([false, true])('cancelar durante la última escritura termina cancelado, dejando el archivo completo (midi=%s)', async (midi) => {
+    const r = await rig();
+    r.cancelOnWriteEndingWith(midi ? '.mid' : '.wav');
+    const result: unknown = await r.runExport('/salida/cancel.wav', { ...BASE_OPTS, stems: false, midi }).catch((e: unknown) => e);
+    expect(result).toBeInstanceOf(r.ExportCancelledError);
+    expect((result as InstanceType<typeof r.ExportCancelledError>).partial.path).toBe('/salida/cancel.wav');
+    expect(r.writes.map((write) => write.path)).toEqual(midi ? ['/salida/cancel.wav', '/salida/cancel.mid'] : ['/salida/cancel.wav']);
+  });
+
+  it('cancelar durante el primer stem deja ese archivo, sin escribir los demás ya renderizados', async () => {
+    const r = await rig();
+    for (let t = 1; t <= 3; t++) r.addChannelOnTrack(t);
+    r.cancelOnWriteEndingWith('-master.wav');
+    const result: unknown = await r.runExport('/salida/cancel.wav', BASE_OPTS).catch((e: unknown) => e);
+    expect(result).toBeInstanceOf(r.ExportCancelledError);
+    expect((result as InstanceType<typeof r.ExportCancelledError>).partial.stemsWritten).toBe(1);
+    expect(r.writes.map((write) => write.path)).toEqual(['/salida/cancel.wav', '/salida/cancel-master.wav']);
+  });
+
+  it('cancelar mientras está abierto el diálogo alternativo impide iniciar la escritura elegida', async () => {
+    const r = await rig();
+    const write = vi.fn(async () => { throw new Error('Ruta no permitida'); });
+    window.orbit!.file.write = write;
+    window.orbit!.file.saveDialog = vi.fn(async () => { r.cancelExport(); return '/elegido/cancel.wav'; });
+    const result: unknown = await r.runExport('/salida/cancel.wav', { ...BASE_OPTS, stems: false }, { allowDialogFallback: true }).catch((e: unknown) => e);
+    expect(result).toBeInstanceOf(r.ExportCancelledError);
+    expect((result as InstanceType<typeof r.ExportCancelledError>).partial.path).toBeNull();
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
   it('corta ANTES del segundo lote: deja los 4 stems del primero en disco y no pide el segundo', async () => {
     const { runExport, ExportCancelledError, writes, addChannelOnTrack, cancelOnWriteEndingWith } =
       await rig();

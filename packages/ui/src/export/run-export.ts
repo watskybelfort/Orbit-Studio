@@ -434,6 +434,7 @@ async function renderAndWrite(
   const compiled = compileProject(proj, playMode);
 
   const { samples, missing } = await collectSamples(proj, compiled);
+  throwIfCancelled();
   if (missing.length > 0) {
     warnings.push(`Samples no incluidos en el render: ${missing.join(', ')}.`);
   }
@@ -518,6 +519,7 @@ async function renderAndWrite(
   } catch (e) {
     if (!config.allowDialogFallback || !isPathDenied(e)) throw e;
     const chosen = await orbit.file.saveDialog(fileNameOf(target));
+    throwIfCancelled();
     // Con `cause`: cancelar el diálogo no es el fallo original, pero el fallo
     // original —la ruta denegada— es justo lo que hay que poder mirar si
     // alguien pregunta por qué apareció un diálogo que no pidió.
@@ -539,8 +541,10 @@ async function renderAndWrite(
     mp3Path = `${splitExtension(target).base}.mp3`;
     try {
       await report('Codificando MP3…');
+      throwIfCancelled();
       await orbit.file.write(mp3Path, encodeMp3(mix.left, mix.right, mix.sampleRate));
     } catch (e) {
+      if (e instanceof ExportCancelledError) throw e;
       warnings.push(`No se pudo escribir ${mp3Path}: ${errorText(e)}`);
       mp3Path = null;
     }
@@ -553,10 +557,12 @@ async function renderAndWrite(
     flacPath = `${splitExtension(target).base}.flac`;
     try {
       await report('Codificando FLAC…');
+      throwIfCancelled();
       const flacDepth: FlacDepth = opts.depth === 16 ? 16 : 24;
       if (opts.depth === 32) warnings.push('FLAC no admite float: el .flac va a 24 bits.');
       await orbit.file.write(flacPath, encodeFlac(mix.left, mix.right, mix.sampleRate, flacDepth));
     } catch (e) {
+      if (e instanceof ExportCancelledError) throw e;
       warnings.push(`No se pudo escribir ${flacPath}: ${errorText(e)}`);
       flacPath = null;
     }
@@ -571,11 +577,13 @@ async function renderAndWrite(
     oggPath = `${splitExtension(target).base}.ogg`;
     try {
       await report('Empaquetando OGG…');
+      throwIfCancelled();
       const oggDepth: FlacDepth = opts.depth === 16 ? 16 : 24;
       if (opts.depth === 32) warnings.push('OGG (FLAC) no admite float: el .ogg va a 24 bits.');
       const stream = encodeFlacStream(mix.left, mix.right, mix.sampleRate, oggDepth);
       await orbit.file.write(oggPath, encodeOggFlac(stream));
     } catch (e) {
+      if (e instanceof ExportCancelledError) throw e;
       warnings.push(`No se pudo escribir ${oggPath}: ${errorText(e)}`);
       oggPath = null;
     }
@@ -594,6 +602,7 @@ async function renderAndWrite(
     opusPath = `${splitExtension(target).base}.opus`;
     try {
       await report('Codificando Opus…');
+      throwIfCancelled();
       // El encoder recibe las muestras entrelazadas.
       const frames = mix.left.length;
       const pcm = new Float64Array(frames * 2);
@@ -614,6 +623,7 @@ async function renderAndWrite(
         }),
       );
     } catch (e) {
+      if (e instanceof ExportCancelledError) throw e;
       warnings.push(`No se pudo escribir ${opusPath}: ${errorText(e)}`);
       opusPath = null;
     }
@@ -717,6 +727,9 @@ async function renderAndWrite(
       }
 
       for (const t of batch) {
+        // Un stem ya renderizado todavía no es un archivo escrito. Cancelar
+        // durante el IPC anterior impide iniciar también estos archivos.
+        throwIfCancelled();
         let res = results.get(t.idx);
         // Ya escrito o por escribir: fuera del Map en cuanto se usa, para que
         // el GC pueda recuperar cada buffer según se va escribiendo en vez de
@@ -752,14 +765,13 @@ async function renderAndWrite(
         }
       }
 
-      // Si el lote se cortó por cancelación (el `break` de `renderStems`, sin
-      // pasar por el `catch` de arriba porque no rechazó ninguna promesa): lo
-      // que salió bien de ESTE lote ya se escribió justo encima; ahora sí se
-      // corta el export entero, sin arrancar el próximo lote.
+      // Atiende también cancelar durante la escritura del último stem.
       throwIfCancelled();
     }
   }
 
+  // Cancelar mientras termina la última escritura no anuncia éxito total.
+  throwIfCancelled();
   return {
     path: target,
     durationSeconds: mix.left.length / mix.sampleRate,
