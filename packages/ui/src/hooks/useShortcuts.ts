@@ -9,20 +9,24 @@ import { setPlayMode, store, togglePlay } from '../state/app';
 import { activeEditActions } from '../state/edit-focus';
 import { newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
+import { shouldHandleTransportSpace } from './shortcut-space';
 
 export function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
+      // Los widgets/modales tienen prioridad: no repetir una tecla consumida
+      // por su manejador antes de que burbujee hasta window.
+      if (e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
       // SELECT también cuenta: con un desplegable enfocado (el sidechain del
       // compresor, el formato del export…), el espacio lo abre y las letras
       // saltan a una opción. Sin esta guarda, el espacio arrancaba la
       // reproducción y la lista no llegaba a abrirse nunca.
-      const tag = target.tagName;
+      const tag = target?.tagName;
       const typing =
-        tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+        tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
 
-      if (e.code === 'Space' && !typing) {
+      if (shouldHandleTransportSpace(e)) {
         e.preventDefault();
         void togglePlay();
         return;
