@@ -199,9 +199,9 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-/** 0..1 → 1..127 (round(v*126)+1 con clamp). */
+/** Intensidad positiva → 1..127, conservando los pasos de un MIDI importado. */
 function velocityByte(velocity: number): number {
-  return clamp(Math.round(velocity * 126) + 1, 1, 127);
+  return clamp(Math.round(velocity * 127), 1, 127);
 }
 
 function beatToTick(beat: number): number {
@@ -218,6 +218,9 @@ function encodeChannelTrack(
 ): ByteWriter {
   const events: MidiEvent[] = [];
   for (const span of spans) {
+    // Una nota muda no emite on ni off. Un on con velocity 0 significa off
+    // en MIDI y podría cortar otra nota audible de la misma tecla/canal.
+    if (!(span.velocity > 0)) continue;
     const key = clamp(Math.round(span.key), 0, 127);
     const onTick = beatToTick(span.start);
     // Garantiza al menos 1 tick de duración para no soltar antes de sonar.

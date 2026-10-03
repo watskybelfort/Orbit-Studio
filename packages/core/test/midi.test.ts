@@ -166,16 +166,32 @@ describe('encodeMidi: mode pattern', () => {
     ]);
   });
 
-  it('velocity 0..1 → 1..127 con clamps', () => {
+  it('omite velocity cero y cuantiza las positivas a 1..127 sin elevarlas un paso', () => {
     const { p, patternId } = projectWith([
-      makeNote(0, 1, 60, 0), // → 1
-      makeNote(1, 1, 61, 0.5), // round(63)+1 → 64
+      makeNote(0, 1, 60, 0), // no crea on NI off
+      makeNote(0, 1, 59, 1 / 127), // → 1
+      makeNote(1, 1, 61, 0.5), // round(63.5) → 64
       makeNote(2, 1, 62, 1), // → 127
       makeNote(3, 1, 63, 2), // fuera de rango → clamp 127
     ]);
     const chunks = readChunks(encodeMidi(p, { mode: 'pattern', patternId }));
     const ons = noteEvents(chunks[2]!.data).filter((e) => (e[1]! & 0xf0) === 0x90);
-    expect(ons.map((e) => e[3])).toEqual([1, 64, 127, 127]);
+    expect(ons.map((e) => [e[2], e[3]])).toEqual([[59, 1], [61, 64], [62, 127], [63, 127]]);
+    expect(noteEvents(chunks[2]!.data).some((e) => e[2] === 60)).toBe(false);
+  });
+
+  it('conserva los 127 niveles positivos exactos de un MIDI importado', () => {
+    const { p, patternId } = projectWith(Array.from({ length: 127 }, (_, i) => makeNote(i, 0.5, 60, (i + 1) / 127)));
+    const chunks = readChunks(encodeMidi(p, { mode: 'pattern', patternId }));
+    const ons = noteEvents(chunks[2]!.data).filter((e) => (e[1]! & 0xf0) === 0x90);
+    expect(ons.map((e) => e[3])).toEqual(Array.from({ length: 127 }, (_, i) => i + 1));
+  });
+
+  it.each(['pattern', 'song'] as const)('una nota muda superpuesta no corta la nota audible (%s)', (mode) => {
+    const { p, patternId } = projectWith([makeNote(0, 4, 60, 1), makeNote(1, 1, 60, 0)]);
+    addClip(p, patternId, 0, 4);
+    const chunks = readChunks(encodeMidi(p, { mode, patternId }));
+    expect(noteEvents(chunks[2]!.data)).toEqual([[0, 0x90, 60, 127], [384, 0x80, 60, 0]]);
   });
 
   it('VLQ multi-byte para deltas > 127 ticks', () => {
