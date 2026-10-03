@@ -200,6 +200,28 @@ describe('runExport: orquestación de render, corte y formatos', () => {
     ).rejects.toThrow(/fuera de lo que suena/i);
   });
 
+  it('el MIDI recorta la misma selección que el WAV y empieza con el tempo vigente', async () => {
+    const { runExport, writes, channelId } = await rig();
+    const core = await import('@orbit/core');
+    const { store } = await import('../src/state/app');
+    const patternId = store.project.patternOrder[0]!;
+    store.dispatch({ type: 'addNotes', patternId, channelId, notes: [0, 1, 3].map((start) => ({
+      id: core.newId(), start, duration: 0.5, key: 60 + start, velocity: 1, pan: 0, slide: false,
+    })) });
+    store.dispatch({ type: 'addClips', clips: [{ id: core.newId(), kind: 'pattern', patternId,
+      playlistTrackId: Object.keys(store.project.playlistTracks)[0]!, start: 0, length: 4, muted: false }] });
+    store.dispatch({ type: 'addMarker', marker: { id: core.newId(), name: 'Tempo', time: 0.5, color: '#fff', tempo: 120 } });
+    store.dispatch({ type: 'addMarker', marker: { id: core.newId(), name: 'Cambio dentro', time: 1.5, color: '#fff', tempo: 60 } });
+    const summary = await runExport('/salida/sel.wav', {
+      ...BASE_OPTS, source: 'selection', region: { start: 1, end: 2 }, midi: true, sampleRate: 8000, tailSeconds: 0,
+    });
+    expect(summary.durationSeconds).toBeCloseTo(0.75, 3);
+    const midi = core.decodeMidi(writes.find((write) => write.path.endsWith('.mid'))!.bytes);
+    expect(midi.tempo).toBe(120);
+    expect(midi.tracks[0]!.notes).toHaveLength(1);
+    expect(midi.tracks[0]!.notes[0]).toMatchObject({ start: 0, duration: 0.5, key: 61 });
+  });
+
   it('MP3 por encima de 48 kHz se salta con aviso: el WAV se escribe igual', async () => {
     const { runExport, writes } = await rig();
     const summary = await runExport('/salida/hi.wav', {

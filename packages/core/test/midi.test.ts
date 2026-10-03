@@ -118,6 +118,19 @@ function noteEvents(data: Uint8Array): number[][] {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('encodeMidi: cabecera y conductor', () => {
+  it('la selección desplaza cambios internos y omite los marcadores posteriores', () => {
+    const { p } = projectWith([makeNote(0, 4, 60)]);
+    for (const [time, tempo] of [[0.5, 120], [1.5, 60], [3, 180]]) {
+      applyCommand(p, { type: 'addMarker', marker: { id: newId(), name: 'Tempo', time: time!, tempo: tempo!, color: '#fff' } });
+    }
+    const chunks = readChunks(encodeMidi(p, { mode: 'song', region: { start: 1, end: 2 } }));
+    const tempos = parseTrack(chunks[1]!.data).filter((event) => event.bytes[1] === 0x51);
+    expect(tempos).toEqual([
+      { tick: 0, bytes: [0xff, 0x51, 3, 0x07, 0xa1, 0x20] },
+      { tick: 48, bytes: [0xff, 0x51, 3, 0x0f, 0x42, 0x40] },
+    ]);
+  });
+
   it('MThd correcta: formato 1, nTracks, división 96', () => {
     const { p, patternId } = projectWith([makeNote(0, 1, 60)]);
     const bytes = encodeMidi(p, { mode: 'pattern', patternId });

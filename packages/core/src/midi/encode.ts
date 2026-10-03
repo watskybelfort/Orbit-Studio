@@ -26,6 +26,8 @@ export interface EncodeMidiOptions {
   mode: 'song' | 'pattern';
   /** Requerido cuando mode === 'pattern'. */
   patternId?: string;
+  /** Recorta el resultado a estos beats y desplaza su inicio al tick cero. */
+  region?: { start: number; end: number };
 }
 
 // ── Utilidades de bytes ──────────────────────────────────────────────────────
@@ -256,14 +258,26 @@ function timeSigBytes(num: number, den: number): number[] {
   return [0xff, 0x58, 0x04, clamp(num, 1, 255), denPow, 24, 8];
 }
 
-function encodeConductorTrack(project: Project, includeMarkers: boolean): ByteWriter {
+function encodeConductorTrack(project: Project, includeMarkers: boolean, region?: EncodeMidiOptions['region']): ByteWriter {
   const w = new ByteWriter();
   const title = project.meta.title.trim() !== '' ? project.meta.title : 'Orbit Studio';
   metaText(w, 0x03, title);
 
+  const markers = includeMarkers ? Object.values(project.markers)
+    .filter((m) => m.tempo !== undefined || m.timeSigNum !== undefined)
+    .sort((a, b) => a.time - b.time) : [];
+  let initialTempo = project.tempo;
+  let initialNum = project.timeSig.num;
+  if (region) {
+    for (const marker of markers) {
+      if (marker.time > region.start) break;
+      initialTempo = marker.tempo ?? initialTempo;
+      initialNum = marker.timeSigNum ?? initialNum;
+    }
+  }
   const events: { tick: number; bytes: number[] }[] = [
-    { tick: 0, bytes: tempoBytes(project.tempo) },
-    { tick: 0, bytes: timeSigBytes(project.timeSig.num, project.timeSig.den) },
+    { tick: 0, bytes: tempoBytes(initialTempo) },
+    { tick: 0, bytes: timeSigBytes(initialNum, project.timeSig.den) },
   ];
 
   // Cambios de tempo/compás de los marcadores del timeline. El motor los honra
@@ -272,11 +286,9 @@ function encodeConductorTrack(project: Project, includeMarkers: boolean): ByteWr
   // Solo en song: en pattern las notas son relativas al patrón y los marcadores
   // del timeline de canción no aplican.
   if (includeMarkers) {
-    const markers = Object.values(project.markers)
-      .filter((m) => m.tempo !== undefined || m.timeSigNum !== undefined)
-      .sort((a, b) => a.time - b.time);
     for (const m of markers) {
-      const tick = Math.max(0, Math.round(m.time * PPQ));
+      if (region && (m.time <= region.start || m.time >= region.end)) continue;
+      const tick = Math.max(0, Math.round((m.time - (region?.start ?? 0)) * PPQ));
       if (m.tempo !== undefined) events.push({ tick, bytes: tempoBytes(m.tempo) });
       if (m.timeSigNum !== undefined) {
         events.push({ tick, bytes: timeSigBytes(m.timeSigNum, project.timeSig.den) });
@@ -306,10 +318,25 @@ function encodeConductorTrack(project: Project, includeMarkers: boolean): ByteWr
  * - `mode: 'song'`: los clips de patrón del arrangement activo.
  */
 export function encodeMidi(project: Project, opts: EncodeMidiOptions): Uint8Array {
+  const region = opts.region;
+  if (region && (!Number.isFinite(region.start) || !Number.isFinite(region.end) || region.start < 0 || region.end <= region.start)) {
+    throw new Error('encodeMidi: región inválida (inicio y fin finitos, 0 <= inicio < fin)');
+  }
   const byChannel = collectNotes(project, opts);
+  if (region) {
+    for (const [channelId, spans] of byChannel) {
+      const clipped: NoteSpan[] = [];
+      for (const span of spans) {
+        const start = Math.max(region.start, span.start);
+        const end = Math.min(region.end, span.start + span.duration);
+        if (end > start) clipped.push({ ...span, start: start - region.start, duration: end - start });
+      }
+      byChannel.set(channelId, clipped);
+    }
+  }
 
   // Pistas en el orden de canales del proyecto; solo canales con notas.
-  const tracks: ByteWriter[] = [encodeConductorTrack(project, opts.mode === 'song')];
+  const tracks: ByteWriter[] = [encodeConductorTrack(project, opts.mode === 'song', region)];
   let melodicIndex = 0;
   for (const channelId of project.channelOrder) {
     const channel = project.channels[channelId];

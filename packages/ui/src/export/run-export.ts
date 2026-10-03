@@ -426,6 +426,9 @@ async function renderAndWrite(
   if (opts.source === 'selection' && !region) {
     throw new Error('No hay ninguna región marcada en la playlist.');
   }
+  if (region && (!Number.isFinite(region.start) || !Number.isFinite(region.end) || region.start < 0 || region.end <= region.start)) {
+    throw new Error('La región marcada debe tener un inicio y fin válidos, con fin posterior al inicio.');
+  }
 
   await report('Renderizando…');
   throwIfCancelled();
@@ -635,7 +638,7 @@ async function renderAndWrite(
     throwIfCancelled();
     midiPath = `${splitExtension(target).base}.mid`;
     try {
-      await orbit.file.write(midiPath, encodeMidi(proj, playMode));
+      await orbit.file.write(midiPath, encodeMidi(proj, { ...playMode, ...(region ? { region } : {}) }));
     } catch (e) {
       warnings.push(`No se pudo escribir ${midiPath}: ${errorText(e)}`);
       midiPath = null;
