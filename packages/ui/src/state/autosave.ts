@@ -31,6 +31,39 @@ let timer: ReturnType<typeof setInterval> | null = null;
 let savedVersion = -1;
 let autosavedVersion = -1;
 
+/** Guardar manualmente invalida respuestas anteriores incluso en la misma
+ * sesión. historyEpoch cubre además nuevo/abrir/restaurar/recuperar/sala. */
+let autosaveGeneration = 0;
+
+/** El archivo pending es único. No puede haber un write antiguo terminando
+ * después de clear, ni un clear terminando encima del autosave siguiente. */
+let pendingIo: Promise<void> | null = null;
+
+function queueAutosaveIo(run: () => Promise<void>): void {
+  const operation = pendingIo ? pendingIo.then(run, run) : run();
+  pendingIo = operation;
+  const release = () => {
+    if (pendingIo === operation) pendingIo = null;
+  };
+  void operation.then(release, release);
+}
+
+function clearPending(): void {
+  const api = window.orbit?.autosave;
+  if (!api) return;
+  const epoch = store.historyEpoch;
+  const generation = autosaveGeneration;
+  const isCurrent = () => epoch === store.historyEpoch && generation === autosaveGeneration;
+  queueAutosaveIo(async () => {
+    if (!isCurrent()) return;
+    try {
+      await api.clear();
+    } catch {
+      if (isCurrent()) useAutosave.setState({ error: 'No se pudo limpiar la recuperación automática guardada.' });
+    }
+  });
+}
+
 /**
  * Hay una recuperación OFRECIDA y todavía sin resolver (el usuario no ha
  * pulsado Recuperar ni Descartar). Mientras lo esté, el bucle del autosave no
@@ -90,6 +123,7 @@ export function applyRecovery(offer: RecoveryOffer): boolean {
   if (!confirmDiscard('Recuperar el trabajo de la sesión anterior')) return false;
   recoveryPending = false;
   store.replaceProject(project);
+  useAutosave.setState({ error: null });
   // El proyecto recuperado NO es el archivo que estaba abierto: es trabajo SIN
   // guardar, y el propio autosave es su única red hasta que el usuario guarde
   // (por eso no se limpia el pendiente). Conservar la ruta anterior —lo que
@@ -104,7 +138,7 @@ export function applyRecovery(offer: RecoveryOffer): boolean {
 }
 
 /**
- * Lo último que falló al recuperar (para el cartel) y si hay cambios sin
+ * Lo último que falló al recuperar o escribir el autosave y si hay cambios sin
  * guardar (para el punto de la barra de título y la guardia de salir).
  */
 export const useAutosave = create<{ error: string | null; dirty: boolean }>(() => ({
@@ -135,7 +169,9 @@ function refreshDirty(): void {
 /** Descarta el pendiente de la sesión anterior. */
 export function discardRecovery(): void {
   recoveryPending = false;
-  void window.orbit?.autosave.clear();
+  autosaveGeneration++;
+  useAutosave.setState({ error: null });
+  clearPending();
 }
 
 /** El estado actual pasa a ser el punto limpio (tras guardar o abrir). */
@@ -152,6 +188,7 @@ export function markClean(): void {
  * true si el proyecto avanzó.
  */
 export function markCleanAt(version: number): void {
+  autosaveGeneration++;
   savedVersion = version;
   autosavedVersion = version;
   refreshDirty();
@@ -160,7 +197,8 @@ export function markCleanAt(version: number): void {
   // en disco y su pending debe seguir vivo.
   if (store.version === version) {
     recoveryPending = false;
-    void window.orbit?.autosave.clear();
+    useAutosave.setState({ error: null });
+    clearPending();
   }
 }
 
@@ -174,13 +212,37 @@ export function initAutosave(): void {
   // ProjectStore solo emite cuando el proyecto cambia de verdad (dispatch,
   // undo/redo, replaceProject), no con los medidores del kernel.
   store.subscribe(refreshDirty);
+  store.subscribeBeforeReplace(() => {
+    autosaveGeneration++;
+    useAutosave.setState({ error: null });
+  });
   timer = setInterval(() => {
     // Con un cartel de recuperación sin resolver, `pending.orbit` no se toca:
     // es la oferta que el usuario todavía puede aceptar (ver `recoveryPending`).
-    if (recoveryPending) return;
+    if (recoveryPending || pendingIo) return;
     if (store.version === autosavedVersion) return;
-    autosavedVersion = store.version;
-    void api.autosave.write(serializeProject(store.project));
+    const version = store.version;
+    const epoch = store.historyEpoch;
+    const generation = autosaveGeneration;
+    const isCurrent = () => epoch === store.historyEpoch && generation === autosaveGeneration;
+    queueAutosaveIo(async () => {
+      try {
+        // La foto y su versión se toman juntas, antes de cruzar el IPC.
+        const json = serializeProject(store.project);
+        await api.autosave.write(json);
+        if (!isCurrent()) return;
+        autosavedVersion = version;
+        useAutosave.setState({ error: null });
+      } catch (err) {
+        if (!isCurrent()) return;
+        const detail = err instanceof Error ? `: ${err.message}` : '';
+        useAutosave.setState({
+          error: `No se pudo guardar la recuperación automática${detail}. Se reintentará en un minuto; puedes guardar el proyecto con Ctrl+S.`,
+        });
+        // No se adelanta el checkpoint ni se reintenta en caliente: el próximo
+        // tick vuelve a escribir aunque nadie haya editado nada más.
+      }
+    });
   }, INTERVAL_MS);
 }
 

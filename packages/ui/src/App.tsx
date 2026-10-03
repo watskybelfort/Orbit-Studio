@@ -54,6 +54,7 @@ export function App() {
   const bounceNotice = useBounceStore((s) => s.notice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
   const recoveryError = useAutosave((s) => s.error);
+  const autosaveNotice = recovery ? null : recoveryError;
   const updateAvailable = useUpdateCheck((s) => s.available);
   const updateRelease = useUpdateCheck((s) => s.release);
 
@@ -198,8 +199,8 @@ export function App() {
         </div>
       )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
-      {(bounceBusy ?? bounceNotice ?? notice) && (
-        <div className="app-notice popup">{bounceBusy ?? bounceNotice ?? notice}</div>
+      {(bounceBusy ?? bounceNotice ?? autosaveNotice ?? notice) && (
+        <div className="app-notice popup" role="status">{bounceBusy ?? bounceNotice ?? autosaveNotice ?? notice}</div>
       )}
       {recovery && (
         <div className="app-recovery popup">

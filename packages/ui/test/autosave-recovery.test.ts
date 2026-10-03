@@ -123,7 +123,8 @@ describe('autosave: el pendiente no se pisa mientras el cartel está sin resolve
     expect(autosave.write).not.toHaveBeenCalled();
 
     mod.discardRecovery();
-    vi.advanceTimersByTime(60_000);
+    // El clear por IPC debe terminar antes de que el bucle vuelva a escribir.
+    await vi.advanceTimersByTimeAsync(60_000);
     // Resuelto el cartel, el bucle vuelve a proteger el trabajo en curso.
     expect(autosave.write).toHaveBeenCalledTimes(1);
   });
