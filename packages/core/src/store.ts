@@ -99,6 +99,7 @@ export class ProjectStore {
 
   private listeners = new Set<StoreListener>();
   private commandListeners = new Set<CommandListener>();
+  private beforeReplaceListeners = new Set<() => void>();
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
   /** Ramas abandonadas, colgadas del punto del tronco donde se bifurcaron. */
@@ -121,6 +122,23 @@ export class ProjectStore {
   subscribeCommands(listener: CommandListener): () => void {
     this.commandListeners.add(listener);
     return () => this.commandListeners.delete(listener);
+  }
+
+  /**
+   * Escucha «el proyecto va a ser sustituido», ANTES de mutar: el proyecto y el
+   * historial actuales siguen en pie cuando corre.
+   *
+   * Es para quien tiene que decidir sobre el mundo que se va —el barrido de
+   * archivos de grabación de `ui/state/sample-gc.ts`, cuya respuesta cambia por
+   * completo si se calcula contra el historial NUEVO (vacío: todo se vería
+   * abandonado y se tiraría audio que un undo, un redo o un `.orbit` guardado
+   * sigue nombrando)—. Quien se suscriba debe capturar su DECISIÓN en el tramo
+   * síncrono de su listener: lo que deje para un `await` ya no verá el mundo
+   * viejo. Y no debe lanzar: una excepción aquí cancelaría la sustitución.
+   */
+  subscribeBeforeReplace(listener: () => void): () => void {
+    this.beforeReplaceListeners.add(listener);
+    return () => this.beforeReplaceListeners.delete(listener);
   }
 
   private emit(cmd: Command, origin: string, label: string) {
@@ -491,6 +509,16 @@ export class ProjectStore {
    * contar en vez de enseñar una lista vacía sin motivo.
    */
   replaceProject(project: Project): void {
+    // Aviso ANTES de mutar, y a salvo de excepciones: el proyecto y el
+    // historial de arriba siguen siendo los viejos cuando corre (ver
+    // `subscribeBeforeReplace`).
+    for (const l of [...this.beforeReplaceListeners]) {
+      try {
+        l();
+      } catch {
+        // Un listener roto no puede cancelar la sustitución del proyecto.
+      }
+    }
     this.project = project;
     this.undoStack = [];
     this.redoStack = [];

@@ -9,7 +9,7 @@ import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { setInputPeak } from './input-monitor';
 import { pushInputChunk } from './recorder';
-import { pinnedSamples, uiAudioCacheStats } from './sample-gc';
+import { installRecordingSweepHook, pinnedSamples, uiAudioCacheStats } from './sample-gc';
 import { peaksCacheStats, peaksListenerCount } from './sample-peaks';
 import { pushCaptureChunk } from './track-capture';
 
@@ -262,6 +262,12 @@ export function ensureAudioReady(): void {
     if (!syncFrozen || !syncedOnce) pushSnapshot();
   });
 }
+
+// El barrido de disco del almacén de grabaciones, enganchado al único punto
+// por el que pasan las puertas que sustituyen el proyecto (ver
+// `sample-gc.ts`, que tiene el porqué del momento). El store se inyecta: ese
+// módulo no depende de este.
+installRecordingSweepHook(store);
 
 // Ganchos de QA solo-dev: inspeccionar estado vivo desde CDP.
 const env = (import.meta as { env?: { DEV?: boolean } }).env;
