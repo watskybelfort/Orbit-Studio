@@ -85,8 +85,18 @@ async function rig(opts: RigOpts = {}) {
     vi.doMock('../src/state/sample-gc', async (importOriginal) => {
       const real = await importOriginal<typeof import('../src/state/sample-gc')>();
       // Solo la sujeción: `collectWorkletSamples` sigue siendo el de verdad y
-      // sigue leyendo el `Set` de verdad (que aquí nunca se llena).
-      return { ...real, pinSample: () => undefined, unpinSample: () => undefined };
+      // sigue leyendo el contador de verdad (que aquí nunca se llena). Ojo con
+      // la trampa que ya costó tiempo: neutralizar solo `pinSample`/`unpinSample`
+      // NO desactiva la sujeción, porque `withPinnedSamples` llama al
+      // `pinSample` LOCAL del módulo, no al export. Los envoltorios van en el
+      // control también.
+      return {
+        ...real,
+        pinSample: () => undefined,
+        unpinSample: () => undefined,
+        withPinnedSample: <T,>(_id: string, run: () => Promise<T>) => run(),
+        withPinnedSamples: <T,>(_ids: Iterable<string>, run: () => Promise<T>) => run(),
+      };
     });
   }
 
@@ -277,11 +287,12 @@ describe('un collectSessionSamples en mitad de la vuelta de grabación', () => {
 
     await grabarDosTomas(r);
 
-    // La toma 1 está sujeta mientras se guarda la 2. Si el alcance fuera "la
-    // toma en curso", aquí habría 0 (o el id de la 2, que ni siquiera se ha
-    // subido todavía) y este número sería la prueba de que el arreglo tapó un
-    // archivo y no la clase.
-    expect(sujetasEnLaVentana).toHaveLength(1);
+    // La toma 1 está sujeta mientras se guarda la 2 (y la 2 también, ya
+    // sujetas las dos desde antes del primer save). Si el alcance fuera "la
+    // toma en curso", aquí habría 0 o 1 (el id de la 2, que ni siquiera se ha
+    // subido todavía) y el primero de la lista no sería la toma 1: este número
+    // es la prueba de que el arreglo tapó un archivo y no la clase.
+    expect(sujetasEnLaVentana).toHaveLength(2);
     expect(sujetasEnLaVentana[0]).toBe(idsDeLasTomas(r.app.store)[0]);
   });
 
@@ -357,23 +368,41 @@ describe('una vuelta de grabación sigue siendo UN paso de undo', () => {
 describe('recorder.ts sujeta de verdad, y hasta después del dispatch', () => {
   const file = readSource('state/recorder.ts');
 
-  it('el pin va ANTES del loadSample de cada toma', () => {
-    expect(file.indexOf('pinSample(sampleId)')).toBeGreaterThan(0);
-    expect(file.indexOf('pinSample(sampleId)')).toBeLessThan(file.indexOf('engine.loadSample('));
+  /** El cuerpo envuelto por `withPinnedSamples(...)`, cortado por su sangría. */
+  function bloqueSujeto(): string {
+    const at = file.indexOf('withPinnedSamples(');
+    expect(at).toBeGreaterThan(0);
+    const lineStart = file.lastIndexOf('\n', at) + 1;
+    const indent = /^[ \t]*/.exec(file.slice(lineStart))![0];
+    const close = file.indexOf(`\n${indent}});`, at);
+    expect(close).toBeGreaterThan(at);
+    return file.slice(at, close);
+  }
+
+  it('la sujeción envuelve el cuerpo entero: save, loadSample y dispatch caen DENTRO', () => {
+    const bloque = bloqueSujeto();
+    for (const texto of ['api.recording.save(', 'engine.loadSample(', "store.dispatch({ type: 'batch'"]) {
+      expect(bloque, texto).toContain(texto);
+    }
+    // El orden importa: sujetar y soltar antes de registrar no arreglaría nada.
+    expect(bloque.indexOf('api.recording.save(')).toBeLessThan(bloque.indexOf('engine.loadSample('));
+    expect(bloque.indexOf('engine.loadSample(')).toBeLessThan(
+      bloque.indexOf("store.dispatch({ type: 'batch'"),
+    );
     // Un solo `loadSample` en el archivo: si mañana aparece otro, esta cuenta
     // deja de cuadrar antes de que se note como un clip mudo.
     expect(file.split('engine.loadSample(').length - 1).toBe(1);
   });
 
-  it('la baja es estructural (un finally) y llega DESPUÉS del dispatch', () => {
-    // Aquí no vale `withPinnedSample`: son N ids que se descubren dentro del
-    // bucle y tienen que seguir sujetos cuando el bucle acaba. Lo que no puede
-    // faltar es la garantía, que es el `finally`.
-    expect(file).toMatch(/\}\s*finally\s*\{\s*(\/\/[^\n]*\n\s*)*for \(const id of pinnedTakes\) unpinSample\(id\);/);
-    // Y el dispatch está DENTRO del try, o sea antes de soltar: sujetar y
-    // soltar antes de registrar no arreglaría nada.
-    const dispatch = file.indexOf("store.dispatch({ type: 'batch', label, commands }");
-    expect(dispatch).toBeGreaterThan(0);
-    expect(dispatch).toBeLessThan(file.indexOf('for (const id of pinnedTakes) unpinSample(id)'));
+  it('la baja es estructural y vive en sample-gc: aquí no hay pin a mano', () => {
+    // El `finally` que suelta es el de `withPinnedSamples` (sample-gc.ts, con
+    // sus propios tests de carrera y de suelo en cero). Un `pinSample` suelto
+    // dependería de que no haya una excepción en medio — exactamente el bug de
+    // las ventanas que esta pieza cerró. Los ids, además, se generan antes del
+    // bucle: el envoltorio exige la lista de antemano.
+    expect(file).not.toMatch(/\bpinSample\(/);
+    expect(file).not.toMatch(/\bunpinSample\(/);
+    const bloque = bloqueSujeto();
+    expect(bloque).toContain('takeIds');
   });
 });

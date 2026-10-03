@@ -22,6 +22,7 @@ import {
   pinnedSamples,
   unpinSample,
   withPinnedSample,
+  withPinnedSamples,
 } from '../src/state/sample-gc';
 
 function ref(id: string): SampleRef {
@@ -105,6 +106,56 @@ describe('collectWorkletSamples', () => {
       }),
     ).rejects.toThrow('el render falló');
     expect(pinnedSamples()).not.toContain('roto');
+  });
+
+  it('withPinnedSamples suelta TODOS los pins aunque la operación reviente a mitad', async () => {
+    await expect(
+      withPinnedSamples(['a', 'b', 'c'], async () => {
+        expect(pinnedSamples().sort()).toEqual(['a', 'b', 'c']);
+        throw new Error('el guardado se llenó el disco');
+      }),
+    ).rejects.toThrow('se llenó el disco');
+    // La lista entera, igual de larga que si hubiera terminado: un pin que se
+    // queda puesto es la misma fuga del otro lado.
+    expect(pinnedSamples()).toEqual([]);
+  });
+
+  it('un iterable que revienta a mitad no deja sujeto lo ya adquirido', async () => {
+    function* roto(): Generator<string> {
+      yield 'adquirido';
+      throw new Error('el generator revienta');
+    }
+    await expect(withPinnedSamples(roto(), async () => 'no se llega')).rejects.toThrow(
+      'el generator revienta',
+    );
+    // La adquisición va dentro del try: si el `finally` solo cubriera `run`,
+    // 'adquirido' se quedaría sujeto para siempre.
+    expect(pinnedSamples()).toEqual([]);
+  });
+
+  it('ids duplicados piden dos soltados y no roban la referencia de otro sujeto', async () => {
+    pinSample('compartido'); // otra operación, ajena a este envoltorio
+    await withPinnedSamples(['compartido', 'compartido'], async () => {
+      // Una sola entrada en el diagnóstico, tres referencias por dentro.
+      expect(pinnedSamples()).toEqual(['compartido']);
+    });
+    // Las dos del envoltorio se soltaron y la ajena sigue intacta: sin el
+    // contador, dos entradas repetidas habrían soltado dos veces y la
+    // referencia ajena se habría ido con ellas.
+    expect(pinnedSamples()).toEqual(['compartido']);
+    unpinSample('compartido');
+    expect(pinnedSamples()).toEqual([]);
+  });
+
+  it('plural y singular solapados sobre el mismo id: cada uno suelta lo suyo', async () => {
+    await withPinnedSamples(['x'], async () => {
+      await withPinnedSample('x', async () => {
+        expect(pinnedSamples()).toEqual(['x']);
+      });
+      // El singular terminó y soltó SU referencia; el plural sigue sujetando.
+      expect(pinnedSamples()).toEqual(['x']);
+    });
+    expect(pinnedSamples()).toEqual([]);
   });
 });
 
