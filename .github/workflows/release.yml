@@ -3,17 +3,12 @@
 # también, pero nunca empaqueta) y lo adjunta a la GitHub Release de ese tag,
 # creándola si todavía no existe.
 #
-# Por qué acá SÍ hace falta `npm ci` completo (sin --ignore-scripts):
-# ci.yml se salta los postinstall porque typecheck/test/build nunca levantan
-# Electron (esbuild trae su binario por optionalDependencies, sin postinstall;
-# electron-vite tampoco necesita el binario de Electron para bundlear). Pero
-# este job corre `electron-builder --win --x64`, que empaqueta la app CON el
-# runtime de Electron — y para eso hace falta el binario ya descargado del
-# postinstall del paquete `electron` en node_modules/electron/dist.
-# electron-builder también sabe descargarlo por su cuenta desde su propia
-# caché (@electron/get) aunque node_modules/electron esté vacío, pero apoyarse
-# en esa ruta paralela en el único job que produce el artefacto que se publica
-# es un riesgo innecesario: acá se corre `npm ci` a secas.
+# Acá `npm ci` completo permite los scripts que necesiten las dependencias del
+# empaquetado. Electron 43 descarga su binario al primer require('electron'),
+# ya no mediante postinstall; electron-builder obtiene el runtime de su caché
+# o lo descarga al empaquetar. Su versión explícita en electron-builder.yml
+# debe coincidir con el lock (tools/qa/packaged-electron.test.ts lo comprueba).
+# typecheck/test/electron-vite build no necesitan levantar ese runtime.
 #
 # Firma de editor: el paso de abajo ya pasa CSC_LINK/CSC_KEY_PASSWORD como env
 # vars desde secrets del repo, pero HOY esos secrets no existen — no hay
@@ -142,14 +137,20 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI_STATUS_LINE: ${{ steps.ci_status.outputs.linea }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          notas_ci="Estado de \`CI\` para este commit al momento de publicar: ${CI_STATUS_LINE:-sin dato}."
-          if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
-            gh release upload "${{ github.ref_name }}" apps/desktop/dist/*.exe --clobber
+          cuerpo="$RUNNER_TEMP/orbit-release-body.json"
+          notas="$RUNNER_TEMP/orbit-release-notes.md"
+          if gh release view "$RELEASE_TAG" --json body > "$cuerpo" 2>/dev/null; then
+            node tools/qa/release-ci-notes.mjs "$cuerpo" "$notas"
+            gh release edit "$RELEASE_TAG" --notes-file "$notas"
+            gh release upload "$RELEASE_TAG" apps/desktop/dist/*.exe --clobber
           else
-            gh release create "${{ github.ref_name }}" apps/desktop/dist/*.exe \
-              --title "${{ github.ref_name }}" \
-              --notes "$notas_ci" \
+            printf '{"body":""}' > "$cuerpo"
+            node tools/qa/release-ci-notes.mjs "$cuerpo" "$notas"
+            gh release create "$RELEASE_TAG" apps/desktop/dist/*.exe \
+              --title "$RELEASE_TAG" \
+              --notes-file "$notas" \
               --generate-notes
           fi
