@@ -407,7 +407,8 @@ export const TOOLS: ToolDef[] = [
       'Crea un clip de automatización en una pista de la playlist. `targetJson` es un ParamRef de ' +
       'core (objeto o string JSON): {"kind":"mixer","trackIndex":N,"param":"volume"|"pan"|"stereoWidth"} · ' +
       '{"kind":"channel","channelId":id,"param":clave} · {"kind":"channelMix","channelId":id,"param":"volume"|"pan"} · ' +
-      '{"kind":"effect","trackIndex":N,"slotIndex":M,"param":clave} · {"kind":"transport","param":"tempo"|"swing"}. ' +
+      '{"kind":"effect","trackIndex":N,"slotIndex":M,"param":clave} · {"kind":"transport","param":"tempo"}. ' +
+      'Para ajustar el swing global usa set_swing; no admite curvas de automatización. ' +
       'points: time en beats relativos al clip, value normalizado 0..1 (se desnormaliza al rango real ' +
       'del parámetro), tension -1..1 (curvatura hacia el siguiente punto; 0 = lineal).',
     inputSchema: {
@@ -416,7 +417,7 @@ export const TOOLS: ToolDef[] = [
         trackIndex: { type: 'integer', minimum: 0, description: 'Índice de pista de playlist.' },
         targetJson: {
           anyOf: [{ type: 'string' }, { type: 'object' }],
-          description: 'ParamRef destino, como objeto o string JSON.',
+          description: 'ParamRef destino, como objeto o string JSON. Transporte: solo tempo; para swing global usa set_swing.',
         },
         startBeat: { type: 'number', minimum: 0, description: 'Inicio del clip en beats absolutos.' },
         lengthBeats: { type: 'number', exclusiveMinimum: 0, description: 'Longitud del clip en beats.' },

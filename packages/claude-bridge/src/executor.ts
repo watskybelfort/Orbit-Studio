@@ -1149,8 +1149,14 @@ export class ToolExecutor {
       }
       case 'transport': {
         const param = reqString(o, 'param');
-        if (param !== 'tempo' && param !== 'swing') {
-          throw new ToolError('transport.param debe ser "tempo" o "swing"');
+        // El swing se aplica al compilar el inicio de cada nota. El kernel no
+        // puede mover esas notas con una curva en runtime: confirmar ese clip
+        // sería un éxito falso (la UI ya excluye ese destino).
+        if (param === 'swing') {
+          throw new ToolError('El swing no admite automatización; usa set_swing para ajustar el swing global.');
+        }
+        if (param !== 'tempo') {
+          throw new ToolError('transport.param debe ser "tempo"');
         }
         return { kind: 'transport', param };
       }
