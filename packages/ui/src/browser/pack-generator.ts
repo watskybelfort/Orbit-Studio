@@ -59,7 +59,14 @@ export function onPacksChanged(cb: () => void): () => void {
   };
 }
 
+/** Cuántos listeners vivos hay (diagnóstico: una fuga es un número). */
+export function packsListenerCount(): number {
+  return listeners.size;
+}
+
 export function notifyPacksChanged(): void {
+  // Sobre una copia: un callback que se dé de baja dentro de su propio
+  // callback no decide quién recibe ESTE aviso.
   for (const cb of [...listeners]) cb();
 }
 
