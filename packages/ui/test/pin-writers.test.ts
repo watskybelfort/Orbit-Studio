@@ -169,6 +169,7 @@ function nuevosEnElMotor(r: Rig, previos: ReadonlySet<string>): string[] {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.doUnmock('../src/state/sample-gc');
   vi.resetModules();
 });
@@ -176,14 +177,18 @@ afterEach(() => {
 // ── Consolidar a audio ──────────────────────────────────────────────────────
 
 /** Deja un clip de patrón en la playlist y devuelve su id. */
-function clipDePatron(core: typeof import('@orbit/core'), store: import('@orbit/core').ProjectStore): string {
+function clipDePatron(
+  core: typeof import('@orbit/core'),
+  store: import('@orbit/core').ProjectStore,
+  length = 4,
+): string {
   const trackId = Object.keys(store.project.playlistTracks)[0]!;
   const patternId = store.project.patternOrder[0]!;
   const id = core.newId();
   store.dispatch({
     type: 'addClips',
     clips: [
-      { id, kind: 'pattern' as const, playlistTrackId: trackId, start: 0, length: 4, muted: false, patternId },
+      { id, kind: 'pattern' as const, playlistTrackId: trackId, start: 0, length, muted: false, patternId },
     ],
   });
   return id;
@@ -256,10 +261,17 @@ describe('un collectSessionSamples en la ventana de un consolidado', () => {
 // ── Grabar la salida de una pista ───────────────────────────────────────────
 
 /** Empuja audio a la captura de pista hasta pasar el mínimo de duración. */
-function empujarCaptura(capture: typeof import('../src/state/track-capture'), engineRate: number): void {
+function empujarCaptura(
+  capture: typeof import('../src/state/track-capture'),
+  engineRate: number,
+  amplitud = 0.3,
+): void {
   const frames = Math.ceil((engineRate * 0.2) / 128);
   for (let i = 0; i < frames; i++) {
-    capture.pushCaptureChunk(new Float32Array(128).fill(0.3), new Float32Array(128).fill(0.3));
+    capture.pushCaptureChunk(
+      new Float32Array(128).fill(amplitud),
+      new Float32Array(128).fill(amplitud),
+    );
   }
 }
 
@@ -478,5 +490,89 @@ describe('los tres archivos sujetan de verdad, y hasta después del dispatch', (
         cuerpo.indexOf('store.dispatch('),
       );
     }
+  });
+});
+
+// ── El nombre por contenido: dos escrituras no se pisan ─────────────────────
+
+/**
+ * `recording:save` pisa por nombre. Con nombre por pista (`Pista <nombre>.wav`)
+ * o por tramo (`Consolidado <qué> b<compás>.wav`), dos escrituras DISTINTAS
+ * compartían archivo y la segunda se llevaba por delante el audio de la
+ * primera — el mismo borrado silencioso que el editor tenía con su
+ * `Edit HH.MM.SS.wav`. Aquí se congela el reloj (solo la `Date`, que los
+ * arneses necesitan sus timers de verdad) para que la variante vieja
+ * colisione SIEMPRE, y se comprueba que con el nombre por contenido no se
+ * puede: mismo nombre significa mismo contenido.
+ */
+describe('con el reloj congelado, dos escrituras de audio distinto no comparten archivo', () => {
+  /** El nombre base, sin el sufijo `<hash>.wav` que aporta la unicidad. */
+  function base(file: string): string {
+    return file.slice(0, file.lastIndexOf(' '));
+  }
+
+  it('dos capturas de la misma pista guardan dos archivos, y los dos anotados', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 3, 14, 3, 22));
+    const r = await rig();
+    const capture = await import('../src/state/track-capture');
+    await capture.toggleTrackCapture(1);
+    empujarCaptura(capture, r.app.engine.sampleRate, 0.3);
+    await capture.stopTrackCapture();
+    await capture.toggleTrackCapture(1);
+    empujarCaptura(capture, r.app.engine.sampleRate, 0.7);
+    await capture.stopTrackCapture();
+
+    expect(r.guardados).toHaveLength(2);
+    // Con `Pista Insert 1.wav` para las dos, la segunda pisaba a la primera: la
+    // pasada en vivo de antes quedaba MUDA sin avisar.
+    expect(new Set(r.guardados).size).toBe(2);
+    // Mismo nombre base (misma pista); el hash es lo único que las separa.
+    expect(base(r.guardados[0]!)).toBe(base(r.guardados[1]!));
+    // Y las dos escrituras están anotadas en el libro del barrido.
+    expect(
+      r.gc
+        .recordingLedgerEntries()
+        .map((e) => e.file)
+        .sort(),
+    ).toEqual([...r.guardados].sort());
+  });
+
+  it('el MISMO contenido comparte archivo a propósito: pisar es escribir lo mismo encima', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 3, 14, 3, 22));
+    const r = await rig();
+    const capture = await import('../src/state/track-capture');
+    for (let i = 0; i < 2; i++) {
+      await capture.toggleTrackCapture(1);
+      empujarCaptura(capture, r.app.engine.sampleRate, 0.3);
+      await capture.stopTrackCapture();
+    }
+
+    expect(r.guardados).toHaveLength(2);
+    expect(new Set(r.guardados).size).toBe(1);
+    // Un archivo, dos ids de sample que lo nombran: repetir la misma operación
+    // no crece el disco, que es la otra mitad del nombre por contenido.
+    const libro = r.gc.recordingLedgerEntries();
+    expect(libro).toHaveLength(1);
+    expect(libro[0]!.sampleIds).toHaveLength(2);
+  });
+
+  it('dos consolidados del mismo tramo con audio distinto guardan dos archivos', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 3, 14, 3, 22));
+    const r = await rig();
+    const bounce = await import('../src/state/bounce');
+    // Dos clips que arrancan en el MISMO punto: el nombre viejo,
+    // `Consolidado clip b0.wav`, era idéntico para los dos.
+    const corto = clipDePatron(r.core, r.app.store, 4);
+    const largo = clipDePatron(r.core, r.app.store, 8);
+    await bounce.bounceClip(corto);
+    await bounce.bounceClip(largo);
+
+    expect(r.guardados).toHaveLength(2);
+    expect(new Set(r.guardados).size).toBe(2);
+    expect(base(r.guardados[0]!)).toBe(base(r.guardados[1]!));
+    expect(r.gc.recordingLedgerEntries()).toHaveLength(2);
   });
 });

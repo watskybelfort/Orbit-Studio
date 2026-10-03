@@ -106,6 +106,7 @@ async function rig(opts: RigOpts = {}) {
   let trasSubir: (nth: number) => void = () => undefined;
 
   let saves = 0;
+  const guardados: string[] = [];
   vi.stubGlobal('window', {
     orbit: {
       recording: {
@@ -114,6 +115,7 @@ async function rig(opts: RigOpts = {}) {
           // El await de verdad: escribir el WAV cede el hilo, y es por donde
           // entra el Ctrl+Z de `useShortcuts`.
           await Promise.resolve();
+          guardados.push(name);
           enSave(nth);
           return name;
         },
@@ -165,6 +167,7 @@ async function rig(opts: RigOpts = {}) {
     recorder,
     soundActions,
     send,
+    guardados,
     onSave: (fn: (nth: number) => void) => (enSave = fn),
     onUpload: (fn: (nth: number) => void) => (trasSubir = fn),
   };
@@ -181,19 +184,24 @@ function declareRoutes(
   for (const channel of channels) store.dispatch({ type: 'addInputRoute', route: core.createInputRoute(channel) });
 }
 
-/** Graba una vuelta de dos tomas (dos micros armados) y la cierra. */
-async function grabarDosTomas(r: Rig): Promise<void> {
-  declareRoutes(r.core, r.app.store, [0, 4]);
+/** Una vuelta de grabación sobre las rutas YA declaradas, con audio de `amp`. */
+async function grabarVuelta(r: Rig, amp: number): Promise<void> {
   await r.recorder.toggleRecording();
   expect(r.recorder.useRecorderStore.getState().phase).toBe('recording');
   for (let i = 0; i < 4; i++) {
-    r.recorder.pushInputChunk(block(0.5), block(0.5));
+    r.recorder.pushInputChunk(block(amp), block(amp));
     r.app.engine.onInputCaptures?.([
-      { routeIndex: 0, left: block(0.5), right: block(0.5) },
-      { routeIndex: 1, left: block(0.2), right: block(0.2) },
+      { routeIndex: 0, left: block(amp), right: block(amp) },
+      { routeIndex: 1, left: block(amp * 0.4), right: block(amp * 0.4) },
     ]);
   }
   await r.recorder.toggleRecording();
+}
+
+/** Graba una vuelta de dos tomas (dos micros armados) y la cierra. */
+async function grabarDosTomas(r: Rig): Promise<void> {
+  declareRoutes(r.core, r.app.store, [0, 4]);
+  await grabarVuelta(r, 0.5);
 }
 
 /** Los sampleIds que acabaron en el proyecto, en orden de clip. */
@@ -207,6 +215,7 @@ function idsDeLasTomas(store: import('@orbit/core').ProjectStore): string[] {
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.doUnmock('../src/state/sample-gc');
   vi.resetModules();
 });
@@ -360,6 +369,37 @@ describe('una vuelta de grabación sigue siendo UN paso de undo', () => {
     expect(r.app.store.version).toBe(antes + 1);
     r.app.store.undo();
     expect(idsDeLasTomas(r.app.store)).toHaveLength(0);
+  });
+});
+
+// ── El nombre por contenido: dos vueltas no comparten archivo ───────────────
+
+/**
+ * `recording:save` pisa por nombre y el nombre de una toma llevaba reloj, que
+ * solo era único dentro de la MISMA vuelta: dos grabaciones a la misma hora —o
+ * la otra ventana escribiendo— compartían archivo y la segunda se llevaba por
+ * delante el audio de la primera, audio CANTADO por el usuario que no se puede
+ * volver a generar. Se congela la `Date` (los timers del arnés siguen reales)
+ * para que la variante vieja colisione siempre, y se comprueba que con el
+ * nombre por contenido no se puede.
+ */
+describe('con el reloj congelado, dos vueltas de grabación no comparten archivo', () => {
+  it('la segunda vuelta no pisa el .wav de la primera', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(2026, 9, 3, 14, 3, 22));
+    const r = await rig();
+    declareRoutes(r.core, r.app.store, [0, 4]);
+    await grabarVuelta(r, 0.5);
+    await grabarVuelta(r, 0.9);
+
+    // Cuatro tomas, cuatro archivos. Con `Toma 14.03.22 <entrada>.wav` para
+    // todas —el mismo reloj, que es el de dos grabaciones a la misma hora—,
+    // la segunda vuelta pisaba la primera y las dos tomas de antes quedaban
+    // registradas apuntando a un audio que ya no era el suyo.
+    expect(r.guardados).toHaveLength(4);
+    expect(new Set(r.guardados).size).toBe(4);
+    // Y las cuatro quedan anotadas en el libro del barrido.
+    expect(r.gc.recordingLedgerEntries()).toHaveLength(4);
   });
 });
 

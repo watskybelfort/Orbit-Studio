@@ -45,7 +45,7 @@ import {
 } from './input-monitor';
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
 import { compensateClipStart } from './input-latency';
-import { withPinnedSamples } from './sample-gc';
+import { noteRecordingWritten, withPinnedSamples } from './sample-gc';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -639,25 +639,35 @@ async function stopRecording(): Promise<void> {
         const wav = encodeWav(left, right, sampleRate, 24);
         const duration = left.length / sampleRate;
         const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
-
-        // El nombre lleva la entrada cuando hay más de una: dos tomas del mismo
-        // segundo comparten archivo si no, y la segunda pisa a la primera.
-        const name =
-          recorded.length > 1 ? `Toma ${clock} ${take.route.name}.wav` : `Toma ${clock}.wav`;
-        const file = await api.recording.save(name, wav);
-
-        const sampleId = takeIds[i]!;
         const wavBuf = wav.buffer.slice(
           wav.byteOffset,
           wav.byteOffset + wav.byteLength,
         ) as ArrayBuffer;
+
+        // Nombre por CONTENIDO (mismo criterio que `editFileName` del editor).
+        // El reloj solo era único dentro de la MISMA vuelta: dos grabaciones a
+        // la misma hora —o la otra ventana escribiendo— compartían nombre y
+        // `recording:save` pisa, así que la toma nueva se llevaba por delante
+        // la de antes con su audio ya irrepetible. La entrada sigue en el
+        // nombre para leerse, pero la unicidad la pone el sha1.
+        const sampleId = takeIds[i]!;
+        const hash = (await sha1Hex(wavBuf)) ?? sampleId;
+        const human = recorded.length > 1 ? `Toma ${clock} ${take.route.name}` : `Toma ${clock}`;
+        const file = await api.recording.save(`${human} ${hash}.wav`, wav);
+        // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
+        // dispatch: un fallo a mitad de la vuelta deja ese `.wav` en disco sin
+        // que nada lo nombre, y es justo el que hay que poder reclamar.
+        noteRecordingWritten({ sampleId, path: `recording:${file}`, bytes: wav.byteLength });
+
         await engine.loadSample(sampleId, wavBuf);
 
         const sample: SampleRef = {
           id: sampleId,
-          name: file.replace(/\.wav$/i, ''),
+          // El NOMBRE es el humano, no el del archivo: el auto-mapa de notas
+          // lee los nombres y un hash hexadecimal es puro falso positivo.
+          name: human,
           path: `recording:${file}`,
-          hash: (await sha1Hex(wavBuf)) ?? sampleId,
+          hash,
           duration,
         };
         commands.push({ type: 'registerSample', sample });

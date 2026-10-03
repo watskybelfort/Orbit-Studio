@@ -25,7 +25,7 @@ import {
 } from '../export/render-in-worker';
 import { engine, store } from './app';
 import { nextPaint } from './next-paint';
-import { withPinnedSample } from './sample-gc';
+import { noteRecordingWritten, withPinnedSample } from './sample-gc';
 
 /** Cola que se renderiza más allá del final de la selección. */
 const TAIL_SECONDS = 2;
@@ -179,28 +179,44 @@ async function bounceClips(
     const wav = encodeWav(res.left, res.right, res.sampleRate, 24);
     const buffer = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
 
-    const name = `Consolidado ${what.replace(/[^\p{L}\p{N} _-]/gu, '')} b${start.toFixed(0)}.wav`;
-    const file = await window.orbit.recording.save(name, wav);
+    // Nombre por CONTENIDO (mismo criterio que `editFileName` del editor):
+    // `Consolidado <qué> b<compás>.wav` colisionaba entre dos consolidados del
+    // mismo tramo —y del todo entre dos ventanas— y `recording:save` pisa por
+    // nombre, así que la segunda se llevaba por delante el audio de la
+    // primera. Con el sha1 del wav en el nombre, pisar es escribir el mismo
+    // contenido encima. El hash va ANTES del save porque el nombre sale de él
+    // —y todavía no hay nada subido al motor, así que este `await` no abre
+    // ventana alguna.
+    const sampleId = newId();
+    const hash = (await sha1Hex(buffer)) ?? sampleId;
+    const base = `Consolidado ${what.replace(/[^\p{L}\p{N} _-]/gu, '')} b${start.toFixed(0)}`;
+    const file = await window.orbit.recording.save(`${base} ${hash}.wav`, wav);
+    // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
+    // dispatch: un fallo entre las dos deja el `.wav` en disco sin que nada lo
+    // nombre, y es justo el que hay que poder reclamar (ver `sample-gc.ts`).
+    noteRecordingWritten({ sampleId, path: `recording:${file}`, bytes: wav.byteLength });
 
     // Al kernel en vivo, para que el clip nuevo suene sin recargar el proyecto.
-    const sampleId = newId();
     // Sujeto desde antes de subirlo y hasta DESPUÉS del dispatch (el mismo
     // arreglo y por el mismo motivo que el editor de audio, ver
     // `state/sample-gc.ts`): entre `loadSample` y `registerSample` ese id no lo
     // nombra nada del modelo, así que un `collectSessionSamples()` de otro
-    // origen —el Ctrl+Z de `useShortcuts`, que entra por el `await` de
-    // `sha1Hex`— le diría al motor que suelte el consolidado recién renderizado
-    // y el clip nuevo nacería MUDO. Con el `finally` de `withPinnedSample` los
-    // dos «no se consolidó» de aquí abajo sueltan el pin igual que el camino
-    // bueno: si no, un bounce abortado dejaría su id protegido para siempre.
+    // origen —el Ctrl+Z de `useShortcuts`, que entra por el
+    // `decodeAudioData`— le diría al motor que suelte el consolidado recién
+    // renderizado y el clip nuevo nacería MUDO. Con el `finally` de
+    // `withPinnedSample` los dos «no se consolidó» de aquí abajo sueltan el pin
+    // igual que el camino bueno: si no, un bounce abortado dejaría su id
+    // protegido para siempre.
     await withPinnedSample(sampleId, async () => {
       await engine.loadSample(sampleId, buffer);
 
       const sample: SampleRef = {
         id: sampleId,
-        name: file.replace(/\.wav$/i, ''),
+        // El NOMBRE es el humano, no el del archivo: el auto-mapa de notas lee
+        // los nombres y un hash hexadecimal es puro falso positivo.
+        name: base,
         path: `recording:${file}`,
-        hash: (await sha1Hex(buffer)) ?? sampleId,
+        hash,
         duration: res.left.length / res.sampleRate,
       };
       const audioClip: Clip = {
