@@ -10,6 +10,9 @@ import { parseProject, serializeProject, type Project } from '@orbit/core';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { store } from './app';
+// A nivel de FUNCIÓN (en `applyRecovery`), no de módulo: `project-file` importa
+// este archivo y un uso de módulo aquí reventaría el ciclo.
+import { useProjectFile } from './project-file';
 
 const INTERVAL_MS = 60_000;
 
@@ -87,6 +90,13 @@ export function applyRecovery(offer: RecoveryOffer): boolean {
   if (!confirmDiscard('Recuperar el trabajo de la sesión anterior')) return false;
   recoveryPending = false;
   store.replaceProject(project);
+  // El proyecto recuperado NO es el archivo que estaba abierto: es trabajo SIN
+  // guardar, y el propio autosave es su única red hasta que el usuario guarde
+  // (por eso no se limpia el pendiente). Conservar la ruta anterior —lo que
+  // hacía esto hasta ahora— deja un `Ctrl+S` que escribe POR ENCIMA de la otra
+  // canción: pérdida de proyecto confirmada (BUG 019). Con `path: null`,
+  // Guardar pide destino y el archivo de antes queda intacto.
+  useProjectFile.setState({ path: null });
   // Los samples referenciados se resuben al kernel (arranca vacío).
   void rehydrateSamples();
   // NO se limpia el pendiente: hasta que el usuario guarde, sigue siendo la red.
