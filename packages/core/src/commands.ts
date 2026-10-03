@@ -241,6 +241,22 @@ function slotIn(index: number, count: number, what: string): number {
   return index;
 }
 
+/** Misma guarda para rutas, envíos e inversos, antes de cualquier mutación. */
+function assertMixerConnection(project: Project, from: number, to: number): void {
+  if (!Number.isInteger(to) || to < 0 || to >= project.mixer.length) {
+    throw new Error(`Ruta fuera de rango: ${String(to)} (0..${project.mixer.length - 1})`);
+  }
+  // También cuentan los envíos silenciados o a nivel cero: el compilador los
+  // incluye en la topología, y reactivarlos no debe descubrir un ciclo oculto.
+  if (wouldLoop(project.mixer, from, to)) {
+    throw new Error(
+      `Enrutar la pista ${from} a la ${to} cerraría un ciclo ` +
+        `(la señal de ${to} ya vuelve a ${from}): dejaría la mezcla ` +
+        'en silencio. Se mantiene la conexión anterior.',
+    );
+  }
+}
+
 function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
   const old: Record<string, unknown> = {};
   for (const k of Object.keys(patch)) {
@@ -832,6 +848,9 @@ export function applyCommand(project: Project, cmd: Command): Command {
     // Mixer
     case 'patchMixerTrack': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
+      if (Object.hasOwn(cmd.patch, 'routeTo') && cmd.patch.routeTo !== null) {
+        assertMixerConnection(project, cmd.trackIndex, cmd.patch.routeTo!);
+      }
       const inverse: Command = {
         type: 'patchMixerTrack',
         trackIndex: cmd.trackIndex,
@@ -884,6 +903,14 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setSend': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
+      if (cmd.send && cmd.send.target !== cmd.target) {
+        throw new Error('El destino del envío completo no coincide con el destino del comando.');
+      }
+      // Quitar un cable siempre sigue siendo posible, incluso si el archivo
+      // heredado ya traía un ciclo o un destino fuera del mixer.
+      if (cmd.send || cmd.level !== null) {
+        assertMixerConnection(project, cmd.trackIndex, cmd.target);
+      }
       const existing = track.sends.find((s) => s.target === cmd.target);
       // Clon del estado ANTERIOR completo (Send solo tiene primitivos): el
       // inverso restaura el objeto entero, no solo el nivel.
@@ -928,39 +955,8 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'setRoute': {
       const track = must(project.mixer[cmd.trackIndex], `mixer ${cmd.trackIndex}`);
-      // Un routeTo fuera del mixer (o no entero) pasa el ciclo sin detectarse
-      // —`wouldLoop` ni lo mira— y llega al kernel, que indexa su tabla de
-      // buffers con él y revienta en process(). Se rechaza aquí, que es donde
-      // el comando tiene nombre. 0 = Master; null sigue valiendo (el Master
-      // nace así y la UI lo usa para "sin ruta").
-      if (
-        cmd.routeTo !== null &&
-        (!Number.isInteger(cmd.routeTo) ||
-          cmd.routeTo < 0 ||
-          cmd.routeTo >= project.mixer.length)
-      ) {
-        throw new Error(
-          `Ruta fuera de rango: ${String(cmd.routeTo)} (0..${project.mixer.length - 1})`,
-        );
-      }
-      // Guardia contra ciclos: enrutar A → B cuando B ya vuelve a A (directo, por
-      // sends, o los dos) deja el compilador (`topoOrder` en @orbit/engine)
-      // tolerando el bucle y la mezcla entera en silencio digital, sin aviso ni
-      // excepción. Se reusa `wouldLoop` — el MISMO detector que ya usa el editor
-      // de nodos (`GraphEditor.tsx`) para bloquear el arrastre antes de soltarlo
-      // — para que el menú del mixer, MCP o un comando remoto de colaboración no
-      // puedan colar por otro camino lo que el editor de nodos ya impide a mano.
-      // Política: RECHAZAR y dejar la ruta anterior intacta (no se rompe el otro
-      // extremo del ciclo en automático): es la opción que no sorprende tocando
-      // una pista que el usuario no seleccionó, y dispara desde el mismo sitio
-      // que ya usa el resto de invariantes de este archivo (ver `addInputRoute`).
-      if (cmd.routeTo !== null && wouldLoop(project.mixer, cmd.trackIndex, cmd.routeTo)) {
-        throw new Error(
-          `Enrutar la pista ${cmd.trackIndex} a la ${cmd.routeTo} cerraría un ciclo ` +
-            `(la señal de ${cmd.routeTo} ya vuelve a ${cmd.trackIndex}): dejaría la mezcla ` +
-            'en silencio. Se mantiene la ruta anterior.',
-        );
-      }
+      // null desconecta; el resto comparte la validación de setSend/patch.
+      if (cmd.routeTo !== null) assertMixerConnection(project, cmd.trackIndex, cmd.routeTo);
       const inverse: Command = {
         type: 'setRoute',
         trackIndex: cmd.trackIndex,

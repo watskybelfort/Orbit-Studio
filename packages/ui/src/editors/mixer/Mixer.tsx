@@ -1316,10 +1316,14 @@ export function Mixer() {
       const t = store.project.mixer[selIndex];
       if (!t || selIndex === 0 || target === selIndex) return;
       const has = t.sends.some((s) => s.target === target);
-      store.dispatch(
-        { type: 'setSend', trackIndex: selIndex, target, level: has ? null : SEND_DEFAULT },
-        { label: has ? `Quitar send ${selIndex} → ${target}` : `Send ${selIndex} → ${target}` },
-      );
+      try {
+        store.dispatch(
+          { type: 'setSend', trackIndex: selIndex, target, level: has ? null : SEND_DEFAULT },
+          { label: has ? `Quitar send ${selIndex} → ${target}` : `Send ${selIndex} → ${target}` },
+        );
+      } catch (error) {
+        notifyBanner(error instanceof Error ? error.message : String(error));
+      }
     },
     [selIndex],
   );
