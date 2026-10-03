@@ -217,6 +217,19 @@ class Room {
    * usa para re-derivar el proyecto.
    */
   private logShadow: RawLogEntry[] = [];
+  /**
+   * Copia autoritativa de los assets ACEPTADOS, **por referencia**: los bytes no
+   * se copian (es el mismo `Uint8Array` del doc), así que lo que cuesta es una
+   * entrada de mapa por sample.
+   *
+   * Existe para poder RESTAURAR un borrado no autorizado. Publicar muestras es
+   * editar; **borrarlas también**, y el guardia solo miraba altas y updates
+   * (`action !== 'delete'`): un oyente podía vaciar el audio compartido de la
+   * sala, y como el borrado se aplicaba antes de ser juzgado, ni se rechazaba
+   * ni quedaba copia para devolverlo (BUG 013). Con nombres por contenido, la
+   * rehidratación de cada cliente futuro salía muda.
+   */
+  private assetShadow = new Map<string, SampleAsset>();
 
   constructor(
     code: string,
@@ -248,8 +261,12 @@ class Room {
     // Lo que ya estaba guardado se da por bueno: se validó cuando se escribió y
     // sus emisores hace tiempo que no están. Se carga ANTES de poner el
     // observador, así que no pasa por el guardia.
-    // La copia autoritativa del log arranca con lo cargado del .bin.
+    // La copia autoritativa del log arranca con lo cargado del .bin, y la de los
+    // samples con lo que ya había: un borrado no autorizado se restaura desde
+    // ahí, y lo cargado del disco es lo único que hay (sus emisores ya no
+    // están para reenviarlo).
     this.logShadow = this.doc.getArray<RawLogEntry>('commands').toArray();
+    this.refreshAssetShadow();
 
     // El log es el proyecto: cada entrada nueva se juzga con el rol que ESTE
     // servidor le da a su emisor. Y el emisor es el SOCKET por el que entra, no
@@ -813,16 +830,41 @@ class Room {
    */
   private enforceAssets(event: Y.YMapEvent<SampleAsset>, from: WsSocket | undefined): void {
     const assets = this.doc.getMap<SampleAsset>('assets');
-    const changed = [...event.changes.keys.entries()].filter(([, c]) => c.action !== 'delete');
-    if (changed.length === 0) return;
+    const cambios = [...event.changes.keys.entries()];
+    // Los borrados se juzgan TAMBIÉN. Antes se filtraban con
+    // `action !== 'delete'` y llegaban ya aplicados al doc: un oyente podía
+    // borrar el audio de toda la sala sin que nadie lo rechazara ni quedara copia
+    // para devolverlo (BUG 013).
+    const borrados = cambios.filter(([, c]) => c.action === 'delete').map(([key]) => key);
+    const changed = cambios.filter(([, c]) => c.action !== 'delete');
+    if (borrados.length === 0 && changed.length === 0) return;
 
     const senderRole = this.roles.roleOf(from === undefined ? undefined : this.connKeys.get(from));
+    const esOyente = senderRole === 'oyente';
     const toDelete = new Set<string>();
+    const toRestore = new Map<string, SampleAsset>();
     const malformed: string[] = [];
 
-    if (senderRole === 'oyente') {
-      for (const [key] of changed) toDelete.add(key);
+    if (esOyente) {
+      // Borrar también es editar, y solo lo hace el productor. Lo que se va
+      // desde la copia autoritativa:
+      //  - un borrado, o un REEMPLAZO de algo que ya existía → se devuelve el
+      //    valor bueno (borrar el asset entero sería más duro que el роль y
+      //    dejaría al resto de la sala sin ese audio);
+      //  - un alta colada, que no tiene a qué volver → se borra.
+      // Sin copia (un id que el servidor no conoce) no hay nada que devolver, y
+      // tampoco se inventa.
+      for (const key of borrados) {
+        const guardado = this.assetShadow.get(key);
+        if (guardado !== undefined) toRestore.set(key, guardado);
+      }
+      for (const [key] of changed) {
+        const guardado = this.assetShadow.get(key);
+        if (guardado !== undefined) toRestore.set(key, guardado);
+        else toDelete.add(key);
+      }
     } else {
+      for (const key of borrados) this.assetShadow.delete(key);
       for (const [key] of changed) {
         const asset = assets.get(key);
         if (asset !== undefined && !isSampleAsset(asset)) {
@@ -851,11 +893,36 @@ class Room {
         toDelete.add(key);
       }
     }
-    if (toDelete.size === 0) return;
+    if (toDelete.size === 0 && toRestore.size === 0) {
+      // No hay nada que juzgar, pero lo que entró es legítimo y la copia
+      // autoritativa tiene que reflejarlo (es lo que se restauraría).
+      this.refreshAssetShadow();
+      return;
+    }
 
     this.doc.transact(() => {
       for (const key of toDelete) assets.delete(key);
+      // El borrado se revierte en la MISMA transacción con el valor bueno: al
+      // ser la MISMA referencia, los bytes no se copian.
+      for (const [key, value] of toRestore) assets.set(key, value);
     }, ROLE_ENFORCER);
+    if (toRestore.size > 0) {
+      console.warn(
+        `[room ${this.code}] samples alterados por un ${senderRole}: se restauran (${[
+          ...toRestore.keys(),
+        ].join(', ')})`,
+      );
+      if (from) {
+        this.sendControl(from, {
+          type: 'denied',
+          reason:
+            senderRole === 'oyente'
+              ? 'Estás como oyente: no puedes borrar ni cambiar los sonidos compartidos de la sala.'
+              : 'Solo el productor puede borrar o cambiar los sonidos compartidos.',
+          command: 'asset.delete',
+        });
+      }
+    }
     if (malformed.length > 0) {
       console.warn(
         `[room ${this.code}] samples con forma inválida (se borran): ${malformed.join(', ')}`,
@@ -865,7 +932,7 @@ class Room {
     if (rejected.length > 0) {
       console.warn(`[room ${this.code}] samples rechazados por tope: ${rejected.join(', ')}`);
     }
-    if (from) {
+    if (from && toDelete.size > 0) {
       this.sendControl(from, {
         type: 'denied',
         reason:
@@ -877,6 +944,22 @@ class Room {
         command: 'asset',
       });
     }
+    this.refreshAssetShadow();
+  }
+
+  /**
+   * La copia autoritativa refleja el doc YA depurado (con lo aceptado y sin lo
+   * retirado). Desde aquí se restaura lo que alguien borre sin permiso; se
+   * re-deriva entera en vez de incrementally porque son pocas entradas y así no
+   * puede desviarse de la verdad.
+   */
+  private refreshAssetShadow(): void {
+    const assets = this.doc.getMap<SampleAsset>('assets');
+    const siguiente = new Map<string, SampleAsset>();
+    for (const [key, asset] of assets.entries()) {
+      if (isSampleAsset(asset)) siguiente.set(key, asset);
+    }
+    this.assetShadow = siguiente;
   }
 
   /** A todos menos al que lo mandó (el audio propio ya suena en su máquina). */
