@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, session, shell } from 'electron';
 import type { WebContents } from 'electron';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
   copyFile,
   mkdir,
@@ -10,7 +10,6 @@ import {
   rename,
   rm,
   stat,
-  writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -23,6 +22,7 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
 import { isBlockedIp, isRealPathWithin, pathWithin, realpathOrNearest } from './path-guard';
+import { writeFileAtomic, writeFileAtomicSync } from './atomic-write';
 import { createRecordingStore } from './recording-store';
 import { SETTINGS_LOCKED, isAllowedServerHost, requiresNetworkConfirmation } from './settings-guard';
 import { fetchLatestRelease } from './update-check';
@@ -91,25 +91,23 @@ function readSettings(): Settings {
   return settingsCache;
 }
 
-// Escritura ATÓMICA: se escribe a un temporal y se renombra encima. Un
+// Escritura ATÓMICA: temporal al lado y rename encima — el mismo patrón que el
+// resto de persistencia de la app, en `./atomic-write.ts`, con su porqué (un
 // `writeFileSync` directo deja el archivo a medias si el proceso muere durante
 // la escritura, y el `readSettings` siguiente cae a `{}` — perdiendo de golpe
-// userFolders, recentProjects, friends e installId. El rename sobre el mismo
-// volumen es atómico: o está el archivo viejo entero, o el nuevo entero.
+// userFolders, recentProjects, friends e installId). El temporal ya no lleva el
+// pid a mano porque el módulo compone un nombre único por escritura.
 function writeSettings(settings: Settings): void {
   settingsCache = settings;
   const path = settingsPath();
-  const tmp = `${path}.${process.pid}.tmp`;
   try {
-    writeFileSync(tmp, JSON.stringify(settings, null, 2), 'utf8');
-    renameSync(tmp, path);
+    writeFileAtomicSync(path, JSON.stringify(settings, null, 2));
   } catch (err) {
-    try {
-      writeFileSync(path, JSON.stringify(settings, null, 2), 'utf8'); // último recurso
-    } catch {
-      // disco lleno o de solo lectura: la caché queda al día para esta sesión
-    }
-    console.warn('[settings] escritura atómica falló, se escribió directo:', err);
+    // Sin escritura DIRECTA como último recurso: sería exactamente el bug que
+    // esto arregla (truncar el archivo bueno con una escritura que falla a
+    // medias). El destino sigue siendo el de antes, que es válido, y la caché
+    // queda al día para esta sesión.
+    console.warn('[settings] escritura atómica falló:', err);
   }
 }
 
@@ -1123,7 +1121,7 @@ function registerIpc(): void {
       );
     }
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, bytes);
+    await writeFileAtomic(target, bytes);
   });
 
   // ── Proyectos .orbit (diálogos + fs SOLO en el main) ───────────────────────
@@ -1265,7 +1263,7 @@ function registerIpc(): void {
         grantedWritePaths.add(target); // el usuario la eligió: queda autorizada
       }
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, json, 'utf8');
+      await writeFileAtomic(target, json, 'utf8');
       // Guardar también cuenta como "estuve aquí": el proyecto que acabas de
       // guardar es justo el que querrás reabrir mañana.
       rememberRecent(target);
@@ -1297,7 +1295,7 @@ function registerIpc(): void {
     } catch {
       // primer autosave de la sesión
     }
-    await writeFile(pendingPath(), json, 'utf8');
+    await writeFileAtomic(pendingPath(), json, 'utf8');
   });
 
   ipcMain.handle('autosave:clear', async () => {
@@ -1556,7 +1554,7 @@ function registerIpc(): void {
     if (source.length > 512 * 1024) throw new Error('El plugin pasa del tope de 512 KB');
     const dir = pluginsDir();
     await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, file), source, 'utf8');
+    await writeFileAtomic(join(dir, file), source, 'utf8');
     return file;
   });
 
@@ -1621,7 +1619,7 @@ function registerIpc(): void {
     const dir = versionProjectDir(projectId);
     await mkdir(dir, { recursive: true });
     const file = `${Date.now()}-${versionSlug(label)}.orbit`;
-    await writeFile(join(dir, file), json, 'utf8');
+    await writeFileAtomic(join(dir, file), json, 'utf8');
 
     // Poda: se quedan las más recientes.
     const files = (await readdir(dir)).filter((name) => VERSION_FILE_RE.test(name)).sort();
@@ -1750,7 +1748,7 @@ function registerIpc(): void {
     for (const file of written) {
       const target = join(dir, file.path);
       await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, file.bytes);
+      await writeFileAtomic(target, file.bytes);
     }
     return { slug, dir, files: written.length };
   });
