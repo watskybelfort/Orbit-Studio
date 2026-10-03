@@ -15,10 +15,15 @@
  *     el temporal y propaga el error.
  *  3. Un fallo en el `rename` tampoco toca el destino (no hay borrado previo:
  *     el destino válido se queda).
- *  4. Dos escrituras seguidas del mismo nombre: gana la última, completa, sin
- *     temporales (la carrera real se probó intermitente bajo carga; su
- *     equivalente con arnés de control vive en `recording-store.test.ts`).
- *  5. La variante síncrona (ajustes al arrancar) tiene el mismo contrato.
+ *  4. Dos escrituras a la vez: el destino queda ÍNTEGRO siempre —el original o
+ *     una de las dos escrituras completas, nunca una mezcla— y no queda ningún
+ *     temporal; un rechazo transitorio de E/S se acepta como tal (se comprueba
+ *     el motivo), porque lo que se afirma es la atomicidad, no que ambas
+ *     escrituras soviempre a salir bien. La carrera con control determinista
+ *     vive en `recording-store.test.ts`.
+ *  5. Un destino con el nombre en el límite de componente se puede guardar: el
+ *     temporal no depende de su nombre (ni en longitud ni en Unicode).
+ *  6. La variante síncrona (ajustes al arrancar) tiene el mismo contrato.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -128,6 +133,62 @@ describe('writeFileAtomic', () => {
     const target = join(root, 'nuevo.orbit');
     await writeFileAtomic(target, 'hola', 'utf8');
     expect(await readFile(target, 'utf8')).toBe('hola');
+  });
+it('un destino con el nombre en el límite se puede guardar (el temporal no lo alarga)', async () => {
+    // 246 caracteres: entra en el límite de componente de NTFS (255) y en el de
+    // bytes de ext4. Con el temporal compuesto sobre el nombre del destino (su
+    // basename + uuid + .tmp) el temporal se iba de 255 y el guardado fallaba
+    // — un destino VÁLIDO impedido por el nombre de su propio temporal. Lo
+    // primero es ASCII, lo segundo Unicode (4 bytes por punto de código).
+    const { writeFileAtomic } = await import('../src/main/atomic-write');
+    for (const nombre of ['a'.repeat(240) + '.orbit', '🎹'.repeat(60) + '.orbit']) {
+      const target = join(root, nombre);
+      const contenido = `contenido de ${nombre.slice(0, 4)}`;
+      await writeFileAtomic(target, contenido, 'utf8');
+      expect(await readFile(target, 'utf8')).toBe(contenido);
+      // Y no queda ningún temporal: solo el destino.
+      expect(await listar()).toEqual([nombre]);
+      await rm(target, { force: true });
+    }
+  });
+
+it('el mismo nombre en el límite, en la variante síncrona', async () => {
+    const { writeFileAtomicSync } = await import('../src/main/atomic-write');
+    const nombre = 'b'.repeat(240) + '.json';
+    const target = join(root, nombre);
+    writeFileAtomicSync(target, '{"ok":true}');
+    expect(await readFile(target, 'utf8')).toBe('{"ok":true}');
+    expect(await listar()).toEqual([nombre]);
+  });
+
+it('dos escrituras a la vez: gana una COMPLETA, o se conserva el original, y sin temporales', async () => {
+    const { writeFileAtomic } = await import('../src/main/atomic-write');
+    const target = join(root, 'proyecto.orbit');
+    const original = 'ORIGINAL';
+    await writeFile(target, original, 'utf8');
+    const grande = 'NUEVO'.repeat(1_000);
+
+    // `allSettled` y NO `Promise.all`: bajo carga, una de las dos escrituras
+    // puede recibir un rechazo TRANSITORIO del sistema de archivos (E/S de
+    // Windows), y eso NO es un fallo del contrato. Lo que sí es el contrato:
+    // el destino queda siempre íntegro —el original o una de las dos
+    // escrituras COMPLETAS, nunca una mezcla ni un trozo— y no queda ningún
+    // temporal. Sin verificar el motivo, un rechazo sí rompería la aserción.
+    const resultados = await Promise.allSettled([
+      writeFileAtomic(target, 'A', 'utf8'),
+      writeFileAtomic(target, grande, 'utf8'),
+    ]);
+    for (const r of resultados) {
+      if (r.status === 'rejected') {
+        expect(['EBUSY', 'EPERM', 'EACCES', 'ENOSPC', 'UNKNOWN']).toContain(
+          (r.reason as { code?: string }).code,
+        );
+      }
+    }
+
+    const final = await readFile(target, 'utf8');
+    expect([original, 'A', grande]).toContain(final);
+    expect(await listar()).toEqual(['proyecto.orbit']);
   });
 });
 

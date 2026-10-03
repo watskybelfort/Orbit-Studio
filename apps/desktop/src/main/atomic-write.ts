@@ -22,9 +22,13 @@
  *   posterior —el propio `rename` incluido— dejaría al usuario sin archivo.
  *   También perdía datos con dos escrituras cruzadas (ver el papel de
  *   grabaciones, `recording-store.ts`).
- * - **Nombre único por escritura** (`.<archivo>.<uuid>.tmp`): dos escrituras
- *   simultáneas —un guardado manual y el autosave, dos ventanas— no se pisan
- *   el temporal ni se dejan un `.tmp` propietario del otro.
+ * - **Nombre del temporal corto e independiente del del destino**
+ *   (`.orbit-<uuid>.tmp`): componerlo con el `basename` hacía que un destino
+ *   LEGÍTIMO de 240–255 caracteres fallara por longitud de su propio temporal —
+ *   la misma clase que el límite de componente que ya distinguía el papel de
+ *   grabaciones (el nombre de la pista iba con el digest y el temporal lo
+ *   reventaba). El uuid va COMPLETO: ocho caracteres sueltos no son una
+ *   identidad suficiente en un directorio compartido.
  * - **Ante un fallo se limpia el temporal y se relanza el error.** El destino
  *   sigue siendo el de antes, intacto, y el renderer recibe el motivo.
  */
@@ -32,11 +36,14 @@
 import { rename, rm, writeFile } from 'node:fs/promises';
 import { writeFileSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
-/** Temporal de una escritura, al lado del destino y con nombre único. */
+/**
+ * Temporal de una escritura: al lado del destino (mismo volumen), nombre corto
+ * y único. No depende del nombre del destino, que puede estar ya en el límite.
+ */
 function tempDe(target: string): string {
-  return join(dirname(target), `.${basename(target)}.${randomUUID().slice(0, 8)}.tmp`);
+  return join(dirname(target), `.orbit-${randomUUID()}.tmp`);
 }
 
 /**
