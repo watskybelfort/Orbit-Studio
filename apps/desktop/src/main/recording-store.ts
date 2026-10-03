@@ -1,0 +1,243 @@
+/**
+ * El almacén de grabaciones del proceso principal: `userData/recordings` y su
+ * papelera `.papelera/`. Vive aparte de `index.ts` para poder probarlo contra
+ * una carpeta temporal sin levantar Electron (mismo criterio que `path-guard`).
+ *
+ * Tres contratos, y el porqué de cada uno:
+ *
+ * 1. **`discard` no es borrar**: mueve a `.papelera/`. Es una baja REVERSIBLE
+ *    durante una ventana de retención, y no por prudencia genérica — es lo que
+ *    cubre la única duda que ningún cálculo del renderer puede cerrar: el
+ *    `.orbit` guardado, la versión restaurable, la otra ventana de la app (que
+ *    con nombres por contenido puede estar escribiendo el MISMO archivo). Sin
+ *    reversibilidad, «reversible» es una palabra.
+ * 2. **`read` resuelve también la papelera**: si el archivo ya no está donde
+ *    debía pero sí en `.papelera/`, se lee de ahí. Es la otra mitad del
+ *    contrato de arriba.
+ * 3. **La papelera se purga** (por antigüedad y por bytes) o es la fuga con
+ *    otro nombre. Los umbrales, medidos, más abajo.
+ *
+ * Y una guarda que no se negocia: ninguna operación sale de su carpeta
+ * (`isRealPathWithin`, la misma que `recording:read` ya usaba) — este proceso
+ * desconfía a propósito de las rutas que le pasa el renderer.
+ */
+
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { isRealPathWithin } from './path-guard';
+
+/** Dentro de `recordings/`; el nombre se compara tal cual. */
+export const RECORDINGS_TRASH = '.papelera';
+
+/**
+ * Tope de la BASE del nombre de archivo, en bytes UTF-8, dejando fuera la
+ * extensión. Es el borde que se encontró al meter el hash de contenido en el
+ * nombre:
+ *
+ * - Medido en NTFS: `Pista <220 caracteres>.wav` (230) se escribía bien, y el
+ *   mismo nombre con el sha1 encima (271) fallaba con ENOENT: cada COMPONENTE
+ *   de NTFS acota a 255 caracteres, y el `writeFile` no trunca nada.
+ * - Y en ext4 el tope son 255 BYTES, no caracteres: un nombre con emojis o
+ *   CJK gasta hasta 4 bytes por punto de código, así que el presupuesto va en
+ *   bytes y no en longitud de cadena.
+ *
+ * 200 bytes de base + la extensión caben en los dos límites con margen. El
+ * recorte va por DELANTE de la base: nuestros nombres llevan el digest de
+ * contenido al FINAL (`Pista Voz <sha1>.wav`), y recortar la cola dejaría el
+ * digest mutilado — o sea perder exactamente la unicidad que el hash pone.
+ * El `SampleRef.name` del modelo se guarda entero aparte, así que al usuario
+ * no le desaparece el nombre de la pista.
+ */
+export const RECORDING_NAME_BASE_BUDGET_BYTES = 200;
+
+/**
+ * Purga de la papelera al arrancar. Dos umbrales, medidos sobre el almacén
+ * real de una instalación de uso normal (13 archivos / 88 MB escritos en un
+ * mes, tomas de 0,2 a 40 MB, medidos el 03-10-2026 en `userData/recordings`):
+ *
+ * - **90 días**: la ventana de retención cubre el caso que la política de
+ *   `state/sample-gc.ts` nombra como duda irreductible — «el `.orbit` guardado
+ *   hace tres meses»—. Más corta y la reversibilidad deja de cubrir su propio
+ *   ejemplo; más larga y la cota de bytes es la que manda de todas formas.
+ * - **2 GiB**: con los 88 MB/mes medidos son ~2 años de uso normal, y una
+ *   sesión de capturas largas tira a lo sumo cientos de MB. Es el techo que
+ *   convierte la papelera en «acotada» en vez de en la fuga con otro nombre.
+ *
+ * Al pasar los dos, se tira lo más VIEJO primero: la retención es la que da
+ * sentido al tope de bytes.
+ */
+export const RECORDINGS_TRASH_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+export const RECORDINGS_TRASH_MAX_BYTES = 2 * 1024 * 1024 * 1024;
+
+/**
+ * Nombre de archivo seguro para el almacén: sanitizado y acotado, conservando
+ * el digest y la extensión completos. Pura, para poder probarla tal cual.
+ */
+export function sanitizeRecordingName(name: string): string {
+  const safe = name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'toma.wav';
+  const dot = safe.lastIndexOf('.');
+  // `.wav` de `toma.wav` es extensión; un `.gitignore` sin base no lo es.
+  const hasExt = dot > 0;
+  const ext = hasExt ? safe.slice(dot) : '';
+  const baseName = hasExt ? safe.slice(0, dot) : safe;
+  return `${truncateFromFront(baseName, RECORDING_NAME_BASE_BUDGET_BYTES)}${ext}`;
+}
+
+/**
+ * Corta por DELANTE hasta que la base cabe en `budget` bytes UTF-8, por puntos
+ * de código (cortar en mitad de un par sustituto deja un carácter inválido).
+ */
+function truncateFromFront(text: string, budgetBytes: number): string {
+  const points = [...text];
+  const utf8 = new TextEncoder();
+  let bytes = 0;
+  let keepFrom = points.length;
+  for (let i = points.length - 1; i >= 0; i--) {
+    bytes += utf8.encode(points[i]!).length;
+    if (bytes > budgetBytes) break;
+    keepFrom = i;
+  }
+  return points.slice(keepFrom).join('');
+}
+
+export interface RecordingStore {
+  /** Escribe (piso por nombre, que con nombres por contenido es idempotente) y devuelve el nombre de archivo real. */
+  save(name: string, bytes: Uint8Array): Promise<string>;
+  /** Lee del almacén o, si no está, de la papelera. */
+  read(file: string): Promise<ArrayBuffer>;
+  /** Baja REVERSIBLE: mueve a `.papelera/`. Devuelve los que de verdad movió. */
+  discard(files: readonly string[]): Promise<string[]>;
+  /** Purga de la papelera por antigüedad y por bytes. Devuelve lo que tiró. */
+  purgeTrash(
+    now?: number,
+    limits?: { ttlMs: number; maxBytes: number },
+  ): Promise<{ removed: string[]; bytes: number }>;
+}
+
+/**
+ * Crea el almacén sobre una carpeta. `dir` es función porque `userData` puede
+ * reubicarse entre instancias de test.
+ */
+export function createRecordingStore(dir: () => string): RecordingStore {
+  const trashDir = () => join(dir(), RECORDINGS_TRASH);
+
+  async function save(name: string, bytes: Uint8Array): Promise<string> {
+    const safe = sanitizeRecordingName(name);
+    await mkdir(dir(), { recursive: true });
+    await writeFile(join(dir(), safe), bytes);
+    return safe;
+  }
+
+  async function read(file: string): Promise<ArrayBuffer> {
+    const candidates: [string, string][] = [
+      [resolve(join(dir(), file)), dir()],
+      [resolve(join(trashDir(), file)), trashDir()],
+    ];
+    let guarded = false;
+    for (const [target, root] of candidates) {
+      if (!(await isRealPathWithin(target, root))) continue;
+      guarded = true;
+      try {
+        const buf = await readFile(target);
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+      } catch {
+        // No está en esta carpeta: sigue la papelera.
+      }
+    }
+    // Nadie pasó la guarda: el nombre se sale de las dos carpetas. Este error
+    // es el de siempre, no uno de «no encontrado» — es la diferencia entre
+    // «ya no está» y «me estás pidiendo leer fuera».
+    if (!guarded) {
+      throw new Error('recording:read solo sirve archivos de la carpeta de grabaciones');
+    }
+    throw new Error(`recording:read no encontró el archivo: ${file}`);
+  }
+
+  async function discard(files: readonly string[]): Promise<string[]> {
+    await mkdir(trashDir(), { recursive: true });
+    const discarded: string[] = [];
+    for (const file of files) {
+      const from = resolve(join(dir(), file));
+      // La misma guarda que `read`, en las DOS puntas: ni se sale a leer, ni
+      // se sale a escribir la papelera.
+      if (!(await isRealPathWithin(from, dir()))) continue;
+      const to = resolve(join(trashDir(), file));
+      if (!(await isRealPathWithin(to, trashDir()))) continue;
+      try {
+        // ¿Sigue en la carpeta viva? Si no, puede que una confirmación anterior
+        // ya lo haya movido: si está en la papelera es exactamente el estado
+        // pedido y cuenta como hecho. Se comprueba ANTES de tocar nada, o el
+        // `rm` de abajo se cargaría la evidencia.
+        await stat(from);
+      } catch {
+        try {
+          await stat(to);
+          discarded.push(file);
+        } catch {
+          /* ni está ni se espera: no se confirma */
+        }
+        continue;
+      }
+      try {
+        // Si ya hay uno con ese nombre en la papelera se pisa: con nombres por
+        // contenido, mismo nombre es el MISMO contenido (lo distinto que
+        // hubiera con ese nombre ya se pisó en la carpeta viva, antes de que
+        // existiera esta papelera). El `rm` previo además es lo que hace
+        // `rename` sobre destino existente en Windows.
+        await rm(to, { force: true });
+        await rename(from, to);
+        discarded.push(file);
+      } catch {
+        // Fallo parcial (disco, permisos): sigue vivo donde estaba, no se
+        // confirma y el libro del renderer lo reintenta en el próximo barrido.
+      }
+    }
+    return discarded;
+  }
+
+  async function purgeTrash(
+    now = Date.now(),
+    // Los límites se pueden inyectar para TESTS (probar el tope de bytes sin
+    // escribir dos gigas); los de producción y su medición, en la cabecera.
+    limits: { ttlMs: number; maxBytes: number } = {
+      ttlMs: RECORDINGS_TRASH_TTL_MS,
+      maxBytes: RECORDINGS_TRASH_MAX_BYTES,
+    },
+  ): Promise<{ removed: string[]; bytes: number }> {
+    let entries;
+    try {
+      entries = await readdir(trashDir(), { withFileTypes: true });
+    } catch {
+      return { removed: [], bytes: 0 };
+    }
+    const files: { file: string; bytes: number; at: number }[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      try {
+        const info = await stat(join(trashDir(), entry.name));
+        files.push({ file: entry.name, bytes: info.size, at: info.mtimeMs });
+      } catch {
+        /* desapareció entre readdir y stat */
+      }
+    }
+    // Más viejo primero: la retención es la que da sentido al tope de bytes.
+    files.sort((a, b) => a.at - b.at);
+    const removed: string[] = [];
+    let bytes = files.reduce((sum, f) => sum + f.bytes, 0);
+    for (const f of files) {
+      const tooOld = now - f.at > limits.ttlMs;
+      const tooBig = bytes > limits.maxBytes;
+      if (!tooOld && !tooBig) continue;
+      try {
+        await rm(join(trashDir(), f.file), { force: true });
+        removed.push(f.file);
+        bytes -= f.bytes;
+      } catch {
+        /* no se pudo tirar: se queda, que es la opción conservadora */
+      }
+    }
+    return { removed, bytes };
+  }
+
+  return { save, read, discard, purgeTrash };
+}

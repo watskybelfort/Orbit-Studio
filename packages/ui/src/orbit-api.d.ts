@@ -226,6 +226,11 @@ interface OrbitApi {
     save(name: string, data: Uint8Array): Promise<string>;
     /** Bytes de una toma guardada (solo dentro de la carpeta de grabaciones). */
     read(file: string): Promise<ArrayBuffer>;
+    /**
+     * Baja REVERSIBLE: mueve a `recordings/.papelera/` (no borra) y devuelve
+     * los archivos que de verdad movió. `read` sigue sirviéndolos desde ahí.
+     */
+    discard(files: readonly string[]): Promise<string[]>;
   };
   readonly plugins: {
     /** Lista los .js de userData/plugins (crea la carpeta si no existe). */

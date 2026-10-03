@@ -22,7 +22,8 @@ import { randomUUID } from 'node:crypto';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
-import { isBlockedIp, pathWithin } from './path-guard';
+import { isBlockedIp, isRealPathWithin, pathWithin, realpathOrNearest } from './path-guard';
+import { createRecordingStore } from './recording-store';
 import { SETTINGS_LOCKED, isAllowedServerHost, requiresNetworkConfirmation } from './settings-guard';
 import { fetchLatestRelease } from './update-check';
 import { cleanServerUrl, isLanAddress, type Peer } from './discovery-protocol';
@@ -350,36 +351,8 @@ async function fetchGalleryText(url: string): Promise<string> {
 // carpeta autorizada pasa el prefijo y la lectura/escritura sigue el enlace
 // FUERA de ella — p. ej. leer `~/.orbit/bridge.json` a través de un enlace
 // plantado en una carpeta de sonidos registrada. Resolver `realpath` antes de
-// comparar lo cierra. `pathWithin` e `isBlockedIp` viven en ./path-guard (puros,
-// con tests).
-
-/**
- * realpath del destino, o —si aún no existe (una escritura)— realpath del
- * ancestro existente más cercano con el tramo que falta pegado detrás. Ese
- * tramo no puede contener enlaces (no existe), así que es seguro.
- */
-async function realpathOrNearest(p: string): Promise<string> {
-  let cur = resolvePath(p);
-  const tail: string[] = [];
-  for (;;) {
-    try {
-      const real = await realpath(cur);
-      return tail.length ? join(real, ...tail.reverse()) : real;
-    } catch {
-      const parent = dirname(cur);
-      if (parent === cur) return resolvePath(p); // raíz sin resolver
-      tail.push(basename(cur));
-      cur = parent;
-    }
-  }
-}
-
-/** ¿El destino REAL queda dentro de la base REAL (siguiendo enlaces)? */
-async function isRealPathWithin(target: string, base: string): Promise<boolean> {
-  const realBase = await realpath(base).catch(() => resolvePath(base));
-  const realTarget = await realpathOrNearest(target);
-  return pathWithin(realTarget, realBase);
-}
+// comparar lo cierra. `pathWithin`, `isRealPathWithin` e `isBlockedIp` viven en ./path-guard,
+// con tests, sin Electron).
 
 // ─── Ventanas desacopladas ───────────────────────────────────────────────────
 // El renderer saca un editor a una ventana nativa con `window.open('',
@@ -1483,6 +1456,9 @@ function registerIpc(): void {
   // archivos DENTRO de esa carpeta (mismo criterio que library:read).
 
   const recordingsDir = () => join(app.getPath('userData'), 'recordings');
+  // La lógica de disco (guarda de ruta, papelera reversible, purga) vive en
+  // `recording-store.ts`, testeable contra una carpeta temporal sin Electron.
+  const recordings = createRecordingStore(recordingsDir);
 
   ipcMain.handle('recording:save', async (_event, name: unknown, data: unknown) => {
     if (typeof name !== 'string' || name.length === 0) {
@@ -1492,24 +1468,36 @@ function registerIpc(): void {
     if (data instanceof Uint8Array) bytes = data;
     else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
     else throw new Error('recording:save requiere datos Uint8Array o ArrayBuffer');
-    const safe = name.replace(/[\\/:*?"<>|]/g, '-').trim() || 'toma.wav';
-    await mkdir(recordingsDir(), { recursive: true });
-    await writeFile(join(recordingsDir(), safe), bytes);
-    return safe;
+    return recordings.save(name, bytes);
   });
 
   ipcMain.handle('recording:read', async (_event, file: unknown) => {
     if (typeof file !== 'string' || file.length === 0) {
       throw new Error('recording:read requiere el nombre del archivo');
     }
-    const base = recordingsDir();
-    const target = resolvePath(join(base, file));
-    if (!(await isRealPathWithin(target, base))) {
-      throw new Error('recording:read solo sirve archivos de la carpeta de grabaciones');
-    }
-    const buf = await readFile(target);
-    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+    // Resuelve también lo que está en la papelera: `discard` es una baja
+    // REVERSIBLE y sin esta lectura «reversible» sería una palabra.
+    return recordings.read(file);
   });
+
+  ipcMain.handle('recording:discard', async (_event, files: unknown) => {
+    if (
+      !Array.isArray(files) ||
+      files.length === 0 ||
+      files.some((f) => typeof f !== 'string' || (f as string).length === 0)
+    ) {
+      throw new Error('recording:discard requiere una lista de nombres de archivo');
+    }
+    // NO es borrar: mueve a `recordings/.papelera/` con la misma guarda de
+    // ruta que `recording:read`. El contrato y su porqué en `recording-store.ts`
+    // (y la decisión completa en `state/sample-gc.ts`).
+    return recordings.discard(files as string[]);
+  });
+
+  // Purga de la papelera al arrancar: sin ella, la papelera sería la fuga con
+  // otro nombre (umbrales medidos en `recording-store.ts`). Mejor esfuerzo:
+  // un fallo aquí no debe frenar el arranque.
+  void recordings.purgeTrash().catch(() => {});
 
   // ── Plugins JS de usuario (SDK de efectos) ─────────────────────────────────
   // Los .js viven en userData/plugins (no recursivo). El main solo lista y

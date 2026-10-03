@@ -229,6 +229,8 @@ export interface OrbitApi {
     save(name: string, data: Uint8Array): Promise<string>;
     /** Bytes de una toma guardada (solo dentro de la carpeta de grabaciones). */
     read(file: string): Promise<ArrayBuffer>;
+    /** Baja REVERSIBLE a la papelera (no borra); devuelve los que movió. */
+    discard(files: readonly string[]): Promise<string[]>;
   };
   readonly plugins: {
     /** Lista los .js de userData/plugins (crea la carpeta si no existe). */
@@ -391,6 +393,7 @@ const api: OrbitApi = {
   recording: {
     save: (name, data) => ipcRenderer.invoke('recording:save', name, data),
     read: (file) => ipcRenderer.invoke('recording:read', file),
+    discard: (files) => ipcRenderer.invoke('recording:discard', files),
   },
   plugins: {
     scan: () => ipcRenderer.invoke('plugins:scan'),
