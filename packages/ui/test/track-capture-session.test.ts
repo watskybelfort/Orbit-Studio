@@ -281,7 +281,7 @@ describe('BUG031: una captura solo se inserta en su sesión de origen', () => {
   it('el aviso es consultable fuera del mixer y reconocerlo no cambia el proyecto', async () => {
     const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
     expect(source).toMatch(/useTrackCapture\(\(s\) => s\.recoveryNotice\)/);
-    expect(source).toContain('{fileNotice ?? captureRecovery ?? recorderRecovery}');
+    expect(source).toContain('{fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery}');
     expect(source).toContain('onClick={dismissCaptureRecovery}');
     expect(source).toContain('aria-label="Cerrar aviso de captura"');
     const r = await rig();

@@ -25,7 +25,7 @@ import {
 } from '../export/render-in-worker';
 import { engine, store } from './app';
 import { nextPaint } from './next-paint';
-import { noteRecordingWritten, withPinnedSample } from './sample-gc';
+import { collectWorkletSamples, noteRecordingWritten, withPinnedSample } from './sample-gc';
 
 /** Cola que se renderiza más allá del final de la selección. */
 const TAIL_SECONDS = 2;
@@ -35,13 +35,22 @@ interface BounceState {
   busy: string | null;
   /** Último aviso para la UI (éxito o error); se autolimpia. */
   notice: string | null;
+  /** WAV ya escrito que no llegó a insertarse; se conserva hasta reconocerlo. */
+  recoveryNotice: string | null;
 }
 
-export const useBounceStore = create<BounceState>(() => ({ busy: null, notice: null }));
+export const useBounceStore = create<BounceState>(() => ({ busy: null, notice: null, recoveryNotice: null }));
+
+export function dismissBounceRecovery(): void {
+  useBounceStore.setState({ recoveryNotice: null });
+}
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+let noticeRevision = 0;
+let activeBounce: symbol | null = null;
 
 function notify(notice: string): void {
+  noticeRevision++;
   if (noticeTimer) clearTimeout(noticeTimer);
   useBounceStore.setState({ notice });
   noticeTimer = setTimeout(() => useBounceStore.setState({ notice: null }), 5000);
@@ -152,6 +161,49 @@ async function bounceClips(
   const end = Math.max(...clips.map((c) => c.start + c.length));
   const length = end - start;
   const trackId = clips[0]!.playlistTrackId;
+  const arrangementId = project.playlistTracks[trackId]?.arrangementId;
+  if (!arrangementId || !project.arrangements[arrangementId]) {
+    notify('No se consolidó: el arreglo de destino ya no existe.');
+    return;
+  }
+
+  const api = window.orbit;
+  const epoch = store.historyEpoch;
+  const version = store.version;
+  const request = Symbol('bounce');
+  activeBounce = request;
+  const noticeAtStart = noticeRevision;
+  const sameSession = () => store.historyEpoch === epoch && store.project.id === project.id;
+  const ownsUi = () => activeBounce === request && sameSession();
+  const ownsNotice = () => ownsUi() && noticeRevision === noticeAtStart;
+  let file: string | null = null;
+  let uploaded = false;
+  let inserted = false;
+  const reportRecovery = (reason: string) => {
+    if (!file) return; // Un save rechazado no confirma que exista un WAV recuperable.
+    useBounceStore.setState({ recoveryNotice:
+      `Consolidado de «${project.meta.title}» no insertado: ${reason}. WAV conservado: «${file}». ` +
+      'La ruta de datos está en Ayuda → Acerca de. En esa ruta, abre recordings; puedes arrastrar el WAV al proyecto.',
+    });
+  };
+  const canContinue = () => {
+    // Cualquier edición puede cambiar el audio (notas, tempo, mixer, plugins…).
+    // Es conservador incluso ante un renombrado: nunca sustituir una revisión
+    // nueva con el render anterior. Navegar o mover el caret no cambia version.
+    if (ownsUi() && store.version === version) return true;
+    const reason = sameSession() ? 'el proyecto cambió; vuelve a consolidar' : 'cambiaste de proyecto';
+    reportRecovery(reason);
+    if (ownsNotice()) notify(`No se consolidó: ${reason}.`);
+    return false;
+  };
+  let unsubscribe: () => void = () => undefined;
+  const off = store.subscribeBeforeReplace(() => {
+    unsubscribe();
+    if (activeBounce !== request) return;
+    activeBounce = null;
+    useBounceStore.setState({ busy: null });
+  });
+  unsubscribe = () => { off(); unsubscribe = () => undefined; };
 
   useBounceStore.setState({ busy: `${opts.freeze ? 'Congelando' : 'Consolidando'} ${what}…` });
   try {
@@ -159,9 +211,11 @@ async function bounceClips(
     // nextPaint lleva un timeout de respaldo: con la ventana oculta no hay rAF y
     // sin él el freeze se quedaba clavado en "Congelando…" indefinidamente.
     await nextPaint();
+    if (!canContinue()) return;
 
     const compiled = compileProject(project, { mode: 'song', clipIds: clips.map((c) => c.id) });
     const { samples, missing } = await collectSamples(project, compiled);
+    if (!canContinue()) return;
     const { plugins, missing: missingPlugins } = collectPluginSources(project);
 
     // El render (donde se ejecutan los plugins) va en el worker aislado; en
@@ -176,6 +230,7 @@ async function bounceClips(
     const res = canUseRenderWorker()
       ? await renderProjectInWorker(compiled, renderOpts)
       : renderProject(compiled, renderOpts);
+    if (!canContinue()) return;
     const wav = encodeWav(res.left, res.right, res.sampleRate, 24);
     const buffer = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
 
@@ -185,16 +240,13 @@ async function bounceClips(
     // nombre, así que la segunda se llevaba por delante el audio de la
     // primera. Con el sha1 del wav en el nombre, pisar es escribir el mismo
     // contenido encima. El hash va ANTES del save porque el nombre sale de él
-    // —y todavía no hay nada subido al motor, así que este `await` no abre
-    // ventana alguna.
+    // —y después del await se revalida la sesión antes de escribir nada.
     const sampleId = newId();
     const hash = (await sha1Hex(buffer)) ?? sampleId;
+    if (!canContinue()) return;
     const base = `Consolidado ${what.replace(/[^\p{L}\p{N} _-]/gu, '')} b${start.toFixed(0)}`;
-    const file = await window.orbit.recording.save(`${base} ${hash}.wav`, wav);
-    // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
-    // dispatch: un fallo entre las dos deja el `.wav` en disco sin que nada lo
-    // nombre, y es justo el que hay que poder reclamar (ver `sample-gc.ts`).
-    noteRecordingWritten({ sampleId, path: `recording:${file}`, bytes: wav.byteLength });
+    file = await api.recording.save(`${base} ${hash}.wav`, wav);
+    if (!canContinue()) return;
 
     // Al kernel en vivo, para que el clip nuevo suene sin recargar el proyecto.
     // Sujeto desde antes de subirlo y hasta DESPUÉS del dispatch (el mismo
@@ -208,7 +260,9 @@ async function bounceClips(
     // igual que el camino bueno: si no, un bounce abortado dejaría su id
     // protegido para siempre.
     await withPinnedSample(sampleId, async () => {
+      uploaded = true;
       await engine.loadSample(sampleId, buffer);
+      if (!canContinue()) return;
 
       const sample: SampleRef = {
         id: sampleId,
@@ -231,21 +285,9 @@ async function bounceClips(
         audioGain: 1,
       };
 
-      // Revalidar contra el proyecto de AHORA: el render pudo tardar segundos y en
-      // ese hueco un peer/Claude/el usuario pudo borrar clips o la pista destino.
-      // Sin esto el batch referencia ids muertos (con el rollback de core: se cae
-      // entero y no consolida nada) o deja un clip huérfano sobre una pista que ya
-      // no existe.
-      const now = store.project;
-      if (!now.playlistTracks[trackId]) {
-        notify('No se consolidó: la pista destino ya no existe.');
-        return;
-      }
-      const liveClips = clips.filter((c) => now.clips[c.id]);
-      if (liveClips.length === 0) {
-        notify('No se consolidó: esos clips ya no están.');
-        return;
-      }
+      // La revisión no cambió: todas las fuentes y el arreglo siguen siendo
+      // los renderizados, también al restaurar un proyecto con los mismos IDs.
+      const liveClips = clips;
 
       // Congelar conserva los clips originales (muteados y un carril más abajo);
       // consolidar los sustituye.
@@ -262,19 +304,30 @@ async function bounceClips(
       commands.push({ type: 'addClips', clips: [audioClip] });
       const label = opts.freeze ? `Congelar ${what}` : `Consolidar ${what} a audio`;
       store.dispatch({ type: 'batch', label, commands }, { label });
+      inserted = true;
+      // Solo el archivo insertado pertenece al ledger de esta sesión. Si A ya
+      // terminó, su WAV recuperable nunca se ofrece al recolector del proyecto B.
+      noteRecordingWritten({ sampleId, path: `recording:${file}`, bytes: wav.byteLength });
 
       const warn = [
         ...(missing.length ? [`sin samples: ${missing.join(', ')}`] : []),
         ...(missingPlugins.length ? [`plugins en bypass: ${missingPlugins.join(', ')}`] : []),
       ];
-      notify(
+      if (ownsNotice()) notify(
         `${opts.freeze ? 'Congelada' : 'Consolidado'} ${what}: ${liveClips.length} clip(s) → ${sample.name}` +
           (warn.length ? ` (${warn.join('; ')})` : ''),
       );
     });
   } catch (err) {
-    notify(err instanceof Error ? err.message : 'No se pudo consolidar.');
+    const error = err instanceof Error ? err.message : 'No se pudo consolidar';
+    if (!inserted) reportRecovery(error);
+    if (ownsNotice()) notify(error);
   } finally {
-    useBounceStore.setState({ busy: null });
+    unsubscribe();
+    if (uploaded && !inserted) collectWorkletSamples(engine, store.project);
+    if (activeBounce === request) {
+      activeBounce = null;
+      useBounceStore.setState({ busy: null });
+    }
   }
 }

@@ -31,7 +31,7 @@ import { initPlugins } from './state/plugins';
 import { CommandPalette, loadRecentCommands } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
 import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
-import { useBounceStore } from './state/bounce';
+import { dismissBounceRecovery, useBounceStore } from './state/bounce';
 import { dismissCaptureRecovery, useTrackCapture } from './state/track-capture';
 import { dismissRecorderRecovery, useRecorderStore } from './state/recorder';
 import { useProject } from './state/useProject';
@@ -54,6 +54,7 @@ export function App() {
   const project = useProject();
   const bounceBusy = useBounceStore((s) => s.busy);
   const bounceNotice = useBounceStore((s) => s.notice);
+  const bounceRecovery = useBounceStore((s) => s.recoveryNotice);
   const [recovery, setRecovery] = useState<RecoveryOffer | null>(null);
   const recoveryError = useAutosave((s) => s.error);
   const autosaveNotice = recovery ? null : recoveryError;
@@ -204,9 +205,9 @@ export function App() {
         </div>
       )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
-      {(fileNotice ?? captureRecovery ?? recorderRecovery) && (
+      {(fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery) && (
         <div className="app-notice popup" role="status" style={{ maxWidth: 'min(680px, calc(100vw / var(--ui-scale, 1) - 32px))', width: 'max-content', overflowWrap: 'anywhere' }}>
-          {fileNotice ?? captureRecovery ?? recorderRecovery}
+          {fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery}
           {!fileNotice && captureRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissCaptureRecovery} aria-label="Cerrar aviso de captura">
               Entendido
@@ -214,6 +215,11 @@ export function App() {
           )}
           {!fileNotice && !captureRecovery && recorderRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissRecorderRecovery} aria-label="Cerrar aviso de grabación">
+              Entendido
+            </button>
+          )}
+          {!fileNotice && !captureRecovery && !recorderRecovery && bounceRecovery && (
+            <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissBounceRecovery} aria-label="Cerrar aviso de consolidación">
               Entendido
             </button>
           )}
