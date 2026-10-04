@@ -206,6 +206,8 @@ export interface CompiledProject {
   tempo: number;
   /** Pulsos por compás (acento del metrónomo); ausente = 4. */
   timeSigNum?: number;
+  /** Denominador del compás; el timeline sigue midiendo negras. Ausente = 4. */
+  timeSigDen?: number;
   /**
    * Mapas de tempo y compás por marcador, ordenados y con el valor del
    * proyecto en el beat 0. Con un solo tramo el kernel se comporta igual que
@@ -291,7 +293,7 @@ export type ToKernel =
    * que hace que el 1 caiga en el sample exacto: la cuenta y el compÃ¡s 1
    * comparten reloj.
    */
-  | { type: 'countIn'; beats: number; beatsPerBar: number; playFrom?: number }
+  | { type: 'countIn'; beats: number; beatsPerBar: number; playFrom?: number; beatUnit?: number }
   /** Aborta la cuenta atrÃ¡s en marcha (y con ella su arranque diferido). */
   | { type: 'cancelCountIn' }
   /**

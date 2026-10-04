@@ -489,6 +489,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     tempoMap,
     meterMap,
     timeSigNum: meterMap[0]!.num,
+    timeSigDen: project.timeSig.den,
     lengthBeats,
     channels,
     events,

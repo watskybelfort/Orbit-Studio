@@ -48,3 +48,4 @@ export {
   type RiffOptions,
   type StrumOptions,
 } from './note-tools';
+export { beatsInBar, meterBeatUnit } from './model/meter';

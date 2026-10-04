@@ -169,11 +169,12 @@ export class AudioEngine {
    * viene `playFrom`, el transporte entra solo justo después del último — en el
    * sample exacto, no cuando despierte un temporizador de la UI.
    */
-  countIn(beats: number, beatsPerBar: number, playFrom?: number): void {
+  countIn(beats: number, beatsPerBar: number, playFrom?: number, beatUnit = 1): void {
     this.send({
       type: 'countIn',
       beats,
       beatsPerBar,
+      beatUnit,
       ...(playFrom === undefined ? null : { playFrom }),
     });
   }

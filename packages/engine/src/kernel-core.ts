@@ -183,6 +183,7 @@ export class KernelCore {
   posBeats = 0;
   private tempo = 140;
   private timeSigNum = 4;
+  private meterBeatUnit = 1;
   /**
    * Segundos de timeline en `posBeats`, acumulados en TIEMPO REAL mientras el
    * transporte avanza.
@@ -223,6 +224,7 @@ export class KernelCore {
   /** Samples hasta el siguiente clic de la cuenta (0 = ya). */
   private countInWait = 0;
   private countInBeatsPerBar = 4;
+  private countInBeatUnit = 1;
   /** Beat de la cuenta ya disparado (para acentuar el 1 de cada compÃ¡s). */
   private countInBeat = 0;
   /** Beat en el que entra el transporte al cerrar la cuenta (null = no entra). */
@@ -415,8 +417,9 @@ export class KernelCore {
         // Solo tiene sentido parado: rodando ya hay metrÃ³nomo y arrancar el
         // transporte "otra vez" al cerrar la cuenta serÃ­a un salto.
         if (this.playing) break;
-        this.countInLeft = Math.max(1, Math.round(msg.beats));
-        this.countInBeatsPerBar = Math.max(1, Math.round(msg.beatsPerBar));
+        this.countInBeatUnit = msg.beatUnit !== undefined && Number.isFinite(msg.beatUnit) && msg.beatUnit > 0 ? msg.beatUnit : 1;
+        this.countInLeft = Math.max(1, Math.round(msg.beats / this.countInBeatUnit));
+        this.countInBeatsPerBar = Math.max(1, Math.round(msg.beatsPerBar / this.countInBeatUnit));
         this.countInBeat = 0;
         this.countInWait = 0; // el primer clic entra en el sample siguiente
         this.countInPlayFrom = msg.playFrom ?? null;
@@ -561,6 +564,7 @@ export class KernelCore {
     this.project = p;
     this.tempo = p.tempo;
     this.timeSigNum = p.timeSigNum ?? 4;
+    this.meterBeatUnit = 4 / (p.timeSigDen && Number.isFinite(p.timeSigDen) && p.timeSigDen > 0 ? p.timeSigDen : 4);
     const n = p.mixer.length;
     if (this.bufL.length !== n) {
       this.bufL = Array.from({ length: n }, () => new Float32Array(MAX_BLOCK));
@@ -1574,7 +1578,7 @@ export class KernelCore {
     }
     const buf = this.countInBuf;
     buf.fill(0, 0, n);
-    const samplesPerBeat = (60 / Math.max(1, this.tempo)) * this.sr;
+    const samplesPerBeat = (60 / Math.max(1, this.tempo)) * this.sr * this.countInBeatUnit;
     const bpb = this.countInBeatsPerBar;
     for (let i = 0; i < n; i++) {
       if (this.countInWait <= 0) {
@@ -2144,18 +2148,19 @@ export class KernelCore {
       }
     }
 
-    // Metrónomo: dispara cuando un beat ENTERO cae dentro de la ventana de un
+    // Metrónomo: dispara cuando un pulso del compás cae dentro de la ventana de un
     // sample [b, b+spb). (La versión anterior exigía nearest > round(startBeat),
     // que con bloques de 128 samples nunca se cumplía: no sonaba jamás.)
     if (this.metronome && this.playing) {
       const beatsPerBar = Math.max(1, this.timeSigNum);
+      const unit = this.meterBeatUnit;
       for (let i = 0; i < n; i++) {
         // Mismo troceado que los clips: pasada la vuelta del loop, el resto del
         // bloque cuenta beats desde `wrapBeat` y no desde el arranque.
         const wrapped = wrapAt >= 0 && i >= wrapAt;
         const b = (wrapped ? wrapBeat : blockStartBeat) + (wrapped ? i - wrapAt : i) * spb;
-        const beatIdx = Math.ceil(b - 1e-9);
-        if (beatIdx >= 0 && beatIdx < b + spb - 1e-9) {
+        const beatIdx = Math.ceil(b / unit - 1e-9);
+        if (beatIdx >= 0 && beatIdx < (b + spb) / unit - 1e-9) {
           // Flanco de beat: click (agudo y más fuerte en el 1 del compás).
           this.clickEnv = 1;
           this.clickPhase = 0;
