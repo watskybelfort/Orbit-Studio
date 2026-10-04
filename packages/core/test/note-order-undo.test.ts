@@ -122,6 +122,68 @@ describe('005 · borrar y deshacer devuelve las notas a su sitio', () => {
     expect(serializeProject(p)).toBe(antes);
   });
 
+  it('borrar un id que NO existe no crea la clave del canal al deshacer', () => {
+    // El borde que encontró la revisión (SOLEANO): `removeNotes` de un id fantasma (o
+    // con lista vacía) sobre un canal SIN notas devuelve un inverso con cero notas, y
+    // deshacerlo creaba `notes[channelId] = []`, una clave que antes no existía.
+    const p = createEmptyProject();
+    const canal = createChannel('synth', 0, 'C0');
+    applyCommand(p, { type: 'addChannel', channel: canal });
+    applyCommand(p, {
+      type: 'addPattern',
+      pattern: { id: 'pt1', name: 'P', color: '#fff', length: 4, notes: {} },
+    });
+    const antes = serializeProject(p);
+    expect(p.patterns.pt1?.notes[canal.id]).toBeUndefined();
+
+    for (const noteIds of [['fantasma'], []]) {
+      const inverse = applyCommand(p, {
+        type: 'removeNotes',
+        patternId: 'pt1',
+        channelId: canal.id,
+        noteIds,
+      });
+      expect(inverse.type).toBe('restoreNotes');
+      applyCommand(p, inverse);
+      // Ni la clave ni un cambio de nada.
+      expect(p.patterns.pt1?.notes[canal.id]).toBeUndefined();
+      expect(serializeProject(p)).toBe(antes);
+    }
+  });
+
+  it('y con notas de otro canal, la ausencia de la clave se respeta igual', () => {
+    const p = createEmptyProject();
+    const canal = createChannel('synth', 0, 'C0');
+    const otro = createChannel('synth', 1, 'C1');
+    applyCommand(p, { type: 'addChannel', channel: canal });
+    applyCommand(p, { type: 'addChannel', channel: otro });
+    applyCommand(p, {
+      type: 'addPattern',
+      pattern: { id: 'pt1', name: 'P', color: '#fff', length: 4, notes: {} },
+    });
+    applyCommand(p, {
+      type: 'addNotes',
+      patternId: 'pt1',
+      channelId: canal.id,
+      notes: [{ id: 'n1', start: 0, duration: 1, key: 60, velocity: 1, pan: 0, slide: false }],
+    });
+    const antes = serializeProject(p);
+    expect(p.patterns.pt1?.notes[otro.id]).toBeUndefined();
+
+    const inverse = applyCommand(p, {
+      type: 'removeNotes',
+      patternId: 'pt1',
+      channelId: otro.id,
+      noteIds: ['lo-que-sea'],
+    });
+    applyCommand(p, inverse);
+
+    // El canal con notas sigue con ellas y el otro sigue SIN clave.
+    expect(p.patterns.pt1?.notes[canal.id]?.map((n) => n.id)).toEqual(['n1']);
+    expect(p.patterns.pt1?.notes[otro.id]).toBeUndefined();
+    expect(serializeProject(p)).toBe(antes);
+  });
+
   it('un restoreNotes SIN posiciones (comando a mano) las appendea', () => {
     const { p, patternId, channelId } = patron(['a', 'b']);
     const inversa = applyCommand(p, {
