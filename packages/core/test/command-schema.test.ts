@@ -45,7 +45,7 @@ describe('018 · un tipo de comando que no existe no es un comando', () => {
     // El número viene de la unión `Command`: si mañana se añade un tipo sin fila
     // en la tabla, el COMPILADOR falla, y esta cuenta avisa de que la tabla y la
     // unión siguen de acuerdo.
-    expect(COMMAND_TYPES.size).toBe(61);
+    expect(COMMAND_TYPES.size).toBe(62);
     expect(COMMAND_TYPES.has('batch')).toBe(true);
     expect(COMMAND_TYPES.has('doesNotExist')).toBe(false);
   });

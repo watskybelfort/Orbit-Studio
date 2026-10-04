@@ -60,6 +60,10 @@ const FORMAS: Record<Command['type'], Record<string, Forma>> = {
   patchPattern: { patternId: 'id', patch: 'patch:pattern' },
   addNotes: { patternId: 'id', channelId: 'id', notes: 'lista:note' },
   removeNotes: { patternId: 'id', channelId: 'id', noteIds: 'id[]' },
+  // El inverso de removeNotes: devuelve cada nota a SU posición, que es lo que
+  // importa en una lista ordenada (desempate de eventos y serialización). `at` es
+  // opcional para que un comando a mano pueda no saberlo: entonces se appendea.
+  restoreNotes: { patternId: 'id', channelId: 'id', notes: 'lista:note', at: '?lista:num' },
   patchNotes: { patternId: 'id', channelId: 'id', patches: 'lista:patchid:note' },
   // Playlist
   addPlaylistTrack: { track: 'ent:playlistTrack' },
