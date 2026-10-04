@@ -105,10 +105,19 @@ function entryKey(client: number, seq: number): string {
   return `${client}:${seq}`;
 }
 
-/** Ids de pistas/patrones que borra un comando, entrando también en los lotes. */
+/**
+ * Ids de pistas/patrones que borra un comando, entrando también en los lotes.
+ *
+ * El log de una sala se reproduce entero al entrar, y sus entradas las escribió
+ * la red: `commands` puede no ser una lista. Un `.flatMap` a ciegas aquí reventaba
+ * la excepción EN MEDIO DE LA REPRODUCCIÓN y el resto del log se quedaba sin
+ * aplicar —la sala se quedaba a medias y sin avisar—. Con la lista vacía, lo que
+ * no se puede recorrer no borra nada y el comando se juzga por su forma después.
+ */
 function collectTrackDeletions(cmd: Command): Id[] {
   if (cmd.type === 'batch') {
-    return cmd.commands.flatMap((sub) => collectTrackDeletions(sub));
+    const subs = Array.isArray(cmd.commands) ? cmd.commands : [];
+    return subs.flatMap((sub) => collectTrackDeletions(sub));
   }
   return trackDeletionTargets(cmd);
 }
@@ -337,7 +346,11 @@ export class CommandLogBinding {
         this.ownCreations.add(cmd.arrangement.id);
         break;
       case 'batch':
-        for (const sub of cmd.commands) this.rememberOwnCreations(sub);
+        // Misma regla que arriba: si `commands` no es una lista, no se recuerda
+        // nada de ese lote. Nadie va a depender de recordar lo que no se pudo leer.
+        if (Array.isArray(cmd.commands)) {
+          for (const sub of cmd.commands) this.rememberOwnCreations(sub);
+        }
         break;
       default:
         break;
