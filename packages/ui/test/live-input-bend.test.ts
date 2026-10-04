@@ -106,6 +106,34 @@ describe('la rueda de tono: motor en cada mensaje, proyecto una vez por frame', 
     vi.unstubAllGlobals();
   });
 
+  it('la rueda aprendida graba solo su destino, sin duplicar el bend de fábrica', async () => {
+    const { store, channelId, send } = await rig();
+    const app = await importApp();
+    const midi = await import('../src/state/midi-learn');
+    const record = await import('../src/state/param-record');
+    const touch = await import('../src/state/param-touch');
+    const touched = vi.fn();
+    const off = touch.onParamTouch(touched);
+    const pitchBend = vi.spyOn(app.engine, 'pitchBend');
+    midi.startMidiLearn({ kind: 'mixer', trackIndex: 1, param: 'volume' });
+    send(0); // Aprende, no mueve todavía.
+    record.toggleParamRecordArmed();
+    const frameAt = (positionBeats: number, playing: boolean) => app.engine.onMeters?.({
+      peaks: new Float32Array(1), rms: new Float32Array(1), masterRms: [0, 0],
+      positionBeats, playing, inputPeak: 0, cpu: 0,
+    });
+    frameAt(0.5, true); send(-0.8); await nextFrame();
+    frameAt(1.5, true); send(0.6); await nextFrame();
+    frameAt(1.5, false);
+    const clips = Object.values(store.project.clips);
+    expect(clips).toHaveLength(1);
+    expect(clips[0]!.target).toEqual({ kind: 'mixer', trackIndex: 1, param: 'volume' });
+    expect(touched).toHaveBeenCalledTimes(2);
+    expect(pitchBend).not.toHaveBeenCalled();
+    expect(store.project.channels[channelId]!.bend ?? 0).toBe(0);
+    off();
+  });
+
   it('el motor oye los tres mensajes; el proyecto solo el frame', async () => {
     const { store, channelId, send } = await rig();
     const app = await importApp();

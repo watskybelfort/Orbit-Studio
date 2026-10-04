@@ -21,6 +21,7 @@ import { describeParamRef, paramRefCommand, paramRefKey, type ParamRef } from '@
 
 import { create } from 'zustand';
 import { store } from './app';
+import { touchParam } from './param-touch';
 
 /** Un mando atado a un destino. */
 export interface MidiMapping {
@@ -208,6 +209,8 @@ function flush(): void {
       // Un barrido del mando entero es UN paso de undo, no doscientos.
       mergeKey: 'midi:' + source,
     });
+    // La captura lee el valor ya aplicado, igual que una perilla de la UI.
+    touchParam(mapping.ref);
   }
   pending.clear();
 }
