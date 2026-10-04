@@ -29,7 +29,7 @@ import {
   type SoundEntry,
   type SoundSample,
 } from '@orbit/sound-library';
-import { countSampleRefs, sampleIsUsed } from '@orbit/engine';
+import { countSampleRefs, sampleIsUsed, SampleLoadCancelledError } from '@orbit/engine';
 import { engine, ensureAudioReady, store } from '../state/app';
 import { collectWorkletSamples, withPinnedSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
@@ -220,8 +220,11 @@ export function autoMapNameOf(entry: SoundEntry): string {
 
 /** Lee los bytes de la grabación PRINCIPAL de un sonido y la sube al kernel. */
 export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
+  const session = soundLoadSession();
   const bytes = await readEntryFile(entry, entry.file);
-  await engine.loadSample(entry.id, bytes);
+  session.check();
+  await engine.loadSample(entry.id, bytes, session.isCurrent);
+  session.check();
   return bytes;
 }
 
@@ -241,7 +244,7 @@ export async function previewSound(
       if (!isCurrent()) return false;
       const bytes = await readEntryFile(entry, entry.file);
       if (!isCurrent()) return false;
-      await engine.loadSample(entry.id, bytes);
+      await engine.loadSample(entry.id, bytes, isCurrent);
       if (!isCurrent()) return false;
       engine.previewSample(entry.id, gain);
       played = true;
@@ -279,10 +282,11 @@ async function realDuration(
   session.check();
   if (declared > 0) return declared;
   try {
-    const { duration } = await engine.loadSample(sampleId, bytes);
+    const { duration } = await engine.loadSample(sampleId, bytes, session.isCurrent);
     session.check();
     return duration;
-  } catch {
+  } catch (error) {
+    if (error instanceof SampleLoadCancelledError) throw error;
     session.check();
     return declared;
   }
@@ -352,7 +356,7 @@ async function loadAll(entries: readonly SoundEntry[], jobs: LoadJob[], session:
     const entry = entries[at]!;
     const bytes = await readEntryFile(entry, sample.file);
     session.check();
-    await engine.loadSample(id, bytes);
+    await engine.loadSample(id, bytes, session.isCurrent);
     session.check();
     return { at, part: { sample, id, bytes } };
   });
@@ -813,17 +817,24 @@ export async function readSampleBytes(path: string): Promise<ArrayBuffer | null>
  * cubre sola: reconcilia el proyecto entero, no comandos sueltos.
  */
 export async function rehydrateSamples(): Promise<SampleRef[]> {
+  const session = soundLoadSession();
   const missing: SampleRef[] = [];
   for (const ref of Object.values(store.project.samples)) {
+    if (!session.isCurrent()) return [];
+    const { path, hash } = ref;
+    const isCurrent = () => session.isCurrent() &&
+      store.project.samples[ref.id]?.path === path && store.project.samples[ref.id]?.hash === hash;
     try {
-      const bytes = await readSampleBytes(ref.path);
-      if (bytes) await engine.loadSample(ref.id, bytes);
+      const bytes = await readSampleBytes(path);
+      if (!isCurrent()) continue;
+      if (bytes) await engine.loadSample(ref.id, bytes, isCurrent);
       else missing.push(ref);
     } catch {
       // sample no disponible en esta máquina
-      missing.push(ref);
+      if (isCurrent()) missing.push(ref);
     }
   }
+  if (!session.isCurrent()) return [];
   // Y lo del proyecto ANTERIOR, que ya no lo usa nadie, que lo suelte el
   // worklet. Este es el sitio porque por aquí pasan las cuatro puertas que
   // cambian el proyecto entero —abrir un `.orbit`, recuperar el autosave,

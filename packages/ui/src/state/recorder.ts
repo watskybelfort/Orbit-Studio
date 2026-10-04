@@ -743,7 +743,7 @@ async function saveRecordedTakes(context: RecordingSession, recorded: RecordedTa
             written.push({ file, sample, take, bytes: wav.byteLength });
             if (sessionCurrent(context) && failed.length === 0) {
               uploaded = true;
-              await engine.loadSample(sampleId, wavBuf);
+              await engine.loadSample(sampleId, wavBuf, () => sessionCurrent(context) && !!store.project.arrangements[context.arrangementId]);
             }
           } catch (err) {
             if (!file) unsaved.push(human);

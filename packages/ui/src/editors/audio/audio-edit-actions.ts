@@ -100,7 +100,7 @@ export function createAudioEditActions(onBusy: (busy: boolean) => void) {
       if (!canContinue()) return;
       await withPinnedSample(newSampleId, async () => {
         uploaded = true;
-        await engine.loadSample(newSampleId, wavBuf);
+        await engine.loadSample(newSampleId, wavBuf, () => ownsUi() && store.version === version);
         if (!canContinue()) return;
         const ref: SampleRef = {
           id: newSampleId, name: input.sampleName, path: `recording:${file}`,

@@ -216,7 +216,7 @@ export async function stopTrackCapture(): Promise<void> {
     // no se puede volver a renderizar: repetirla es volver a tocarla.
     await withPinnedSample(sampleId, async () => {
       uploadStarted = true;
-      await engine.loadSample(sampleId, buffer);
+      await engine.loadSample(sampleId, buffer, () => isCurrent() && !!store.project.arrangements[context.arrangementId]);
       if (!isCurrent()) {
         preserveTake('No se insertó porque cambiaste de proyecto.');
         return;

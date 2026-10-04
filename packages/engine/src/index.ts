@@ -11,7 +11,7 @@ export {
   type SampleRefCount,
 } from './compile';
 export { KernelCore, MAX_BLOCK } from './kernel-core';
-export { AudioEngine } from './engine';
+export { AudioEngine, SampleLoadCancelledError } from './engine';
 export {
   renderProject,
   renderStems,

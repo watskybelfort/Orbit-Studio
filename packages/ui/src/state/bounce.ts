@@ -261,7 +261,7 @@ async function bounceClips(
     // protegido para siempre.
     await withPinnedSample(sampleId, async () => {
       uploaded = true;
-      await engine.loadSample(sampleId, buffer);
+      await engine.loadSample(sampleId, buffer, () => ownsUi() && store.version === version);
       if (!canContinue()) return;
 
       const sample: SampleRef = {
