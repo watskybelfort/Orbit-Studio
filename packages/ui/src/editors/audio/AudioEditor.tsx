@@ -28,7 +28,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { Knob } from '../../widgets/Knob';
-import { naturalRatePieces } from '../clip-slice';
+import { naturalRatePieces, trimAudioWindow } from '../clip-slice';
 import { createAudioEditActions } from './audio-edit-actions';
 import './audio-editor.css';
 
@@ -186,8 +186,10 @@ export function AudioEditor() {
   );
 
   const secPerBeat = 60 / project.tempo;
-  const clipSec = (clip?.length ?? 0) * secPerBeat;
   const offsetSec = clip?.audioOffset ?? 0;
+  const clipSec = clip?.audioStretch
+    ? clip.audioSourceLength ?? Math.max(0, (channels?.duration ?? sample?.duration ?? 0) - offsetSec)
+    : (clip?.length ?? 0) * secPerBeat;
 
   // ── Dibujo ────────────────────────────────────────────────────────────────
 
@@ -319,15 +321,13 @@ export function AudioEditor() {
       );
       if (d === 'start') {
         const newOffset = Math.min(sec, offsetSec + clipSec - 0.02);
-        const delta = newOffset - offsetSec;
         store.dispatch(
           {
             type: 'patchClips',
             patches: [
               {
                 id: clip.id,
-                audioOffset: newOffset,
-                length: Math.max(0.05, clip.length - delta / secPerBeat),
+                ...trimAudioWindow(clip, newOffset, offsetSec + clipSec, clipSec),
               },
             ],
           },
@@ -338,13 +338,13 @@ export function AudioEditor() {
         store.dispatch(
           {
             type: 'patchClips',
-            patches: [{ id: clip.id, length: Math.max(0.05, (newEnd - offsetSec) / secPerBeat) }],
+            patches: [{ id: clip.id, ...trimAudioWindow(clip, offsetSec, newEnd, clipSec) }],
           },
           { label: 'Recortar audio', mergeKey: `ae:trim:${clip.id}` },
         );
       }
     },
-    [channels, clip, offsetSec, clipSec, secPerBeat],
+    [channels, clip, offsetSec, clipSec],
   );
 
   const onPointerUp = useCallback(() => {
@@ -381,17 +381,14 @@ export function AudioEditor() {
    * empezando donde estaba, todo en un solo undo. No toca el sample — cada
    * trozo es el mismo audio con su offset y su largo.
    *
-   * Con stretch el motor llena el clip con TODO lo que queda del sample desde
-   * `offset`, así que la región audible termina en el final del sample y las
-   * piezas se construyen a velocidad NATURAL (sin stretch): si cada pieza se
-   * quedara con el stretch, volvería a estirar lo que queda del sample sobre su
-   * largo en vez de leer su propio tramo.
+   * Se trocea solamente la ventana audible de fuente, también tras un corte
+   * en Playlist. Las piezas de esta herramienta usan velocidad natural.
    */
   const sliceClip = useCallback(() => {
     if (!clip || !channels || !slices || slices.length === 0) return;
     const dur = channels.duration;
     const from = offsetSec;
-    const to = clip.audioStretch ? dur : Math.min(dur, offsetSec + clipSec);
+    const to = Math.min(dur, offsetSec + clipSec);
     const pieces = naturalRatePieces(from, to, slices);
     if (pieces.length === 0) return;
     const clips: Clip[] = pieces.map((p) => ({
@@ -400,6 +397,8 @@ export function AudioEditor() {
       start: clip.start + p.at / secPerBeat,
       length: p.seconds / secPerBeat,
       audioOffset: p.offset,
+      audioSourceLength: p.seconds,
+      audioGrainOffset: (clip.audioGrainOffset ?? 0) + p.offset - offsetSec,
       audioStretch: false,
     }));
     const label = `Trocear "${sample?.name ?? 'audio'}" en ${clips.length}`;

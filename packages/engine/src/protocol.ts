@@ -177,6 +177,8 @@ export interface CompiledAudioClip {
   sampleId: string;
   /** Offset en segundos dentro del sample. */
   offset: number;
+  sourceLength?: number;
+  grainOffset?: number;
   gain: number;
   mixerTrack: number;
   /** Time-stretch: el sample se estira (pitch intacto) hasta llenar el clip. */

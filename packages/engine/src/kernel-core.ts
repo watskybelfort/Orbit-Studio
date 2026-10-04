@@ -2047,9 +2047,12 @@ export class KernelCore {
         // pitch, lectura directa como siempre. Cero alocaciones en los dos
         // caminos: todo son escalares.
         const clipStartSec = this.clipStartSecs[ci]!;
-        const srcSec = data.left.length / data.rate - clip.offset;
+        const srcSec = clip.sourceLength ?? (data.left.length / data.rate - clip.offset);
         const clipSec = this.clipEndSecs[ci]! - clipStartSec;
-        const doStretch = clip.stretch && srcSec > 0.01 && clipSec > 0.01;
+        // Una pieza pequeña conserva el modo del original aunque el corte deje
+        // menos de 10 ms. Los clips antiguos mantienen su umbral de siempre.
+        const minSpan = clip.sourceLength === undefined ? 0.01 : 0;
+        const doStretch = clip.stretch && srcSec > minSpan && clipSec > minSpan;
         // Pitch-shift = resample + stretch inverso, con el MISMO motor de
         // grains: `speed` es lo rápido que se lee DENTRO del grain (eso sube o
         // baja el tono y de paso acortaría el clip) y `ratio` lo rápido que
@@ -2066,7 +2069,8 @@ export class KernelCore {
         const fadeOut = clip.fadeOut ?? 0;
         const fadeOutFrom = clip.length - fadeOut;
         const natRate = data.rate / this.sr;
-        const srcBase = clip.offset * data.rate;
+        const grainOffset = clip.grainOffset ?? 0;
+        const srcBase = (clip.offset - grainOffset) * data.rate;
         const lastIdx = data.left.length - 1;
 
         for (let i = 0; i < n; i++) {
@@ -2085,7 +2089,9 @@ export class KernelCore {
           let l = 0;
           let r = 0;
           if (useGrains) {
-            const tOut = elapsedSec * this.sr;
+            // El corte conserva la fase del par de grains original. Se expresa
+            // en fuente para que un cambio posterior de tempo escale su tiempo.
+            const tOut = (elapsedSec + grainOffset / ratio) * this.sr;
             const g = Math.floor(tOut / hop);
             const inGrain = tOut - g * hop;
             // Grain g (sube 0→1) + grain g-1 (baja 1→0); en el arranque solo g.

@@ -56,7 +56,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
-import { projectTempoMap, slicedTailOffset } from '../clip-slice';
+import { projectTempoMap, sliceAudioWindow } from '../clip-slice';
 import { sliceAutomationCurve } from '../automation/slice-curve';
 import { SectionLane } from './SectionLane';
 import {
@@ -698,7 +698,7 @@ export function Playlist() {
           // Con stretch el sample (desde su offset) se estira hasta llenar el
           // clip; sin él avanza a tiempo real y puede acabarse antes.
           const spanSec = c.audioStretch
-            ? Math.max(0.001, pk.duration - offset)
+            ? Math.max(0.001, c.audioSourceLength ?? (pk.duration - offset))
             : c.length * (60 / project.tempo);
           const mid = top + ah / 2;
           const amp = ah / 2 - 0.5;
@@ -986,7 +986,7 @@ export function Playlist() {
       if (cut <= clip.start + 0.05 || cut >= clip.start + clip.length - 0.05) return;
       const firstLen = cut - clip.start;
       const second: Clip = { ...clip, id: newId(), start: cut, length: clip.length - firstLen };
-      let curveHead: Partial<Clip> = {};
+      let sliceHead: Partial<Clip> = {};
       // Los fundidos se reparten: la cabeza se queda el de entrada y la cola el
       // de salida. Copiar los dos a los dos trozos metería un fundido a mitad
       // del sonido justo donde antes no había ninguno.
@@ -999,28 +999,21 @@ export function Playlist() {
         second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
       } else if (clip.kind === 'automation') {
         const curve = sliceAutomationCurve(clip, firstLen);
-        curveHead = curve.head;
+        sliceHead = curve.head;
         Object.assign(second, curve.tail);
       } else if (clip.kind === 'audio') {
-        // Con stretch el motor llena el clip con TODA la fuente que le queda
-        // (`ratio = srcSec/clipSec`), así que la cola no puede arrancar en
-        // `firstLen` segundos de tiempo real: arranca en la parte proporcional
-        // del span de fuente. Y los beats se pasan por el mapa de tempo, no con
-        // `project.tempo` (que miente en cuanto hay un marcador).
-        //
-        // Nota: con stretch, la CABEZA sigue llenándose con todo el sample que
-        // queda — el modelo no tiene "fin de fuente" por clip, solo offset y
-        // largo de salida, así que una ventana [offset, x] no es expresable.
-        // Sin tocar el motor, la cola es la única pieza que se puede dejar
-        // leyendo donde debe.
+        // Ambas ventanas conservan su fuente y la fase de los grains.
         const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
-        second.audioOffset = slicedTailOffset(clip.start, clip.start + clip.length, cut, {
+        const audio = sliceAudioWindow(clip, cut, {
           offset: clip.audioOffset ?? 0,
           sampleDuration: sample?.duration ?? 0,
+          sourceLength: clip.audioSourceLength,
           stretch: clip.audioStretch === true,
           tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
           fallbackTempo: project.tempo,
         });
+        sliceHead = audio.head;
+        Object.assign(second, audio.tail);
       }
       const label = 'Cortar clip';
       store.dispatch(
@@ -1030,7 +1023,7 @@ export function Playlist() {
           commands: [
             {
               type: 'patchClips',
-              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0, ...curveHead }],
+              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0, ...sliceHead }],
             },
             { type: 'addClips', clips: [second] },
           ],

@@ -306,6 +306,10 @@ export interface Clip {
   sampleId?: Id;
   /** Offset en segundos dentro del sample. */
   audioOffset?: number;
+  /** Ventana de fuente en segundos; ausente = hasta el final del sample. */
+  audioSourceLength?: number;
+  /** Fuente consumida antes de esta pieza desde el origen de grains, en segundos. */
+  audioGrainOffset?: number;
   /** Ganancia lineal del clip. */
   audioGain?: number;
   /** Time-stretch: el audio se estira (pitch intacto) para llenar el clip. */

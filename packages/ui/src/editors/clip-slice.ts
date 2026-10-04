@@ -16,7 +16,7 @@
  * cada una re-estirara lo que quedaba del sample sobre su largo.
  */
 
-import type { Marker } from '@orbit/core';
+import type { Clip, Marker } from '@orbit/core';
 import { secondsAtBeat, type TempoSegment } from '@orbit/engine';
 
 /**
@@ -75,6 +75,8 @@ export interface AudioSliceContext {
   offset: number;
   /** Duración del sample, en segundos. */
   sampleDuration: number;
+  /** Ventana ya recortada; ausente = resto del sample. */
+  sourceLength?: number;
   /** ¿El clip estira la fuente para llenar su largo? */
   stretch: boolean;
   /** Mapa de tempo ya construido (ver `projectTempoMap`). */
@@ -99,8 +101,43 @@ export function slicedTailOffset(
   const startSec = secondsAtBeat(ctx.tempoMap, clipStart, ctx.fallbackTempo);
   const clipSec = secondsAtBeat(ctx.tempoMap, clipEnd, ctx.fallbackTempo) - startSec;
   const headSec = secondsAtBeat(ctx.tempoMap, cut, ctx.fallbackTempo) - startSec;
-  const sourceSec = Math.max(0, ctx.sampleDuration - ctx.offset);
+  const sourceSec = Math.max(0, ctx.sourceLength ?? (ctx.sampleDuration - ctx.offset));
   return ctx.offset + sourceSpanForOutput(headSec, clipSec, sourceSec, ctx.stretch);
+}
+
+/** Reparte fuente y fase sin reiniciar el estiramiento en ninguna pieza. */
+export function sliceAudioWindow(clip: Clip, cut: number, ctx: AudioSliceContext): {
+  head: Partial<Clip>;
+  tail: Partial<Clip>;
+} {
+  const start = secondsAtBeat(ctx.tempoMap, clip.start, ctx.fallbackTempo);
+  const seconds = secondsAtBeat(ctx.tempoMap, clip.start + clip.length, ctx.fallbackTempo) - start;
+  const source = Math.max(0, ctx.sourceLength ?? (ctx.sampleDuration - ctx.offset));
+  const threshold = ctx.sourceLength === undefined ? 0.01 : 0;
+  const stretch = ctx.stretch && source > threshold && seconds > threshold;
+  const offset = slicedTailOffset(clip.start, clip.start + clip.length, cut, {...ctx, stretch});
+  const headSource = offset - ctx.offset;
+  const grainOffset = clip.audioGrainOffset ?? 0;
+  return {
+    head: {audioSourceLength: headSource, audioGrainOffset: grainOffset, audioStretch: stretch},
+    tail: {
+      audioOffset: offset,
+      audioSourceLength: Math.max(0, source - headSource),
+      audioGrainOffset: grainOffset + headSource,
+      audioStretch: stretch,
+    },
+  };
+}
+
+/** Recorte por asas en coordenadas de fuente: conserva velocidad y fase. */
+export function trimAudioWindow(clip: Clip, from: number, to: number, oldSourceSpan: number): Partial<Clip> {
+  const span = Math.max(0.02, to - from);
+  return {
+    audioOffset: from,
+    audioSourceLength: span,
+    audioGrainOffset: (clip.audioGrainOffset ?? 0) + from - (clip.audioOffset ?? 0),
+    length: Math.max(0.05, span * clip.length / Math.max(0.001, oldSourceSpan)),
+  };
 }
 
 /** Una pieza de un troceado, en coordenadas de fuente y de timeline natural. */

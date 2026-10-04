@@ -24,6 +24,8 @@ import {
   outputSpanForSource,
   projectTempoMap,
   slicedTailOffset,
+  sliceAudioWindow,
+  trimAudioWindow,
   sourceSpanForOutput,
 } from '../src/editors/clip-slice';
 import { readSource } from './read-source';
@@ -78,28 +80,32 @@ function rampProject(opts: {
 }
 
 /** El mismo corte que despacha `Playlist.sliceClip`, con el helper compartido. */
-function cutPlaylistClip(project: Project, cut: number): void {
-  const clip = project.clips['clip']!;
+function cutPlaylistClip(project: Project, cut: number, id = 'clip', tailId = 'cola'): ProjectStore {
+  const clip = project.clips[id]!;
   const firstLen = cut - clip.start;
-  const second: Clip = { ...clip, id: 'cola', start: cut, length: clip.length - firstLen };
+  const second: Clip = { ...clip, id: tailId, start: cut, length: clip.length - firstLen };
   const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
-  second.audioOffset = slicedTailOffset(clip.start, clip.start + clip.length, cut, {
+  const {head, tail} = sliceAudioWindow(clip, cut, {
     offset: clip.audioOffset ?? 0,
     sampleDuration: sample?.duration ?? 0,
+    sourceLength: clip.audioSourceLength,
     stretch: clip.audioStretch === true,
     tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
     fallbackTempo: project.tempo,
   });
+  Object.assign(second, tail);
   second.fadeIn = 0;
   second.fadeOut = 0;
-  new ProjectStore(project).dispatch({
+  const store = new ProjectStore(project);
+  store.dispatch({
     type: 'batch',
     label: 'Cortar clip',
     commands: [
-      { type: 'patchClips', patches: [{ id: clip.id, length: firstLen, fadeIn: 0, fadeOut: 0 }] },
+      { type: 'patchClips', patches: [{ id: clip.id, length: firstLen, fadeIn: 0, fadeOut: 0, ...head }] },
       { type: 'addClips', clips: [second] },
     ],
   });
+  return store;
 }
 
 /** Render de solo esos clips, para medir la pieza sin la otra de fondo. */
@@ -286,7 +292,9 @@ describe('trocear con stretch (AudioEditor)', () => {
 describe('los editores usan la aritmética compartida', () => {
   it('Playlist ya no calcula el offset con el tempo plano', () => {
     const src = readSource('editors/playlist/Playlist.tsx');
-    expect(src).toContain('slicedTailOffset(');
+    expect(src).toContain('sliceAudioWindow(');
+    expect(src).toContain('Object.assign(second, audio.tail)');
+    expect(src).toContain('sliceHead = audio.head');
     expect(src).not.toContain('firstLen * (60 / project.tempo)');
   });
 
@@ -294,5 +302,76 @@ describe('los editores usan la aritmética compartida', () => {
     const src = readSource('editors/audio/AudioEditor.tsx');
     expect(src).toContain('naturalRatePieces(');
     expect(src).toContain('audioStretch: false');
+  });
+});
+
+describe('042: el corte conserva toda la señal, incluida fase de grains', () => {
+  it('las asas recortan la ventana de fuente sin cambiar su velocidad', () => {
+    const {project} = rampProject({length: 4});
+    cutPlaylistClip(project, 2);
+    const tail = project.clips.cola!;
+    const left = trimAudioWindow(tail, 1.25, 2, 1);
+    expect(left).toMatchObject({audioOffset: 1.25, audioSourceLength: 0.75, audioGrainOffset: 1.25, length: 1.5});
+    expect(trimAudioWindow(tail, 1, 1.5, 1)).toMatchObject({audioSourceLength: 0.5, audioGrainOffset: 1, length: 1});
+    const editor = readSource('editors/audio/AudioEditor.tsx');
+    expect(editor).toContain('clip.audioSourceLength ??');
+    expect(editor).toContain('const to = Math.min(dur, offsetSec + clipSec)');
+    expect(editor).toContain('trimAudioWindow(clip,');
+  });
+  function audible(opts: Parameters<typeof rampProject>[0], pitch = 0) {
+    const f = rampProject(opts);
+    f.project.clips.clip!.audioPitch = pitch;
+    const data = f.samples.get('ramp')!;
+    for (let i = 0; i < data.left.length; i++) {
+      data.left[i] = (i < data.left.length / 2 ? 0.03 : 0.3) * Math.sin(i * 0.1);
+      data.right[i] = data.left[i]!;
+    }
+    return f;
+  }
+  function all(f: ReturnType<typeof audible>) {
+    return renderProject(compileProject(f.project, {mode: 'song'}), {
+      sampleRate: SR, tailSeconds: 0, samples: f.samples,
+    }).left;
+  }
+  function maxDiff(a: Float32Array, b: Float32Array) {
+    expect(b.length).toBe(a.length);
+    let max = 0;
+    for (let i = 0; i < a.length; i++) max = Math.max(max, Math.abs(a[i]! - b[i]!));
+    return max;
+  }
+  it.each([
+    {length: 4, pitch: 0, cut: 2, stretch: true},
+    {length: 2, pitch: 7, cut: 0.713, stretch: true},
+    {length: 6, pitch: -5, cut: 2.513, stretch: true},
+    {length: 4, pitch: 5, cut: 1.137, stretch: false},
+    {length: 4, pitch: 0, cut: 1.137, stretch: false},
+  ])('preserva cabeza y cola: %j', ({length, pitch, cut, stretch}) => {
+    const f = audible({length, stretch, offset: 0.125}, pitch);
+    const before = all(f);
+    const store = cutPlaylistClip(f.project, cut);
+    expect(maxDiff(before, all(f))).toBeLessThan(1e-6);
+    store.undo();
+    expect(maxDiff(before, all(f))).toBeLessThan(1e-6);
+    store.redo();
+    expect(maxDiff(before, all(f))).toBeLessThan(1e-6);
+  });
+  it('integra marcadores de tempo y un segundo corte de la cola', () => {
+    const f = audible({length: 4, markers: [
+      {id: 'slow', time: 1, tempo: 60, name: 'Lento', color: '#fff'},
+    ]}, 3);
+    const before = all(f);
+    cutPlaylistClip(f.project, 1.137);
+    cutPlaylistClip(f.project, 2.713, 'cola', 'cola2');
+    expect(maxDiff(before, all(f))).toBeLessThan(1e-6);
+    f.project = JSON.parse(JSON.stringify(f.project));
+    expect(maxDiff(before, all(f))).toBeLessThan(1e-6);
+  });
+  it('un cambio uniforme de tempo mantiene la relación entre las piezas', () => {
+    const f = audible({length: 4}, 7);
+    const original = JSON.parse(JSON.stringify(f.project));
+    cutPlaylistClip(f.project, 1.137);
+    f.project.tempo = 95;
+    original.tempo = 95;
+    expect(maxDiff(all({...f, project: original}), all(f))).toBeLessThan(1e-6);
   });
 });

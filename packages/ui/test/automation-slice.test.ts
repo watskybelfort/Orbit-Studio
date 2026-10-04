@@ -96,6 +96,6 @@ describe('041: cortar conserva la curva audible y sus anclas', () => {
     const source = readSource('editors/playlist/Playlist.tsx');
     expect(source).toContain('sliceAutomationCurve(clip, firstLen)');
     expect(source).toContain('Object.assign(second, curve.tail)');
-    expect(source).toContain('...curveHead');
+    expect(source).toContain('...sliceHead');
   });
 });

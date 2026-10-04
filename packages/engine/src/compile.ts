@@ -406,6 +406,8 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
           length: clip.length,
           sampleId: clip.sampleId,
           offset: clip.audioOffset ?? 0,
+          ...(clip.audioSourceLength !== undefined ? { sourceLength: clip.audioSourceLength } : {}),
+          ...(clip.audioGrainOffset !== undefined ? { grainOffset: clip.audioGrainOffset } : {}),
           gain: clip.audioGain ?? 1,
           mixerTrack,
           stretch: clip.audioStretch === true,
