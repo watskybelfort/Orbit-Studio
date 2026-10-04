@@ -18,6 +18,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { networkInterfaces, release } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { parseVersionFile, versionFileName } from '@orbit/core';
 import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-host';
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
@@ -1591,7 +1592,6 @@ function registerIpc(): void {
   /** Cuántas se conservan por proyecto (las más viejas se caen solas). */
   const VERSIONS_KEEP = 40;
   const VERSION_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
-  const VERSION_FILE_RE = /^[0-9]{13}-[a-z0-9-]{0,40}\.orbit$/;
 
   function versionProjectDir(projectId: unknown): string {
     if (typeof projectId !== 'string' || !VERSION_ID_RE.test(projectId)) {
@@ -1600,29 +1600,17 @@ function registerIpc(): void {
     return versionsDir(projectId);
   }
 
-  /** Nombre visible → trozo de nombre de archivo (sin acentos ni rarezas). */
-  function versionSlug(label: unknown): string {
-    if (typeof label !== 'string') return '';
-    return label
-      .normalize('NFD')
-      .replace(/\p{Diacritic}/gu, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40);
-  }
-
   ipcMain.handle('version:save', async (_event, projectId: unknown, label: unknown, json: unknown) => {
     if (typeof json !== 'string' || json.length === 0) {
       throw new Error('version:save requiere el proyecto serializado');
     }
     const dir = versionProjectDir(projectId);
     await mkdir(dir, { recursive: true });
-    const file = `${Date.now()}-${versionSlug(label)}.orbit`;
+    const file = versionFileName(Date.now(), label, randomUUID());
     await writeFileAtomic(join(dir, file), json, 'utf8');
 
     // Poda: se quedan las más recientes.
-    const files = (await readdir(dir)).filter((name) => VERSION_FILE_RE.test(name)).sort();
+    const files = (await readdir(dir)).filter((name) => parseVersionFile(name) !== null).sort();
     for (const old of files.slice(0, Math.max(0, files.length - VERSIONS_KEEP))) {
       await rm(join(dir, old), { force: true });
     }
@@ -1639,10 +1627,11 @@ function registerIpc(): void {
     }
     const out: { file: string; at: number; bytes: number }[] = [];
     for (const file of files) {
-      if (!VERSION_FILE_RE.test(file)) continue;
+      const version = parseVersionFile(file);
+      if (!version) continue;
       try {
         const info = await stat(join(dir, file));
-        out.push({ file, at: Number(file.slice(0, 13)), bytes: info.size });
+        out.push({ file, at: version.at, bytes: info.size });
       } catch {
         // se borró entre medias
       }
@@ -1652,14 +1641,14 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('version:read', async (_event, projectId: unknown, file: unknown) => {
-    if (typeof file !== 'string' || !VERSION_FILE_RE.test(file)) {
+    if (typeof file !== 'string' || !parseVersionFile(file)) {
       throw new Error(`Versión no válida: ${String(file)}`);
     }
     return readFile(join(versionProjectDir(projectId), file), 'utf8');
   });
 
   ipcMain.handle('version:remove', async (_event, projectId: unknown, file: unknown) => {
-    if (typeof file !== 'string' || !VERSION_FILE_RE.test(file)) {
+    if (typeof file !== 'string' || !parseVersionFile(file)) {
       throw new Error(`Versión no válida: ${String(file)}`);
     }
     await rm(join(versionProjectDir(projectId), file), { force: true });

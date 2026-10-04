@@ -15,6 +15,7 @@ import {
   diffProjects,
   isEmptyDiff,
   parseProject,
+  parseVersionFile,
   serializeProject,
   summarizeDiff,
   type ProjectDiff,
@@ -73,9 +74,9 @@ export const useVersions = create<VersionsState>(() => ({
   compare: null,
 }));
 
-/** El nombre que se le puso, sacado del archivo `<ts>-<slug>.orbit`. */
+/** Etiqueta de la versión, sin exponer su identificador de escritura. */
 function labelOf(file: string): string {
-  const slug = file.slice(14).replace(/\.orbit$/, '');
+  const slug = parseVersionFile(file)?.slug ?? '';
   if (slug === '') return 'Sin nombre';
   return slug.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase());
 }
