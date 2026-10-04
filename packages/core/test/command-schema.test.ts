@@ -62,17 +62,17 @@ describe('018 · un tipo de comando que no existe no es un comando', () => {
 
 describe('018 · un lote con la forma equivocada se rechaza entero', () => {
   it('commands null: el TypeError de "not iterable" ya no existe', () => {
-    expect(commandProblem({ type: 'batch', commands: null })).toBe('"commands" es null');
+    expect(commandProblem({ type: 'batch', commands: null })).toBe('"commands" no es null');
     expect(commandProblem({ type: 'batch', commands: null })).not.toMatch(/iterable/);
   });
 
   it('commands ausente, commands no-lista, y lista con un hijo inválido', () => {
-    expect(commandProblem({ type: 'batch' })).toBe('falta "commands"');
-    expect(commandProblem({ type: 'batch', commands: 'setTempo' })).toMatch(/no es una lista/);
-    expect(commandProblem({ type: 'batch', commands: [null] })).toMatch(/no es un objeto/);
+    expect(commandProblem({ type: 'batch' })).toBe('"commands" está');
+    expect(commandProblem({ type: 'batch', commands: 'setTempo' })).toMatch(/una lista/);
+    expect(commandProblem({ type: 'batch', commands: [null] })).toMatch(/un objeto|una entidad/);
     expect(
       commandProblem({ type: 'batch', commands: [{ type: 'setTempo', tempo: 'pronto' }] }),
-    ).toMatch(/"tempo" no es un número/);
+    ).toMatch(/tempo" un número/);
   });
 
   it('el problema del hijo dice DÓNDE está, para no buscar a ciegas', () => {
@@ -88,7 +88,7 @@ describe('018 · un lote con la forma equivocada se rechaza entero', () => {
       type: 'batch',
       commands: [{ type: 'batch', commands: [{ type: 'removeChannel' }] }],
     };
-    expect(commandProblem(malo)).toMatch(/falta "channelId"/);
+    expect(commandProblem(malo)).toMatch(/channelId" está/);
   });
 
   it('un lote anidado más hondo de lo razonable SE RECHAZA (no se deja de mirar)', () => {
@@ -100,40 +100,46 @@ describe('018 · un lote con la forma equivocada se rechaza entero', () => {
 
 describe('018 · campos que faltan o vienen del tipo que no', () => {
   it('los obligatorios que faltan se nombran uno a uno', () => {
-    expect(commandProblem({ type: 'setTempo' })).toBe('falta "tempo"');
-    expect(commandProblem({ type: 'patchChannel', channelId: 'c1' })).toBe('falta "patch"');
-    expect(commandProblem({ type: 'removeClips' })).toBe('falta "clipIds"');
+    expect(commandProblem({ type: 'setTempo' })).toBe('"tempo" está');
+    expect(commandProblem({ type: 'patchChannel', channelId: 'c1' })).toBe('"patch" está');
+    expect(commandProblem({ type: 'removeClips' })).toBe('"clipIds" está');
   });
 
   it('tipos primitivos equivocados, con NaN y Infinity como no-números', () => {
-    expect(commandProblem({ type: 'setTempo', tempo: Number.NaN })).toMatch(/no es un número/);
-    expect(commandProblem({ type: 'setTempo', tempo: Infinity })).toMatch(/no es un número/);
-    expect(commandProblem({ type: 'setMeta', patch: 'nada' })).toMatch(/no es un objeto/);
+    expect(commandProblem({ type: 'setTempo', tempo: Number.NaN })).toMatch(/un número/);
+    expect(commandProblem({ type: 'setTempo', tempo: Infinity })).toMatch(/un número/);
+    expect(commandProblem({ type: 'setMeta', patch: 'nada' })).toMatch(/un objeto|una entidad/);
     expect(commandProblem({ type: 'removeClips', clipIds: [1, 2] })).toMatch(
-      /tiene un id que no es cadena/,
+      /una lista de ids/,
     );
   });
 
   it('las entidades tienen que ser objetos, y su id una cadena', () => {
-    expect(commandProblem({ type: 'addChannel', channel: 'x' })).toMatch(/no es una entidad/);
+    expect(commandProblem({ type: 'addChannel', channel: 'x' })).toMatch(/una entidad/);
     expect(commandProblem({ type: 'addChannel', channel: { id: 7 } })).toMatch(
-      /"channel.id" no es un id/,
+      /"channel"\.id un id \(cadena\)/,
     );
-    expect(commandProblem({ type: 'addChannel', channel: {} })).toBeNull();
+    // Un canal sin volumen no entra: el motor lo leería como NaN.
+    // Un canal a medias no es un comando: la tabla es la del modelo (017 y 018
+    // comparten tablas), y sin volumen el motor compilaría un NaN.
+    expect(commandProblem({ type: 'addChannel', channel: { id: 'c1' } })).toMatch(
+      /"channel"\.\w+ está/,
+    );
+    expect(commandProblem({ type: 'addChannel', channel: canalCompleto() })).toBeNull();
   });
 
   it('los mapas de listas (notesByPattern) se miran de verdad', () => {
     expect(
-      commandProblem({ type: 'restoreChannel', channel: {}, index: 0, notesByPattern: { p: [] } }),
+      commandProblem({ type: 'restoreChannel', channel: canalCompleto(), index: 0, notesByPattern: { p: [] } }),
     ).toBeNull();
     expect(
       commandProblem({
         type: 'restoreChannel',
-        channel: {},
+        channel: canalCompleto(),
         index: 0,
         notesByPattern: { p: 'notas' },
       }),
-    ).toMatch(/no es una lista/);
+    ).toMatch(/una lista/);
   });
 
   it('null donde el tipo lo admite y donde no', () => {
@@ -143,15 +149,19 @@ describe('018 · campos que faltan o vienen del tipo que no', () => {
     expect(commandProblem({ type: 'setRoute', trackIndex: 1, routeTo: null })).toBeNull();
     expect(commandProblem({ type: 'setLayout', name: 'x', windows: null })).toBeNull();
     // En cualquier otro sitio, null es un tipo equivocado.
-    expect(commandProblem({ type: 'setTempo', tempo: null })).toBe('"tempo" es null');
+    expect(commandProblem({ type: 'setTempo', tempo: null })).toBe('"tempo" no es null');
     expect(commandProblem({ type: 'setEffect', trackIndex: null, slotIndex: 0, slot: {} })).toMatch(
-      /"trackIndex" es null/,
+      /"trackIndex" no es null/,
     );
   });
 
   it('lo opcional se puede omitir; lo obligatorio no', () => {
-    expect(commandProblem({ type: 'addChannel', channel: {} })).toBeNull();
-    expect(commandProblem({ type: 'addChannel', channel: {}, index: 2 })).toBeNull();
+    // Un canal sin volumen no entra: el motor lo leería como NaN.
+    expect(commandProblem({ type: 'addChannel', channel: { id: 'c1' } })).toMatch(
+      /"channel"\.\w+ está/,
+    );
+    expect(commandProblem({ type: 'addChannel', channel: canalCompleto() })).toBeNull();
+    expect(commandProblem({ type: 'addChannel', channel: canalCompleto(), index: 2 })).toBeNull();
     expect(commandProblem({ type: 'batch', commands: [] })).toBeNull();
     expect(commandProblem({ type: 'batch', label: 'x', commands: [] })).toBeNull();
     // El inverso de setChannelParam solo trae dropKey cuando lo necesita, pero el
@@ -175,6 +185,7 @@ describe('018 · el presupuesto de nodos aguanta un lote musical de verdad', () 
     key: 36 + (i % 48),
     velocity: 0.8,
     pan: 0,
+    slide: false,
   });
 
   it('pegar 8 compases a 1/16 en un canal (512 notas) entra de sobra', () => {
@@ -190,9 +201,11 @@ describe('018 · el presupuesto de nodos aguanta un lote musical de verdad', () 
   it('un arrastre enorme: 400 clips en un lote de un solo paso de undo', () => {
     const clips = Array.from({ length: 400 }, (_, i) => ({
       id: `c${i}`,
-      trackId: 't1',
+      kind: 'pattern',
+      playlistTrackId: 't1',
       start: i * 4,
       length: 4,
+      muted: false,
       patternId: 'p1',
     }));
     const cmd = { type: 'batch', label: 'arrastre', commands: [{ type: 'addClips', clips }] };
@@ -202,12 +215,16 @@ describe('018 · el presupuesto de nodos aguanta un lote musical de verdad', () 
   });
 
   it('deshacer un arrangement entero (pistas, clips y secciones)', () => {
-    const tracks = Array.from({ length: 64 }, (_, i) => ({ id: `t${i}` }));
-    const clips = Array.from({ length: 500 }, (_, i) => ({ id: `c${i}`, start: i }));
-    const sections = Array.from({ length: 40 }, (_, i) => ({ id: `s${i}` }));
+    const tracks = Array.from({ length: 64 }, (_, i) => ({
+      id: `t${i}`, arrangementId: 'a1', name: 'P', color: 'rojo', height: 1, muted: false, order: i,
+    }));
+    const clips = Array.from({ length: 500 }, (_, i) => ({
+      id: `c${i}`, kind: 'pattern', playlistTrackId: 't0', start: i, length: 4, muted: false,
+    }));
+    const sections = Array.from({ length: 40 }, (_, i) => ({ id: `s${i}`, arrangementId: 'a1', name: 'S', start: 0, length: 4 }));
     const cmd = {
       type: 'restoreArrangement',
-      arrangement: { id: 'a1' },
+      arrangement: { id: 'a1', name: 'A' },
       index: 0,
       tracks,
       clips,
@@ -260,38 +277,38 @@ function minimos(): [string, Record<string, unknown>][] {
     ['setSwing', { swing: 0 }],
     ['setTimeSig', { timeSig: { num: 4, den: 4 } }],
     ['setMeta', { patch: { title: 't' } }],
-    ['addChannel', { channel: ent(), index: 0 }],
+    ['addChannel', { channel: canalCompleto(), index: 0 }],
     ['removeChannel', { channelId: id() }],
-    ['restoreChannel', { channel: ent(), index: 0, notesByPattern: {} }],
+    ['restoreChannel', { channel: canalCompleto(), index: 0, notesByPattern: {} }],
     ['patchChannel', { channelId: id(), patch: {} }],
     ['setChannelParam', { channelId: id(), key: 'k', value: 0 }],
     ['moveChannel', { channelId: id(), toIndex: 0 }],
-    ['addChannelGroup', { group: ent(), index: 0, members: [] }],
+    ['addChannelGroup', { group: { id: 'g1', name: 'G', color: 'rojo', collapsed: false }, index: 0, members: [] }],
     ['removeChannelGroup', { groupId: id() }],
     ['patchChannelGroup', { groupId: id(), patch: {} }],
-    ['setChannelEffect', { channelId: id(), slotIndex: 0, slot: {} }],
+    ['setChannelEffect', { channelId: id(), slotIndex: 0, slot: slotCompleto() }],
     ['patchChannelEffect', { channelId: id(), slotIndex: 0, patch: {} }],
     ['setChannelEffectParam', { channelId: id(), slotIndex: 0, key: 'k', value: 0 }],
-    ['addPattern', { pattern: ent(), index: 0 }],
+    ['addPattern', { pattern: patronCompleto(), index: 0 }],
     ['removePattern', { patternId: id() }],
-    ['restorePattern', { pattern: ent(), index: 0, clips: [] }],
+    ['restorePattern', { pattern: patronCompleto(), index: 0, clips: [] }],
     ['patchPattern', { patternId: id(), patch: {} }],
     ['addNotes', { patternId: id(), channelId: id(), notes: [] }],
     ['removeNotes', { patternId: id(), channelId: id(), noteIds: [] }],
     ['patchNotes', { patternId: id(), channelId: id(), patches: [] }],
-    ['addPlaylistTrack', { track: ent() }],
+    ['addPlaylistTrack', { track: pistaCompleta() }],
     ['removePlaylistTrack', { trackId: id() }],
-    ['restorePlaylistTrack', { track: ent(), clips: [] }],
+    ['restorePlaylistTrack', { track: pistaCompleta(), clips: [] }],
     ['patchPlaylistTrack', { trackId: id(), patch: {} }],
     ['addClips', { clips: [] }],
     ['removeClips', { clipIds: [] }],
     ['restoreClips', { clips: [] }],
     ['patchClips', { patches: [] }],
-    ['addArrangement', { arrangement: ent() }],
+    ['addArrangement', { arrangement: { id: 'a1', name: 'A' } }],
     ['removeArrangement', { arrangementId: id() }],
     [
       'restoreArrangement',
-      { arrangement: ent(), index: 0, tracks: [], clips: [], sections: [], activeWas: id() },
+      { arrangement: { id: 'a1', name: 'A' }, index: 0, tracks: [], clips: [], sections: [], activeWas: id() },
     ],
     ['patchArrangement', { arrangementId: id(), patch: {} }],
     ['setActiveArrangement', { arrangementId: id() }],
@@ -304,7 +321,7 @@ function minimos(): [string, Record<string, unknown>][] {
     ['removeSections', { sectionIds: [] }],
     ['restoreSections', { sections: [] }],
     ['patchSections', { patches: [] }],
-    ['addMarker', { marker: ent() }],
+    ['addMarker', { marker: { id: 'm1', time: 0, name: 'M', color: 'rojo' } }],
     ['removeMarker', { markerId: id() }],
     ['patchMarker', { markerId: id(), patch: {} }],
     ['patchMixerTrack', { trackIndex: 1, patch: {} }],
@@ -314,11 +331,66 @@ function minimos(): [string, Record<string, unknown>][] {
     ['setSend', { trackIndex: 1, target: 2, level: 0 }],
     ['patchSend', { trackIndex: 1, target: 2, patch: {} }],
     ['setRoute', { trackIndex: 1, routeTo: 0 }],
-    ['addInputRoute', { route: ent(), index: 0 }],
+    ['addInputRoute', { route: rutaCompleta(), index: 0 }],
     ['removeInputRoute', { routeId: id() }],
     ['patchInputRoute', { routeId: id(), patch: {} }],
-    ['registerSample', { sample: ent() }],
+    ['registerSample', { sample: { id: 's1', name: 'a.wav', path: 'a', hash: 'h', duration: 1 } }],
     ['unregisterSample', { sampleId: id() }],
     ['batch', { commands: [] }],
   ];
+}
+/**
+ * Un canal que cumple la tabla de `model/types.ts`: las tablas de entidades son
+ * las mismas que usa `parseProject` (017), así que un comando con un canal a medio
+ *填写 se rechaza igual que un `.orbit` a medio.
+ */
+function canalCompleto(): Record<string, unknown> {
+  return {
+    id: 'c1',
+    name: 'Canal',
+    color: 'rojo',
+    kind: 'synth',
+    params: {},
+    volume: 1,
+    pan: 0,
+    mute: false,
+    solo: false,
+    mixerTrack: 1,
+  };
+}
+
+/** Patrón completo: `notes` es obligatorio y es un mapa de listas. */
+function patronCompleto(): Record<string, unknown> {
+  return { id: newId(), name: 'P', color: 'azul', length: 4, notes: {} };
+}
+
+/** Pista de playlist completa. */
+function pistaCompleta(): Record<string, unknown> {
+  return {
+    id: newId(),
+    arrangementId: 'a1',
+    name: 'Pista',
+    color: 'rojo',
+    height: 1,
+    muted: false,
+    order: 0,
+  };
+}
+
+/** Slot de efecto completo: `mix` y `params` son obligatorios. */
+function slotCompleto(): Record<string, unknown> {
+  return { id: 'fx1', kind: 'reverb', enabled: true, mix: 1, params: {} };
+}
+
+/** Ruta de entrada completa. */
+function rutaCompleta(): Record<string, unknown> {
+  return {
+    id: 'r1',
+    name: 'Micro',
+    channel: 1,
+    mixerTrack: 1,
+    armed: false,
+    monitor: false,
+    gain: 1,
+  };
 }

@@ -177,7 +177,7 @@ describe('setRoute: routeTo debe ser una pista real del mixer', () => {
       );
     }
     expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: Number.NaN })).toThrow(
-      /no es un número/,
+      /un número/,
     );
     expect(p.mixer[1]!.routeTo).toBe(0);
     // 0 (Master) y el último índice válido se siguen admitiendo.

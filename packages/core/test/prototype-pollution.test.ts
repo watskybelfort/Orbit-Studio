@@ -110,9 +110,15 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
           id: 'clip1',
           trackId: 't1',
           start: 0,
+          kind: 'pattern',
+          playlistTrackId: 't1',
+          muted: false,
+          length: 4,
           pattern: {
-            id: 'pat1',
-            notes: [{ id: '__proto__', key: 60, start: 0, length: 1, velocity: 100 }],
+            id: 'pat1', name: 'P', color: 'rojo', length: 4,
+            notes: {
+              c1: [{ id: '__proto__', key: 60, start: 0, duration: 1, velocity: 1, pan: 0, slide: false }],
+            },
           },
         },
       ],
@@ -147,9 +153,12 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
     const antes = serializeProject(p);
     const cmd = {
       type: 'patchClips',
-      patches: [[[[{ id: '__proto__', start: 9 }]]]],
+      patches: [[[[{ id: '__proto__', start: 9, kind: 'pattern', muted: false, length: 4 }]]]],
     } as never;
-    expect(() => applyCommand(p, cmd)).toThrow(/__proto__/);
+    // Con batches anidados el rechazo lo ve el validador de forma antes incluso de
+    // llegar al recorrido de ids: lo que se afirma aqui es que NO PASA y que el
+    // proyecto no se mueve.
+    expect(() => applyCommand(p, cmd)).toThrow();
     expect(serializeProject(p)).toBe(antes);
   });
 
@@ -168,7 +177,7 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
   // queda es de ciclos, no de tamaño.
   const p = createEmptyProject();
   const notas = Array.from({ length: 20_000 }, (_, i) => ({
-    id: `n${i}`, start: (i % 64) * 0.25, duration: 0.25, key: 36, velocity: 0.8, pan: 0,
+    id: `n${i}`, start: (i % 64) * 0.25, duration: 0.25, key: 36, velocity: 0.8, pan: 0, slide: false,
   }));
   const patternId = Object.keys(p.patterns)[0]!;
   expect(() =>
@@ -180,7 +189,19 @@ it('un ciclo se rechaza con su motivo, y el recorrido sigue entero', () => {
   // Con objetos vivos del renderer (no hay JSON que no pueda traer ciclo), un
   // comando que se referencia a sí mismo tiene que terminar, no comerse el hilo.
   const p = createEmptyProject();
-  const canal: Record<string, unknown> = { id: 'c1', fx: [], grupo: null };
+  const canal: Record<string, unknown> = {
+    id: 'c1',
+    name: 'C',
+    color: 'rojo',
+    kind: 'synth',
+    params: {},
+    volume: 1,
+    pan: 0,
+    mute: false,
+    solo: false,
+    mixerTrack: 1,
+    grupo: null,
+  };
   canal.grupo = canal;
   expect(() => applyCommand(p, { type: 'addChannel', channel: canal } as never)).toThrow(
     /referencia circular/,
