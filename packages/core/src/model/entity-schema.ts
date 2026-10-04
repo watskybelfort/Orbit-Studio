@@ -98,6 +98,10 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
       // y `length` acortados, estos dos Guardan dónde se estaba muestreando la
       // curva, para no tener que recalcularla ni perder la fase al primer tramo.
       automationOffset: 'num', automationLength: 'num',
+      // Y de lo mismo pero con el AUDIO estirado (BUG 042): segundos de fuente
+      // asignados a la pieza y segundos ya consumidos antes de ella desde el
+      // origen de grains, para que un corte no reinicie el grano (y con pitch).
+      audioSourceLength: 'num', audioGrainOffset: 'num',
     },
   },
   marker: {
