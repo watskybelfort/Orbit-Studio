@@ -178,6 +178,16 @@ export function setClipboard(payload: ClipboardPayload | null): void {
   useClipboard.setState({ payload });
 }
 
+/**
+ * El payload vive dentro de una sesión: los clips nombran patrones, samples y
+ * destinos de automatización que no viajan en él. Sustituir el proyecto lo
+ * invalida antes de que la UI vuelva a habilitar Pegar sobre entidades ajenas.
+ * Separado de setClipboard(null): copiar sin selección sigue siendo un no-op.
+ */
+export function clearClipboard(): void {
+  useClipboard.setState({ payload: null });
+}
+
 export function readClipboard(): ClipboardPayload | null {
   return useClipboard.getState().payload;
 }

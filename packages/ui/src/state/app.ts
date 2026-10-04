@@ -17,8 +17,10 @@ import { pushCaptureChunk } from './track-capture';
 import { pushMasterStreamChunk } from '../collab/master-stream';
 import { renderSampleCacheStats } from '../export/render-inputs';
 import { useUiStore } from './ui';
+import { clearClipboard } from './clipboard';
 
 export const store = new ProjectStore();
+store.subscribeBeforeReplace(clearClipboard);
 export const engine = new AudioEngine();
 
 /**
