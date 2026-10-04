@@ -267,11 +267,27 @@ class Room {
   /** clientID de Yjs → socket que lo controla (para saber quién firma qué). */
   private readonly clientOwner = new Map<number, WsSocket>();
   /**
-   * Id de entidad (canal/patrón/pista/arrangement) → connKey del socket que la
-   * CREÓ, según el servidor. Es la verdad con la que se juzga si un borrado con
-   * `own` es legítimo — nunca el campo `own` que escribe el cliente.
+   * Id de entidad (canal/patrón/pista/arrangement) → QUIÉN la creó, según el
+   * servidor. Es la verdad con la que se juzga si un borrado con `own` es legítimo —
+   * nunca el campo `own` que escribe el cliente.
+   *
+   * La autoría es de AUTOR, no de SOCKET: la clave es la invitación con la que se
+   * entró (una credencial, verificada por `consumeInvite`) y, para quien abrió la sala,
+   * su socket. Con la clave del socket efímera, un corte de red dejaba al autor sin
+   * poder deshacer su propio trabajo —el servidor le decía «como invitado no puedes
+   * borrar pistas ni patrones» sobre algo que acababa de crear él— y encima el índice
+   * guardaba las entradas del socket cerrado para siempre (medido en la tarjeta 011).
+   *
+   * Lo que NO se hace es aceptar una identidad que diga el cliente: sería volver a lo
+   * que 013 cerró (creerse el `own` del cliente), con la diferencia de que ahora
+   * falsearía también quién puede borrar qué.
    */
-  private readonly ownCreations = new Map<string, number>();
+  private readonly ownCreations = new Map<string, string>();
+  /**
+   * Invitación con la que entró cada socket vivo. Se guarda como credencial para que
+   * la autoría sobreviva a una reconexión (ver `ownCreations`).
+   */
+  private readonly connInvites = new Map<WsSocket, string>();
   /**
    * Copia autoritativa del log. Borrar entradas del log solo lo hace
    * legítimamente el compactador (productor); si un no-productor las borra, se
@@ -448,10 +464,13 @@ class Room {
     );
   }
 
-  addConn(conn: WsSocket): void {
+  addConn(conn: WsSocket, inviteId?: string): void {
     this.conns.set(conn, new Set());
     const key = this.nextConnKey++;
     this.connKeys.set(conn, key);
+    // La invitación es la credencial estable de este autor. Sin ella (quien abre la
+    // sala) la autoría se ata al socket, como antes: es lo único que hay.
+    if (inviteId !== undefined && inviteId !== '') this.connInvites.set(conn, inviteId);
     const { role } = this.roles.join(key);
     this.sendControl(conn, { type: 'role', role });
     // Si la sala tiene contraseña, el que entra ya la ha pasado; se le dice de
@@ -594,6 +613,10 @@ class Room {
     }
     const key = this.connKeys.get(conn);
     this.connKeys.delete(conn);
+    // La invitación se olvida con el socket, pero la AUTORÍA se queda: es lo que
+    // permite que el mismo autor, al reconectar, siga pudiendo deshacer lo suyo
+    // (BUG 011).
+    this.connInvites.delete(conn);
     if (key === undefined) return;
     const { promoted } = this.roles.leave(key);
     if (promoted !== null) {
@@ -603,6 +626,35 @@ class Room {
       console.log(`[room ${this.code}] el mando pasa a la conexión ${promoted}`);
     }
     if (this.conns.size > 0) this.broadcastRoles();
+  }
+
+  /**
+   * Olvida la autoría de las entidades que ya no existen en el proyecto.
+   *
+   * El índice de autores guardaba una entrada por entidad creada y no soltaba
+   * ninguna: con muchas altas (y con reconexiones) crecía para siempre, y una sala
+   * larga acumulaba ids que nadie puede volver a borrar. Se poda cuando el proyecto
+   * ha cambiado, que es justo cuando hay algo que podar.
+   */
+  private podarAutores(): void {
+    if (this.ownCreations.size === 0) return;
+    const meta = this.doc.getMap<string>('meta');
+    const proyecto = meta.get('project');
+    if (typeof proyecto !== 'string') return; // aún no hay proyecto: no se sabe qué vive
+    const vivos = new Set<string>();
+    try {
+      const p = parseProject(proyecto);
+      for (const id of Object.keys(p.channels)) vivos.add(id);
+      for (const id of Object.keys(p.patterns)) vivos.add(id);
+      for (const id of Object.keys(p.playlistTracks)) vivos.add(id);
+      for (const id of Object.keys(p.arrangements)) vivos.add(id);
+      for (const id of Object.keys(p.channelGroups)) vivos.add(id);
+    } catch {
+      return; // un proyecto ilegible no se poda a ciegas
+    }
+    for (const id of [...this.ownCreations.keys()]) {
+      if (!vivos.has(id)) this.ownCreations.delete(id);
+    }
   }
 
   get empty(): boolean {
@@ -787,6 +839,13 @@ class Room {
     // el registro de dueños). Se usa el socket que inserta, no el `client` que
     // diga la entrada.
     const entrantKey = from === undefined ? undefined : this.connKeys.get(from);
+    // QUIÉN es el autor de lo que entra por este socket. Es su invitación si entró con
+    // una (una credencial, así que se puede reconocer tras un corte de red), y su
+    // socket si abrió la sala (que no tiene invitación: es lo único que hay).
+    const autor =
+      from === undefined
+        ? 'socket:nadie'
+        : (this.connInvites.get(from) ?? `socket:${String(entrantKey)}`);
     const offenders: { index: number; reason: string; type: string }[] = [];
 
     // Borrar entradas del log solo lo hace legítimamente el compactador
@@ -826,12 +885,11 @@ class Room {
         const role = this.roleForEntry(entry, from, senderRole);
         const cmd = entryCommand(entry);
         // ownCreation lo decide el SERVIDOR: ¿los ids que borra los creó ESTE
-        // socket? Nunca se lee entry.own (lo escribe el cliente).
+        // autor? Nunca se lee entry.own (lo escribe el cliente).
         let ownCreation = false;
         if (cmd) {
           const dels = collectTrackDeletions(cmd);
-          ownCreation =
-            dels.length > 0 && dels.every((id) => this.ownCreations.get(id) === entrantKey);
+          ownCreation = dels.length > 0 && dels.every((id) => this.ownCreations.get(id) === autor);
         }
         const verdict = checkEntry(entry, role, ownCreation);
         if (!verdict.allowed) {
@@ -844,11 +902,12 @@ class Room {
         } else if (cmd && entrantKey !== undefined) {
           // Entrada aceptada: se apunta lo que crea bajo su autor, para poder
           // juzgar después si un borrado suyo con `own` es legítimo.
-          for (const id of collectCreations(cmd)) this.ownCreations.set(id, entrantKey);
+          for (const id of collectCreations(cmd)) this.ownCreations.set(id, autor);
         }
         index++;
       }
     }
+    this.podarAutores();
 
     if (offenders.length > 0) {
       // De atrás hacia delante: borrar por índice mueve lo que viene después.
@@ -1396,10 +1455,18 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
     admit(conn, code);
   });
 
-  /** Entra de verdad: crea o abre la sala y empieza el sync. */
-  function admit(conn: WsSocket, code: string): void {
+  /**
+   * Entra de verdad: crea o abre la sala y empieza el sync.
+   *
+   * `inviteId` es la invitación con la que se pasó la puerta: es una CREDENCIAL (la
+   * verifica `consumeInvite`), así que el servidor puede reconocer al mismo autor
+   * después de un corte de red, que es lo que hace falta para que su undo siga
+   * pouvant deshacer lo suyo (BUG 011). Sin ella —una sala abierta, que no tiene
+   * invitación— la autoría se ata al socket, como antes.
+   */
+  function admit(conn: WsSocket, code: string, inviteId?: string): void {
     const room = getRoom(code);
-    room.addConn(conn);
+    room.addConn(conn, inviteId);
     console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
   }
 
@@ -1437,6 +1504,7 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       void withInviteLock(code, async () => {
         const live = authStore.getInvites(code);
         const result = await consumeInvite(live, message.token, Date.now());
+        // El id de la invitación es la credencial del autor (para la autoría).
         authStore.setInvites(code, result.next);
         return result;
       })
@@ -1459,7 +1527,7 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
           }
           console.log(`[room ${code}] alguien entra con invitación`);
           conn.send(encodeControl({ type: 'authOk' }));
-          admit(conn, code);
+          admit(conn, code, result.inviteId);
         })
         .catch((err) => {
           console.error(`[room ${code}] fallo comprobando la invitación:`, err);
