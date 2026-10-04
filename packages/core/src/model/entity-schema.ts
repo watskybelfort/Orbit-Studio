@@ -50,7 +50,7 @@ type Clase =
 export type Entidad =
   | 'channel' | 'pattern' | 'arrangement' | 'playlistTrack' | 'clip' | 'marker'
   | 'section' | 'lfo' | 'inputRoute' | 'sample' | 'channelGroup' | 'note'
-  | 'mixerTrack' | 'slot' | 'send' | 'timeSig' | 'paramRef' | 'automationPoint';
+  | 'mixerTrack' | 'slot' | 'send' | 'timeSig' | 'meta' | 'paramRef' | 'automationPoint';
 
 export interface Tabla {
   /** Campos sin `?` en `types.ts`: si faltan, el motor lee `undefined`. */
@@ -165,6 +165,15 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
   },
   timeSig: {
     obligatorio: { num: 'num', den: 'num' },
+  },
+  /**
+   * La ficha del proyecto. No vive en un pool (no tiene id) pero se valida igual: con
+   * `setMeta` declarado como `patch: 'obj'` entraba cualquier cosa, y un `title` que
+   * fuera un objeto reventaba al exportarlo —`suggestedExportName.title.trim()`— sin que
+   * nada lo hubiera paradas antes (medido). Es texto, y ahora se dice que lo es.
+   */
+  meta: {
+    obligatorio: { title: 'str', author: 'str', comments: 'str' },
   },
   automationPoint: {
     obligatorio: { id: 'id', time: 'num', value: 'num', tension: 'num' },
@@ -402,9 +411,24 @@ const RAMAS_PARAM_REF: Record<string, { apunta: string[]; params?: string[] }> =
   transport: { apunta: [], params: ['tempo', 'swing'] },
 };
 
+/**
+ * ¿Está el `kind` entre las ramas? Consulta de PROPIEDAD PROPIA, no `in`.
+ *
+ * `in` hereda de `Object.prototype`, así que `{kind: 'toString'}` pasaba el filtro,
+ * `RAMAS_PARAM_REF['toString']` devolvía la función heredada y `rama.apunta` reventaba
+ * con un TypeError EN EL VALIDADOR: en el bus y en `parseProject` eso era una excepción
+ * en vez de un problema nombrado, y en el servidor la excepción se cazaba pero la
+ * entrada inválida se quedaba en el documento y se repartía (medido: log 4→7 y
+ * `denied` vacío). Es el mismo motivo por el que `model/entity-id.ts` saca su lista de
+ * reservas de `Object.getOwnPropertyNames(Object.prototype)`.
+ */
+function esRamaParamRef(kind: string): boolean {
+  return Object.hasOwn(RAMAS_PARAM_REF, kind);
+}
+
 function paramRefProblem(valor: Record<string, unknown>, ruta: string): Problema | null {
   const kind = valor.kind;
-  if (typeof kind !== 'string' || !(kind in RAMAS_PARAM_REF)) {
+  if (typeof kind !== 'string' || !esRamaParamRef(kind)) {
     return { field: `${ruta}.kind`, expected: 'una de las ramas de ParamRef' };
   }
   const rama = RAMAS_PARAM_REF[kind]!;
@@ -418,7 +442,8 @@ function paramRefProblem(valor: Record<string, unknown>, ruta: string): Problema
   }
   // Los campos de las OTRAS ramas no se admiten: `{kind:'channel', trackIndex: 3}`
   // no apunta a ningún sitio (el motor leería el canal y el índice por separado).
-  const ajenos = Object.keys(RAMAS_PARAM_REF)
+  // Solo se miran las ramas de verdad, nunca las heredadas.
+  const ajenos = Object.getOwnPropertyNames(RAMAS_PARAM_REF)
     .filter((otra) => otra !== kind)
     .flatMap((otra) => RAMAS_PARAM_REF[otra]!.apunta)
     .filter((campo) => !rama.apunta.includes(campo));

@@ -331,7 +331,15 @@ export class CommandLogBinding {
    * la retira del log y avisa con el motivo.
    */
   private entryAllowed(entry: LogEntry): boolean {
-    if (commandProblem(entry.cmd) !== null) return false;
+    // Y con la misma barrera que el servidor: un validador que revienta no es permiso
+    // para aplicar la entrada. Sin esto, una excepción aquí se tragaba el registro de
+    // esa entrada y el resto del log seguía, con el comando inválido dentro.
+    try {
+      if (commandProblem(entry.cmd) !== null) return false;
+    } catch (err) {
+      console.warn('[collab] comando que no se puede juzgar, se descarta:', err);
+      return false;
+    }
     const role = isCollabRole(entry.role) ? entry.role : DEFAULT_ROLE;
     return checkRole(role, entry.cmd, { ownCreation: entry.own === true }).allowed;
   }

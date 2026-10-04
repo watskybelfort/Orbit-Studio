@@ -159,6 +159,41 @@ describe('follow-up · la marca de borrado solo borra lo que se puede borrar', (
   });
 });
 
+describe('follow-up · la ficha del proyecto también se valida', () => {
+  it('setMeta con title de texto pasa; con cualquier otra cosa se rechaza', () => {
+    // `patch: 'obj'` dejaba pasar cualquier cosa, y un title objeto reventaba al
+    // exportar (`suggestedExportName.title.trim()`), sin que nada lo parase antes.
+    expect(commandProblem({ type: 'setMeta', patch: { title: 'Cazador' } })).toBeNull();
+    for (const malo of [
+      { title: { toString: 'x' } },
+      { title: 42 },
+      { title: null },
+      { author: ['a'] },
+      { comments: true },
+      { desconocido: 'x' },
+    ]) {
+      expect(
+        commandProblem({ type: 'setMeta', patch: malo }),
+        JSON.stringify(malo),
+      ).not.toBeNull();
+    }
+  });
+
+  it('y vaciar un campo obligatorio de la ficha tampoco vale', () => {
+    expect(commandProblem({ type: 'setMeta', patch: { title: UNSET } })).toMatch(/title/);
+    expect(commandProblem({ type: 'setMeta', patch: { title: undefined } })).toMatch(/title/);
+  });
+
+  it('deshacer un setMeta devuelve el texto anterior', () => {
+    const p = proyecto();
+    applyCommand(p, { type: 'setMeta', patch: { title: 'Cazador' } });
+    expect(p.meta.title).toBe('Cazador');
+    const inverse = applyCommand(p, { type: 'setMeta', patch: { title: 'Nuevo proyecto' } });
+    applyCommand(p, inverse);
+    expect(p.meta.title).toBe('Cazador');
+  });
+});
+
 describe('follow-up · ParamRef se valida por rama, no solo por tipo', () => {
   const patchLfo = (target: unknown) =>
     commandProblem({ type: 'patchLfo', lfoId: 'l1', patch: { target } });

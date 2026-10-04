@@ -31,7 +31,7 @@ const FORMAS: Record<Command['type'], Record<string, Forma>> = {
   setTempo: { tempo: 'num' },
   setSwing: { swing: 'num' },
   setTimeSig: { timeSig: 'ent:timeSig' },
-  setMeta: { patch: 'obj' },
+  setMeta: { patch: 'patch:meta' },
   // Canales
   addChannel: { channel: 'ent:channel', index: '?num' },
   removeChannel: { channelId: 'id' },

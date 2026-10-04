@@ -150,7 +150,22 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: bo
   // un `undefined` sin saber de dónde— o reventaban al reproducir el lote, desde
   // el SOCKET y sin red detrás. Con el motivo en la respuesta y sin tocar el
   // log (BUG 018).
-  const problema = commandProblem(cmd);
+  //
+  // Y con una barrera más: si el validador REVienta (un hueco suyo, no del
+  // comando), la entrada se rechaza igual, con el motivo. Antes la excepción se
+  // subía al manejador del mensaje, que la cazaba y ya está: la entrada quedaba
+  // APLICADA en el doc, repartida a todos y guardada en el .bin, sin `denied`
+  // para nadie (medido con `{kind:'toString'}` en un `addLfos`: log 4→7 y
+  // `denied` vacío). Un validador que no puede opinar no es permiso para entrar.
+  let problema: string | null;
+  try {
+    problema = commandProblem(cmd);
+  } catch (error) {
+    return {
+      allowed: false,
+      reason: `Comando que no se puede juzgar: ${(error as Error).message}`,
+    };
+  }
   if (problema !== null) {
     return { allowed: false, reason: `Comando inválido: ${problema}` };
   }
@@ -181,7 +196,13 @@ export function entryCommand(entry: RawLogEntry): Command | null {
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return null;
   }
-  if (commandProblem(cmd) !== null) return null;
+  try {
+    if (commandProblem(cmd) !== null) return null;
+  } catch {
+    // Misma razón que en `checkEntry`: si el validador no puede opinar, el comando
+    // no entra (y así tampoco se recorre para decidir qué borra).
+    return null;
+  }
   return cmd as Command;
 }
 
