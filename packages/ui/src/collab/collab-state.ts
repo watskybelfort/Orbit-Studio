@@ -27,6 +27,7 @@ import {
 import { hasFrozenChanges, isEngineSyncFrozen, setEngineSyncFrozen, store } from '../state/app';
 import {
   resetSampleSync,
+  isSampleSyncReportCurrent,
   sampleSetChanged,
   syncSamplesAfterProjectReplaced,
   syncSamplesWithRoom,
@@ -275,7 +276,7 @@ function runSampleSync(
   sync: (session: CollabSession) => Promise<SampleSyncReport> = syncSamplesWithRoom,
 ): void {
   void sync(s).then((report) => {
-    if (session !== s) return;
+    if (session !== s || !isSampleSyncReportCurrent(s, report)) return;
     const { missingSamples } = useCollabStore.getState();
     // Comparación por contenido: esto corre en cada comando con samples y no
     // debe re-renderizar el panel por gusto.

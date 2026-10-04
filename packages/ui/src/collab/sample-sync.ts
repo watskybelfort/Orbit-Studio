@@ -34,7 +34,7 @@
  */
 
 import type { CollabSession } from '@orbit/collab';
-import type { Id } from '@orbit/core';
+import type { Id, SampleRef } from '@orbit/core';
 import { readSampleBytes } from '../browser/sound-actions';
 import { engine, store } from '../state/app';
 import { collectWorkletSamples } from '../state/sample-gc';
@@ -49,21 +49,53 @@ export interface SampleSyncReport {
   missing: string[];
 }
 
-const EMPTY_REPORT: SampleSyncReport = { loaded: 0, published: 0, missing: [] };
+const emptyReport = (): SampleSyncReport => ({ loaded: 0, published: 0, missing: [] });
 
-/** Ids cuyo contenido ya está en NUESTRO kernel. */
-const loadedIds = new Set<Id>();
-/** Ids cuya ruta no resuelve en ESTA máquina: no se reintenta el disco. */
-const noLocalBytes = new Set<Id>();
-/** Hashes que ya hemos intentado publicar (aunque los rechazara la sala). */
-const publishAttempts = new Set<string>();
+interface SyncContext {
+  session: CollabSession;
+  epoch: number;
+  projectId: Id;
+  /** Contenido confirmado: el ID por sí solo no identifica audio. */
+  loadedIds: Map<Id, string>;
+  noLocalBytes: Set<string>;
+  publishAttempts: Set<string>;
+  running: Promise<SampleSyncReport> | null;
+  rerun: boolean;
+  lastReport: SampleSyncReport;
+}
 
-/** Firma del conjunto de samples del proyecto (para no reconciliar de más). */
+let active: SyncContext | null = null;
 let lastSignature = '';
-/** Una pasada a la vez; lo que llegue mientras corre re-encola otra. */
-let running = false;
-let rerun = false;
-let lastReport: SampleSyncReport = EMPTY_REPORT;
+
+function refKey(ref: SampleRef): string {
+  return JSON.stringify([ref.id, ref.hash, ref.path]);
+}
+
+function isCurrent(context: SyncContext): boolean {
+  return active === context && context.epoch === store.historyEpoch && context.projectId === store.project.id;
+}
+
+function contextFor(session: CollabSession): SyncContext {
+  if (active?.session === session && isCurrent(active)) return active;
+  const previous = active?.session === session ? active : null;
+  const context: SyncContext = {
+    session, epoch: store.historyEpoch, projectId: store.project.id,
+    // Compartir contenido CONFIRMADO evita releer al re-derivar una sala.
+    // Copiar las colecciones impide que un await viejo escriba sobre las nuevas.
+    loadedIds: new Map(previous?.loadedIds),
+    noLocalBytes: new Set(previous?.noLocalBytes),
+    publishAttempts: new Set(previous?.publishAttempts),
+    running: null, rerun: false, lastReport: emptyReport(),
+  };
+  active = context;
+  return context;
+}
+
+/** Un reset de la misma sala/epoch también retira sus informes anteriores. */
+export function isSampleSyncReportCurrent(session: CollabSession, report: SampleSyncReport): boolean {
+  return active !== null && active.session === session && isCurrent(active) &&
+    active.running === null && active.lastReport === report;
+}
 
 /** Yjs nos da una vista; el motor quiere un ArrayBuffer suyo que pueda mover. */
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -78,32 +110,27 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
  * el proyecto entero.
  */
 export function sampleSetChanged(): boolean {
-  const ids = Object.keys(store.project.samples);
-  const signature = `${ids.length}:${ids.join(',')}`;
+  const refs = Object.values(store.project.samples);
+  const signature = JSON.stringify([store.historyEpoch, store.project.id, refs.map(refKey)]);
   if (signature === lastSignature) return false;
   lastSignature = signature;
+  // El GC en sesión puede soltar un ID desregistrado. Si vuelve por undo,
+  // no puede seguir figurando aquí como cargado solo porque conserva el ID.
+  if (active) for (const [id, key] of active.loadedIds) {
+    const ref = store.project.samples[id];
+    if (!ref || refKey(ref) !== key) active.loadedIds.delete(id);
+  }
   return true;
 }
 
 /**
- * Generación de la sala. Sube en cada reset y la pasada en vuelo la mira en
- * cada vuelta: sin esto, salir de una sala a mitad de sincronización (cada
- * sample es un `await` por IPC; con veinte sonidos son cientos de ms) dejaba
- * que la pasada VIEJA siguiera corriendo después del reset y volviera a llenar
- * `loadedIds` con lo de la sala muerta. En la sala siguiente esos samples se
- * saltaban enteros —no se publicaban nunca— y, como en local sí estaban
- * cargados, tampoco salían como ausentes: al otro le sonaban mudos y sin pista.
+ * Retirar el contexto invalida lecturas, decodes e informes incluso si se
+ * reutilizan el mismo objeto de sala y el mismo proyecto. La pasada nueva no
+ * espera a la vieja, ni su finally puede liberar el running de otra sala.
  */
-let generation = 0;
-
-/** Olvida lo aprendido (al salir de la sala o cambiar de proyecto). */
 export function resetSampleSync(): void {
-  generation++;
-  loadedIds.clear();
-  noLocalBytes.clear();
-  publishAttempts.clear();
+  active = null;
   lastSignature = '';
-  lastReport = EMPTY_REPORT;
 }
 
 /**
@@ -111,22 +138,30 @@ export function resetSampleSync(): void {
  * serializada: llamarla de más no cuesta más que una firma y un `Set.has`.
  */
 export async function syncSamplesWithRoom(session: CollabSession): Promise<SampleSyncReport> {
-  if (running) {
-    // Ya hay una pasada dentro; que la termine y repita con lo nuevo.
-    rerun = true;
-    return lastReport;
+  const context = contextFor(session);
+  if (context.running) {
+    context.rerun = true;
+    return context.running;
   }
-  running = true;
-  const gen = generation;
+  context.running = run(context);
+  return context.running;
+}
+
+async function run(context: SyncContext): Promise<SampleSyncReport> {
+  let loaded = 0, published = 0;
   try {
     do {
-      rerun = false;
-      lastReport = await pass(session, gen);
-    } while (rerun && gen === generation);
+      context.rerun = false;
+      const report = await pass(context);
+      if (!isCurrent(context)) return emptyReport();
+      loaded += report.loaded;
+      published += report.published;
+      context.lastReport = { loaded, published, missing: report.missing };
+    } while (context.rerun);
+    return context.lastReport;
   } finally {
-    running = false;
+    context.running = null;
   }
-  return lastReport;
 }
 
 /**
@@ -204,44 +239,55 @@ export async function syncSamplesWithRoom(session: CollabSession): Promise<Sampl
 export async function syncSamplesAfterProjectReplaced(
   session: CollabSession,
 ): Promise<SampleSyncReport> {
-  const gen = generation;
+  const context = contextFor(session);
   const report = await syncSamplesWithRoom(session);
-  // Salimos de la sala mientras la pasada corría (`resetSampleSync` subió la
-  // generación): barrer ahora sería calcular el `keep` contra un proyecto que
-  // ya no tiene nada que ver con la sesión que pidió esto.
-  if (gen !== generation) return report;
+  if (!isCurrent(context)) return report;
 
   const collected = collectWorkletSamples(engine, store.project);
   if (collected.sent) {
     const keep = new Set<Id>(collected.keep);
-    for (const id of loadedIds) if (!keep.has(id)) loadedIds.delete(id);
+    for (const id of context.loadedIds.keys()) if (!keep.has(id)) context.loadedIds.delete(id);
   }
   return report;
 }
 
-async function pass(session: CollabSession, gen: number): Promise<SampleSyncReport> {
-  const missing: string[] = [];
+async function pass(context: SyncContext): Promise<SampleSyncReport> {
+  const { session, loadedIds, noLocalBytes, publishAttempts } = context;
+  const missing: SampleRef[] = [];
   let loaded = 0;
   let published = 0;
 
   for (const ref of Object.values(store.project.samples)) {
     // La sala ya no es esta: se corta en seco en vez de seguir apuntando cosas
     // de la anterior sobre el estado recién reseteado.
-    if (gen !== generation) return { loaded, published, missing };
-    if (loadedIds.has(ref.id)) continue;
+    if (!isCurrent(context)) return emptyReport();
+    const key = refKey(ref);
+    const refIsCurrent = () => {
+      if (!isCurrent(context)) return false;
+      const current = store.project.samples[ref.id];
+      return !!current && refKey(current) === key;
+    };
+    const canContinue = () => {
+      if (refIsCurrent()) return true;
+      if (isCurrent(context)) context.rerun = true;
+      return false;
+    };
+    if (!canContinue()) continue;
+    if (loadedIds.get(ref.id) === key) continue;
 
     // 1) Bytes de esta máquina: pack de fábrica, carpeta del usuario o
     //    grabación propia. Es el camino rápido y el único para lo de fábrica.
     let bytes: ArrayBuffer | null = null;
     let fromDisk = false;
-    if (!noLocalBytes.has(ref.id)) {
+    if (!noLocalBytes.has(key)) {
       try {
         bytes = await readSampleBytes(ref.path);
       } catch {
         bytes = null; // el archivo no está en esta máquina: seguimos por la sala
       }
+      if (!canContinue()) continue;
       if (bytes) fromDisk = true;
-      else noLocalBytes.add(ref.id);
+      else noLocalBytes.add(key);
     }
 
     // 2) Si aquí no hay nada, lo que publicó el otro en la sala (por hash: su
@@ -252,18 +298,19 @@ async function pass(session: CollabSession, gen: number): Promise<SampleSyncRepo
     }
 
     if (!bytes) {
-      missing.push(ref.name);
+      missing.push(ref);
       continue;
     }
 
     try {
-      await engine.loadSample(ref.id, bytes);
-      loadedIds.add(ref.id);
+      await engine.loadSample(ref.id, bytes, refIsCurrent);
+      if (!canContinue()) continue;
+      loadedIds.set(ref.id, key);
       loaded++;
     } catch {
       // Formato que este navegador no decodifica: ese sonido no sonará, pero
       // el resto del proyecto sí. Cuenta como ausente para que la UI lo diga.
-      missing.push(ref.name);
+      if (canContinue()) missing.push(ref);
       continue;
     }
 
@@ -281,5 +328,8 @@ async function pass(session: CollabSession, gen: number): Promise<SampleSyncRepo
     }
   }
 
-  return { loaded, published, missing };
+  return { loaded, published, missing: missing.filter((ref) => {
+    const current = store.project.samples[ref.id];
+    return current && refKey(current) === refKey(ref);
+  }).map((ref) => store.project.samples[ref.id]!.name) };
 }
