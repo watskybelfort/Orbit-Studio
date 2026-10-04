@@ -6,6 +6,7 @@ import { normalizeKeymap } from './model/keymap';
 import { BEND_MAX } from './model/paramref';
 import { normalizeSlicePoints } from './model/slices';
 import { normalizeProjectInputRoutes } from './model/input-routing';
+import { adoptProjectPools } from './model/entity-id';
 
 
 export const ORBIT_EXTENSION = '.orbit';
@@ -71,6 +72,14 @@ export function parseProject(json: string): Project {
       throw new Error(`.orbit inválido: "${key}" falta o no es ${SKELETON_KIND_LABEL[kind]}`);
     }
   }
+  // Los pools pasan a ser SIN PROTOTIPO antes de la primera lectura. `JSON.parse`
+  // los deja con `Object.prototype`, así que un archivo (o un log de colaboración)
+  // que traiga la clave `__proto__` haría que `arrangements[activeArrangementId]`
+  // devolviera el PROTOTIPO en vez de `undefined` —y que todo lo de abajo
+  // (fallback de arrangement, keymap, filtros) leyera un valor heredado—. Al
+  // copiar a pools nuevos además se descartan los ids reservados: son claves que
+  // ningún direccionamiento legítimo puede alcanzar. Ver `model/entity-id.ts`.
+  adoptProjectPools(p as Record<string, unknown>);
   // El arrangement activo es el filtro con el que el compilador elige qué pistas
   // suenan en modo canción: apuntando a uno que no existe, la canción queda
   // muda sin que nada avise. Se recoloca al primero del orden que exista de

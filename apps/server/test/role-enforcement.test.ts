@@ -25,7 +25,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import { createEmptyProject, serializeProject } from '@orbit/core';
+import { createEmptyProject, serializeProject, type Command } from '@orbit/core';
 import { startServer, type ServerHandle } from '../src/index';
 
 const ROOM = 'K3P9QF';
@@ -153,6 +153,29 @@ const BORRAR_CANAL = { type: 'removeChannel', channelId: 'ch1' };
 const MOVER_NOTA = { type: 'setTempo', tempo: 128 };
 
 describe('el guardia de roles no se deja engañar', () => {
+  it('ids heredados y batches profundos se retiran del log también por socket', async () => {
+    const server = await serve();
+    const productor = new RawPeer(server.port, 'A');
+    await productor.open();
+    const invitado = new RawPeer(server.port, 'B');
+    await invitado.open();
+    let seq = 0;
+    for (const peer of [productor, invitado]) {
+      for (const id of ['__proto__', 'constructor', 'toString']) {
+        let cmd: Command = { type: 'patchClips', patches: [{ id, start: 9 }] };
+        for (let i = 0; i < 4; i++) cmd = { type: 'batch', commands: [cmd] };
+        peer.push({ cmd, client: peer.doc.clientID, seq: ++seq });
+      }
+    }
+    await sleep(400);
+    expect(productor.types()).toEqual([]);
+    expect(invitado.types()).toEqual([]);
+    expect(Object.hasOwn(Object.prototype, 'start')).toBe(false);
+    const late = new RawPeer(server.port, 'C');
+    await late.open();
+    expect(late.types()).toEqual([]);
+  });
+
   it('el productor sí puede borrar un canal', async () => {
     const server = await serve();
     const productor = new RawPeer(server.port, 'A');

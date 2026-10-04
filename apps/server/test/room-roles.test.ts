@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import type { Command } from '@orbit/core';
 import {
   RoomRoles,
   checkEntry,
@@ -106,6 +107,39 @@ describe('validación de entradas del log', () => {
     const entry = { cmd: borrarCanal, client: 5, seq: 1, role: 'productor' };
     expect(checkEntry(entry, 'oyente', false).allowed).toBe(false);
     expect(checkEntry(entry, 'productor', false).allowed).toBe(true);
+  });
+
+  it('un batch anidado con id heredado se deniega antes de entrar en el log', () => {
+    let cmd: Command = { type: 'patchClips', patches: [{ id: '__proto__', start: 9 }] };
+    for (let i = 0; i < 8; i++) cmd = { type: 'batch', commands: [cmd] };
+    for (const role of ['productor', 'invitado', 'oyente'] as const) {
+      const verdict = checkEntry({ cmd, client: 5, seq: 1 }, role, true);
+      expect(verdict.allowed).toBe(false);
+      expect(verdict.reason).toMatch(/__proto__/);
+    }
+  });
+
+  it('una entrada con id heredado no entra al log, ni del productor', () => {
+    // BUG 016: `project.clips['__proto__']` devuelve el prototipo, no `undefined`,
+    // así que un patch con ese id escribía sobre `Object.prototype` al aplicar.
+    const id = '__proto__';
+    const entradas = [
+      { type: 'patchClips', patches: [{ id, start: 9 }] },
+      { type: 'addChannel', channel: { id } },
+      { type: 'removeClips', clipIds: [id] },
+      { type: 'patchChannel', channelId: id, patch: { volume: 0.5 } },
+    ] as const;
+    // El bus ya rechaza esto al aplicar, pero la entrada se reparte y se
+    // REGISTRA: si el servidor la aceptara, el log guardaría el comando que
+    // todos van a rechazar y los peers divergirían según quién lo aplicó antes.
+    for (const cmd of entradas) {
+      for (const role of ['productor', 'invitado', 'oyente'] as const) {
+        const v = checkEntry({ cmd, client: 5, seq: 1, role }, role, true);
+        expect(v.allowed).toBe(false);
+        expect(v.reason).toContain(id);
+      }
+    }
+    expect(({} as Record<string, unknown>).start).toBeUndefined();
   });
 
   it('un invitado no borra canales ajenos pero sí los suyos (ownCreation del servidor)', () => {

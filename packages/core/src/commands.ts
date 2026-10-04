@@ -30,6 +30,7 @@ import { CHANNEL_SLOTS, MIXER_SLOTS } from './model/types';
 import type { InputRoute } from './model/input-routing';
 import { MAX_INPUT_ROUTES } from './model/input-routing';
 import { wouldLoop } from './model/routing';
+import { assertNoReservedIds } from './model/entity-id';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -306,6 +307,11 @@ function channelFx(channel: Channel): (EffectSlot | null)[] {
 // ── applyCommand ─────────────────────────────────────────────────────────────
 
 export function applyCommand(project: Project, cmd: Command): Command {
+  // Antes de mutar NADA: un id reservado (una clave heredada) en cualquier
+  // campo de id se rechaza con su nombre, así que el proyecto y el historial
+  // quedan intactos y el prototipo global no se toca (ver `model/entity-id.ts`:
+  // el pool sin prototipo es la segunda barrera, esta es la que lo dice).
+  assertNoReservedIds(cmd, cmd.type);
   switch (cmd.type) {
     // Transport / proyecto
     case 'setTempo': {
