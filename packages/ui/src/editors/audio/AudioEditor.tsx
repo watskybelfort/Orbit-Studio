@@ -15,15 +15,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { newId, type Clip, type SampleRef } from '@orbit/core';
-import { correctPitch, detectTransients, encodeWav, scalePitchClasses } from '@orbit/engine';
-import { readSampleBytes, sha1Hex } from '../../browser/sound-actions';
+import { correctPitch, detectTransients, scalePitchClasses } from '@orbit/engine';
+import { readSampleBytes } from '../../browser/sound-actions';
 import { engine, ensureAudioReady, store } from '../../state/app';
 import {
   AUDIO_EDITOR_PCM_ENTRIES,
   createUiAudioCache,
-  noteRecordingWritten,
   sampleCacheKey,
-  withPinnedSample,
 } from '../../state/sample-gc';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -31,6 +29,7 @@ import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { Knob } from '../../widgets/Knob';
 import { naturalRatePieces } from '../clip-slice';
+import { createAudioEditActions } from './audio-edit-actions';
 import './audio-editor.css';
 
 interface Channels {
@@ -119,29 +118,6 @@ function applyOp(op: AudioOp, ch: Channels): { left: Float32Array; right: Float3
   return { left, right };
 }
 
-/**
- * Nombre del `.wav` de una edición destructiva: por CONTENIDO, nunca por reloj.
- *
- * Era `Edit HH.MM.SS.wav`, y ahí dentro había un borrado silencioso:
- * `recording:save` escribe con `writeFile`, o sea que PISA lo que hubiera con
- * ese nombre. Dos ediciones del mismo segundo compartían archivo — y, peor, la
- * de hoy a las 14:03:22 pisaba la de AYER a las 14:03:22, porque el nombre no
- * llevaba fecha: el proyecto viejo seguía apuntando a
- * `recording:Edit 14.03.22.wav` y ese archivo ya tenía otro audio dentro. Es el
- * mismo agujero que `state/recorder.ts` tapa a medias metiéndole a las tomas el
- * nombre de la entrada.
- *
- * Con el sha1 del wav en el nombre, «el mismo nombre» significa «el mismo
- * contenido», así que pisar es escribir lo mismo encima. Y de regalo, el ciclo
- * de probar —Normalizar, Ctrl+Z, Normalizar— deja UN archivo en vez de uno por
- * intento: es la parte de la fuga de disco que se cierra sin dar de baja nada
- * (la otra parte, la política de reclamación, en `state/sample-gc.ts`). Mismo
- * criterio que ya usa `browser/dropped-audio.ts` con `storedNameFor`.
- */
-function editFileName(kind: string, hash: string): string {
-  return `${kind} ${hash}.wav`;
-}
-
 /** Nombres de nota para el selector de tónica. */
 const NOTE_NAMES = ['Do', 'Do#', 'Re', 'Re#', 'Mi', 'Fa', 'Fa#', 'Sol', 'Sol#', 'La', 'La#', 'Si'];
 
@@ -158,6 +134,12 @@ export function AudioEditor() {
   const drag = useRef<'start' | 'end' | null>(null);
   const [channels, setChannels] = useState<Channels | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadedSample, setLoadedSample] = useState<SampleRef | null>(null);
+  const [editActions] = useState(() => createAudioEditActions(setBusy));
+
+  // Cerrar o cambiar el clip invalida la operación anterior inmediatamente
+  // en su controlador; el listener de reemplazo también cubre mismos IDs.
+  useEffect(() => () => editActions.cancel(), [editActions, audioClipId, sample]);
   /** Transientes detectados (segundos desde el inicio del sample). */
   const [slices, setSlices] = useState<number[] | null>(null);
   /** Panel de afinación (corrección de tono de la toma). */
@@ -171,10 +153,11 @@ export function AudioEditor() {
   useEffect(() => {
     let alive = true;
     setChannels(null);
+    setLoadedSample(null);
     setSlices(null);
     if (!sample) return;
     void loadChannels(sample).then((ch) => {
-      if (alive) setChannels(ch);
+      if (alive) { setChannels(ch); setLoadedSample(sample); }
     });
     return () => {
       alive = false;
@@ -372,62 +355,15 @@ export function AudioEditor() {
 
   const runOp = useCallback(
     async (op: AudioOp) => {
-      if (!channels || !clip || !sample || !window.orbit || busy) return;
-      setBusy(true);
-      try {
-        const { left, right } = applyOp(op, channels);
-        const wav = encodeWav(left, right, channels.rate, 24);
-        const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
-        const newSampleId = newId();
-        // El hash va ANTES del save porque el nombre del archivo sale de él
-        // (ver `editFileName`). Aquí todavía no hay nada subido al motor, así
-        // que este `await` no abre la ventana que tapa el pin de abajo.
-        const hash = (await sha1Hex(wavBuf)) ?? newSampleId;
-        const file = await window.orbit.recording.save(
-          editFileName(OP_LABELS[op], hash),
-          wav,
-        );
-        const path = `recording:${file}`;
-        // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
-        // dispatch: si la operación revienta en medio, ese .wav se queda en
-        // disco sin que nada lo nombre nunca, y es justo el que hay que poder
-        // reclamar. Anotar no borra nada — la política de disco, con sus tres
-        // condiciones y su porqué, en `state/sample-gc.ts`.
-        noteRecordingWritten({ sampleId: newSampleId, path, bytes: wav.byteLength });
-        // Sujeto hasta DESPUÉS del dispatch, y con `finally` (ver
-        // `withPinnedSample`): entre subir el audio y registrarlo, ese id no lo
-        // nombra nada del modelo, así que un `collectSessionSamples` de otro
-        // origen se lo lleva y deja el clip MUDO hasta reabrir el proyecto. La
-        // ventana no es "el mismo tick": `loadSample` espera a
-        // `decodeAudioData`, y ahí el Ctrl+Z de `useShortcuts` —que recolecta—
-        // entra perfectamente.
-        await withPinnedSample(newSampleId, async () => {
-          await engine.loadSample(newSampleId, wavBuf);
-          const ref: SampleRef = {
-            id: newSampleId,
-            name: `${sample.name} · ${OP_LABELS[op].toLowerCase()}`,
-            path,
-            hash,
-            duration: channels.duration,
-          };
-          const label = `${OP_LABELS[op]} "${sample.name}"`;
-          store.dispatch(
-            {
-              type: 'batch',
-              label,
-              commands: [
-                { type: 'registerSample', sample: ref },
-                { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
-              ],
-            },
-            { label },
-          );
-        });
-      } finally {
-        setBusy(false);
-      }
+      if (!channels || !clip || !sample || loadedSample !== sample) return;
+      await editActions.run({
+        clip, sample, channels, fileKind: OP_LABELS[op],
+        sampleName: `${sample.name} · ${OP_LABELS[op].toLowerCase()}`,
+        label: `${OP_LABELS[op]} "${sample.name}"`,
+        process: () => applyOp(op, channels),
+      });
     },
-    [channels, clip, sample, busy],
+    [channels, clip, sample, loadedSample, editActions],
   );
 
   /** Busca los golpes del sample y los deja marcados sobre la onda. */
@@ -488,52 +424,20 @@ export function AudioEditor() {
    * sample NUEVO y deja el original intacto, con su paso de undo.
    */
   const runTune = useCallback(async () => {
-    if (!channels || !clip || !sample || !window.orbit || busy) return;
-    setBusy(true);
-    try {
-      const scale =
-        tuneMode === 'chromatic' ? undefined : scalePitchClasses(tuneRoot, tuneMode);
-      const out = correctPitch(channels.left, channels.right, channels.rate, {
-        strength: tuneStrength,
-        transpose: tuneTranspose,
-        ...(scale ? { scale } : null),
-      });
-      const wav = encodeWav(out.left, out.right, channels.rate, 24);
-      const wavBuf = wav.buffer.slice(wav.byteOffset, wav.byteOffset + wav.byteLength) as ArrayBuffer;
-      const newSampleId = newId();
-      // Mismo orden que en `runOp`: hash → nombre por contenido → alta anotada.
-      const hash = (await sha1Hex(wavBuf)) ?? newSampleId;
-      const file = await window.orbit.recording.save(editFileName('Afinado', hash), wav);
-      const path = `recording:${file}`;
-      noteRecordingWritten({ sampleId: newSampleId, path, bytes: wav.byteLength });
-      // Misma ventana que en `runOp`, misma sujeción: ver el comentario de allá.
-      await withPinnedSample(newSampleId, async () => {
-        await engine.loadSample(newSampleId, wavBuf);
-        const ref: SampleRef = {
-          id: newSampleId,
-          name: `${sample.name} · afinado`,
-          path,
-          hash,
-          duration: channels.duration,
-        };
-        const label = `Afinar "${sample.name}"`;
-        store.dispatch(
-          {
-            type: 'batch',
-            label,
-            commands: [
-              { type: 'registerSample', sample: ref },
-              { type: 'patchClips', patches: [{ id: clip.id, sampleId: newSampleId }] },
-            ],
-          },
-          { label },
-        );
-      });
-      setTuneOpen(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [channels, clip, sample, busy, tuneStrength, tuneMode, tuneRoot, tuneTranspose]);
+    if (!channels || !clip || !sample || loadedSample !== sample) return;
+    await editActions.run({
+      clip, sample, channels, fileKind: 'Afinado',
+      sampleName: `${sample.name} · afinado`, label: `Afinar "${sample.name}"`,
+      process: () => {
+        const scale = tuneMode === 'chromatic' ? undefined : scalePitchClasses(tuneRoot, tuneMode);
+        return correctPitch(channels.left, channels.right, channels.rate, {
+          strength: tuneStrength, transpose: tuneTranspose,
+          ...(scale ? { scale } : null),
+        });
+      },
+      onApplied: () => setTuneOpen(false),
+    });
+  }, [channels, clip, sample, loadedSample, editActions, tuneStrength, tuneMode, tuneRoot, tuneTranspose]);
 
   const listen = useCallback(() => {
     if (!clip?.sampleId) return;

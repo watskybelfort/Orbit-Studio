@@ -34,6 +34,7 @@ import { refreshRecents, saveProject, useProjectFile } from './state/project-fil
 import { dismissBounceRecovery, useBounceStore } from './state/bounce';
 import { dismissCaptureRecovery, useTrackCapture } from './state/track-capture';
 import { dismissRecorderRecovery, useRecorderStore } from './state/recorder';
+import { dismissAudioEditRecovery, useAudioEditStore } from './editors/audio/audio-edit-actions';
 import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
 import { dismissUpdate, initUpdateCheck, useUpdateCheck } from './state/update-check';
@@ -60,6 +61,7 @@ export function App() {
   const autosaveNotice = recovery ? null : recoveryError;
   const captureRecovery = useTrackCapture((s) => s.recoveryNotice);
   const recorderRecovery = useRecorderStore((s) => s.recoveryNotice);
+  const audioEditRecovery = useAudioEditStore((s) => s.recoveryNotice);
   const fileNotice = bounceBusy ?? bounceNotice ?? autosaveNotice ?? notice;
   const updateAvailable = useUpdateCheck((s) => s.available);
   const updateRelease = useUpdateCheck((s) => s.release);
@@ -205,9 +207,9 @@ export function App() {
         </div>
       )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
-      {(fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery) && (
+      {(fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery) && (
         <div className="app-notice popup" role="status" style={{ maxWidth: 'min(680px, calc(100vw / var(--ui-scale, 1) - 32px))', width: 'max-content', overflowWrap: 'anywhere' }}>
-          {fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery}
+          {fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery}
           {!fileNotice && captureRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissCaptureRecovery} aria-label="Cerrar aviso de captura">
               Entendido
@@ -220,6 +222,11 @@ export function App() {
           )}
           {!fileNotice && !captureRecovery && !recorderRecovery && bounceRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissBounceRecovery} aria-label="Cerrar aviso de consolidación">
+              Entendido
+            </button>
+          )}
+          {!fileNotice && !captureRecovery && !recorderRecovery && !bounceRecovery && audioEditRecovery && (
+            <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissAudioEditRecovery} aria-label="Cerrar aviso de edición de audio">
               Entendido
             </button>
           )}

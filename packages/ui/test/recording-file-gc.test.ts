@@ -381,29 +381,34 @@ describe('sweepRecordingFiles', () => {
 // ── 6. Que el editor de verdad pase por ahí ─────────────────────────────────
 
 describe('AudioEditor.tsx anota lo que escribe, y nombra por contenido', () => {
-  const file = readSource('editors/audio/AudioEditor.tsx');
+  const file = readSource('editors/audio/audio-edit-actions.ts');
 
   it('las dos operaciones destructivas anotan el archivo que acaban de escribir', () => {
-    expect(file.split('noteRecordingWritten(').length - 1).toBe(2);
-    expect(file.split('recording.save(').length - 1).toBe(2);
+    expect(file.split('noteRecordingWritten(').length - 1).toBe(1);
+    expect(file.split('recording.save(').length - 1).toBe(1);
+    const component = readSource('editors/audio/AudioEditor.tsx');
+    expect(component.split('await editActions.run(').length - 1).toBe(2);
+    expect(component).not.toContain('recording.save(');
   });
 
-  it('la anotación va pegada al save y ANTES del dispatch que lo registra', () => {
+  it('solo anota tras dispatch: un WAV no insertado no entra al ledger de otra sesión', () => {
     for (const trozo of file.split('recording.save(').slice(1)) {
       const anota = trozo.indexOf('noteRecordingWritten(');
       const registra = trozo.indexOf("type: 'registerSample'");
       expect(anota).toBeGreaterThanOrEqual(0);
-      expect(registra).toBeGreaterThan(anota);
+      expect(registra).toBeGreaterThanOrEqual(0);
+      expect(anota).toBeGreaterThan(trozo.indexOf('store.dispatch('));
+      expect(anota).toBeGreaterThan(registra);
     }
   });
 
   it('anota los bytes de verdad del wav, no una estimación', () => {
-    expect(file.split('bytes: wav.byteLength').length - 1).toBe(2);
+    expect(file.split('bytes: wav.byteLength').length - 1).toBe(1);
   });
 
   it('el nombre del archivo sale del hash del contenido, no del reloj', () => {
     expect(file).toContain('function editFileName(');
-    expect(file.split('editFileName(').length - 1).toBe(3); // la definición + los dos usos
+    expect(file.split('editFileName(').length - 1).toBe(2); // definición + transacción compartida
     // El nombre por reloj era un borrado silencioso: `recording:save` pisa por
     // nombre, y `Edit 14.03.22.wav` de hoy pisaba el de ayer.
     expect(file).not.toContain('stamp.getHours()');

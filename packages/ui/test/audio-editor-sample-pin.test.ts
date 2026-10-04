@@ -195,8 +195,8 @@ describe('un collectSessionSamples en la ventana de una operación destructiva',
 
 // ── Que el componente de verdad pase por ahí ────────────────────────────────
 
-describe('AudioEditor.tsx sujeta de verdad, y hasta después del dispatch', () => {
-  const file = readSource('editors/audio/AudioEditor.tsx');
+describe('la transacción de AudioEditor sujeta de verdad, y hasta después del dispatch', () => {
+  const file = readSource('editors/audio/audio-edit-actions.ts');
 
   /**
    * Los bloques `withPinnedSample(...)` del archivo, cortados por la sangría de
@@ -219,9 +219,12 @@ describe('AudioEditor.tsx sujeta de verdad, y hasta después del dispatch', () =
     return out;
   }
 
-  it('los dos loadSample del editor están dentro de un bloque sujeto', () => {
+  it('el loadSample compartido por las dos operaciones está dentro de un bloque sujeto', () => {
     const bloques = bloquesSujetos(file);
-    expect(bloques).toHaveLength(2); // runOp y runTune
+    expect(bloques).toHaveLength(1);
+    const component = readSource('editors/audio/AudioEditor.tsx');
+    expect(component.split('await editActions.run(').length - 1).toBe(2);
+    expect(component).not.toContain('engine.loadSample(');
     // Si mañana alguien añade una tercera operación destructiva sin sujetarla,
     // esta cuenta deja de cuadrar antes de que se note como un clip mudo.
     expect(file.split('engine.loadSample(').length - 1).toBe(bloques.length);
