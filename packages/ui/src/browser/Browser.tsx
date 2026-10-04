@@ -43,7 +43,7 @@ import {
   type StoredTemplate,
 } from '../state/project-templates';
 import { Knob } from '../widgets/Knob';
-import { addSamplerChannel, loadIntoEngine, setDragEntries } from './sound-actions';
+import { addSamplerChannel, loadIntoEngine, runSoundLoadAction, setDragEntries } from './sound-actions';
 import { createPreviewSequence, type PreviewSequence } from './preview-sequence';
 import {
   dragSetFor,
@@ -590,13 +590,12 @@ export function Browser() {
 
   // Doble clic: canal sampler nuevo (lógica compartida con el drop del rack).
   const addToProject = async (entry: SoundEntry) => {
-    ensureAudioReady();
     setStatus(null);
-    try {
+    await runSoundLoadAction(async (check) => {
+      await ensureAudioReady();
+      check();
       await addSamplerChannel(entry);
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : `No se pudo añadir "${entry.name}"`);
-    }
+    }, setStatus);
   };
 
   /** Fila de un sonido: preview, arrastre, favorito y menú de colecciones. */

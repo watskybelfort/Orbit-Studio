@@ -98,7 +98,7 @@ describe('el triaje del arrastre del Explorador es síncrono, en el código real
     // Aquí el manejador SÍ es `async` (usa `await importTriaged(...)` más
     // abajo, tras avisar "Importando…"): la regla no es "nunca haya un
     // await en la función", es que no haya ninguno ANTES de triageDrop.
-    const body = functionBodyAfter(file, 'const drop = async (e: React.DragEvent) => {');
+    const body = functionBodyAfter(file, 'const drop = async (e: React.DragEvent, check: () => void) => {');
     expect(body).toContain('hasSystemFiles(e.dataTransfer)');
     triageIsSyncBeforeAwait(body);
   });

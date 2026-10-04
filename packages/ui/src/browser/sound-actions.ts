@@ -99,6 +99,41 @@ export function getDragEntries(dt: DataTransfer): SoundEntry[] {
  */
 const LOAD_LIMIT = 4;
 
+/** Cancelación explícita: el bridge no debe anunciar inserciones que no ocurrieron. */
+export class SoundLoadCancelledError extends Error {
+  constructor() {
+    super('La carga de sonidos se canceló porque cambiaste de proyecto.');
+    this.name = 'SoundLoadCancelledError';
+  }
+}
+
+interface SoundLoadSession {
+  isCurrent: () => boolean;
+  check: () => void;
+}
+
+function soundLoadSession(): SoundLoadSession {
+  const epoch = store.historyEpoch;
+  const projectId = store.project.id;
+  const isCurrent = () => store.historyEpoch === epoch && store.project.id === projectId;
+  return { isCurrent, check: () => { if (!isCurrent()) throw new SoundLoadCancelledError(); } };
+}
+
+/** Los handlers UI recogen cancelación y solo publican errores de su sesión. */
+export async function runSoundLoadAction(
+  action: (check: () => void) => Promise<void>,
+  onError: (message: string) => void,
+): Promise<void> {
+  const session = soundLoadSession();
+  try {
+    await action(session.check);
+  } catch (error) {
+    if (session.isCurrent() && !(error instanceof SoundLoadCancelledError)) {
+      onError(error instanceof Error ? error.message : 'No se pudieron cargar los sonidos.');
+    }
+  }
+}
+
 /** Recorre en paralelo pero de `limit` en `limit`, conservando el orden. */
 export async function mapLimited<T, R>(
   items: readonly T[],
@@ -203,12 +238,16 @@ async function realDuration(
   declared: number,
   sampleId: string,
   bytes: ArrayBuffer,
+  session: SoundLoadSession,
 ): Promise<number> {
+  session.check();
   if (declared > 0) return declared;
   try {
     const { duration } = await engine.loadSample(sampleId, bytes);
+    session.check();
     return duration;
   } catch {
+    session.check();
     return declared;
   }
 }
@@ -270,12 +309,15 @@ function loadJobs(entries: readonly SoundEntry[]): LoadJob[] {
 }
 
 /** Sube al kernel un grupo de sonidos con todas sus grabaciones, de cuatro en cuatro y en orden. */
-async function loadAll(entries: readonly SoundEntry[], jobs: LoadJob[]): Promise<LoadedSound[]> {
+async function loadAll(entries: readonly SoundEntry[], jobs: LoadJob[], session: SoundLoadSession): Promise<LoadedSound[]> {
   const out: LoadedSound[] = entries.map((entry) => ({ entry, parts: [] }));
   const done = await mapLimited(jobs, LOAD_LIMIT, async ({ at, sample, id }) => {
+    session.check();
     const entry = entries[at]!;
     const bytes = await readEntryFile(entry, sample.file);
+    session.check();
     await engine.loadSample(id, bytes);
+    session.check();
     return { at, part: { sample, id, bytes } };
   });
   // `mapLimited` conserva el orden, así que las grabaciones de cada
@@ -312,8 +354,9 @@ async function loadAll(entries: readonly SoundEntry[], jobs: LoadJob[]): Promise
  */
 async function withLoadedSounds<T>(
   entries: readonly SoundEntry[],
-  run: (loaded: LoadedSound[]) => Promise<T>,
+  run: (loaded: LoadedSound[], session: SoundLoadSession) => Promise<T>,
 ): Promise<T> {
+  const session = soundLoadSession();
   const jobs = loadJobs(entries);
   // Los ids salen de `loadJobs` antes de leer nada, y el envoltorio los suelta
   // todos en su `finally`: una lectura que revienta a mitad no deja sujeto lo
@@ -321,7 +364,11 @@ async function withLoadedSounds<T>(
   try {
     return await withPinnedSamples(
       jobs.map((job) => job.id),
-      async () => run(await loadAll(entries, jobs)),
+      async () => {
+        const loaded = await loadAll(entries, jobs, session);
+        session.check();
+        return run(loaded, session);
+      },
     );
   } catch (error) {
     // mapLimited ya terminó TODOS los workers y el finally soltó nuestros pins.
@@ -332,6 +379,7 @@ async function withLoadedSounds<T>(
     } catch {
       // Un fallo del recolector no debe sustituir el error original de carga.
     }
+    session.check();
     throw error;
   }
 }
@@ -343,32 +391,44 @@ async function withLoadedSounds<T>(
  * —los comandos no se han despachado—, así que dos entradas del mismo sonido
  * pasarían las dos la comprobación y el batch llevaría el sample dos veces.
  */
-async function registerCommands(loaded: readonly LoadedSound[]): Promise<Command[]> {
+async function registerCommands(loaded: readonly LoadedSound[], session: SoundLoadSession): Promise<Command[]> {
   const seen = new Set<string>();
   const out: Command[] = [];
   for (const sound of loaded) {
     for (const part of sound.parts) {
       if (seen.has(part.id)) continue;
       seen.add(part.id);
-      out.push(...(await registerPart(sound.entry, part)));
+      out.push(...(await registerPart(sound.entry, part, session)));
+      session.check();
     }
   }
   return out;
 }
 
 /** registerSample si el proyecto aún no conoce esta grabación. */
-async function registerPart(entry: SoundEntry, part: LoadedPart): Promise<Command[]> {
+async function registerPart(entry: SoundEntry, part: LoadedPart, session: SoundLoadSession): Promise<Command[]> {
+  session.check();
   if (store.project.samples[part.id] !== undefined) return [];
+  const hash = (await sha1Hex(part.bytes)) ?? part.id;
+  session.check();
+  const duration = await realDuration(part.sample.durationSec, part.id, part.bytes, session);
+  session.check();
   const sample: SampleRef = {
     id: part.id,
     name: nombreDeToma(entry, part),
     path: pathOf(entry, part.sample.file),
-    hash: (await sha1Hex(part.bytes)) ?? part.id,
+    hash,
     // La de verdad, no la que traiga la entrada: lo de "Tus carpetas" llega con
     // 0 hasta que la cola de análisis pasa por ahí.
-    duration: await realDuration(part.sample.durationSec, part.id, part.bytes),
+    duration,
   };
   return [{ type: 'registerSample', sample }];
+}
+
+/** Otro drop pudo registrar el mismo sonido durante hash/duración. Duplicar
+ * ese alta haría que su undo desregistrara el sample que usa el primer drop. */
+function keepNewRegistration(command: Command): boolean {
+  return command.type !== 'registerSample' || store.project.samples[command.sample.id] === undefined;
 }
 
 /**
@@ -460,8 +520,9 @@ export async function addSamplerChannels(
   options: AddSamplerChannelsOptions = {},
 ): Promise<void> {
   if (entries.length === 0) return;
-  await withLoadedSounds(entries, async (loaded) => {
-    const commands: Command[] = await registerCommands(loaded);
+  await withLoadedSounds(entries, async (loaded, session) => {
+    const commands: Command[] = await registerCommands(loaded, session);
+    session.check();
 
     let index = store.project.channelOrder.length;
     let lastId: Id | null = null;
@@ -491,8 +552,9 @@ export async function addSamplerChannels(
       (entries.length === 1
         ? `Añadir sampler "${entries[0]!.name}"`
         : `Añadir ${entries.length} samplers`);
+    const currentCommands = commands.filter(keepNewRegistration);
     store.dispatch(
-      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      currentCommands.length === 1 ? currentCommands[0]! : { type: 'batch', label, commands: currentCommands },
       { label, ...(options.origin !== undefined ? { origin: options.origin } : {}) },
     );
     // Igual que el rack: el último canal añadido queda seleccionado.
@@ -516,8 +578,11 @@ export async function addKeymapZones(
   const channel = store.project.channels[channelId];
   if (!channel || entries.length === 0) return { added: 0, unreadable: [], dropped: 0 };
 
-  return withLoadedSounds(entries, async (loaded) => {
-    const commands: Command[] = await registerCommands(loaded);
+  return withLoadedSounds(entries, async (loaded, session) => {
+    const commands: Command[] = await registerCommands(loaded, session);
+    session.check();
+    const current = store.project.channels[channelId];
+    if (!current) throw new Error('El canal de destino ya no existe.');
 
     // Lo que el pack YA SABE no se adivina. Un instrumento del manifest trae la
     // nota de cada grabación escrita; leerla del nombre del archivo sería
@@ -548,7 +613,7 @@ export async function addKeymapZones(
     // con zonas que después desaparecían. Y se recorta por el final, así que lo
     // que ya estaba en el canal se conserva — quien acaba de soltar sabe que ha
     // soltado de más, pero no espera perder lo de antes.
-    const all = [...(channel.keymap ?? []), ...zones];
+    const all = [...(current.keymap ?? []), ...zones];
     const dropped = Math.max(0, all.length - MAX_KEYMAP_ZONES);
     // Las que ya estaban conservan su raíz y su ganancia; lo que se recalcula
     // son los rangos, que es lo que cambia al entrar gente nueva.
@@ -560,9 +625,10 @@ export async function addKeymapZones(
     });
 
     const added = zones.length - dropped;
-    const label = `${channel.name}: ${added} muestra(s) al keymap`;
+    const label = `${current.name}: ${added} muestra(s) al keymap`;
+    const currentCommands = commands.filter(keepNewRegistration);
     store.dispatch(
-      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      currentCommands.length === 1 ? currentCommands[0]! : { type: 'batch', label, commands: currentCommands },
       { label },
     );
     return { added, unreadable, dropped };
@@ -631,17 +697,32 @@ export async function addAudioClips(
   startBeat: number,
 ): Promise<void> {
   if (entries.length === 0) return;
-  await withLoadedSounds(entries, async (loaded) => {
-    const commands: Command[] = await registerCommands(loaded);
+  const target = store.project.playlistTracks[trackId];
+  if (!target) throw new Error('La pista de destino ya no existe.');
+  const arrangementId = target.arrangementId;
+  await withLoadedSounds(entries, async (loaded, session) => {
+    const commands: Command[] = await registerCommands(loaded, session);
+    session.check();
+
+    const durations: number[] = [];
+    for (const sound of loaded) {
+      const part = mainPart(sound);
+      durations.push(await realDuration(part.sample.durationSec, part.id, part.bytes, session));
+      session.check();
+    }
+    const current = store.project.playlistTracks[trackId];
+    if (!current || current.arrangementId !== arrangementId || !store.project.arrangements[arrangementId]) {
+      throw new Error('La pista o el arreglo de destino ya no existe.');
+    }
+    const tempo = store.project.tempo;
 
     const clips: Clip[] = [];
     let at = startBeat;
-    for (const sound of loaded) {
+    for (const [index, sound] of loaded.entries()) {
       // En la playlist va la grabación PRINCIPAL: un clip de audio es un trozo
       // de sonido, no un instrumento. El keymap es cosa del canal.
       const part = mainPart(sound);
-      const durationSec = await realDuration(part.sample.durationSec, part.id, part.bytes);
-      const lengthBeats = Math.max(0.25, (durationSec * store.project.tempo) / 60);
+      const lengthBeats = Math.max(0.25, (durations[index]! * tempo) / 60);
       clips.push({
         id: newId(),
         kind: 'audio',
@@ -661,8 +742,9 @@ export async function addAudioClips(
         ? `Colocar audio "${entries[0]!.name}"`
         : `Colocar ${entries.length} audios`;
     commands.push({ type: 'addClips', clips });
+    const currentCommands = commands.filter(keepNewRegistration);
     store.dispatch(
-      commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+      currentCommands.length === 1 ? currentCommands[0]! : { type: 'batch', label, commands: currentCommands },
       { label },
     );
   });

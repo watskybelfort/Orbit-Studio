@@ -33,7 +33,7 @@ import {
   type Project,
 } from '@orbit/core';
 import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
-import { addAudioClips, getDragEntries, SOUND_MIME } from '../../browser/sound-actions';
+import { addAudioClips, getDragEntries, runSoundLoadAction, SOUND_MIME } from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
 import { IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
@@ -1929,12 +1929,15 @@ export function Playlist() {
                 if (triage.accepted.length > 0) {
                   notifyBanner(`Importando ${triage.accepted.length} archivo(s)…`);
                 }
-                void importTriaged(triage).then(async ({ entries, avisos }) => {
+                void runSoundLoadAction(async (check) => {
+                  const { entries, avisos } = await importTriaged(triage);
+                  check();
                   if (entries.length > 0) await addAudioClips(entries, row.track.id, beat);
+                  check();
                   const hecho = entries.length > 0 ? `${entries.length} clip(s) colocados` : '';
                   const dicho = [hecho, ...avisos].filter(Boolean).join(' · ');
                   if (dicho) notifyBanner(dicho);
-                });
+                }, notifyBanner);
                 return;
               }
               // Soltar sonidos del browser: clips de audio en la pista/beat del
@@ -1945,11 +1948,11 @@ export function Playlist() {
               const rect = e.currentTarget.getBoundingClientRect();
               const row = rowAtY(e.clientY - rect.top);
               if (!row) return;
-              void addAudioClips(
+              void runSoundLoadAction(() => addAudioClips(
                 entries,
                 row.track.id,
                 quant(xToBeat(e.clientX - rect.left), snapBeats, false),
-              );
+              ), notifyBanner);
             }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}

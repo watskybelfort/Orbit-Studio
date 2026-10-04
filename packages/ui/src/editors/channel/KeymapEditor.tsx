@@ -29,7 +29,7 @@ import {
   importTriaged,
   triageDrop,
 } from '../../browser/dropped-audio';
-import { addKeymapZones, describeKeymapDrop, getDragEntries } from '../../browser/sound-actions';
+import { addKeymapZones, describeKeymapDrop, getDragEntries, runSoundLoadAction } from '../../browser/sound-actions';
 import { store } from '../../state/app';
 import { useProject } from '../../state/useProject';
 
@@ -71,12 +71,13 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
     );
 
   /** Coloca las entradas en el keymap y cuenta lo que pasó. */
-  const colocar = async (entries: SoundEntry[], avisos: string[]) => {
+  const colocar = async (entries: SoundEntry[], avisos: string[], check: () => void) => {
     const result = await addKeymapZones(channel.id, entries, { octaveOffset });
+    check();
     setNotice([describeKeymapDrop(result), ...avisos].join(' · '));
   };
 
-  const drop = async (e: React.DragEvent) => {
+  const drop = async (e: React.DragEvent, check: () => void) => {
     e.preventDefault();
     setDropping(false);
 
@@ -93,11 +94,12 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
       // queda quieto y parece que el arrastre no ha hecho nada.
       setNotice(`Importando ${triage.accepted.length} archivo(s)…`);
       const { entries, avisos } = await importTriaged(triage);
+      check();
       if (entries.length === 0) {
         setNotice(avisos.join(' · ') || 'No se pudo importar nada');
         return;
       }
-      await colocar(entries, avisos);
+      await colocar(entries, avisos, check);
       return;
     }
 
@@ -109,7 +111,7 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
     // este aviso el editor se queda quieto y parece que el drop no ha hecho
     // nada. Con una sola no se enseña, que sería un parpadeo.
     if (entries.length > 1) setNotice(`Cargando ${entries.length} muestras…`);
-    await colocar(entries, []);
+    await colocar(entries, [], check);
   };
 
   /** Posición 0..1 de una tecla dentro de la tira. */
@@ -134,7 +136,7 @@ export function KeymapEditor({ channel }: KeymapEditorProps) {
           setDropping(true);
         }}
         onDragLeave={() => setDropping(false)}
-        onDrop={(e) => void drop(e)}
+        onDrop={(e) => void runSoundLoadAction((check) => drop(e, check), setNotice)}
         title="Suelta aquí sonidos del Browser (uno, o los que tengas seleccionados) o archivos de audio del Explorador: entran con su nota leída del nombre"
       >
         <div className="km-keys" aria-hidden="true">

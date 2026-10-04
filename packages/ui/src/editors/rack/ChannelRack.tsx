@@ -70,6 +70,7 @@ import {
   addSamplerChannels,
   collectSessionSamples,
   getDragEntries,
+  runSoundLoadAction,
   SOUND_MIME,
 } from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
@@ -689,12 +690,15 @@ export function ChannelRack() {
           if (triage.accepted.length > 0) {
             notifyBanner(`Importando ${triage.accepted.length} archivo(s)…`);
           }
-          void importTriaged(triage).then(async ({ entries, avisos }) => {
+          void runSoundLoadAction(async (check) => {
+            const { entries, avisos } = await importTriaged(triage);
+            check();
             if (entries.length > 0) await addSamplerChannels(entries);
+            check();
             const hecho = entries.length > 0 ? `${entries.length} canal(es) nuevos` : '';
             const dicho = [hecho, ...avisos].filter(Boolean).join(' · ');
             if (dicho) notifyBanner(dicho);
-          });
+          }, notifyBanner);
           return;
         }
         // Un arrastre puede traer varias muestras: un canal para cada una, y
@@ -702,7 +706,7 @@ export function ChannelRack() {
         const entries = getDragEntries(e.dataTransfer);
         if (entries.length === 0) return;
         e.preventDefault();
-        void addSamplerChannels(entries);
+        void runSoundLoadAction(() => addSamplerChannels(entries), notifyBanner);
       }}
     >
       <div className="rack-head">
