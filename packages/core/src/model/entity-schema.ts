@@ -32,7 +32,7 @@
  *   `lista:clip`, `lista:ent:slot`, `patch:clip`, `mapa:notas`.
  */
 
-import { UNSET } from './unset';
+import { esUnset } from './unset';
 
 export type Forma = `${Clase}` | `?${Clase}` | `${Clase}|null` | `?${Clase}|null`;
 
@@ -68,7 +68,7 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
     },
     opcional: {
       groupId: 'id', sampleId: 'id', keymap: 'lista', slicePoints: 'lista:num',
-      novaPreset: 'str', prismaPreset: 'str', fx: 'lista:ent:slot',
+      novaPreset: 'str', prismaPreset: 'str', fx: 'lista:ent:slot|null',
       instrumentPluginId: 'str', bend: 'num',
     },
   },
@@ -94,6 +94,10 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
       audioOffset: 'num', audioGain: 'num', audioStretch: 'bool', audioPitch: 'num',
       fadeIn: 'num', fadeOut: 'num', lane: 'num', frozenFrom: 'id[]',
       target: 'ent:paramRef', points: 'lista:automationPoint',
+      // Recorte de la AUTOMATIZACIÓN dentro de la muestra (BUG 041): con `start`
+      // y `length` acortados, estos dos Guardan dónde se estaba muestreando la
+      // curva, para no tener que recalcularla ni perder la fase al primer tramo.
+      automationOffset: 'num', automationLength: 'num',
     },
   },
   marker: {
@@ -169,6 +173,18 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
   },
 };
 
+/**
+ * ¿Este campo es OBLIGATORIO en la entidad?
+ *
+ * Los patches son parciales, pero no pueden VACIAR lo obligatorio: quitarle el
+ * volumen a un canal lo deja en NaN y el motor renderiza entero NaN. Ni con la
+ * marca de borrado ni con un `undefined` puesto a mano, que es como el motor
+ * deja un opcional vacío.
+ */
+function esObligatorio(tabla: Tabla, campo: string): boolean {
+  return campo in (tabla.obligatorio as Record<string, Forma>);
+}
+
 export interface Problema {
   /** Ruta del problema: `clips[2].start`, `channel.volume`, `mix[0].slots[1].mix`. */
   field: string;
@@ -217,10 +233,29 @@ export function entityProblem(
       // `Object.assign` del bus la escribiría como `undefined`, que no es un campo
       // del modelo. Se ignora en vez de fiarse del `undefined` que llega de otro
       // sitio.
-      if (valor[campo] === undefined) continue;
-      // La marca de borrado es un valor legitimo de un patch: el inverso que
-      // quita un campo opcional lleva esta cadena, no un null.
-      if (valor[campo] === UNSET) continue;
+      if (valor[campo] === undefined) {
+        // En un campo OBLIGATORIO, en cambio, no se ignora: ignorarlo deja la
+        // entidad sin él y el motor la lee como NaN (un `patchChannel` con
+        // `volume: undefined` dejaba el volumen en NaN y el render entero NaN).
+        if (esObligatorio(tabla, campo)) {
+          return { field: `${ruta}.${campo}`, expected: 'está (un patch no puede vaciarlo)' };
+        }
+        continue;
+      }
+      // La marca de borrado es un valor legítimo de un patch: el inverso que quita
+      // un campo opcional lleva este sobre, no un null.
+      if (esUnset(valor[campo])) {
+        // Pero solo de un campo que se pueda QUITAR. Borrar un obligatorio deja la
+        // entidad incompleta y el motor la lee como NaN: se rechaza en la puerta,
+        // no después.
+        if (esObligatorio(tabla, campo)) {
+          return {
+            field: `${ruta}.${campo}`,
+            expected: 'no se puede borrar: es obligatorio',
+          };
+        }
+        continue;
+      }
       const problema = checkForma(valor[campo], forma, `${ruta}.${campo}`);
       if (problema) return problema;
     }
@@ -236,6 +271,10 @@ export function entityProblem(
     const problema = checkForma(valor[campo], forma, `${ruta}.${campo}`);
     if (problema) return problema;
   }
+  // Una tabla dice los tipos de los campos, pero no que la entidad sea una unión
+  // de formas: eso loMira la comprobación extra de la entidad, si la tiene.
+  const extra = EXTRAS[entidad];
+  if (extra !== undefined) return extra(valor, ruta);
   return null;
 }
 
@@ -253,7 +292,12 @@ export function checkForma(valor: unknown, forma: Forma, ruta: string): Problema
     return opcional ? null : { field: ruta, expected: 'está' };
   }
   if (valor === null) {
-    return admiteNull ? null : { field: ruta, expected: 'no es null' };
+    // En una lista, el `|null` es de los ELEMENTOS, no de la lista: el hueco de un
+    // slot vacío es `null` dentro del array. La lista en sí tiene que existir —
+    // `mixer[0].slots = null` pasaba la validación y reventaba al compilar con un
+    // TypeError leyendo `.map` del compilador de audio.
+    if (admiteNull && raiz !== 'lista') return null;
+    return { field: ruta, expected: 'no es null' };
   }
 
   switch (raiz) {
@@ -282,7 +326,7 @@ export function checkForma(valor: unknown, forma: Forma, ruta: string): Problema
     case 'patchid':
       return entityProblem(valor, resto[0] as Entidad, ruta, 'patchid');
     case 'lista':
-      return checkLista(valor, resto, ruta);
+      return checkLista(valor, resto, ruta, admiteNull);
     case 'comandos':
       // Los comandos validan su forma en `command-schema.ts`, que es quien tiene la
       // tabla de tipos; aquí solo se mira que sea una lista.
@@ -292,8 +336,19 @@ export function checkForma(valor: unknown, forma: Forma, ruta: string): Problema
   }
 }
 
-/** `lista`, `lista:num`, `lista:ent:<entidad>`, `lista:<entidad>`, `lista:patch:<x>`… */
-function checkLista(valor: unknown, resto: string[], ruta: string): Problema | null {
+/**
+ * `lista`, `lista:num`, `lista:ent:<entidad>`, `lista:<entidad>`, `lista:patch:<x>`…
+ *
+ * `admiteHuecos` es el `|null` de la forma, que se refiere a los ELEMENTOS: los
+ * slots de efecto llevan `lista:ent:slot|null` porque un slot vacío es un hueco
+ * (`null`) dentro del array. La lista, en cambio, siempre tiene que estar.
+ */
+function checkLista(
+  valor: unknown,
+  resto: string[],
+  ruta: string,
+  admiteHuecos = false,
+): Problema | null {
   if (!Array.isArray(valor)) return { field: ruta, expected: 'una lista' };
   const [primero, segundo] = resto;
   if (primero === undefined) return null; // `lista` a secas: solo que sea lista
@@ -309,9 +364,64 @@ function checkLista(valor: unknown, resto: string[], ruta: string): Problema | n
   for (let i = 0; i < valor.length; i++) {
     const item = valor[i];
     // Un hueco (null) es legal solo donde la lista lo admite: los slots de efecto.
-    if (item === null && clase === 'ent' && entidad === 'slot') continue;
+    if (item === null && admiteHuecos && clase === 'ent') continue;
     const problema = entityProblem(item, entidad, `${ruta}[${i}]`, clase);
     if (problema) return problema;
+  }
+  return null;
+}
+
+/**
+ * Lo que una tabla NO puede decir: que una entidad sea una UNIÓN de formas.
+ *
+ * `ParamRef` es la unión de seis ramas y todas llevan `kind` y `param`; lo que las
+ * distingue es qué campo las apunta y qué `param` admiten. Con solo la tabla, un
+ * `{ kind: 'mixer', param: 'volume' }` —sin `trackIndex`— pasaba y el motor lo
+ * leía como `undefined`: una automatización apunta al sitio equivocado en vez de
+ * avisar. Aquí cada rama declara sus campos obligatorios, sus prohibidos y, si es
+ * cerrado, los `param` que accepts.
+ */
+const EXTRAS: Record<string, (valor: Record<string, unknown>, ruta: string) => Problema | null> = {
+  paramRef: paramRefProblem,
+};
+
+/** Las seis ramas de `ParamRef` (ver `ParamRef` en `types.ts`). */
+const RAMAS_PARAM_REF: Record<string, { apunta: string[]; params?: string[] }> = {
+  channel: { apunta: ['channelId'] },
+  channelMix: { apunta: ['channelId'], params: ['volume', 'pan', 'bend'] },
+  mixer: {
+    apunta: ['trackIndex'],
+    params: ['volume', 'pan', 'stereoWidth', 'eqLow', 'eqMid', 'eqHigh'],
+  },
+  effect: { apunta: ['trackIndex', 'slotIndex'] },
+  channelFx: { apunta: ['channelId', 'slotIndex'] },
+  transport: { apunta: [], params: ['tempo', 'swing'] },
+};
+
+function paramRefProblem(valor: Record<string, unknown>, ruta: string): Problema | null {
+  const kind = valor.kind;
+  if (typeof kind !== 'string' || !(kind in RAMAS_PARAM_REF)) {
+    return { field: `${ruta}.kind`, expected: 'una de las ramas de ParamRef' };
+  }
+  const rama = RAMAS_PARAM_REF[kind]!;
+  for (const campo of rama.apunta) {
+    if (valor[campo] === undefined) {
+      return { field: `${ruta}.${campo}`, expected: `está (lo exige la rama «${kind}»)` };
+    }
+  }
+  if (rama.params !== undefined && !rama.params.includes(valor.param as string)) {
+    return { field: `${ruta}.param`, expected: `uno de: ${rama.params.join(', ')}` };
+  }
+  // Los campos de las OTRAS ramas no se admiten: `{kind:'channel', trackIndex: 3}`
+  // no apunta a ningún sitio (el motor leería el canal y el índice por separado).
+  const ajenos = Object.keys(RAMAS_PARAM_REF)
+    .filter((otra) => otra !== kind)
+    .flatMap((otra) => RAMAS_PARAM_REF[otra]!.apunta)
+    .filter((campo) => !rama.apunta.includes(campo));
+  for (const campo of new Set(ajenos)) {
+    if (valor[campo] !== undefined) {
+      return { field: `${ruta}.${campo}`, expected: `no lleva este campo la rama «${kind}»` };
+    }
   }
   return null;
 }

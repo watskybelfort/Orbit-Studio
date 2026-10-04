@@ -202,7 +202,8 @@ describe('002 · el inverso de un patch opcional viaja y deshace', () => {
     //    inverso es el MISMO comando en los dos casos: lo que se perdía al
     //    serializar es justo lo que se comprueba aquí.
     const inversePorCable = porJSON(applyCommand(p, caso.poner(p)));
-    expect(JSON.stringify(inversePorCable)).toContain('unset');
+    // El sobre de borrado viaja entero: es lo que se perdía al serializar.
+    expect(JSON.stringify(inversePorCable)).toContain('"$orbitUnset":true');
     applyCommand(p, inversePorCable);
     expect(serializeProject(p)).toBe(antes);
   });
@@ -216,7 +217,7 @@ describe('002 · el inverso de un patch opcional viaja y deshace', () => {
     });
     // El comando lleva la clave CON valor: es lo que sobrevive al JSON.
     expect((inverse as { patch: Record<string, unknown> }).patch.groupId).toBe(UNSET);
-    expect(JSON.stringify(inverse)).toContain('\\u0000unset');
+    expect(JSON.stringify(inverse)).toContain('"$orbitUnset":true');
     // Y aplicarlo borra la clave de verdad, no la deja en undefined.
     applyCommand(p, inverse);
     expect('groupId' in p.channels[firstCanal(p)]!).toBe(false);

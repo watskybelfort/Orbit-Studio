@@ -32,7 +32,7 @@ import { MAX_INPUT_ROUTES } from './model/input-routing';
 import { wouldLoop } from './model/routing';
 import { assertNoReservedIds } from './model/entity-id';
 import { commandProblem } from './model/command-schema';
-import { UNSET } from './model/unset';
+import { UNSET, esUnset } from './model/unset';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -265,7 +265,15 @@ function slotIn(index: number, count: number, what: string): number {
 /** Aplica un patch a una entidad: la marca borra, el resto escribe. */
 function applyPatch<T extends object>(target: T, patch: Partial<T>): void {
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
-    if (value === UNSET) delete (target as Record<string, unknown>)[key];
+    // La marca borra la clave. Y `undefined` también la quita: es lo que usa el
+    // motor para dejar un opcional vacío (`patchChannel` con `sampleId: undefined`
+    // saca la muestra del canal) y no es "escribir un undefined".
+    //
+    // Lo que NO puede pasar es vaciar un OBLIGATORIO, y eso no se arregla aquí sino
+    // en la puerta: `commandProblem` rechaza `undefined` y la marca sobre un campo
+    // obligatorio (ver `entityProblem`), así que lo que llega a esta función ya ha
+    // sido juzgado.
+    if (esUnset(value) || value === undefined) delete (target as Record<string, unknown>)[key];
     else (target as Record<string, unknown>)[key] = value;
   }
 }
