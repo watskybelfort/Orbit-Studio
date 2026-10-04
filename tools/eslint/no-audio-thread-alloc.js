@@ -85,8 +85,19 @@ export default {
   create(context) {
     const entries = new Set(context.options[0]?.entries ?? ['process']);
 
-    /** nombre → nodo de función, para poder seguir las llamadas. */
-    const byName = new Map();
+    /**
+     * nombre → nodo de función, POR CLASE, para poder seguir las llamadas.
+     *
+     * El mapa es por clase y no global porque en un archivo con varias clases
+     * (el kernel tiene la sala, la voz de plugin y las voces) un mismo nombre
+     * significa cosas distintas: resolverlo a pelo hacía que `setSnapshot` —que
+     * solo se llama desde los mensajes de control— se juzgara como si fuera el
+     * hilo de audio, y con él 26 avisos falsos (BUG 008).
+     */
+    const porClase = new Map(); // clase → (nombre → nodo)
+    const sueltas = new Map(); // nombre → nodo, para lo que NO está en una clase
+    /** Clase de cada función que entra, para resolver sus llamadas. */
+    const claseDe = new Map();
     /** nodo de función → nombre con el que lo llamamos en el mensaje. */
     const labels = new Map();
     /** nodo de función → Set de nombres que llama. */
@@ -98,9 +109,18 @@ export default {
     /** Pila de funciones que estamos recorriendo. */
     const stack = [];
 
-    function enter(node, name) {
+    function enter(node, name, clase) {
+      claseDe.set(node, clase);
       if (name) {
-        byName.set(name, node);
+        if (clase === null) sueltas.set(name, node);
+        else {
+          let porNombre = porClase.get(clase);
+          if (!porNombre) {
+            porNombre = new Map();
+            porClase.set(clase, porNombre);
+          }
+          porNombre.set(name, node);
+        }
         labels.set(node, name);
         if (entries.has(name)) roots.push(node);
       }
@@ -133,6 +153,27 @@ export default {
       return null;
     }
 
+    /** La clase que contiene esta función (o null si no está en ninguna). */
+    function claseDeNode(node) {
+      let p = node.parent;
+      while (p) {
+        if (p.type === 'MethodDefinition' || p.type === 'PropertyDefinition') {
+          const cuerpo = p.parent;
+          if (cuerpo?.type === 'ClassBody') {
+            const clase = cuerpo.parent;
+            return clase?.id?.name ?? clase?.type ?? null;
+          }
+          return null;
+        }
+        if (p.type === 'ClassDeclaration' || p.type === 'ClassExpression') {
+          return p.id?.name ?? p.type;
+        }
+        if (p.type === 'FunctionDeclaration' || p.type === 'Program') return null;
+        p = p.parent;
+      }
+      return null;
+    }
+
     function onFunctionEnter(node) {
       // El nombre se resuelve desde el padre: método de clase, declaración,
       // o `const f = () => …`.
@@ -149,7 +190,7 @@ export default {
       // Crear un cierre dentro del camino caliente ES una alocación.
       if (stack.length > 0) note(node, 'closure');
 
-      enter(node, name);
+      enter(node, name, claseDeNode(node));
     }
 
     function onFunctionExit() {
@@ -164,7 +205,10 @@ export default {
         const fn = current();
         if (fn) {
           const n = calleeName(node);
-          if (n) calls.get(fn).add(n);
+          if (n) {
+            const esThis = node.callee?.type === 'MemberExpression' && node.callee.object?.type === 'ThisExpression';
+            calls.get(fn).add({ nombre: n, esThis });
+          }
         }
         const c = node.callee;
         if (c?.type === 'MemberExpression' && !c.computed) {
@@ -188,8 +232,14 @@ export default {
           const fn = queue.pop();
           if (hot.has(fn)) continue;
           hot.add(fn);
-          for (const name of calls.get(fn) ?? []) {
-            const next = byName.get(name);
+          const clase = claseDe.get(fn) ?? null;
+          for (const llamada of calls.get(fn) ?? []) {
+            const porNombre = porClase.get(clase);
+            let next = llamada.esThis ? porNombre?.get(llamada.nombre) : undefined;
+            // Una llamada suelta puede ser una función del módulo o un método de
+            // la misma clase: se mira la de módulo primero, que es como resuelve
+            // JavaScript cuando no hay `this` de por medio.
+            if (!next) next = sueltas.get(llamada.nombre) ?? porNombre?.get(llamada.nombre);
             if (next && !hot.has(next)) queue.push(next);
           }
           // Un cierre definido dentro también corre en el hilo de audio.
