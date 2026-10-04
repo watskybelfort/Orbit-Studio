@@ -190,9 +190,15 @@ export function parseProject(json: string): Project {
     }
   }
   for (const track of p.mixer ?? []) {
+    // Campos de las pistas que llegaron despues del archivo: se RELLENAN con su
+    // default explicito, no se rechazan. "No hay EQ" es 0 dB, "no hay envio" es
+    // una lista vacia y "no hay a donde enrutar" es null -que es lo que el master
+    // ya era-, no un NaN por leer undefined donde el motor espera un numero.
     track.eqLow ??= 0;
     track.eqMid ??= 0;
     track.eqHigh ??= 0;
+    track.routeTo ??= null;
+    track.sends ??= [];
   }
   // Referencias de las listas de orden. Una entrada que ya no existe —un patrón
   // que alguien quitó del JSON a mano— se quita, y si la lista se queda VACÍA con

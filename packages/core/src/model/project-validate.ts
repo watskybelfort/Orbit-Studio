@@ -62,7 +62,40 @@ const NUMERICOS: Record<string, readonly string[]> = {
   sections: ['start', 'length'],
   lfos: ['rateBeats', 'amount', 'phase'],
   samples: ['duration'],
+  inputRoutes: ['channel', 'channelRight', 'mixerTrack', 'gain'],
 };
+
+/**
+ * Campos OBLIGATORIOS de cada entidad, tal como los declara `model/types.ts` (los
+ * que no llevan `?`). Faltar aquí no es "un canal raro": es un NaN o un reventón,
+ * porque el motor los lee sin mirar. Un canal sin `volume` compila y sale un
+ * `render.left` con NaN dentro; un patrón sin `notes` revienta al recorrer.
+ *
+ * Lo que se puede migrar se migra con un default EXPLÍCITO en `parseProject` (los
+ * `eq*` de las pistas, `routeTo` y `sends`): así un `.orbit` de antes se abre y
+ * suena como antes, en vez de rechazarse por un campo que no le falta de verdad.
+ */
+const OBLIGATORIOS: Record<string, readonly string[]> = {
+  channels: ['id', 'name', 'color', 'kind', 'params', 'volume', 'pan', 'mute', 'solo', 'mixerTrack'],
+  channelGroups: ['id', 'name', 'color', 'collapsed'],
+  patterns: ['id', 'name', 'color', 'length', 'notes'],
+  arrangements: ['id', 'name'],
+  playlistTracks: ['id', 'arrangementId', 'name', 'color', 'height', 'muted', 'order'],
+  clips: ['id', 'kind', 'playlistTrackId', 'start', 'length', 'muted'],
+  markers: ['id', 'time', 'name', 'color'],
+  sections: ['id', 'arrangementId', 'name', 'start', 'length'],
+  lfos: ['id', 'target', 'shape', 'rateBeats', 'amount', 'phase', 'enabled'],
+  inputRoutes: ['id', 'name', 'channel', 'mixerTrack', 'armed', 'monitor', 'gain'],
+  samples: ['id', 'name', 'path', 'hash', 'duration'],
+};
+
+/** Cada nota: los campos obligatorios de `Note` en `model/types.ts`. */
+const OBLIGATORIOS_NOTA = ['id', 'start', 'duration', 'key', 'velocity', 'pan', 'slide'] as const;
+
+/** Pistas de mixer: `routeTo`, `sends` y `eq*` se migran con defaults explícitos. */
+const OBLIGATORIOS_PISTA = [
+  'id', 'name', 'color', 'volume', 'pan', 'mute', 'solo', 'stereoWidth', 'slots',
+] as const;
 
 /** Números sueltos del proyecto, fuera de cualquier entidad. */
 const NUMERICOS_PROYECTO: readonly string[] = ['tempo', 'swing'];
@@ -126,6 +159,16 @@ export function findProjectProblems(project: Record<string, unknown>): ParseProb
       problems.push({ field, expected: 'un número' });
     }
   }
+  // `timeSig` es obligatorio y sus dos números van a la compilación: un num de
+  // tipo raro llegaba como compiled.timeSigNum = NaN.
+  const timeSig = project.timeSig;
+  if (typeof timeSig === 'object' && timeSig !== null && !Array.isArray(timeSig)) {
+    for (const campo of ['num', 'den']) {
+      if (!esNumero((timeSig as Record<string, unknown>)[campo])) {
+        problems.push({ field: `timeSig.${campo}`, expected: 'un número' });
+      }
+    }
+  }
 
   // 4. La mesa de mezcla es una lista de tamaño fijo que el motor indexa por
   //    posición: una entrada que no sea un objeto lo revienta al compilar, y sus
@@ -137,8 +180,19 @@ export function findProjectProblems(project: Record<string, unknown>): ParseProb
         problems.push({ field: `mixer[${i}]`, expected: 'una pista (objeto)' });
         return;
       }
-      problems.push(...numericProblems(`mixer[${i}]`, track as Record<string, unknown>,
-        ['volume', 'pan', 'eqLow', 'eqMid', 'eqHigh', 'routeTo'], ['routeTo']));
+      const propio = track as Record<string, unknown>;
+      problems.push(...numericProblems(`mixer[${i}]`, propio,
+        ['volume', 'pan', 'eqLow', 'eqMid', 'eqHigh', 'stereoWidth', 'routeTo'], ['routeTo']));
+      for (const campo of OBLIGATORIOS_PISTA) {
+        if (propio[campo] === undefined) {
+          problems.push({ field: `mixer[${i}].${campo}`, expected: 'está' });
+        }
+      }
+      // Las pistas llevan las MISMAS tablas internas que un canal: slots con su
+      // mix y sus params, y envíos con target/level/pan. Antes solo se miraban los
+      // números de la pista, así que un `slots[0].mix` de tipo raro pasaba.
+      if (propio.slots !== undefined) problems.push(...slotsProblems(`mixer[${i}].slots`, propio.slots));
+      problems.push(...sendsProblems(`mixer[${i}]`, propio));
     });
   }
 
@@ -180,6 +234,11 @@ function entityProblems(
 ): ParseProblem[] {
   const ruta = `${poolName}.${id}`;
   const problems = numericProblems(ruta, entidad, NUMERICOS[poolName] ?? []);
+  // Obligatorios del modelo: si faltan, el motor lee `undefined` y sale NaN o
+  // revienta al recorrer. No es un dato raro del usuario: es un archivo roto.
+  for (const campo of OBLIGATORIOS[poolName] ?? []) {
+    if (entidad[campo] === undefined) problems.push({ field: `${ruta}.${campo}`, expected: 'está' });
+  }
 
   // Mapas de números: `params` de canal y de slot de efecto.
   for (const campo of ['params', 'pointers']) {
@@ -192,21 +251,8 @@ function entityProblems(
   if (entidad.fx !== undefined) problems.push(...slotsProblems(`${ruta}.fx`, entidad.fx));
   if (entidad.slots !== undefined) problems.push(...slotsProblems(`${ruta}.slots`, entidad.slots));
 
-  // Envíos de una pista: `target`, `level` y `pan` van al bus de mixer.
-  if (entidad.sends !== undefined) {
-    if (!Array.isArray(entidad.sends)) {
-      problems.push({ field: `${ruta}.sends`, expected: 'una lista de envíos' });
-    } else {
-      entidad.sends.forEach((send, i) => {
-        if (typeof send !== 'object' || send === null || Array.isArray(send)) {
-          problems.push({ field: `${ruta}.sends[${i}]`, expected: 'un envío (objeto)' });
-          return;
-        }
-        problems.push(...numericProblems(`${ruta}.sends[${i}]`, send as Record<string, unknown>,
-          ['target', 'level', 'pan']));
-      });
-    }
-  }
+  // Envíos: `target`, `level` y `pan` van al bus de mixer.
+  problems.push(...sendsProblems(ruta, entidad));
 
   // Las notas de un patrón: mapa id de canal -> lista. `notes: null` pasaba el
   // esqueleto y reventaba al recorrer con "Cannot convert undefined or null to
@@ -226,13 +272,42 @@ function entityProblems(
             problems.push({ field: `${ruta}.notes.${canal}[${i}]`, expected: 'una nota (objeto)' });
             return;
           }
-          problems.push(...numericProblems(`${ruta}.notes.${canal}[${i}]`,
-            nota as Record<string, unknown>, ['start', 'duration', 'key', 'velocity', 'pan']));
+          const propio = nota as Record<string, unknown>;
+          problems.push(...numericProblems(`${ruta}.notes.${canal}[${i}]`, propio,
+            ['start', 'duration', 'key', 'velocity', 'pan']));
+          for (const campo of OBLIGATORIOS_NOTA) {
+            if (propio[campo] === undefined) {
+              problems.push({
+                field: `${ruta}.notes.${canal}[${i}].${campo}`, expected: 'está',
+              });
+            }
+          }
         });
       }
     }
   }
 
+  return problems;
+}
+
+/**
+ * Envíos de una entidad que los tenga (las pistas del mixer). `target` y `level`
+ * van al bus: un string ahí es un NaN en la ganancia de la salida.
+ */
+function sendsProblems(ruta: string, entidad: Record<string, unknown>): ParseProblem[] {
+  if (entidad.sends === undefined) return [];
+  if (!Array.isArray(entidad.sends)) {
+    return [{ field: `${ruta}.sends`, expected: 'una lista de envíos' }];
+  }
+  const problems: ParseProblem[] = [];
+  entidad.sends.forEach((send, i) => {
+    if (typeof send !== 'object' || send === null || Array.isArray(send)) {
+      problems.push({ field: `${ruta}.sends[${i}]`, expected: 'un envío (objeto)' });
+      return;
+    }
+    problems.push(...numericProblems(`${ruta}.sends[${i}]`, send as Record<string, unknown>,
+      ['target', 'level', 'pan']));
+  });
   return problems;
 }
 

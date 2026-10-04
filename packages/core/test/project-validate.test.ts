@@ -232,7 +232,9 @@ describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
 
   it('el orden de carpetas vacío NO se rehace: sin carpetas es un proyecto válido', () => {
     const p = parse((data) => {
-      data.channelGroups = { g1: { id: 'g1', name: 'G', busTrack: 3 } };
+      data.channelGroups = {
+        g1: { id: 'g1', name: 'G', color: 'rojo', collapsed: false, busTrack: 3 },
+      };
       data.channelGroupOrder = [];
     });
     expect(p.channelGroupOrder).toEqual([]);
@@ -255,19 +257,65 @@ describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
     ).not.toThrow();
   });
 
-  it('los .orbit antiguos, sin los campos de las versiones nuevas', () => {
+  it('los .orbit antiguos se abren igual: lo que les faltaba se migra con defaults', () => {
+    // El legado real: un .orbit de antes de v1.1 no traía `fx` en los canales, ni
+    // `eq*`/`routeTo`/`sends` en las pistas, ni los aditivos del proyecto. Eso se
+    // RELLENA con defaults explícitos, no se rechaza: son campos que llegaron
+    // después y su ausencia significa "sin fx", no "archivo roto".
     const channel = createChannel('synth', 0);
     const p = parse((data) => {
       data.channels = { [channel.id]: channel };
       (data.channelOrder as string[]).push(channel.id);
-      const canal = (data.channels as Record<string, Record<string, unknown>>)[channel.id]!;
-      delete canal.params;
-      delete canal.fx;
-      const patron = Object.values(data.patterns as Record<string, Record<string, unknown>>)[0]!;
-      delete patron.notes;
+      delete (data.channels as Record<string, Record<string, unknown>>)[channel.id]!.fx;
+      for (const pista of data.mixer as Record<string, unknown>[]) {
+        delete pista.eqLow;
+        delete pista.eqMid;
+        delete pista.eqHigh;
+        delete pista.routeTo;
+        delete pista.sends;
+      }
+      for (const aditivo of ['samples', 'lfos', 'sections', 'channelGroups', 'inputRoutes', 'swing']) {
+        delete data[aditivo];
+      }
     });
     expect(Object.keys(p.channels)).toHaveLength(1);
-    expect(Object.keys(p.patterns)).toHaveLength(1);
+    expect(p.mixer[0]?.eqLow).toBe(0);
+    expect(p.mixer[0]?.routeTo).toBeNull();
+    expect(p.mixer[0]?.sends).toEqual([]);
+  });
+
+  it('un patrón sin notes, o un canal sin volume: se rechazan (no son campos nuevos)', () => {
+    // Antes los daba por "opcionales"; no lo son: el motor recorre `notes` y
+    // multiplica por `volume`, así que su ausencia es un TypeError y un NaN.
+    expect(() =>
+      parse((p) => {
+        const patron = Object.values(p.patterns as Record<string, unknown>)[0] as Record<
+          string,
+          unknown
+        >;
+        delete patron.notes;
+      }),
+    ).toThrow(/patterns\.\w+\.notes" está/);
+    expect(() =>
+      parse((p) => {
+        const canal = createChannel('synth', 0);
+        p.channels = { [canal.id]: canal };
+        (p.channelOrder as string[]).push(canal.id);
+        delete (p.channels as Record<string, Record<string, unknown>>)[canal.id]!.volume;
+      }),
+    ).toThrow(/volume" está/);
+  });
+
+  it('timeSig con num de string, y un mix de slot de mixer de tipo raro', () => {
+    expect(() =>
+      parse((p) => ((p.timeSig as Record<string, unknown>).num = 'wrong')),
+    ).toThrow(/timeSig\.num" un número/);
+    expect(() =>
+      parse((p) => {
+        const pista = (p.mixer as Record<string, Record<string, unknown>>)[1]!;
+        pista.slots = [{ id: 's1', mix: 'wrong', params: {} }];
+      }),
+    ).toThrow(/mixer\[1\]\.slots\[0\]\.mix" un número/);
   });
 
   it('un volumen de string en un canal: se rechaza (antes pasaba y salía NaN)', () => {
