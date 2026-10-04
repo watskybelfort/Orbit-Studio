@@ -88,16 +88,25 @@ function capture(ref: ParamRef): void {
     lanes.set(key, lane);
     useParamRecord.setState({ lanes: lanes.size });
   }
-  if (lane.samples.length >= MAX_SAMPLES) return;
-
   const beat = Math.max(0, currentBeat());
-  const last = lane.samples[lane.samples.length - 1];
-  // Misma posición: sustituye (el valor bueno es el último), no acumules.
-  if (last && beat - last.beat < MIN_STEP) {
-    last.norm = norm;
+  // La posición puede retroceder por loop o seek. Insertar en orden temporal
+  // permite sobrescribir una vuelta en SU beat sin desplazarla al último beat
+  // de la vuelta anterior. Se busca el primer punto posterior al gesto.
+  let low = 0;
+  let high = lane.samples.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (lane.samples[middle]!.beat <= beat) low = middle + 1;
+    else high = middle;
+  }
+  const previous = lane.samples[low - 1];
+  // En la misma posición/subdivisión gana el último valor interpretado.
+  if (previous && beat - previous.beat < MIN_STEP) {
+    previous.norm = norm;
     return;
   }
-  lane.samples.push({ beat, norm });
+  if (lane.samples.length >= MAX_SAMPLES) return;
+  lane.samples.splice(low, 0, { beat, norm });
 }
 
 onParamTouch(capture);
@@ -178,4 +187,3 @@ function flushLanes(): void {
   // Abre el primero para revisar la curva recién grabada.
   useUiStore.setState({ automationClipId: clips[0]!.id });
 }
-

@@ -99,6 +99,40 @@ function clipFor(
 describe('grabación de movimientos de perillas: una pasada, un clip', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  it.each(['seek', 'loop'] as const)('un salto por %s conserva cada gesto en su posición real', async (mode) => {
+    vi.useFakeTimers();
+    const { store, channelId, frameAt, moveTo, toggleArmed } = await rig();
+    const { useUiStore } = await import('../src/state/ui');
+    useUiStore.setState({ loopRegion: mode === 'loop' ? { start: 0.25, end: 2 } : null });
+    toggleArmed();
+    frameAt(0.5, true); moveTo(0.2);
+    frameAt(1.5, true); moveTo(0.8);
+    frameAt(0.25, true); moveTo(1.8);
+    frameAt(0.25, false);
+    const clip = clipFor(store.project, channelId)!;
+    expect(clip.start).toBe(0.25);
+    expect(clip.points!.map((p) => ({ beat: clip.start + p.time, value: p.value }))).toEqual([
+      { beat: 0.25, value: 0.9 }, { beat: 0.5, value: 0.1 }, { beat: 1.5, value: 0.4 },
+    ]);
+    store.undo(); expect(clipFor(store.project, channelId)).toBeUndefined();
+    store.redo(); expect(clipFor(store.project, channelId)).toEqual(clip);
+  });
+
+  it('otra vuelta al mismo beat reemplaza ese punto, conserva el futuro y no duplica tiempos', async () => {
+    vi.useFakeTimers();
+    const { store, channelId, frameAt, moveTo, toggleArmed } = await rig();
+    toggleArmed();
+    frameAt(0.5, true); moveTo(0.2);
+    frameAt(1.5, true); moveTo(0.8);
+    frameAt(0.5, true); moveTo(1.8); moveTo(1.6);
+    frameAt(1.5, false);
+    const clip = clipFor(store.project, channelId)!;
+    expect(clip.points!.map((p) => ({ beat: clip.start + p.time, value: p.value }))).toEqual([
+      { beat: 0.5, value: 0.8 }, { beat: 1.5, value: 0.4 },
+    ]);
   });
 
   it('armar sin tocar nada, sin play: no hay pasada, no hay carriles', async () => {
