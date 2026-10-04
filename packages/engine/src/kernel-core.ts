@@ -1280,7 +1280,9 @@ export class KernelCore {
       const next = this.nextTempoBreak(p, b, beat);
       const db = next - b;
       const t0 = this.tempoAtBeat(b);
-      const t1 = this.tempoAtBeat(next);
+      // Un marcador cambia el tempo DESPUÉS de este tramo. Integrar con el
+      // valor derecho convertía el salto en una rampa y desplazaba los clips.
+      const t1 = this.tempoAtBeat(next, true);
       // Trapecio sobre 60/t: dentro del intervalo el tempo es constante (mapa)
       // o lineal entre dos muestras (automatización), así que sale exacto.
       sec += db * 30 * (1 / t0 + 1 / t1);
@@ -1317,10 +1319,10 @@ export class KernelCore {
   }
 
   /** Tempo EFECTIVO en `beat`: el del mapa, con la automatización encima. */
-  private tempoAtBeat(beat: number): number {
+  private tempoAtBeat(beat: number, mapFromLeft = false): number {
     const p = this.project;
     if (!p) return this.tempo;
-    let t = tempoAtBeatMap(p.tempoMap, beat, p.tempo);
+    let t = tempoAtBeatMap(p.tempoMap, beat, p.tempo, mapFromLeft);
     for (let i = 0; i < p.automation.length; i++) {
       const a = p.automation[i]!;
       const target = a.target;
@@ -2684,11 +2686,12 @@ function tempoAtBeatMap(
   map: readonly TempoSegment[] | undefined,
   beat: number,
   fallback: number,
+  fromLeft = false,
 ): number {
   if (!map || map.length === 0) return fallback;
   let t = map[0]!.tempo;
   for (let i = 0; i < map.length; i++) {
-    if (map[i]!.beat <= beat + 1e-9) t = map[i]!.tempo;
+    if (fromLeft ? map[i]!.beat < beat : map[i]!.beat <= beat + 1e-9) t = map[i]!.tempo;
     else break;
   }
   return t > 0 ? t : 1;
