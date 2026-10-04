@@ -120,8 +120,9 @@ export function Transport() {
       !playing && playMode === mode ? ' armed' : ''
     }`;
 
-  const bar = Math.floor(positionBeats / project.timeSig.num) + 1;
-  const beat = Math.floor(positionBeats % project.timeSig.num) + 1;
+  const barLength = beatsInBar(project.timeSig);
+  const bar = Math.floor(positionBeats / barLength) + 1;
+  const beat = Math.floor((positionBeats % barLength) / meterBeatUnit(project.timeSig)) + 1;
 
   return (
     <div className="transport" role="group" aria-label="Reproducción y grabación">
@@ -327,3 +328,4 @@ export function Transport() {
     </div>
   );
 }
+import { beatsInBar, meterBeatUnit } from '@orbit/core';

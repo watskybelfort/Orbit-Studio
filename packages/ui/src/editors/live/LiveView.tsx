@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Vista Live — performance por escenas: cada PATRÓN es una escena lanzable
  * (en Orbit un patrón ya agrupa todos los canales, como una fila de session).
@@ -145,7 +146,7 @@ export function LiveView() {
             <ScenePad
               key={id}
               pattern={pattern}
-              beatsPerBar={project.timeSig.num}
+              beatsPerBar={beatsInBar(project.timeSig)}
               sounding={playingPattern && id === patternId}
               queued={id === queuedId}
               onLaunch={() => launch(id)}
@@ -236,7 +237,7 @@ export function LiveView() {
 
 interface ScenePadProps {
   pattern: Pattern;
-  /** Pulsos por compás (timeSig.num) para mostrar la longitud en compases. */
+  /** Negras por compás (num * 4 / den) para mostrar la longitud en compases. */
   beatsPerBar: number;
   /** Es el patrón activo y está sonando en modo patrón. */
   sounding: boolean;
@@ -248,7 +249,7 @@ interface ScenePadProps {
 }
 
 function ScenePad({ pattern, beatsPerBar, sounding, queued, onLaunch, onMenu }: ScenePadProps) {
-  const bars = Math.round((pattern.length / Math.max(1, beatsPerBar)) * 10) / 10;
+  const bars = Math.round((pattern.length / beatsPerBar) * 10) / 10;
   const noteCount = Object.values(pattern.notes).reduce((total, list) => total + list.length, 0);
   const cls = `live-pad${sounding ? ' sounding' : ''}${queued ? ' queued' : ''}`;
   const title = queued

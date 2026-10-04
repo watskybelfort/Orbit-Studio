@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Panel de colaboración en tiempo real: crear/unirse a salas, código grande
  * para compartir, rol con el que entras, presencia (quién está, qué edita y
@@ -142,7 +143,7 @@ export function CollabPanel() {
   });
   const [serverBusy, setServerBusy] = useState(false);
 
-  const beatsPerBar = store.project.timeSig.num;
+  const beatsPerBar = beatsInBar(store.project.timeSig);
 
   // Estado inicial del servidor (por si ya estaba arrancado en esta sesión) y
   // direcciones de la máquina para elegir dónde escuchar.

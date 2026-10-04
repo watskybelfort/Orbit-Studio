@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Acciones sobre un parámetro concreto (`ParamRef`): crear su clip de
  * automatización o ponerle/quitarle un LFO.
@@ -26,7 +27,7 @@ import { useUiStore } from './ui';
 
 /** Longitud por defecto de un clip creado desde la perilla: 4 compases. */
 export function defaultClipLength(project: Project): number {
-  return Math.max(4, project.timeSig.num * 4);
+  return beatsInBar(project.timeSig) * 4;
 }
 
 /**
@@ -120,7 +121,7 @@ export function addLfoFor(ref: ParamRef): string {
     return existing.id;
   }
   // Un ciclo por compás: musical de partida en cualquier tempo.
-  const lfo = createLfo(ref, Math.max(1, project.timeSig.num));
+  const lfo = createLfo(ref, beatsInBar(project.timeSig));
   const label = `LFO en ${describeParamRef(ref, project)}`;
   store.dispatch({ type: 'addLfos', lfos: [lfo] }, { label });
   useUiStore.getState().openWindow('lfo');

@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Piano Roll de Orbit Studio (canvas).
  * Dibujar/mover/redimensionar/seleccionar notas, slide (808), velocity lane,
@@ -280,7 +281,7 @@ export function PianoRoll() {
     const lastBeat = Math.ceil(scrollX + w / zoomX);
     for (let b = firstBeat; b <= lastBeat; b++) {
       const x = beatToX(b);
-      const isBar = b % project.timeSig.num === 0;
+      const isBar = b % beatsInBar(project.timeSig) === 0;
       ctx.fillStyle = isBar ? col('--pr-grid-bar') : col('--pr-grid-beat');
       ctx.fillRect(x, 0, 1, gridH);
       // Subdivisiones 1/4 de beat
@@ -290,6 +291,13 @@ export function PianoRoll() {
           ctx.fillRect(x + (s * zoomX) / 4, 0, 1, gridH);
         }
       }
+    }
+    // Compases de longitud fraccionaria (p. ej. 3/8 = 1,5 negras) también
+    // tienen borde propio, aunque no coincidan con las líneas de negra.
+    const measure = beatsInBar(project.timeSig);
+    for (let bar = Math.ceil(scrollX / measure); bar * measure <= lastBeat; bar++) {
+      ctx.fillStyle = col('--pr-grid-bar');
+      ctx.fillRect(beatToX(bar * measure), 0, 1, gridH);
     }
     // Fin del patrón
     ctx.fillStyle = col('--pr-pattern-end');
@@ -440,7 +448,7 @@ export function PianoRoll() {
       ctx.fillStyle = col('--pr-playhead');
       ctx.fillRect(x, 0, 1.5, h);
     }
-  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, zoomX, scaleRoot, scale, showGhosts, project.timeSig.num, beatToX, keyToY, themeVersion]);
+  }, [notes, pattern, channel, channelId, selection, laneMode, peers, scrollX, zoomX, scaleRoot, scale, showGhosts, project.timeSig, beatToX, keyToY, themeVersion]);
 
   useEffect(() => {
     draw();
@@ -1291,7 +1299,7 @@ export function PianoRoll() {
         notes: generated,
       });
       const end = Math.max(...generated.map((n) => n.start + n.duration));
-      const bar = Math.max(1, project.timeSig.num);
+      const bar = beatsInBar(project.timeSig);
       if (end > pattern.length + 1e-6) {
         commands.push({
           type: 'patchPattern',
@@ -1306,7 +1314,7 @@ export function PianoRoll() {
       );
       setSelection(new Set(generated.map((n) => n.id)));
     },
-    [activePatternId, channelId, pattern, notes, project.timeSig.num],
+    [activePatternId, channelId, pattern, notes, project.timeSig],
   );
 
   // Atajos de herramientas estilo FL: Alt+A arpegiar, Alt+S strum, Alt+U chop,
@@ -1741,8 +1749,8 @@ export function PianoRoll() {
           <RiffDialog
             root={scaleRoot}
             scaleName={scaleName}
-            beatsPerBar={Math.max(1, project.timeSig.num)}
-            patternBars={Math.max(1, Math.round(pattern.length / Math.max(1, project.timeSig.num)))}
+            beatsPerBar={beatsInBar(project.timeSig)}
+            patternBars={Math.max(1, Math.round(pattern.length / beatsInBar(project.timeSig)))}
             onGenerate={applyRiff}
             onClose={() => setRiffOpen(false)}
           />

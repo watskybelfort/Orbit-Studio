@@ -90,6 +90,46 @@ describe('BUG031: las tomas del grabador conservan su sesión de origen', () => 
     vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   });
 
+  it.each([[6, 8, 1.5], [6, 4, 3], [3, 8, 0.75]])('BUG047: una cuenta de %i/%i inicia la captura a los %fs', async (num, den, seconds) => {
+    const r = await rig();
+    r.store.dispatch({ type: 'setTempo', tempo: 120 });
+    r.store.dispatch({ type: 'setTimeSig', timeSig: { num, den } });
+    let audioTime = 0;
+    vi.spyOn(r.engine, 'audioContext', 'get').mockReturnValue({ get currentTime() { return audioTime; } } as AudioContext);
+    const count = vi.spyOn(r.engine, 'countIn');
+    r.ui.useUiStore.setState({ playing: false, positionBeats: 0 });
+    r.recorder.useRecorderStore.setState({ countInBars: 1 });
+    const starting = r.recorder.toggleRecording();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(count).toHaveBeenCalledWith(num * 4 / den, num * 4 / den, 0, 4 / den);
+    expect(r.recorder.useRecorderStore.getState().phase).toBe('countin');
+    audioTime = seconds - 0.01;
+    await vi.advanceTimersByTimeAsync(25);
+    expect(r.recorder.useRecorderStore.getState().phase).toBe('countin');
+    audioTime = seconds;
+    await vi.advanceTimersByTimeAsync(25);
+    await starting;
+    expect(r.recorder.useRecorderStore.getState().phase).toBe('recording');
+  });
+
+  it.each([[6, 8, 5], [6, 4, 2], [3, 8, 6.5]])('BUG047: preroll %i/%i comienza en beat %f para llegar a 8', async (num, den, from) => {
+    const r = await rig();
+    r.store.dispatch({ type: 'setTimeSig', timeSig: { num, den } });
+    r.ui.useUiStore.setState({ playing: false, positionBeats: 8 });
+    r.recorder.useRecorderStore.setState({ countInBars: 1 });
+    const seek = vi.spyOn(r.engine, 'seek');
+    // Esta prueba mide el denominador; simula el primer frame del transporte.
+    vi.spyOn(r.engine, 'play').mockImplementation(() => { r.ui.useUiStore.setState({ playing: true }); });
+    const starting = r.recorder.toggleRecording();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(seek).toHaveBeenCalledWith(from);
+    const app = await import('../src/state/app');
+    vi.mocked(app.currentBeat).mockReturnValue(8);
+    await vi.advanceTimersByTimeAsync(25);
+    await starting;
+    expect(r.recorder.useRecorderStore.getState().phase).toBe('recording');
+  });
+
   for (const stage of ['hash', 'save', 'load'] as const) {
     it.each(['otro', 'mismo id'] as const)(`${stage} pendiente y reemplazo %s: guarda ambas tomas sin insertar en B`, async (replacement) => {
       const r = await rig(stage);

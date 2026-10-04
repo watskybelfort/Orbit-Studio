@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Playlist — arreglo de canción estilo FL Studio (canvas).
  *
@@ -77,7 +78,7 @@ const TRACK_H_DEFAULT = 56;
 const MIN_ZOOM = 6;
 const MAX_ZOOM = 120;
 
-/** 'bar' se resuelve al compás actual (timeSig.num beats). */
+/** 'bar' se resuelve al compás actual (num * 4 / den negras). */
 type SnapValue = number | 'bar' | null;
 
 const SNAPS: { label: string; value: SnapValue }[] = [
@@ -185,7 +186,7 @@ export function Playlist() {
     [],
   );
 
-  const barLen = Math.max(1, project.timeSig.num);
+  const barLen = beatsInBar(project.timeSig);
 
   /**
    * Compases visibles teniendo en cuenta los cambios de compás por marcador:
@@ -195,7 +196,7 @@ export function Playlist() {
   const meterMap = useMemo(() => {
     const map: { beat: number; num: number }[] = [{ beat: 0, num: barLen }];
     for (const m of Object.values(project.markers).sort((a, b) => a.time - b.time)) {
-      const num = m.timeSigNum ? Math.round(m.timeSigNum) : 0;
+      const num = m.timeSigNum ? beatsInBar({ num: m.timeSigNum, den: project.timeSig.den }) : 0;
       if (num <= 0) continue;
       if (m.time <= 0) map[0]!.num = num;
       else if (num !== map[map.length - 1]!.num) map.push({ beat: m.time, num });

@@ -22,6 +22,8 @@
 
 import {
   armedInputRoutes,
+  beatsInBar,
+  meterBeatUnit,
   createPlaylistTrack,
   newId,
   type Clip,
@@ -257,13 +259,13 @@ let starting = false;
  * reloj de audio), que es cuando quien llama tiene que abrir el micro.
  */
 
-async function waitCountIn(bars: number, beatsPerBar: number, target: number, take: RecordingSession): Promise<number | null> {
+async function waitCountIn(bars: number, beatsPerBar: number, unit: number, target: number, take: RecordingSession): Promise<number | null> {
   await engine.init();
   if (!ownsRecorder(take)) return null;
   useUiStore.setState({ positionBeats: target });
   engine.seek(target);
   const beats = bars * beatsPerBar;
-  useRecorderStore.setState({ phase: 'countin', countdown: beats, error: null });
+  useRecorderStore.setState({ phase: 'countin', countdown: beats / unit, error: null });
   /*
    * La espera se mide con el RELOJ DE AUDIO, que es el mismo con el que el
    * kernel enciende el transporte al cerrar la cuenta. Esperar en cambio a
@@ -273,7 +275,7 @@ async function waitCountIn(bars: number, beatsPerBar: number, target: number, ta
    */
   const ctx = engine.audioContext;
   const t0 = ctx?.currentTime ?? 0;
-  engine.countIn(beats, beatsPerBar, target);
+  engine.countIn(beats, beatsPerBar, target, unit);
   const countSec = (beats * 60) / Math.max(1, take.tempo);
   // Red de seguridad por si el audio no llegara a sonar (worklet caído,
   // contexto suspendido): sin esto la espera se queda con el micro abierto.
@@ -323,7 +325,8 @@ async function waitCountIn(bars: number, beatsPerBar: number, target: number, ta
  * estaba el caret, que es donde el usuario quería empezar a cantar.
  */
 async function runCountIn(bars: number, target: number, take: RecordingSession): Promise<number | null> {
-  const beatsPerBar = Math.max(1, store.project.timeSig.num);
+  const beatsPerBar = beatsInBar(store.project.timeSig);
+  const unit = meterBeatUnit(store.project.timeSig);
   const from = Math.max(0, target - bars * beatsPerBar);
   const wasMetronome = useUiStore.getState().metronome;
   cancelCountIn = false;
@@ -335,13 +338,13 @@ async function runCountIn(bars: number, target: number, take: RecordingSession):
   // la app, o darle a Stop, deja el caret justo ahí. Sin sitio por delante, la
   // cuenta se hace con el transporte PARADO y el metrónomo puesto.
   if (target - from <= 1e-6) {
-    return waitCountIn(bars, beatsPerBar, target, take);
+    return waitCountIn(bars, beatsPerBar, unit, target, take);
   }
 
   useUiStore.setState({ metronome: true, positionBeats: from });
   engine.setMetronome(true);
   engine.seek(from);
-  useRecorderStore.setState({ phase: 'countin', countdown: bars * beatsPerBar, error: null });
+  useRecorderStore.setState({ phase: 'countin', countdown: bars * beatsPerBar / unit, error: null });
 
   await play(() => ownsRecorder(take));
 
@@ -358,7 +361,7 @@ async function runCountIn(bars: number, target: number, take: RecordingSession):
     // La cuenta se enseña en BEATS (4·3·2·1), igual que la del kernel. Tope
     // arriba: el primer frame de medidores puede llegar con la posición vieja
     // y la cuenta arrancaría con un beat de más.
-    const left = Math.min(bars * beatsPerBar, Math.max(1, Math.ceil(target - beat)));
+    const left = Math.min(bars * beatsPerBar / unit, Math.max(1, Math.ceil((target - beat) / unit)));
 
     if (left !== useRecorderStore.getState().countdown) {
       useRecorderStore.setState({ countdown: left });

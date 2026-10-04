@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Panel de Export/Render: elige qué y cómo, abre el diálogo de guardado y deja
  * que `run-export.ts` haga el trabajo (render offline con el mismo kernel que
@@ -102,7 +103,7 @@ export function ExportPanel() {
     () => usedMixerTracks(project, opts.source === 'pattern' ? { audioClips: [] } : undefined),
     [project, opts.source],
   );
-  const beatsPerBar = Math.max(1, project.timeSig.num);
+  const beatsPerBar = beatsInBar(project.timeSig);
 
   /** Lo que se exporta de verdad: las opciones del panel + lo que hay vivo. */
   const effective: ExportOptions = {

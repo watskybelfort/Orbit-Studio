@@ -1,3 +1,4 @@
+import { beatsInBar } from '@orbit/core';
 /**
  * Editor de clips de automatización (canvas).
  *
@@ -523,7 +524,7 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
   // El proyecto se muta in place (identidad estable): se ordena en cada render
   // (el componente re-renderiza con cada versión del store) en vez de memoizar.
   const points = (clip.points ?? []).slice().sort((a, b) => a.time - b.time);
-  const barLen = Math.max(1, project.timeSig.num);
+  const barLen = beatsInBar(project.timeSig);
   const title = target ? describeParamRef(target, project) : 'Automatización (sin destino)';
 
   // ── Geometría beats/valor ↔ px ────────────────────────────────────────────
