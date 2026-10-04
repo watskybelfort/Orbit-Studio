@@ -125,7 +125,12 @@ describe('BUG056/031: rehidratación con store, AudioEngine y DSP reales', () =>
     r.store.replaceProject(r.project('a.wav'));
     const a = r.sounds.rehydrateSamples();
     await (stage === 'read' ? reading.promise : r.decoding);
-    r.store.dispatch({ type: 'registerSample', sample: r.project('b.wav').samples['same-sample-id']! });
+    // Conserva la sesión y sus referencias, pero sustituye mediante el bus:
+    // registerSample por sí solo rechaza ahora los IDs que ya existen (003).
+    r.store.dispatch({ type: 'batch', commands: [
+      { type: 'unregisterSample', sampleId: 'same-sample-id' },
+      { type: 'registerSample', sample: r.project('b.wav').samples['same-sample-id']! },
+    ] });
     const version = r.store.version;
     if (stage === 'read') gate.resolve(r.bytes.get('a.wav')!);
     else r.release();

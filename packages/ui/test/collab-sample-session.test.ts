@@ -161,7 +161,11 @@ describe('BUG032: una sincronización retirada no publica sobre la nueva', () =>
   it.each(['read', 'decode'] as const)('cambiar hash/ruta durante %s reencola el contenido actual sin reset de sesión', async (stage) => {
     const r = await rig(stage), room = r.room('A');
     const pending = r.sync.syncSamplesWithRoom(room); await r.entered;
-    r.store.dispatch({ type: 'registerSample', sample: r.sample('b.wav') });
+    // Sustitución explícita: un alta duplicada ya no puede pisar el historial.
+    r.store.dispatch({ type: 'batch', commands: [
+      { type: 'unregisterSample', sampleId: r.sample('b.wav').id },
+      { type: 'registerSample', sample: r.sample('b.wav') },
+    ] });
     r.release(); const report = await pending;
     expect(report).toEqual({ loaded: 1, published: 1, missing: [] });
     expect(room.sampleHashes).toEqual([r.sample('b.wav').hash]);
@@ -173,7 +177,10 @@ describe('BUG032: una sincronización retirada no publica sobre la nueva', () =>
     r.replace('absent.wav');
     expect(r.sync.sampleSetChanged()).toBe(true);
     expect((await r.sync.syncSamplesWithRoom(room)).missing).toEqual(['absent.wav']);
-    r.store.dispatch({ type: 'registerSample', sample: r.sample('b.wav') });
+    r.store.dispatch({ type: 'batch', commands: [
+      { type: 'unregisterSample', sampleId: r.sample('b.wav').id },
+      { type: 'registerSample', sample: r.sample('b.wav') },
+    ] });
     expect(r.sync.sampleSetChanged()).toBe(true);
     expect(r.sync.sampleSetChanged()).toBe(false);
     expect(await r.sync.syncSamplesWithRoom(room)).toEqual({ loaded: 1, published: 1, missing: [] });
