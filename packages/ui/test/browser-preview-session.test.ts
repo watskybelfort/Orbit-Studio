@@ -80,18 +80,21 @@ describe('BUG051: preview conserva audio hasta reproducir', () => {
     engineInternals.ctx = {decodeAudioData: () => { decoding.resolve(); return decoded.promise; }} as unknown as AudioContext;
     engineInternals.send = (message) => { messages.push(message.type); kernel.handleMessage(message); };
     const tone = Float32Array.from({length: 8000}, (_, i) => 0.1 * Math.sin(2 * Math.PI * 220 * i / 8000));
-    const pending = r.sounds.previewSound(r.entry(), 0.9, () => true);
+    const pending = r.sounds.previewSound(r.entry(), 0.9, () => true).catch((error: unknown) => error);
     await decoding.promise;
     decoded.resolve({getChannelData: () => tone, numberOfChannels: 1, sampleRate: 8000, duration: 1} as unknown as AudioBuffer);
     // loadSample sube primero; esta microtarea precede a la continuación de previewSound.
     await Promise.resolve();
     r.gc.collectWorkletSamples(r.engine, r.store.project);
-    expect(await pending).toBe(true);
+    const result = await pending;
+    if (pin) expect(result).toBe(true);
+    else expect(result).toMatchObject({ name: 'SampleLoadCancelledError' });
     const left = new Float32Array(128), right = new Float32Array(128);
     kernel.process(left, right, 128);
     const peak = left.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
     expect(messages.indexOf('loadSample')).toBeLessThan(messages.indexOf('collectSamples'));
-    expect(messages.indexOf('collectSamples')).toBeLessThan(messages.indexOf('previewSample'));
+    if (pin) expect(messages.indexOf('collectSamples')).toBeLessThan(messages.indexOf('previewSample'));
+    else expect(messages).not.toContain('previewSample');
     expect(peak).toBeCloseTo(pin ? 0.0899864137 : 0, 8);
     expect(r.gc.pinnedSamples()).toEqual([]);
   });

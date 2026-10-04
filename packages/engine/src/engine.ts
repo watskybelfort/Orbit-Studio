@@ -17,6 +17,39 @@ import {
 // Vite empaqueta el worklet como worker aparte y nos da su URL.
 import workletUrl from './worklet/kernel.worklet?worker&url';
 
+interface SampleLoad {
+  epoch: number;
+  bytes: Uint8Array<ArrayBuffer>;
+  consumers: Set<() => boolean>;
+  obsolete: boolean;
+  promise: Promise<{ duration: number }> | null;
+}
+
+/** Cancelación de una carga cuyo consumidor o contenido ya no es vigente. */
+export class SampleLoadCancelledError extends Error {
+  constructor() {
+    super('La carga de audio fue sustituida o cancelada.');
+    this.name = 'SampleLoadCancelledError';
+  }
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+async function sampleDigest(bytes: Uint8Array<ArrayBuffer>): Promise<string | null> {
+  try {
+    if (!globalThis.crypto?.subtle) return null;
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Sin identidad fiable se vuelve a decodificar; nunca se confía solo en el ID.
+    return null;
+  }
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
@@ -24,6 +57,10 @@ export class AudioEngine {
   private loadedSamples = new Set<string>();
   /** Duración real de cada sample ya decodificado (segundos). */
   private sampleDurations = new Map<string, number>();
+  /** Solo digest y duración confirmados; los WAV no se retienen en la caché. */
+  private sampleDigests = new Map<string, string>();
+  private sampleLoads = new Map<string, SampleLoad>();
+  private sampleLoadEpoch = 0;
   /**
    * Arranque en vuelo. `init()` tarda dos `await` en asignar `this.ctx`, así que
    * dos llamadas casi a la vez (el pointerdown que despierta el audio y el click
@@ -290,16 +327,60 @@ export class AudioEngine {
   }
 
   /**
-   * Decodifica un archivo de audio y lo sube al kernel (una sola vez por id).
+   * Decodifica y sube el contenido vigente de un ID. Dos consumidores de los
+   * mismos bytes comparten la carga; otro contenido sustituye el pendiente.
    * Devuelve su duración REAL, también si ya estaba subido: quien coloca un
    * clip la necesita, y devolver 0 la segunda vez obligaba a inventársela.
    */
-  async loadSample(sampleId: string, data: ArrayBuffer): Promise<{ duration: number }> {
+  async loadSample(
+    sampleId: string,
+    data: ArrayBuffer,
+    isCurrent: () => boolean = () => true,
+  ): Promise<{ duration: number }> {
+    // Capturado antes de init/hash/decode. La copia que se identifica es la
+    // misma que se decodifica aunque el caller modifique su ArrayBuffer.
+    const epoch = this.sampleLoadEpoch;
+    if (!isCurrent()) throw new SampleLoadCancelledError();
+    const bytes = new Uint8Array(data);
+    let request = this.sampleLoads.get(sampleId);
+    if (!request || request.obsolete || request.epoch !== epoch ||
+        ![...request.consumers].some((current) => current()) || !sameBytes(request.bytes, bytes)) {
+      if (request) request.obsolete = true;
+      request = { epoch, bytes: bytes.slice(), consumers: new Set(), obsolete: false, promise: null };
+      this.sampleLoads.set(sampleId, request);
+    }
+    const consumer = () => isCurrent();
+    request.consumers.add(consumer);
+    request.promise ??= this.decodeSample(sampleId, request);
+    try {
+      const result = await request.promise;
+      if (request.obsolete || epoch !== this.sampleLoadEpoch || !isCurrent()) throw new SampleLoadCancelledError();
+      return result;
+    } catch (error) {
+      if (request.obsolete || epoch !== this.sampleLoadEpoch || !isCurrent()) throw new SampleLoadCancelledError();
+      throw error;
+    } finally {
+      request.consumers.delete(consumer);
+      if (request.consumers.size === 0 && this.sampleLoads.get(sampleId) === request) this.sampleLoads.delete(sampleId);
+    }
+  }
+
+  private async decodeSample(sampleId: string, request: SampleLoad): Promise<{ duration: number }> {
+    const check = () => {
+      if (request.obsolete || request.epoch !== this.sampleLoadEpoch ||
+          this.sampleLoads.get(sampleId) !== request || ![...request.consumers].some((current) => current())) {
+        throw new SampleLoadCancelledError();
+      }
+    };
     if (!this.ctx) await this.init();
+    check();
     const ctx = this.ctx!;
+    const digest = await sampleDigest(request.bytes);
+    check();
     const known = this.sampleDurations.get(sampleId);
-    if (known !== undefined) return { duration: known };
-    const decoded = await ctx.decodeAudioData(data.slice(0));
+    if (digest !== null && digest === this.sampleDigests.get(sampleId) && known !== undefined) return { duration: known };
+    const decoded = await ctx.decodeAudioData(request.bytes.buffer.slice(0));
+    check();
     const left = decoded.getChannelData(0).slice();
     const right = (decoded.numberOfChannels > 1
       ? decoded.getChannelData(1)
@@ -311,7 +392,16 @@ export class AudioEngine {
     );
     this.loadedSamples.add(sampleId);
     this.sampleDurations.set(sampleId, decoded.duration);
+    if (digest !== null) this.sampleDigests.set(sampleId, digest);
+    else this.sampleDigests.delete(sampleId);
     return { duration: decoded.duration };
+  }
+
+  /** Retira cargas pendientes al cambiar de proyecto; no corta voces ya enviadas. */
+  invalidateSampleLoads(): void {
+    this.sampleLoadEpoch++;
+    for (const request of this.sampleLoads.values()) request.obsolete = true;
+    this.sampleLoads.clear();
   }
 
   previewSample(sampleId: string, gain = 0.9): void {
@@ -338,9 +428,14 @@ export class AudioEngine {
     for (const id of [...this.sampleDurations.keys()]) {
       if (!alive.has(id)) this.sampleDurations.delete(id);
     }
+    for (const id of this.sampleDigests.keys()) if (!alive.has(id)) this.sampleDigests.delete(id);
+    for (const [id, request] of this.sampleLoads) {
+      if (!alive.has(id)) { request.obsolete = true; this.sampleLoads.delete(id); }
+    }
   }
 
   async dispose(): Promise<void> {
+    this.invalidateSampleLoads();
     this.node?.disconnect();
     this.node = null;
     await this.ctx?.close();
@@ -350,6 +445,7 @@ export class AudioEngine {
     this.initPromise = null;
     this.loadedSamples.clear();
     this.sampleDurations.clear();
+    this.sampleDigests.clear();
     this.pending = [];
   }
 }

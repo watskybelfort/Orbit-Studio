@@ -22,6 +22,7 @@ import { clearClipboard } from './clipboard';
 export const store = new ProjectStore();
 store.subscribeBeforeReplace(clearClipboard);
 export const engine = new AudioEngine();
+store.subscribeBeforeReplace(() => engine.invalidateSampleLoads());
 
 /**
  * Ventana de agrupación de la resincronización. Antes era un `queueMicrotask`,
