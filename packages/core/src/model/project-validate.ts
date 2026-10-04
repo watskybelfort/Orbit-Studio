@@ -2,25 +2,35 @@
  * Tipos y referencias de un proyecto recién parseado (BUG 017).
  *
  * `parseProject` comprobaba que el ESQUELETO estuviera y poco más: los campos
- * aditivos se rellenaban con `??=` sin mirar qué traían, y las entidades de los
- * pools no se comprobaban. De ahí lo que se veía al abrir un archivo tocado a
- * mano o escrito por una versión futura: `patternOrder: 42` pasaba y
- * `patterns: { x: null }` también —el compilaba ensuing en silencio o reventaba
- * con un TypeError que no nombraba el campo—.
+ * aditivos se rellenaban con `??=` sin mirar qué traían, las entidades de los
+ * pools no se comprobaban, y los números que van a la línea de tiempo pasaban
+ * como fueran. De ahí lo que se veía al abrir un archivo tocado a mano o escrito
+ * por una versión futura: `samples: 42` pasaba, `patternOrder: 42` pasaba, un
+ * patrón `null` pasaba y compilaba en silencio, y un `volume: 'loud'` en un canal
+ * llegaba al motor y salía un NaN en el audio renderizado.
  *
  * Aquí se decide QUÉ es estructura y qué es contenido musical, porque no todo
  * puede fallar:
  *
- * - **Estructura**: listas de orden y entidades de pool. Si su tipo no es el
- *   que el motor lee, se falla aquí y por su nombre. Un archivo que no se
- *   entiende no es un archivo: abrirlo a medias es peor que no abrirlo.
- * - **Contenido**: las notas de un clip, un corte de un canal, un slot de
- *   efecto. Eso se sanea y se acota donde ya se hacía (slices, keymap, bend,
- *   busTrack), porque un canal raro sigue siendo un canal: son datos del
- *   usuario, no una avería del archivo. Un clip que apunta a un patrón que no
- *   existe suena a silencio, y eso se deja como está —recuperable y sin ruido—.
+ * - **Estructura**: pools, entidades, listas de orden y NÚMEROS. Si su tipo no
+ *   es el que el motor lee, se falla aquí y por su nombre. Un archivo que no se
+ *   entiende no es un archivo: abrirlo a medias es peor que no abrirlo, y la UI
+ *   se queda con el proyecto anterior.
+ * - **Contenido**: un nombre de canal raro, un preset desconocido, un corte. Eso
+ *   se sanea y se acota donde ya se hacía (slices, keymap, bend, busTrack),
+ *   porque es dato del usuario, no una avería del archivo.
  *
- * Módulo puro y sin dependencias de DOM para poder probarlo entero.
+ * Dos reglas que gobiernan todo lo de aquí:
+ *
+ * - **Solo se mira lo que está**: un campo ausente no es un problema. Es lo que
+ *   mantiene abriéndose los `.orbit` de antes de que existiera el campo.
+ * - **Esto corre ANTES de adoptar los pools.** Adoptar copia a pools sin
+ *   prototipo y descarta claves reservadas, así que un `samples: 42` se
+ *   convertía en un pool vacío y el validador, al mirar después, ya no veía el
+ *   tipo: el archivo inválido pasaba por limpio. Primero se juzga, luego se
+ *   adopta.
+ *
+ * Módulo puro y sin DOM, para poder probarlo entero sin pasar por un archivo.
  */
 
 import { PROJECT_POOLS } from './entity-id';
@@ -34,8 +44,31 @@ const ORDER_FIELDS = [
   'inputRouteOrder',
 ] as const;
 
+/**
+ * Números que van DERECHO a la línea de tiempo o al motor. Un NaN aquí no es un
+ * canal raro: es un evento que empieza en NaN, o un `render.left` con NaN dentro
+ * —que es silencio, o un ruido entero, según dónde se mire—. Solo se comprueban
+ * si están presentes, así que un canal sin `pan` (los `.orbit` antiguos) sigue
+ * abriéndose.
+ */
+const NUMERICOS: Record<string, readonly string[]> = {
+  channels: ['volume', 'pan'],
+  clips: [
+    'start', 'length', 'patternOffset', 'audioOffset', 'audioGain',
+    'fadeIn', 'fadeOut', 'lane', 'audioPitch',
+  ],
+  playlistTracks: ['height', 'order', 'mixerTrack'],
+  markers: ['time', 'tempo', 'timeSigNum'],
+  sections: ['start', 'length'],
+  lfos: ['rateBeats', 'amount', 'phase'],
+  samples: ['duration'],
+};
+
+/** Números sueltos del proyecto, fuera de cualquier entidad. */
+const NUMERICOS_PROYECTO: readonly string[] = ['tempo', 'swing'];
+
 export interface ParseProblem {
-  /** Campo con el problema, con su ruta (`mixer[3]`). */
+  /** Campo con el problema, con su ruta (`mixer[3].volume`, `patterns.p.notes`). */
   field: string;
   /** Qué se esperaba. */
   expected: string;
@@ -65,31 +98,171 @@ export function findProjectProblems(project: Record<string, unknown>): ParseProb
     }
   }
 
-  // 2. Cada entidad de un pool tiene que SER una entidad. Un `null` o un
-  //    número ahí no es un patrón raro: revienta el compilador sin nombre.
-  //    Solo los pools de entidad: `meta` o `timeSig` son mapas de datos, no
-  //    colecciones de entidades.
+  // 2. Cada pool tiene que SER un pool, y cada entidad tiene que ser una entidad.
+  //    `samples: 42` antes se convertía en un pool vacío al adoptar y pasaba
+  //    limpio; aquí se juzga ANTES de adoptar. Una lista VACÍA sí vale como "sin
+  //    nada": no hay nada que perder y hay archivos que la traen así.
   for (const poolName of PROJECT_POOLS) {
     const pool = project[poolName];
-    if (typeof pool !== 'object' || pool === null || Array.isArray(pool)) continue;
+    if (pool === undefined || pool === null) continue; // aditivo: se rellena
+    if (typeof pool !== 'object' || (Array.isArray(pool) && pool.length > 0)) {
+      problems.push({ field: poolName, expected: 'un mapa de entidades' });
+      continue;
+    }
     for (const [id, entity] of Object.entries(pool as Record<string, unknown>)) {
       if (typeof entity !== 'object' || entity === null || Array.isArray(entity)) {
         problems.push({ field: `${poolName}.${id}`, expected: 'una entidad (objeto)' });
+        continue;
       }
+      problems.push(...entityProblems(poolName, id, entity as Record<string, unknown>));
     }
   }
 
-  // 3. La mesa de mezcla es una lista de tamaño fijo que el motor indexa por
-  //    posición: una entrada que no sea un objeto lo revienta al compilar.
+  // 3. Números sueltos del proyecto. `swing: 'wrong'` llegaba a `swungStart` y
+  //    volvía NaN en el tiempo de cada evento: el beat se rompía en silencio.
+  for (const field of NUMERICOS_PROYECTO) {
+    const value = project[field];
+    if (value !== undefined && !esNumero(value)) {
+      problems.push({ field, expected: 'un número' });
+    }
+  }
+
+  // 4. La mesa de mezcla es una lista de tamaño fijo que el motor indexa por
+  //    posición: una entrada que no sea un objeto lo revienta al compilar, y sus
+  //    números van derechos al bus de la pista.
   const mixer = project.mixer;
   if (Array.isArray(mixer)) {
     mixer.forEach((track, i) => {
       if (typeof track !== 'object' || track === null || Array.isArray(track)) {
         problems.push({ field: `mixer[${i}]`, expected: 'una pista (objeto)' });
+        return;
       }
+      problems.push(...numericProblems(`mixer[${i}]`, track as Record<string, unknown>,
+        ['volume', 'pan', 'eqLow', 'eqMid', 'eqHigh', 'routeTo'], ['routeTo']));
     });
   }
 
+  return problems;
+}
+
+function esNumero(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function numericProblems(
+  prefijo: string,
+  entidad: Record<string, unknown>,
+  campos: readonly string[],
+  admitenNull: readonly string[] = [],
+): ParseProblem[] {
+  const problems: ParseProblem[] = [];
+  for (const campo of campos) {
+    const value = entidad[campo];
+    // `null` solo donde el modelo lo admite: el `routeTo` del master es
+    // `number | null` porque ahí no hay a dónde enrutar.
+    if (value === null && admitenNull.includes(campo)) continue;
+    if (value !== undefined && !esNumero(value)) {
+      problems.push({ field: `${prefijo}.${campo}`, expected: 'un número' });
+    }
+  }
+  return problems;
+}
+
+/**
+ * Lo mínimo de dentro de una entidad que, si está mal, no es "un canal raro" sino
+ * un NaN en el audio o un reventón al recorrer: los números de la entidad, sus
+ * mapas de parámetros, sus slots de efecto y —en un patrón— el mapa de notas.
+ */
+function entityProblems(
+  poolName: string,
+  id: string,
+  entidad: Record<string, unknown>,
+): ParseProblem[] {
+  const ruta = `${poolName}.${id}`;
+  const problems = numericProblems(ruta, entidad, NUMERICOS[poolName] ?? []);
+
+  // Mapas de números: `params` de canal y de slot de efecto.
+  for (const campo of ['params', 'pointers']) {
+    if (entidad[campo] === undefined) continue;
+    problems.push(...mapProblems(`${ruta}.${campo}`, entidad[campo]));
+  }
+
+  // Slots de efecto: lista de tamaño fijo con huecos, cada uno con su `mix` y sus
+  // `params`. Un `mix: null` es un NaN esperando a multiplicative.
+  if (entidad.fx !== undefined) problems.push(...slotsProblems(`${ruta}.fx`, entidad.fx));
+  if (entidad.slots !== undefined) problems.push(...slotsProblems(`${ruta}.slots`, entidad.slots));
+
+  // Envíos de una pista: `target`, `level` y `pan` van al bus de mixer.
+  if (entidad.sends !== undefined) {
+    if (!Array.isArray(entidad.sends)) {
+      problems.push({ field: `${ruta}.sends`, expected: 'una lista de envíos' });
+    } else {
+      entidad.sends.forEach((send, i) => {
+        if (typeof send !== 'object' || send === null || Array.isArray(send)) {
+          problems.push({ field: `${ruta}.sends[${i}]`, expected: 'un envío (objeto)' });
+          return;
+        }
+        problems.push(...numericProblems(`${ruta}.sends[${i}]`, send as Record<string, unknown>,
+          ['target', 'level', 'pan']));
+      });
+    }
+  }
+
+  // Las notas de un patrón: mapa id de canal -> lista. `notes: null` pasaba el
+  // esqueleto y reventaba al recorrer con "Cannot convert undefined or null to
+  // object", en el compilador, sin nombres.
+  if (poolName === 'patterns' && entidad.notes !== undefined) {
+    const notas = entidad.notes;
+    if (typeof notas !== 'object' || notas === null || Array.isArray(notas)) {
+      problems.push({ field: `${ruta}.notes`, expected: 'un mapa de notas por canal' });
+    } else {
+      for (const [canal, lista] of Object.entries(notas as Record<string, unknown>)) {
+        if (!Array.isArray(lista)) {
+          problems.push({ field: `${ruta}.notes.${canal}`, expected: 'una lista de notas' });
+          continue;
+        }
+        lista.forEach((nota, i) => {
+          if (typeof nota !== 'object' || nota === null || Array.isArray(nota)) {
+            problems.push({ field: `${ruta}.notes.${canal}[${i}]`, expected: 'una nota (objeto)' });
+            return;
+          }
+          problems.push(...numericProblems(`${ruta}.notes.${canal}[${i}]`,
+            nota as Record<string, unknown>, ['start', 'duration', 'key', 'velocity', 'pan']));
+        });
+      }
+    }
+  }
+
+  return problems;
+}
+
+function mapProblems(ruta: string, value: unknown): ParseProblem[] {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return [{ field: ruta, expected: 'un mapa de números' }];
+  }
+  const problems: ParseProblem[] = [];
+  for (const [clave, numero] of Object.entries(value as Record<string, unknown>)) {
+    if (!esNumero(numero)) {
+      problems.push({ field: `${ruta}.${clave}`, expected: 'un número' });
+    }
+  }
+  return problems;
+}
+
+function slotsProblems(ruta: string, value: unknown): ParseProblem[] {
+  if (!Array.isArray(value)) return [{ field: ruta, expected: 'una lista de slots' }];
+  const problems: ParseProblem[] = [];
+  value.forEach((slot, i) => {
+    // Hueco = null, que es como está un slot vacío.
+    if (slot === null) return;
+    if (typeof slot !== 'object' || Array.isArray(slot)) {
+      problems.push({ field: `${ruta}[${i}]`, expected: 'un slot (objeto o null)' });
+      return;
+    }
+    const propio = slot as Record<string, unknown>;
+    problems.push(...numericProblems(`${ruta}[${i}]`, propio, ['mix', 'sidechainSource']));
+    if (propio.params !== undefined) problems.push(...mapProblems(`${ruta}[${i}].params`, propio.params));
+  });
   return problems;
 }
 

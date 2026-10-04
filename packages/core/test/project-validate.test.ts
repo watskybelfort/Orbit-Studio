@@ -109,6 +109,76 @@ describe('017 · parseProject dice qué está mal y por su nombre', () => {
   });
 });
 
+describe('017 · los cuatro casos de la sonda de review', () => {
+  // Los cuatro que la sonda de revisión medió como ACEPTADOS en 8a3037e.
+  it('samples: 42 — un pool que no es pool (ya no se "adopta" a vacío)', () => {
+    expect(() => parse((p) => (p.samples = 42))).toThrow(/"samples".*mapa de entidades/);
+    // El validador a pelo ve el tipo, que es donde estaba el agujero: adoptar
+    // antes de juzgar convertía el 42 en un pool vacío e invisible.
+    expect(findProjectProblems({ samples: 42 })).toEqual([
+      { field: 'samples', expected: 'un mapa de entidades' },
+    ]);
+  });
+
+  it('lfos: [] es válido (lista vacía) pero lfos: 42 no', () => {
+    expect(() => parse((p) => (p.lfos = []))).not.toThrow();
+    expect(() => parse((p) => (p.lfos = 42))).toThrow(/"lfos".*mapa de entidades/);
+  });
+
+  it("swing: 'wrong' se rechaza: el swing llegaba a swungStart y volvía NaN", () => {
+    expect(() => parse((p) => (p.swing = 'wrong'))).toThrow(/swing" un número/);
+    expect(() => parse((p) => (p.swing = Number.NaN))).toThrow(/swing" un número/);
+  });
+
+  it('pattern.notes: null se rechaza en vez de reventar al recorrer', () => {
+    expect(() =>
+      parse((p) => {
+        const patron = Object.values(p.patterns as Record<string, unknown>)[0] as Record<
+          string,
+          unknown
+        >;
+        patron.notes = null;
+      }),
+    ).toThrow(/notes.*mapa de notas por canal/);
+  });
+});
+
+describe('017 · los números que van al motor también se miran', () => {
+  it('una nota con duración NaN dentro de un patrón por lo demás válido', () => {
+    expect(() =>
+      parse((p) => {
+        const patron = Object.values(p.patterns as Record<string, unknown>)[0] as Record<
+          string,
+          Record<string, unknown[]>
+        >;
+        const notas = patron.notes as Record<string, unknown[]>;
+        notas[Object.keys(notas)[0]!] = [
+          { id: 'n1', start: 0, duration: Number.NaN, key: 60, velocity: 1, pan: 0 },
+        ];
+      }),
+    ).toThrow(/duration" un número/);
+  });
+
+  it('params de canal con un valor que no es número', () => {
+    const channel = createChannel('synth', 0);
+    expect(() =>
+      parse((p) => {
+        p.channels = { [channel.id]: channel };
+        (p.channelOrder as string[]).push(channel.id);
+        ((p.channels as Record<string, { params: Record<string, unknown> }>)[channel.id]!).params.cutoff = 'lento';
+      }),
+    ).toThrow(/params\.cutoff" un número/);
+  });
+
+  it('un clip con start string: la línea de tiempo no admite NaN', () => {
+    expect(() =>
+      parse((p) => {
+        p.clips = { c1: { id: 'c1', kind: 'pattern', playlistTrackId: 't', start: 'x', length: 4 } };
+      }),
+    ).toThrow(/clips\.c1\.start" un número/);
+  });
+});
+
 describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
   it('un proyecto recién creado pasa limpio', () => {
     expect(findProjectProblems(base())).toEqual([]);
@@ -168,15 +238,49 @@ describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
     expect(p.channelGroupOrder).toEqual([]);
   });
 
-  it('un canal con volumen de string: no es estructura, se deja como está', () => {
-    // El contenido musical del canal no se valida aquí (el motor lo acota donde
-    // lo usa); lo que falla es una lista de orden o una entidad que no es entidad.
+  it('los huecos (null) de los slots siguen valiendo: eso es un slot vacío', () => {
+    const channel = createChannel('synth', 0);
+    expect(() =>
+      parse((p) => {
+        p.channels = { [channel.id]: channel };
+        (p.channelOrder as string[]).push(channel.id);
+        ((p.channels as Record<string, { fx: unknown[] }>)[channel.id]!).fx = [null, null];
+      }),
+    ).not.toThrow();
+  });
+
+  it('routeTo del master puede ser null: el modelo lo admite', () => {
+    expect(() =>
+      parse((p) => ((p.mixer as Record<string, unknown>[])[0]!.routeTo = null)),
+    ).not.toThrow();
+  });
+
+  it('los .orbit antiguos, sin los campos de las versiones nuevas', () => {
     const channel = createChannel('synth', 0);
     const p = parse((data) => {
       data.channels = { [channel.id]: channel };
-      (data.channelOrder as string[])[0] = channel.id;
-      ((data.channels as Record<string, { volume: unknown }>)[channel.id]!).volume = 'loud';
+      (data.channelOrder as string[]).push(channel.id);
+      const canal = (data.channels as Record<string, Record<string, unknown>>)[channel.id]!;
+      delete canal.params;
+      delete canal.fx;
+      const patron = Object.values(data.patterns as Record<string, Record<string, unknown>>)[0]!;
+      delete patron.notes;
     });
-    expect(p.channels[channel.id]?.volume).toBe('loud');
+    expect(Object.keys(p.channels)).toHaveLength(1);
+    expect(Object.keys(p.patterns)).toHaveLength(1);
+  });
+
+  it('un volumen de string en un canal: se rechaza (antes pasaba y salía NaN)', () => {
+    // Sonda de review: `channel.volume = 'loud'` pasaba el esqueleto, compilaba y
+    // `render.left` venía con NaN. El motor NO acota esto, así que la afirmación
+    // anterior ("el motor lo acota donde lo usa") era falsa: es estructura.
+    const channel = createChannel('synth', 0);
+    expect(() =>
+      parse((data) => {
+        data.channels = { [channel.id]: channel };
+        (data.channelOrder as string[]).push(channel.id);
+        ((data.channels as Record<string, { volume: unknown }>)[channel.id]!).volume = 'loud';
+      }),
+    ).toThrow(new RegExp(`channels\\.${channel.id}\\.volume`));
   });
 });

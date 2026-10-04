@@ -73,19 +73,12 @@ export function parseProject(json: string): Project {
       throw new Error(`.orbit inválido: "${key}" falta o no es ${SKELETON_KIND_LABEL[kind]}`);
     }
   }
-  // Los pools pasan a ser SIN PROTOTIPO antes de la primera lectura. `JSON.parse`
-  // los deja con `Object.prototype`, así que un archivo (o un log de colaboración)
-  // que traiga la clave `__proto__` haría que `arrangements[activeArrangementId]`
-  // devolviera el PROTOTIPO en vez de `undefined` —y que todo lo de abajo
-  // (fallback de arrangement, keymap, filtros) leyera un valor heredado—. Al
-  // copiar a pools nuevos además se descartan los ids reservados: son claves que
-  // ningún direccionamiento legítimo puede alcanzar. Ver `model/entity-id.ts`.
-  adoptProjectPools(p as Record<string, unknown>);
-  // Tipos y referencias, ANTES de sanear nada. El esqueleto ya pasó, pero los
-  // campos aditivos y las entidades internas llegaban sin mirar: un
-  // `patternOrder: 42` o un patrón `null` se colaban y se rompían mucho más
-  // tarde, en el compilador, con un TypeError que no nombraba el campo o —peor—
-  // compilando en silencio. Ver `model/project-validate.ts`.
+  // Tipos y referencias PRIMERO, y antes de adoptar los pools: adoptar copia a
+  // pools sin prototipo y descarta claves reservadas, así que si se hiciera
+  // después un `samples: 42` se habría convertido en un pool vacío y el
+  // validador ya no vería el tipo: el archivo inválido pasaría por limpio. El
+  // esqueleto ya pasó, pero los campos aditivos, las entidades y los números que
+  // van a la línea de tiempo llegaban sin mirar. Ver `model/project-validate.ts`.
   const problemas = findProjectProblems(p as Record<string, unknown>);
   if (problemas.length > 0) {
     const primero = problemas[0]!;
@@ -94,6 +87,13 @@ export function parseProject(json: string): Project {
         (problemas.length > 1 ? ` (y ${problemas.length - 1} problema(s) más)` : ''),
     );
   }
+  // Los pools pasan a ser SIN PROTOTIPO antes de la primera lectura: `JSON.parse`
+  // los deja con `Object.prototype`, así que un archivo (o un log de colaboración)
+  // con la clave `__proto__` haría que `arrangements[activeArrangementId]`
+  // devolviera el PROTOTIPO en vez de `undefined`. Al copiar a pools nuevos además
+  // se descartan los ids reservados: son claves que ningún direccionamiento
+  // legítimo puede alcanzar. Ver `model/entity-id.ts`.
+  adoptProjectPools(p as Record<string, unknown>);
   // El arrangement activo es el filtro con el que el compilador elige qué pistas
   // suenan en modo canción: apuntando a uno que no existe, la canción queda
   // muda sin que nada avise. Se recoloca al primero del orden que exista de
