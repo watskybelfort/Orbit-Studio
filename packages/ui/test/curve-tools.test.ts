@@ -227,8 +227,7 @@ describe('shapePoints', () => {
 
   it('min y max al revés dan la forma invertida, no una vacía', () => {
     const out = shapePoints({ shape: 'triangle', from: 0, to: 4, cycles: 1, min: 1, max: 0 });
-    expect(out).toHaveLength(3);
-    expect(out[1]!.value).toBe(1);
+    expect(out.map((p) => p.value)).toEqual([1, 0, 1]);
   });
 
   it('un tramo de longitud cero no genera nada', () => {

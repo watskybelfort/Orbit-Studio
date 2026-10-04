@@ -79,3 +79,53 @@ describe('BUG059: fase del triángulo en el generador del diálogo', () => {
     expect([0, 1, 2, 3, 4].map((beat) => automationCurveValue(points, beat))).toEqual([0.5, 1, 0.5, 0, 0.5]);
   });
 });
+
+describe('BUG060: extremos invertidos del generador del diálogo', () => {
+  const shapes = ['sine', 'triangle', 'sawUp', 'sawDown', 'square', 'random'] as const;
+
+  it.each(shapes)('%s conserva tiempos y refleja la curva al intercambiar extremos', (shape) => {
+    for (const [min, max] of [[10, 90], [0, 100], [20, 70]] as const) {
+      for (const phase of [0, 25, 62.5]) {
+        for (const cycles of [1, 2.5]) {
+          const fields = { shape, from: 2, to: 10, clipLength: 10, cycles, phase, seed: 42 };
+          const normal = dialogPoints({ ...fields, min, max });
+          const inverted = dialogPoints({ ...fields, min: max, max: min });
+          expect(inverted.map(({ time }) => time)).toEqual(normal.map(({ time }) => time));
+          for (let i = 0; i < normal.length; i++) {
+            expect(inverted[i]!.value + normal[i]!.value).toBeCloseTo((min + max) / 100, 12);
+            expect(inverted[i]!.value).toBeGreaterThanOrEqual(min / 100 - 1e-12);
+            expect(inverted[i]!.value).toBeLessThanOrEqual(max / 100 + 1e-12);
+          }
+          // La curva que consume el motor también debe quedar reflejada entre
+          // puntos, incluidos los flancos y los ciclos incompletos.
+          for (let time = 2; time <= 10; time += 0.0625) {
+            expect(automationCurveValue(normal, time) + automationCurveValue(inverted, time))
+              .toBeCloseTo((min + max) / 100, 12);
+          }
+          expect(inverted.some(({ value }, i) => Math.abs(value - normal[i]!.value) > 0.01)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it.each(shapes)('%s acota cada extremo por separado sin cambiar su dirección', (shape) => {
+    const fields = { shape, from: 0, to: 4, cycles: 2.5, phase: 0.25, seed: 42 };
+    const values = (min: number, max: number) => shapePoints({ ...fields, min, max }).map(({ value }) => value);
+    expect(values(1.4, -0.3)).toEqual(values(1, 0));
+    expect(values(0.7, -0.3)).toEqual(values(0.7, 0));
+    const inverted = values(0.7, -0.3);
+    const normal = values(-0.3, 0.7);
+    inverted.forEach((value, i) => expect(value + normal[i]!).toBeCloseTo(0.7, 12));
+    expect(values(0.4, 0.4).every((value) => value === 0.4)).toBe(true);
+  });
+
+  it('90→10 y 100→0 generan los valles invertidos que reciben preview y Aplicar', () => {
+    expect(source).toContain('onPreview(points.length > 0 ? points : null)');
+    expect(source).toContain('onApply(points, Math.min(from, to), Math.max(from, to))');
+    const values = (min: number, max: number) => dialogPoints({ min, max }).map(({ value }) => value);
+    expect(values(100, 0)).toEqual([1, 0, 1]);
+    const inverted = values(90, 10);
+    expect(inverted).toHaveLength(3);
+    [0.9, 0.1, 0.9].forEach((expected, i) => expect(inverted[i]).toBeCloseTo(expected, 12));
+  });
+});

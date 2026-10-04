@@ -215,10 +215,12 @@ export function shapePoints(options: ShapeOptions): AutomationPoint[] {
   if (span <= 0) return [];
 
   const period = span / cycles;
-  const lo = clamp01(Math.min(min, max));
-  const hi = clamp01(Math.max(min, max));
+  // Son los extremos del recorrido, no límites ordenados: invertirlos
+  // refleja la forma y conserva su fase y sus tiempos.
+  const start = clamp01(min);
+  const end = clamp01(max);
   /** Valor de la forma para una fase 0..1 dentro del ciclo. */
-  const at = (u: number) => lo + (hi - lo) * u;
+  const at = (u: number) => start + (end - start) * u;
   const out: AutomationPoint[] = [];
 
   /** Empuja un punto acotado al tramo; ignora lo que se salga por la derecha. */
