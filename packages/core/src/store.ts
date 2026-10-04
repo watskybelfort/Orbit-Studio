@@ -329,6 +329,20 @@ export class ProjectStore {
   jumpTo(id: string | null, origin = 'local'): number {
     const boundary = this.boundaryOf(id);
     if (boundary === null) return 0;
+    return this.saltarHasta(boundary, origin).applied;
+  }
+
+  /**
+   * El salto de verdad, con el dato que `jumpTo` no enseña: cuántos pasos HABÍA que
+   * dar y cuántos se dieron.
+   *
+   * `applied < esperado` quiere decir que el ancla no se alcanzó: alguien deshizo (o
+   * alguien más lo hizo) una entrada de este origen por el camino, y el bucle se paró
+   * antes de tiempo. Quien tenga que confiar en haber llegado de verdad —`switchToBranch`
+   * — necesita saberlo, porque si no da por bueno un salto a medias y aplica la rama
+   * sobre un estado que no es el suyo.
+   */
+  private saltarHasta(boundary: number, origin: string): { applied: number; esperado: number } {
     const present = this.undoStack.length;
     let steps = 0;
 
@@ -339,11 +353,14 @@ export class ProjectStore {
       for (let i = boundary; i < present; i++) {
         if (this.undoStack[i]!.origin === origin) pending++;
       }
+      const esperado = pending;
       while (pending > 0 && this.undo(origin)) {
         pending--;
         steps++;
       }
-    } else if (boundary > present) {
+      return { applied: steps, esperado };
+    }
+    if (boundary > present) {
       // Adelante: rehacer hasta el destino. El futuro en orden es el redoStack
       // al revés, así que las `boundary - present` primeras posiciones desde el
       // tope son justo el tramo que hay que recuperar.
@@ -351,12 +368,14 @@ export class ProjectStore {
       for (let i = 0; i < boundary - present; i++) {
         if (this.redoStack[this.redoStack.length - 1 - i]!.origin === origin) pending++;
       }
+      const esperado = pending;
       while (pending > 0 && this.redo(origin)) {
         pending--;
         steps++;
       }
+      return { applied: steps, esperado };
     }
-    return steps;
+    return { applied: 0, esperado: 0 };
   }
 
   /**
@@ -472,7 +491,23 @@ export class ProjectStore {
     if (branch.anchorId !== null && !this.inTrunk(branch.anchorId)) return 0;
     const { origin } = branch;
 
-    this.jumpTo(branch.anchorId, origin);
+    // El salto tiene que LLEGAR al ancla, y además tienen que dejar el presente JUSTO
+    // encima de él. Antes se daba por bueno con que el salto empezara: si otra persona
+    // (u otro undo) movió el ancla al otro lado del presente —Claude deshaciendo lo
+    // suyo deja la entrada en el futuro—, el salto no tenía nada que deshacer de este
+    // origen y se daba por alcanzado, y la rama se aplicaba encima de un estado que no
+    // era el suyo: se mezclaban los dos caminos y la rama se consumía igual (medido en
+    // la tarjeta 006: `switched=1`, el swing entraba sobre un 6/8 que no era de esa
+    // rama y `branchCount` bajaba de 1 a 0). Si no se llega, no se toca NADA: la rama
+    // sigue archivada y se puede reintentar cuando el ancla vuelva a estar debajo del
+    // presente.
+    const destino = this.boundaryOf(branch.anchorId);
+    if (destino === null) return 0;
+    const salto = this.saltarHasta(destino, origin);
+    if (salto.applied < salto.esperado) return 0;
+    const presente = branch.anchorId === null ? null : (this.undoStack.at(-1)?.id ?? null);
+    if (presente !== branch.anchorId) return 0;
+
     this.stashRedo(origin, branch.anchorId);
     this.branches = this.branches.filter((b) => b.id !== branch.id);
 
