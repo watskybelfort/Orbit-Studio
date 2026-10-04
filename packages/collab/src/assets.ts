@@ -155,6 +155,15 @@ export class SampleAssetBinding {
   /** Bytes de los pendientes, para que el tope de la sala los tenga en cuenta. */
   private pendienteBytes = 0;
   /**
+   * Sello de vida del binding. Sube en `destroy()` (y no baja nunca), y las
+   * comprobaciones asíncronas lo comparan antes de tocar nada: un digest que resuelve
+   * después de que el observer se soltó ya no informa a nadie, y su `onAsset`, su
+   * estado y su contador de reserva se quedan sin aplicar. También evita que el
+   * veredicto de un digest viejo borre el pendiente que dejó un `destroy` + `start`
+   * posterior con otro contenido.
+   */
+  private generacion = 0;
+  /**
  * Bytes con los que se aceptó cada hash la PRIMERA vez: una HUELLA, no el audio.
  *
  * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa más
@@ -207,6 +216,9 @@ private readonly identity = new Map<string, string>();
       this.observer = null;
     }
     this.callbacks.clear();
+    // Sello de vida para lo que esté en vuelo: cualquier digest que resuelva a partir
+    // de ahora ya no informa a nadie (ver `generacion`).
+    this.generacion++;
     // Las huellas también se van: no hacen falta sin estar escuchando, y no tiene
     // sentido acumular la identidad de todo lo que se oyó en una sesión cerrada.
     this.identity.clear();
@@ -405,7 +417,15 @@ private readonly identity = new Map<string, string>();
       // recuerda y no se anuncia. Antes solo se miraba el tope por sample, así que
       // entre todos los clientes podía colarse un conjunto por encima del presupuesto
       // que sostiene la arquitectura (y el contador de la sala llegaba a mentir).
-      if (!this.sizes.has(hash) && this.totalBytes + this.pendienteBytes + size > this.maxRoomBytes) {
+      if (
+        !this.sizes.has(hash) &&
+        // Lo que ya está PENDIENTE tiene su plaza reservada: si se vuelve a recorrer su
+        // propia entrada, sumar su tamaño otra vez lo podía declarar «sala llena» sin
+        // serlo (medido: tope de 3 bytes, un pendiente de 2 y al llegar un legacy de 1
+        // salía room-full; al resolver los dos cabían justos).
+        !this.pendientes.has(hash) &&
+        this.totalBytes + this.pendienteBytes + size > this.maxRoomBytes
+      ) {
         // Fuera de servicio mientras la sala siga llena: si luego se borra algo y
         // vuelve a caber, la comprobación de arriba la deja pasar sola.
         this.noServibles.add(hash);
@@ -499,11 +519,22 @@ private readonly identity = new Map<string, string>();
     for (const hash of [...this.sizes.keys()]) {
       if (!this.assets.has(hash)) {
         this.sizes.delete(hash);
-        // La entrada ya no existe, así que su veredicto se olvida con ella: si vuelve
-        // a llegar, se comprueba de nuevo desde el principio.
-        this.rechazados.delete(hash);
-        this.noServibles.delete(hash);
         changed = true;
+      }
+    }
+    // Y lo que NO llegó a contar: lo rechazado y lo pendiente tampoco sobreviven a su
+    // entrada. Antes esta limpieza vivía dentro del bucle de `sizes`, y un hash
+    // rechazado nunca llega a `sizes` (se corta antes), así que su veredicto se
+    // quedaba pegado para siempre: borrar la entrada y republicar los bytes CORRECTOS
+    // bajo ese hash no volvía a servirse nunca (medido: pending 0 y served false
+    // indefinidos). La entrada ya no existe, así que su veredicto se olvida con ella.
+    for (const hash of [...this.rechazados]) {
+      if (!this.assets.has(hash)) this.rechazados.delete(hash);
+    }
+    for (const hash of [...this.noServibles]) {
+      if (!this.assets.has(hash)) {
+        this.noServibles.delete(hash);
+        this.overflow.delete(hash);
       }
     }
     // Anunciar DESPUÉS de recorrer: el handler suele volver a consultar el mapa.
@@ -537,15 +568,34 @@ private readonly identity = new Map<string, string>();
    * veredicto es la huella y es el servidor el que exige la correspondencia.
    */
   private verificarSha1(hash: string, huella: string, size: number): void {
-    const sutil = globalThis.crypto?.subtle;
     const asset = this.assets.get(hash);
-    if (sutil === undefined || asset === undefined || !isSampleAsset(asset)) return;
+    if (asset === undefined || !isSampleAsset(asset)) return;
+    const generacion = this.generacion;
+
+    // SIN WebCrypto no hay digest que esperar, así que el veredicto es la HUELLA (que
+    // es lo que siempre prometió este camino) y se resuelve de inmediato. Antes se
+    // volvía sin hacer nada y el sample se quedaba PENDIENTE para siempre: no se
+    // anunciaba ni se servía, sin que nada dijera por qué.
+    const sutil = globalThis.crypto?.subtle;
+    if (sutil === undefined) {
+      this.pendientes.delete(hash);
+      this.pendienteBytes -= size;
+      this.identity.set(hash, huella);
+      this.scan();
+      return;
+    }
+
     // La copia que se hashea: `bytes` puede ser una vista del buffer del doc, y
     // `digest` necesita un ArrayBuffer propio.
     const copia = new Uint8Array(asset.bytes).slice();
     void sutil
       .digest('SHA-1', copia)
       .then((buf) => {
+        // Si mientras tanto se soltó el observer (destroy) o se substituted el binding,
+        // este veredicto ya no tiene a quién informar: no se toca estado, no se anuncia
+        // y no se avisa (medido: `destroy` con el digest en vuelo dejaba `onAsset`
+        // disparado, `identity` con 1 y `pendienteBytes` en -2).
+        if (generacion !== this.generacion) return;
         this.pendientes.delete(hash);
         this.pendienteBytes -= size;
         // ¿Siguen siendo estos los bytes del mapa? Si mientras tanto la entrada se
@@ -585,6 +635,7 @@ private readonly identity = new Map<string, string>();
         // Si el digest revienta (un motor sin SHA-1, un buffer raro), el sample se
         // queda sin comprobar y se sirve por la huella: es el servidor el que exige
         // la correspondencia en ese caso.
+        if (generacion !== this.generacion) return;
         this.pendientes.delete(hash);
         this.pendienteBytes -= size;
         const actual = this.assets.get(hash);
