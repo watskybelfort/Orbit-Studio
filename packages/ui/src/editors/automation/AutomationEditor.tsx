@@ -10,7 +10,7 @@ import { beatsInBar } from '@orbit/core';
  *
  * Con clip: cabecera con el destino legible, inicio/longitud editables y
  * borrar; el canvas pinta la rejilla por beats y la curva con la MISMA
- * interpolación de tensión que el motor (réplica de compile.ts).
+ * interpolación de tensión que el motor (función compartida del modelo).
  *
  * Tres herramientas (P / D / R, con guarda de hover):
  * - **Puntos**: doble clic añade (snap 1/16, Alt = libre), arrastrar un punto
@@ -35,6 +35,7 @@ import {
   EFFECT_LABELS,
   EFFECT_PARAMS,
   INSTRUMENT_PARAMS,
+  automationCurveValue as evalCurve,
   describeParamRef,
   formatParamRef,
   newId,
@@ -82,32 +83,6 @@ function notify(text: string): void {
   if (noticeTimer) clearTimeout(noticeTimer);
   useBounceStore.setState({ notice: text });
   noticeTimer = setTimeout(() => useBounceStore.setState({ notice: null }), 3500);
-}
-
-// ── Curva idéntica a la del motor ────────────────────────────────────────────
-
-/** Réplica EXACTA de shape() de packages/engine/src/compile.ts. */
-function shape(t: number, tension: number): number {
-  if (tension > 0) return Math.pow(t, 1 + 3 * tension);
-  if (tension < 0) return 1 - Math.pow(1 - t, 1 - 3 * tension);
-  return t;
-}
-
-/** Réplica EXACTA de evalCurve() del motor (puntos ordenados por time). */
-function evalCurve(points: AutomationPoint[], t: number): number {
-  const first = points[0]!;
-  if (t <= first.time) return first.value;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i]!;
-    const b = points[i + 1]!;
-    if (t <= b.time) {
-      const span = b.time - a.time;
-      if (span <= 0) return b.value;
-      const f = shape((t - a.time) / span, a.tension);
-      return a.value + (b.value - a.value) * f;
-    }
-  }
-  return points[points.length - 1]!.value;
 }
 
 // ── Destinos (ParamRef) ──────────────────────────────────────────────────────
@@ -654,6 +629,8 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       // Puntos (el arrastrado, con anillo más marcado).
       const draggedId = drag.current?.mode === 'point' ? drag.current.pointId : null;
       for (const p of points) {
+        // Anclas de una curva cortada: afectan al trazo, no son gestos fuera del lienzo.
+        if (p.time < 0 || p.time > clip.length) continue;
         const px = g.timeToX(p.time);
         const py = g.valueToY(p.value);
         ctx.beginPath();
@@ -754,13 +731,14 @@ function ClipEditor({ clip, project }: ClipEditorProps) {
       const g = geom();
       for (let i = points.length - 1; i >= 0; i--) {
         const p = points[i]!;
+        if (p.time < 0 || p.time > clip.length) continue;
         const dx = x - g.timeToX(p.time);
         const dy = y - g.valueToY(p.value);
         if (dx * dx + dy * dy <= HIT_POINT * HIT_POINT) return p;
       }
       return null;
     },
-    [geom, points],
+    [geom, points, clip.length],
   );
 
   /** Índice del punto izquierdo del tramo bajo el cursor, o -1. */

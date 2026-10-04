@@ -336,6 +336,11 @@ export interface Clip {
   /** kind === 'automation' */
   target?: ParamRef;
   points?: AutomationPoint[];
+  /** Beats desde el origen de muestreo de una curva cortada. Los puntos siguen
+   * relativos a este clip; sus anclas exteriores conservan la tensión. */
+  automationOffset?: number;
+  /** Longitud original de la curva antes del corte (preserva su última muestra). */
+  automationLength?: number;
 }
 
 /**

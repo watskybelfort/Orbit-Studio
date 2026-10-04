@@ -21,6 +21,7 @@ import { beatsInBar } from '@orbit/core';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   TRACK_ICONS,
+  automationCurveValue,
   clampFades,
   clipsInSpan,
   createPlaylistTrack,
@@ -56,6 +57,7 @@ import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
 import { projectTempoMap, slicedTailOffset } from '../clip-slice';
+import { sliceAutomationCurve } from '../automation/slice-curve';
 import { SectionLane } from './SectionLane';
 import {
   clampGroupMove,
@@ -658,15 +660,18 @@ export function Playlist() {
           }
         }
       } else if (c.kind === 'automation' && ah > 4) {
-        // Curva simplificada (tension ignorada) con relleno hasta la base.
+        // El mismo valor del editor/motor, incluso con anclas fuera del clip cortado.
         const pts = (c.points ?? []).slice().sort((a, b) => a.time - b.time);
         if (pts.length > 0) {
           const px = (t: number) => x + Math.min(c.length, Math.max(0, t)) * zoom;
           const py = (v: number) => top + (1 - Math.min(1, Math.max(0, v))) * ah;
           ctx.beginPath();
-          ctx.moveTo(x, py(pts[0]!.value));
-          for (const p of pts) ctx.lineTo(px(p.time), py(p.value));
-          ctx.lineTo(x + cw, py(pts[pts.length - 1]!.value));
+          ctx.moveTo(x, py(automationCurveValue(pts, 0)));
+          const steps = Math.max(1, Math.min(256, Math.ceil(cw / 3)));
+          for (let i = 1; i <= steps; i++) {
+            const time = c.length * i / steps;
+            ctx.lineTo(px(time), py(automationCurveValue(pts, time)));
+          }
           ctx.strokeStyle = color;
           ctx.globalAlpha = base * 0.9;
           ctx.lineWidth = 1.2;
@@ -981,6 +986,7 @@ export function Playlist() {
       if (cut <= clip.start + 0.05 || cut >= clip.start + clip.length - 0.05) return;
       const firstLen = cut - clip.start;
       const second: Clip = { ...clip, id: newId(), start: cut, length: clip.length - firstLen };
+      let curveHead: Partial<Clip> = {};
       // Los fundidos se reparten: la cabeza se queda el de entrada y la cola el
       // de salida. Copiar los dos a los dos trozos metería un fundido a mitad
       // del sonido justo donde antes no había ninguno.
@@ -991,6 +997,10 @@ export function Playlist() {
       second.fadeOut = tailFadeOut;
       if (clip.kind === 'pattern') {
         second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
+      } else if (clip.kind === 'automation') {
+        const curve = sliceAutomationCurve(clip, firstLen);
+        curveHead = curve.head;
+        Object.assign(second, curve.tail);
       } else if (clip.kind === 'audio') {
         // Con stretch el motor llena el clip con TODA la fuente que le queda
         // (`ratio = srcSec/clipSec`), así que la cola no puede arrancar en
@@ -1020,7 +1030,7 @@ export function Playlist() {
           commands: [
             {
               type: 'patchClips',
-              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0 }],
+              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0, ...curveHead }],
             },
             { type: 'addClips', clips: [second] },
           ],

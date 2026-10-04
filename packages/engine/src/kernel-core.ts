@@ -1303,10 +1303,11 @@ export class KernelCore {
       const a = p.automation[i]!;
       const target = a.target;
       if (target.scope !== 'transport' || target.key !== 'tempo') continue;
-      if (a.startBeat > b + 1e-9 && a.startBeat < next) next = a.startBeat;
-      const end = a.startBeat + a.values.length * a.step;
+      const start = a.activeStartBeat ?? a.startBeat;
+      if (start > b + 1e-9 && start < next) next = start;
+      const end = a.activeEndBeat ?? (a.startBeat + a.values.length * a.step);
       if (end > b + 1e-9 && end < next) next = end;
-      if (b >= a.startBeat - 1e-9 && b < end) {
+      if (b >= start - 1e-9 && b < end) {
         const k = Math.floor((b - a.startBeat) / a.step) + 1;
         const nb = a.startBeat + k * a.step;
         if (nb > b + 1e-9 && nb < next) next = nb;
@@ -2663,6 +2664,8 @@ class StripEq {
  * desincronice.
  */
 function automationValueAt(a: CompiledAutomationEvent, beat: number): number | null {
+  if (a.activeStartBeat !== undefined && beat < a.activeStartBeat) return null;
+  if (a.activeEndBeat !== undefined && beat >= a.activeEndBeat) return null;
   const rel = beat - a.startBeat;
   if (rel < 0) return null;
   const idx = rel / a.step;

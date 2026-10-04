@@ -10,6 +10,7 @@
 
 import {
   LFO_SHAPES,
+  automationCurveValue as evalCurve,
   anyChannelSoloOn,
   channelAudible,
   clampFades,
@@ -89,42 +90,25 @@ function sampleAutomation(
   const sorted = [...points].sort((a, b) => a.time - b.time);
   if (sorted.length === 0) return null;
 
-  const steps = Math.max(1, Math.ceil(clip.length / AUTOMATION_STEP));
+  const offset = clip.automationOffset ?? 0;
+  const length = Math.max(clip.automationLength ?? clip.length, offset + clip.length);
+  const steps = Math.max(1, Math.ceil(length / AUTOMATION_STEP));
   const values = new Array<number>(steps + 1);
   for (let i = 0; i <= steps; i++) {
-    const t = Math.min(clip.length, i * AUTOMATION_STEP);
+    const t = Math.min(length, i * AUTOMATION_STEP) - offset;
     values[i] = paramRefValue(evalCurve(sorted, t), target, project);
   }
   return {
-    startBeat: clip.start,
+    startBeat: clip.start - offset,
+    ...(clip.automationLength !== undefined ? {
+      activeStartBeat: clip.start,
+      // La última pieza conserva también el hold final del clip original.
+      ...(offset + clip.length < length ? { activeEndBeat: clip.start + clip.length } : {}),
+    } : {}),
     step: AUTOMATION_STEP,
     values,
     target: compiledTarget,
   };
-}
-
-/** Interpola la curva (0..1) en el tiempo t (beats relativos al clip). */
-function evalCurve(points: AutomationPoint[], t: number): number {
-  const first = points[0]!;
-  if (t <= first.time) return first.value;
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i]!;
-    const b = points[i + 1]!;
-    if (t <= b.time) {
-      const span = b.time - a.time;
-      if (span <= 0) return b.value;
-      const f = shape((t - a.time) / span, a.tension);
-      return a.value + (b.value - a.value) * f;
-    }
-  }
-  return points[points.length - 1]!.value;
-}
-
-/** Curvatura por tensión: >0 arranca lento, <0 arranca rápido. */
-function shape(t: number, tension: number): number {
-  if (tension > 0) return Math.pow(t, 1 + 3 * tension);
-  if (tension < 0) return 1 - Math.pow(1 - t, 1 - 3 * tension);
-  return t;
 }
 
 function compileParamTarget(

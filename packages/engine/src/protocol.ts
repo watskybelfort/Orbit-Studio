@@ -121,6 +121,9 @@ export interface CompiledMixerTrack {
 }
 
 export interface CompiledAutomationEvent {
+  /** Ventana audible de una curva cortada; la rejilla conserva su origen. */
+  activeStartBeat?: number;
+  activeEndBeat?: number;
   /** Curva muestreada a rejilla fija (1/32 de beat) sobre el rango del clip. */
   startBeat: number;
   /** Paso entre muestras en beats. */
