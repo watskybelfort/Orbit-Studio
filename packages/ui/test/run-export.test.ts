@@ -232,7 +232,9 @@ describe('runExport: orquestación de render, corte y formatos', () => {
       duration: 1, key: 60, velocity: 1, pan: 0, slide: false }] });
     store.dispatch({ type: 'addClips', clips: [{ id: core.newId(), kind: 'pattern', patternId,
       playlistTrackId: Object.keys(store.project.playlistTracks)[0]!, start: 2402, length: 4, muted: false }] });
-    await expect(runExport('/salida/larga.wav', { ...BASE_OPTS, sampleRate: 8000,
+    // Misma duración y límite real; no hace falta procesar 9,6 millones de
+    // muestras para comprobar que el orquestador no escribe un render fallido.
+    await expect(runExport('/salida/larga.wav', { ...BASE_OPTS, sampleRate: 1000,
       tailSeconds: 0, midi: true, stems: true })).rejects.toThrow(/límite.*1200/);
     expect(writes).toEqual([]);
   });

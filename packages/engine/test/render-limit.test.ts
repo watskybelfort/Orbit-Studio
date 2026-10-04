@@ -22,7 +22,9 @@ describe('BUG058: agotar el presupuesto de render no devuelve audio amputado', (
     const progress: number[] = [];
     const disposed = vi.spyOn(KernelCore.prototype, 'dispose');
     try {
-      expect(() => renderProject(longSong(), { sampleRate: 8000, tailSeconds: 0,
+      // El límite es temporal. 1 kHz conserva los veinte minutos reales con
+      // ocho veces menos DSP; la selección audible se verifica abajo a 8 kHz.
+      expect(() => renderProject(longSong(), { sampleRate: 1000, tailSeconds: 0,
         onProgress: (value) => progress.push(value) })).toThrow(RenderLimitError);
       expect(progress.length).toBeGreaterThan(0);
       expect(Math.max(...progress)).toBeLessThan(1);
@@ -40,7 +42,7 @@ describe('BUG058: agotar el presupuesto de render no devuelve audio amputado', (
   });
 
   it('un stem que supera el límite queda en errores, nunca en resultados', () => {
-    const out = renderStems(longSong(), [0], { sampleRate: 8000, tailSeconds: 0 });
+    const out = renderStems(longSong(), [0], { sampleRate: 1000, tailSeconds: 0 });
     expect(out.results.size).toBe(0);
     expect(out.errors.get(0)).toMatch(/límite.*1200/);
   });
