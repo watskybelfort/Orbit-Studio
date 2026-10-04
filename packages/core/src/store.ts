@@ -142,6 +142,14 @@ export class ProjectStore {
   }
 
   private emit(cmd: Command, origin: string, label: string) {
+    // Un intento que puede terminar en «no ha pasado nada» (el salto de
+    // `restoreBranch`) no emite nada AÚN: guarda los eventos en un buffer. Si el
+    // intento prospera se sueltan todos (si no, la sala no converge: el otro cliente
+    // se queda sin el salto); si se rechaza, se tiran, porque no pasó nada que contar.
+    if (this.silencioso !== null) {
+      this.silencioso.push({ cmd, origin, label });
+      return;
+    }
     this.version++;
     for (const l of this.listeners) l();
     for (const l of this.commandListeners) l(cmd, origin, label);
@@ -349,11 +357,8 @@ export class ProjectStore {
     if (boundary < present) {
       // Atrás: deshacer las entradas de este origen que queden por encima del
       // destino. El conteo se hace ANTES porque undo() encoge el stack.
-      let pending = 0;
-      for (let i = boundary; i < present; i++) {
-        if (this.undoStack[i]!.origin === origin) pending++;
-      }
-      const esperado = pending;
+      const esperado = this.cuantosAtras(boundary, origin);
+      let pending = esperado;
       while (pending > 0 && this.undo(origin)) {
         pending--;
         steps++;
@@ -364,11 +369,8 @@ export class ProjectStore {
       // Adelante: rehacer hasta el destino. El futuro en orden es el redoStack
       // al revés, así que las `boundary - present` primeras posiciones desde el
       // tope son justo el tramo que hay que recuperar.
-      let pending = 0;
-      for (let i = 0; i < boundary - present; i++) {
-        if (this.redoStack[this.redoStack.length - 1 - i]!.origin === origin) pending++;
-      }
-      const esperado = pending;
+      const esperado = this.cuantosAdelante(boundary, origin);
+      let pending = esperado;
       while (pending > 0 && this.redo(origin)) {
         pending--;
         steps++;
@@ -376,6 +378,36 @@ export class ProjectStore {
       return { applied: steps, esperado };
     }
     return { applied: 0, esperado: 0 };
+  }
+
+  /**
+   * Cuántas entradas de este origen habría que DESHACER para llegar a `boundary`
+   * (que está por detrás del presente), sin tocar nada.
+   */
+  private cuantosAtras(boundary: number, origin: string): number {
+    let pending = 0;
+    for (let i = boundary; i < this.undoStack.length; i++) {
+      if (this.undoStack[i]!.origin === origin) pending++;
+    }
+    return pending;
+  }
+
+  /**
+   * Eventos encolados mientras hay un intento que puede rechazarse (ver `emit`).
+   * `null` = fuera de un intento.
+   */
+  private silencioso: { cmd: Command; origin: string; label: string }[] | null = null;
+
+  /**
+   * Cuántas entradas de este origen habría que REHACER para llegar a `boundary`
+   * (que está por delante del presente), sin tocar nada.
+   */
+  private cuantosAdelante(boundary: number, origin: string): number {
+    let pending = 0;
+    for (let i = 0; i < boundary - this.undoStack.length; i++) {
+      if (this.redoStack[this.redoStack.length - 1 - i]!.origin === origin) pending++;
+    }
+    return pending;
   }
 
   /**
@@ -491,22 +523,43 @@ export class ProjectStore {
     if (branch.anchorId !== null && !this.inTrunk(branch.anchorId)) return 0;
     const { origin } = branch;
 
-    // El salto tiene que LLEGAR al ancla, y además tienen que dejar el presente JUSTO
-    // encima de él. Antes se daba por bueno con que el salto empezara: si otra persona
-    // (u otro undo) movió el ancla al otro lado del presente —Claude deshaciendo lo
-    // suyo deja la entrada en el futuro—, el salto no tenía nada que deshacer de este
-    // origen y se daba por alcanzado, y la rama se aplicaba encima de un estado que no
-    // era el suyo: se mezclaban los dos caminos y la rama se consumía igual (medido en
-    // la tarjeta 006: `switched=1`, el swing entraba sobre un 6/8 que no era de esa
-    // rama y `branchCount` bajaba de 1 a 0). Si no se llega, no se toca NADA: la rama
-    // sigue archivada y se puede reintentar cuando el ancla vuelva a estar debajo del
-    // presente.
-    const destino = this.boundaryOf(branch.anchorId);
-    if (destino === null) return 0;
+    // ¿Se puede siquiera intentar? La respuesta es SIN MOVER NADA: si el ancla no está
+    // en el tronco, o si no hay pasos de este origen hasta ella, el presente no se va a
+    // poder dejar encima y el intento solo desharía lo de arriba de camino
+    // (medido: el ancla estaba al otro lado del presente, `pasos` era 0 y el rechazo
+    // llegaba DESPUÉS de haber deshecho, dejando `timeSig` en 4/4 y la versión subida).
+    const destino = this.boundaryOf(branch.anchorId)!;
+    // La dirección del salto, para poder deshacerlo si se queda a medias: lo que se
+    // deshizo se vuelve a rehacer, y al revés. Ojo con acertar: `undo` a destajo
+    // deshacía el ANCLA y dejaba el proyecto en otro sitio distinto.
+    const haciaAtras = destino < this.undoStack.length;
+    // El intento se hace EN SILENCIO y con COPIA de los dos stacks: si al final se rechaza,
+    // el proyecto, el historial (incluso sus ids y fechas), y la versión tienen que quedar
+    // como estaban, porque no pasó nada que contar (medido: el rechazo dejaba la versión
+    // 5→6, y restoring solo el proyecto no bastaba porque undo/redo crean entradas
+    // nuevas). Las entradas no se mutan —undo/redo las copian—, así que restaurar los
+    // arrays devuelve el historial EXACTO.
+    const undoCopia = [...this.undoStack];
+    const redoCopia = [...this.redoStack];
+    this.silencioso = [];
     const salto = this.saltarHasta(destino, origin);
-    if (salto.applied < salto.esperado) return 0;
-    const presente = branch.anchorId === null ? null : (this.undoStack.at(-1)?.id ?? null);
-    if (presente !== branch.anchorId) return 0;
+    const encima = this.undoStack.at(-1)?.id ?? null;
+    const ok = salto.applied === salto.esperado && encima === branch.anchorId;
+    if (!ok) {
+      // Se deshace lo aplicado y, con ello, se restituye el historial entero.
+      for (let i = 0; i < salto.applied; i++) {
+        const devuelto = haciaAtras ? this.redo(origin) : this.undo(origin);
+        if (!devuelto) break;
+      }
+      this.undoStack = undoCopia;
+      this.redoStack = redoCopia;
+    }
+    // Se sueltan los eventos del salto si el intento prospera; si no, al cubo: ni la
+    // versión ni la sala se enteran de un intento que no fue.
+    const eventos = this.silencioso;
+    this.silencioso = null;
+    if (!ok) return 0;
+    for (const e of eventos ?? []) this.emit(e.cmd, e.origin, e.label);
 
     this.stashRedo(origin, branch.anchorId);
     this.branches = this.branches.filter((b) => b.id !== branch.id);
