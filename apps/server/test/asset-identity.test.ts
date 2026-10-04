@@ -13,7 +13,7 @@
  * originales y el receptor congela los primeros que vio para ese hash.
  */
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -262,7 +262,7 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     expect(host.avisos).toHaveLength(0);
   });
 
-  it('el receptor guarda la HUELLA, no una copia: no se sirve lo que no encaja', () => {
+  it('el receptor guarda la HUELLA, no una copia: no se sirve lo que no encaja', async () => {
     // Sin el servidor en medio: el .bin ya guardado y tocado a mano.
     const doc = new Y.Doc();
     const recibidos: SampleAsset[] = [];
@@ -273,8 +273,11 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     });
     binding.start();
 
-    // A llega primero y es lo que se sirve.
+    // A llega primero. Su hash es un sha1 de verdad, así que hay un instante (el del
+    // digest) en el que todavía no es audio de fiar.
     doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', A, 'yo'));
+    expect(recibidos).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 60));
     expect(recibidos).toHaveLength(1);
     expect(iguales(binding.get(HASH_A), A)).toBe(true);
 
@@ -402,11 +405,11 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     expect(iguales(host.bytesDe(HASH_B), B)).toBe(true);
   });
 
-  it('el receptor comprueba el SHA-1 de verdad en la PRIMERA publicación', async () => {
+  it('el receptor NO anuncia ni sirve el audio falso: ni antes ni después del veredicto', async () => {
     // Sin servidor: un `.bin` manipulado o un cliente que publica B con el hash de
-    // A. La huella del receptor dice «son los mismos bytes que la primera vez», pero
-    // no dice que esa primera vez fingiera, así que el digest se comprueba en segundo
-    // plano y el hash pasa a sospechoso si no cuadra.
+    // A. El digest es asíncrono, así que el sample ESPERA: anunciarlo primero y
+    // retirarlo después sería peor que no comprobar, porque el kernel ya habría
+    // cargado el audio falso.
     const doc = new Y.Doc();
     const recibidos: SampleAsset[] = [];
     const avisos: AssetRejection[] = [];
@@ -417,24 +420,111 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     binding.start();
 
     doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
-    await new Promise((r) => setTimeout(r, 50));
 
-    // Los bytes NO son los de su hash: no se sirven y se avisa.
+    // Antes del veredicto: ni se anuncia, ni se sirve, ni `has` lo ofrece.
+    expect(recibidos).toHaveLength(0);
     expect(binding.get(HASH_A)).toBeNull();
+    expect(binding.has(HASH_A)).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Y después tampoco: los bytes NO son los de su hash.
+    expect(binding.get(HASH_A)).toBeNull();
+    expect(binding.has(HASH_A)).toBe(false);
+    expect(recibidos).toHaveLength(0);
     expect(avisos.map((a) => a.reason)).toContain('invalid');
-    expect(recibidos).toHaveLength(1);
     binding.destroy();
     doc.destroy();
 
-    // Y un sample bien publicado con SU hash se sirve como siempre.
+    // Y un sample bien publicado con SU hash entra, también por el camino del digest.
     const doc2 = new Y.Doc();
-    const binding2 = new SampleAssetBinding(doc2);
+    const recibidos2: SampleAsset[] = [];
+    const binding2 = new SampleAssetBinding(doc2, { onAsset: (a) => recibidos2.push(a) });
     binding2.start();
     doc2.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
-    await new Promise((r) => setTimeout(r, 50));
+    expect(recibidos2).toHaveLength(0); // todavía esperando
+    await new Promise((r) => setTimeout(r, 60));
+    expect(recibidos2).toHaveLength(1);
     expect(iguales(binding2.get(HASH_B), B)).toBe(true);
     binding2.destroy();
     doc2.destroy();
+  });
+
+  it('un veredicto NEGATIVO no lo reanima ningún recorrido posterior del mapa', async () => {
+    // El segundo agujero que midió la revisión: el veredicto se colgaba del mismo
+    // conjunto que la sustitución, y un `scan` posterior (por ejemplo al llegar
+    // cualquier OTRO sample) lo limpiaba y `get()` volvía a devolver el audio falso.
+    // Aquí se cuenta además cuántos digest se hacen: el veredicto es firme, así que
+    // el sample envenenado no se rehashea en cada recorrido.
+    let digests = 0;
+    const real = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    const espia = vi
+      .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockImplementation(async (algo: AlgorithmIdentifier, datos: BufferSource) => {
+        digests++;
+        return real(algo, datos);
+      });
+
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    try {
+      // B con el hash de A: veredicto negativo.
+      mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+      await new Promise((r) => setTimeout(r, 60));
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(digests).toBe(1);
+
+      // Ahora llega un sample LEGÍTIMO DISTINTO, que obliga a recorrer el mapa entero.
+      const C = wav(660);
+      mapa.set(sha1(C), asset(sha1(C), 'c.wav', C, 'yo'));
+      await new Promise((r) => setTimeout(r, 60));
+
+      // El legítimo entra (su digest cuadró), el falso SIGUE sin servirse, y el hash
+      // envenenado no se ha vuelto a hashear: dos digest en total, no tres.
+      expect(iguales(binding.get(sha1(C)), C)).toBe(true);
+      expect(recibidos.map((a) => a.hash)).toEqual([sha1(C)]);
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(binding.has(HASH_A)).toBe(false);
+      expect(digests).toBe(2);
+
+      // Y tampoco lo reanima un recorte desde el propio mapa.
+      mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'otro'));
+      await new Promise((r) => setTimeout(r, 60));
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(digests).toBe(2);
+    } finally {
+      espia.mockRestore();
+      binding.destroy();
+      doc.destroy();
+    }
+  });
+
+  it('si la entrada cambia mientras se comprueba, el veredicto viejo no decide', async () => {
+    // El digest es asíncrono: entre que se lanza y que vuelve, la entrada puede
+    // cambiar. El veredicto habla de los bytes que se estaban hasheando, así que si ya
+    // no son los del mapa se descarta y se vuelve a recorrer.
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    // Entra B con el hash de A (mal) y, antes de que resuelva, se sustituye por A
+    // (bien) bajo esa misma clave.
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // El veredicto del digest de B se queda sin efecto (sus bytes ya no están) y lo
+    // que decide es el de los bytes buenos.
+    expect(recibidos.map((a) => a.hash)).toEqual([HASH_A]);
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    binding.destroy();
+    doc.destroy();
   });
 
   it('el tope de la SALA se comprueba antes de la huella y del contador', () => {

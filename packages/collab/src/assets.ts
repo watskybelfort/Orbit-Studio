@@ -137,6 +137,24 @@ export class SampleAssetBinding {
   /** Hashes que no caben ya en el presupuesto de la sala (para avisar una vez). */
   private readonly overflow = new Set<string>();
   /**
+   * Hashes A LA ESPERA del veredicto del SHA-1: todavía no son audio de fiar, así que
+   * no se anuncian, no se sirven y no cuentan en el presupuesto. El digest es
+   * asíncrono y no puede ser de otra forma. El valor es la huella de lo que se está
+   * comprobando, para poder invalidar el veredicto si la entrada cambia mientras tanto.
+   */
+  private readonly pendientes = new Map<string, string>();
+  /**
+   * Hashes cuyo contenido NO corresponde a la clave, con veredicto ya firmes.
+   *
+   * Van aparte de `noServibles` porque no son una situación que se pueda deshacer
+   * mirando el mapa: un recorrido posterior no los reanimaba (medido: añadir otro
+   * sample devolvía `get()` a true para el hash rechazado). Solo se olvidan cuando la
+   * entrada desaparece del mapa, que es cuando esos bytes dejan de existir.
+   */
+  private readonly rechazados = new Set<string>();
+  /** Bytes de los pendientes, para que el tope de la sala los tenga en cuenta. */
+  private pendienteBytes = 0;
+  /**
  * Bytes con los que se aceptó cada hash la PRIMERA vez: una HUELLA, no el audio.
  *
  * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa más
@@ -193,14 +211,28 @@ private readonly identity = new Map<string, string>();
     // sentido acumular la identidad de todo lo que se oyó en una sesión cerrada.
     this.identity.clear();
     this.noServibles.clear();
+    this.pendientes.clear();
+    this.rechazados.clear();
+    this.pendienteBytes = 0;
     this.started = false;
   }
 
   // ── Consulta ───────────────────────────────────────────────────────────────
 
-  /** ¿Está el contenido de este sample en la sala? */
+  /** ¿Está el contenido de este sample en la sala Y es servo? */
   has(hash: string): boolean {
-    return isSampleAsset(this.assets.get(hash));
+    return isSampleAsset(this.assets.get(hash)) && this.servible(hash);
+  }
+
+  /**
+   * ¿Se puede servir ya lo de este hash?
+   *
+   * False mientras espera el veredicto del SHA-1 (o si ya se sabe que no): el
+   * criterio es el mismo que en `get`, para que la UI no ofrezca un sample que luego
+   * resulta que no.
+   */
+  private servible(hash: string): boolean {
+    return !this.rechazados.has(hash) && !this.pendientes.has(hash) && !this.noServibles.has(hash);
   }
 
   /** Bytes publicados bajo ese hash, o null si la sala no los tiene. */
@@ -213,9 +245,10 @@ private readonly identity = new Map<string, string>();
     if (asset.bytes.byteLength > this.maxAssetBytes) return null;
     // Si estos bytes no son los de la huella que se aceptó para ese hash, no se
     // sirven: el hash es la identidad y el servidor va a devolver el original
-    // (BUG 055). Antes se guardaba una copia congelada de los bytes; ahora se
-    // guarda solo la huella, así que aquí lo sano es no servir antes de que llegue.
-    if (this.noServibles.has(hash)) return null;
+    // (BUG 055). Y si el hash es nuevo, tampoco hasta que el SHA-1 confirme que sus
+    // bytes son los que dice: anunciarlo antes y retirarlo después sería peor que no
+    // comprobar, porque el kernel ya habría cargado el audio falso.
+    if (!this.servible(hash)) return null;
     return asset.bytes;
   }
 
@@ -306,6 +339,13 @@ private readonly identity = new Map<string, string>();
     };
     // Lo nuestro no se anuncia: el contenido ya está en nuestro kernel.
     this.notified.add(hash);
+    // Y tampoco se verifica: lo acabamos de hashear nosotros para sacar el hash (es
+    // lo que travela como identidad), así que su huella es su propia referencia y no
+    // hace falta el SHA-1 de WebCrypto. Lo que llega de OTRO socket sí se comprueba,
+    // porque ahí la huella solo dice "son los mismos bytes que la primera vez", no que
+    // esa primera vez fingiera (BUG 055).
+    this.identity.set(hash, huellaDe(asset.bytes));
+    this.noServibles.delete(hash);
     this.doc.transact(() => {
       this.assets.set(hash, asset);
     }, this);
@@ -365,7 +405,7 @@ private readonly identity = new Map<string, string>();
       // recuerda y no se anuncia. Antes solo se miraba el tope por sample, así que
       // entre todos los clientes podía colarse un conjunto por encima del presupuesto
       // que sostiene la arquitectura (y el contador de la sala llegaba a mentir).
-      if (!this.sizes.has(hash) && this.totalBytes + size > this.maxRoomBytes) {
+      if (!this.sizes.has(hash) && this.totalBytes + this.pendienteBytes + size > this.maxRoomBytes) {
         // Fuera de servicio mientras la sala siga llena: si luego se borra algo y
         // vuelve a caber, la comprobación de arriba la deja pasar sola.
         this.noServibles.add(hash);
@@ -396,15 +436,31 @@ private readonly identity = new Map<string, string>();
       const huella = huellaDe(asset.bytes);
       const previa = this.identity.get(hash);
       if (previa === undefined) {
+        // Primera vez que se ve este hash, y hay tres estados posibles antes de poder
+        // aceptarlo. El orden importa: un veredicto NEGATIVO es permanente para esta
+        // entrada (cualquier recorrido posterior vuelve a chocar aquí y se va), y un
+        // digest en vuelo no se duplica.
+        //
+        // Antes esto se colgaba de un único `noServibles` que un `scan` posterior
+        // limpiaba al ver la misma huella, así que añadir cualquier OTRO sample
+        // reanimaba el hash rechazado y `get()` volvía a devolverlo (medido).
+        if (this.rechazados.has(hash)) continue;
+        if (this.pendientes.has(hash)) continue;
+        // Con clave sha1 hay que comprobar que los bytes SON los que el hash dice: la
+        // huella dice «son los mismos que la primera vez», pero no que esa primera vez
+        // fingiera. WebCrypto es asíncrono, así que el sample ESPERA: no se anuncia,
+        // no se cuenta y `get()` no lo devuelve hasta el veredicto. Anunciarlo primero
+        // y retirarlo después sería peor que no comprobar: el kernel ya habría
+        // cargado el audio falso.
+        if (this.esSha1(hash)) {
+          this.pendientes.set(hash, huella);
+          this.pendienteBytes += size;
+          this.verificarSha1(hash, huella, size);
+          continue;
+        }
+        // Sin clave sha1 no hay correspondencia que exigir (proyecto viejo): la huella
+        // es el veredicto, como antes.
         this.identity.set(hash, huella);
-        this.noServibles.delete(hash);
-        // Y la CORRESPONDENCIA de verdad, en segundo plano: la huella dice "son los
-        // mismos bytes que la primera vez", pero no dice que esa primera vez
-        // fingiera. El servidor ya lo comprueba (sha1 de los bytes contra la clave),
-        // y aquí se repite para que una publicación con el hash mentido no llegue
-        // ni a anunciarse como audio de fiar en un cliente con el servidor fuera de
-        // juego (un `.bin` manipulado, un cliente modificado).
-        this.verificarSha1(hash, asset.bytes, asset.name, size);
       } else if (previa !== huella) {
         this.noServibles.add(hash);
         if (!this.substituted.has(hash)) {
@@ -425,6 +481,10 @@ private readonly identity = new Map<string, string>();
         }
         continue;
       } else {
+        // Los bytes vuelven a ser los de su huella: la sustitución o el tope de sala
+        // que los dejó fuera de servicio ya no aplican. OJO: esto solo se alcanza con
+        // identidad YA APUNTADA, así que no puede reanimar un veredicto negativo (ese
+        // hash nunca llega aquí: `rechazados` se comprueba antes).
         this.noServibles.delete(hash);
       }
       if (!this.sizes.has(hash)) {
@@ -439,6 +499,10 @@ private readonly identity = new Map<string, string>();
     for (const hash of [...this.sizes.keys()]) {
       if (!this.assets.has(hash)) {
         this.sizes.delete(hash);
+        // La entrada ya no existe, así que su veredicto se olvida con ella: si vuelve
+        // a llegar, se comprueba de nuevo desde el principio.
+        this.rechazados.delete(hash);
+        this.noServibles.delete(hash);
         changed = true;
       }
     }
@@ -460,51 +524,83 @@ private readonly identity = new Map<string, string>();
   }
 
   /**
-   * ¿Son estos bytes los que el hash dice? El SHA-1 de verdad, con `crypto.subtle`
-   * (Chromium y Node lo tienen), pero en SEGUNDO PLANO.
+   * Comprueba el SHA-1 de verdad del contenido pendiente y, según el veredicto, lo
+   * deja entrar o lo marca como no servible.
    *
-   * En segundo plano porque la llegada de un sample no puede esperar a un digest
-   * de 16 MB en el hilo principal, y porque el camino síncrono ya está cubierto por
-   * la huella: aquí lo que se añade es el otro lado del contrato, que es que la
-   * huella misma sea de un archivo que existe. Si el digest no cuadra, el hash pasa
-   * a sospechoso —entonces `get()` deja de servirlo— y se avisa una vez.
+   * `scan` es síncrono y esta comprobación no puede serlo (WebCrypto devuelve una
+   * promesa), así que el sample ESPERA: mientras está pendiente no se anuncia, no se
+   * cuenta en el presupuesto y `get()` no lo devuelve. Al resolverse, si cuadra se
+   * apunta su huella y se vuelve a recorrer el mapa, que ya lo anunciará por el
+   * camino normal; si no cuadra, el hash pasa a no servible con su aviso.
    *
-   * Sin WebCrypto (o con una clave heredada que no es un sha1) no se hace nada: la
-   * huella sigue siendo el veredicto, y es el servidor el que exige la
-   * correspondencia en ese caso.
+   * Sin WebCrypto no se hace nada (queda pendiente para siempre): entonces el
+   * veredicto es la huella y es el servidor el que exige la correspondencia.
    */
-  private verificarSha1(
-    hash: string,
-    bytes: Uint8Array,
-    name: string,
-    size: number,
-  ): void {
+  private verificarSha1(hash: string, huella: string, size: number): void {
     const sutil = globalThis.crypto?.subtle;
-    if (sutil === undefined || !/^[0-9a-f]{40}$/i.test(hash)) return;
+    const asset = this.assets.get(hash);
+    if (sutil === undefined || asset === undefined || !isSampleAsset(asset)) return;
     // La copia que se hashea: `bytes` puede ser una vista del buffer del doc, y
     // `digest` necesita un ArrayBuffer propio.
-    const copia = bytes.slice();
+    const copia = new Uint8Array(asset.bytes).slice();
     void sutil
       .digest('SHA-1', copia)
       .then((buf) => {
-        if (hex(new Uint8Array(buf)) === hash.toLowerCase()) return;
+        this.pendientes.delete(hash);
+        this.pendienteBytes -= size;
+        // ¿Siguen siendo estos los bytes del mapa? Si mientras tanto la entrada se
+        // sustituyó o se retiró, este veredicto habla de algo que ya no está: se
+        // descarta y deja que el `scan` que provocaré a continuación juzgue lo nuevo.
+        const actual = this.assets.get(hash);
+        if (actual === undefined || !isSampleAsset(actual)) return;
+        if (huellaDe(actual.bytes) !== huella) {
+          this.scan();
+          return;
+        }
+        if (hex(new Uint8Array(buf)) === hash.toLowerCase()) {
+          // Cuadra: ya puede entrar por el camino normal, que ya tiene su huella.
+          this.identity.set(hash, huella);
+          this.scan();
+          return;
+        }
+        // No cuadra. Es PERMANENTE para esta entrada: ni se anuncia, ni se sirve, ni
+        // un recorrido posterior lo reanimaba (que era el segundo agujero medido).
+        this.rechazados.add(hash);
         this.noServibles.add(hash);
-        if (this.hashFalso.has(hash)) return;
         this.hashFalso.add(hash);
         console.warn(
           `[collab] el asset ${hash.slice(0, 12)} no corresponde a su hash; no se sirve.`,
         );
         this.onRejected?.({
           hash,
-          name,
+          name: actual.name,
           size,
           reason: 'invalid',
           message:
-            `«${name}» llega con bytes que no son los de su hash, así que no son su audio. ` +
+            `«${actual.name}» llega con bytes que no son los de su hash, así que no son su audio. ` +
             'Se ignora: la identidad de un sample es su contenido.',
         });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // Si el digest revienta (un motor sin SHA-1, un buffer raro), el sample se
+        // queda sin comprobar y se sirve por la huella: es el servidor el que exige
+        // la correspondencia en ese caso.
+        this.pendientes.delete(hash);
+        this.pendienteBytes -= size;
+        const actual = this.assets.get(hash);
+        if (actual === undefined || !isSampleAsset(actual)) return;
+        if (huellaDe(actual.bytes) !== huella) {
+          this.scan();
+          return;
+        }
+        this.identity.set(hash, huella);
+        this.scan();
+      });
+  }
+
+  /** ¿Es un sha1 en hexadecimal? Solo estas claves tienen correspondencia que exigir. */
+  private esSha1(hash: string): boolean {
+    return /^[0-9a-f]{40}$/i.test(hash);
   }
 }
 
