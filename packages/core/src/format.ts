@@ -189,7 +189,7 @@ export function parseProject(json: string): Project {
       delete channel.groupId;
     }
   }
-  for (const track of p.mixer ?? []) {
+  for (const [indice, track] of (p.mixer ?? []).entries()) {
     // Campos de las pistas que llegaron despues del archivo: se RELLENAN con su
     // default explicito, no se rechazan. "No hay EQ" es 0 dB, "no hay envio" es
     // una lista vacia y "no hay a donde enrutar" es null -que es lo que el master
@@ -197,7 +197,11 @@ export function parseProject(json: string): Project {
     track.eqLow ??= 0;
     track.eqMid ??= 0;
     track.eqHigh ??= 0;
-    track.routeTo ??= null;
+    // routeTo NO es lo mismo en todos: el master no desemboca en ninguna pista
+    // (null) y un insert desemboca en el master (0). Poner null en un insert lo
+    // deja sin ruta y el AUDIO SE PIERDE entero, que es peor que un default mal
+    // puesto: por eso la migración copia la que hace `createMixerTrack`.
+    track.routeTo ??= indice === 0 ? null : 0;
     track.sends ??= [];
   }
   // Referencias de las listas de orden. Una entrada que ya no existe —un patrón

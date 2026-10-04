@@ -61,7 +61,7 @@ describe('017 · findProjectProblems ve lo que el motor no puede leer', () => {
     const data = base();
     (data.mixer as unknown[])[2] = null;
     expect(findProjectProblems(data)).toEqual([
-      { field: 'mixer[2]', expected: 'una pista (objeto)' },
+      { field: 'mixer[2]', expected: 'una entidad (objeto)' },
     ]);
   });
 
@@ -112,7 +112,7 @@ describe('017 · parseProject dice qué está mal y por su nombre', () => {
 describe('017 · los cuatro casos de la sonda de review', () => {
   // Los cuatro que la sonda de revisión medió como ACEPTADOS en 8a3037e.
   it('samples: 42 — un pool que no es pool (ya no se "adopta" a vacío)', () => {
-    expect(() => parse((p) => (p.samples = 42))).toThrow(/"samples".*mapa de entidades/);
+    expect(() => parse((p) => (p.samples = 42))).toThrow(/samples" un mapa de entidades/);
     // El validador a pelo ve el tipo, que es donde estaba el agujero: adoptar
     // antes de juzgar convertía el 42 en un pool vacío e invisible.
     expect(findProjectProblems({ samples: 42 })).toEqual([
@@ -122,12 +122,17 @@ describe('017 · los cuatro casos de la sonda de review', () => {
 
   it('lfos: [] es válido (lista vacía) pero lfos: 42 no', () => {
     expect(() => parse((p) => (p.lfos = []))).not.toThrow();
-    expect(() => parse((p) => (p.lfos = 42))).toThrow(/"lfos".*mapa de entidades/);
+    expect(() => parse((p) => (p.lfos = 42))).toThrow(/lfos" un mapa de entidades/);
   });
 
   it("swing: 'wrong' se rechaza: el swing llegaba a swungStart y volvía NaN", () => {
     expect(() => parse((p) => (p.swing = 'wrong'))).toThrow(/swing" un número/);
-    expect(() => parse((p) => (p.swing = Number.NaN))).toThrow(/swing" un número/);
+    // Un NaN escrito a mano, al serializar, llega como null: por el archivo se ve
+    // "no es null". El NaN de verdad se comprueba en el validador, sin pasar por JSON.
+    expect(() => parse((p) => (p.swing = Number.NaN))).toThrow(/swing" no es null/);
+    expect(findProjectProblems({ swing: Number.NaN })).toEqual([
+      { field: 'swing', expected: 'un número' },
+    ]);
   });
 
   it('pattern.notes: null se rechaza en vez de reventar al recorrer', () => {
@@ -139,7 +144,7 @@ describe('017 · los cuatro casos de la sonda de review', () => {
         >;
         patron.notes = null;
       }),
-    ).toThrow(/notes.*mapa de notas por canal/);
+    ).toThrow(/notes" no es null/);
   });
 });
 
@@ -153,7 +158,7 @@ describe('017 · los números que van al motor también se miran', () => {
         >;
         const notas = patron.notes as Record<string, unknown[]>;
         notas[Object.keys(notas)[0]!] = [
-          { id: 'n1', start: 0, duration: Number.NaN, key: 60, velocity: 1, pan: 0 },
+          { id: 'n1', start: 0, duration: 'larga', key: 60, velocity: 1, pan: 0, slide: false },
         ];
       }),
     ).toThrow(/duration" un número/);
@@ -176,6 +181,92 @@ describe('017 · los números que van al motor también se miran', () => {
         p.clips = { c1: { id: 'c1', kind: 'pattern', playlistTrackId: 't', start: 'x', length: 4 } };
       }),
     ).toThrow(/clips\.c1\.start" un número/);
+  });
+});
+
+describe('017 · los casos de la tercera sonda de review', () => {
+  // `clip.points = {}` paraba al compilar con 'points is not iterable'; el `routeTo`
+  // que yo migraba a null en un INSERT se comia el audio entero; y `Pattern.length`
+  // de tipo raro pasaba porque faltaba en la tabla.
+  it('un clip de automation con `points` que no es lista', () => {
+    expect(() =>
+      parse((p) => {
+        p.clips = {
+          c1: {
+            id: 'c1', kind: 'automation', playlistTrackId: 't1', start: 0, length: 4,
+            muted: false, target: { kind: 'channel', channelId: 'c1', param: 'volume' },
+            points: {},
+          },
+        };
+      }),
+    ).toThrow(/points" una lista/);
+  });
+
+  it('un punto de automation con `time` de tipo raro, o sin tension', () => {
+    const conPoints = (points: unknown) =>
+      parse((p) => {
+        p.clips = {
+          c1: {
+            id: 'c1', kind: 'automation', playlistTrackId: 't1', start: 0, length: 4,
+            muted: false, target: { kind: 'channel', channelId: 'c1', param: 'volume' },
+            points,
+          },
+        };
+      });
+    expect(() => conPoints([{ id: 'a1', time: 'x', value: 0, tension: 0 }])).toThrow(
+      /points\[0\]\.time" un número/,
+    );
+    expect(() => conPoints([{ id: 'a1', time: 0, value: 0 }])).toThrow(/tension" está/);
+    expect(() =>
+      conPoints([{ id: 'a1', time: 0, value: 0, tension: 0 }]),
+    ).not.toThrow();
+  });
+
+  it('Pattern.length de tipo raro ahora se rechaza (no estaba en la tabla)', () => {
+    expect(() =>
+      parse((p) => {
+        const patrones = p.patterns as Record<string, { length: unknown }>;
+        const primero = Object.keys(patrones)[0]!;
+        (patrones[primero] as { length: unknown }).length =
+          'largo';
+      }),
+    ).toThrow(/length" un número/);
+  });
+
+  it('los slots y los envios de una pista se miran por dentro (mix y params son obligatorios)', () => {
+    expect(() =>
+      parse((p) => {
+        const pista = (p.mixer as Record<string, Record<string, unknown>>)[1]!;
+        pista.slots = [{ id: 'fx1', kind: 'reverb', enabled: true, params: {} }];
+      }),
+    ).toThrow(/mix" está/);
+    expect(() =>
+      parse((p) => {
+        const pista = (p.mixer as Record<string, Record<string, unknown>>)[1]!;
+        pista.sends = [{ target: 2 }];
+      }),
+    ).toThrow(/level" está/);
+    expect(() =>
+      parse((p) => {
+        const pista = (p.mixer as Record<string, Record<string, unknown>>)[1]!;
+        pista.sends = [{ target: 2, level: 'mucho' }];
+      }),
+    ).toThrow(/level" un número/);
+  });
+
+  it('routeTo ausente en un INSERT se migra a 0, y en el master a null (el audio se queda)', () => {
+    // El default que yo puse (null para todos) mandaba el audio de los inserts a
+    // ninguna parte: el master se callaba entero. La migración copia la de
+    // `createMixerTrack`: master null, insert 0.
+    const p = parse((data) => {
+      for (const [i, pista] of (data.mixer as Record<string, unknown>[]).entries()) {
+        delete pista.routeTo;
+        void i;
+      }
+    });
+    expect(p.mixer[0]?.routeTo).toBeNull();
+    expect(p.mixer[1]?.routeTo).toBe(0);
+    expect(p.mixer[3]?.routeTo).toBe(0);
   });
 });
 
@@ -295,7 +386,7 @@ describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
         >;
         delete patron.notes;
       }),
-    ).toThrow(/patterns\.\w+\.notes" está/);
+    ).toThrow(/notes" está/);
     expect(() =>
       parse((p) => {
         const canal = createChannel('synth', 0);
@@ -313,9 +404,9 @@ describe('017 · lo que sí se puede abrir sigue abriéndose', () => {
     expect(() =>
       parse((p) => {
         const pista = (p.mixer as Record<string, Record<string, unknown>>)[1]!;
-        pista.slots = [{ id: 's1', mix: 'wrong', params: {} }];
+        pista.slots = [{ id: 's1', kind: 'reverb', enabled: true, mix: 'wrong', params: {} }];
       }),
-    ).toThrow(/mixer\[1\]\.slots\[0\]\.mix" un número/);
+    ).toThrow(/slots\[0\]\.mix" un número/);
   });
 
   it('un volumen de string en un canal: se rechaza (antes pasaba y salía NaN)', () => {

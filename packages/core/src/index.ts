@@ -24,6 +24,8 @@ export * from './model/defaults';
 export * from './model/entity-id';
 export * from './model/project-validate';
 export * from './model/command-schema';
+export * from './model/unset';
+export * from './model/entity-schema';
 export * from './arrangement';
 export * from './commands';
 export * from './store';
