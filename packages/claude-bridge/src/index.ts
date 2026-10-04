@@ -13,6 +13,8 @@ export {
   type LibraryFn,
   type LibrarySound,
   type SaveFileFn,
+  type RenderInputs,
+  type ResolveRenderInputsFn,
 } from './executor';
 export {
   CEILING_DB,

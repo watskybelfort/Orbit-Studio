@@ -33,6 +33,8 @@
 
 import type { Project } from '@orbit/core';
 import type { CompiledProject, SampleData } from '@orbit/engine';
+import { neededSampleIds } from '@orbit/engine';
+export { neededSampleIds } from '@orbit/engine';
 import { readSampleBytes } from '../browser/sound-actions';
 import { usePluginsStore } from '../state/plugins';
 import { createUiAudioCache, sampleCacheKey } from '../state/sample-gc';
@@ -110,16 +112,6 @@ export interface CollectedSamples {
  * es de lo último que se mira. Ya pasó con el multisample — el keymap tiene
  * sus propias muestras y no están en `ch.sampleId`.
  */
-export function neededSampleIds(compiled: CompiledProject): Set<string> {
-  const needed = new Set<string>();
-  for (const ch of compiled.channels) {
-    if (ch.sampleId) needed.add(ch.sampleId);
-    for (const zone of ch.keymap ?? []) needed.add(zone.sampleId);
-  }
-  for (const clip of compiled.audioClips) needed.add(clip.sampleId);
-  return needed;
-}
-
 export async function collectSamples(
   project: Project,
   compiled: CompiledProject,

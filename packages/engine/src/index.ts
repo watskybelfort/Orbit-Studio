@@ -21,6 +21,7 @@ export {
   type StemBatchResult,
 } from './render/offline';
 export { encodeWav, type WavDepth } from './render/wav';
+export { neededSampleIds, neededPluginIds } from './render/inputs';
 export { secondsAtBeat, type TempoSegment } from './tempo';
 export { encodeOggFlac, lacing, oggCrc, type OggFlacOptions } from './render/ogg';
 export { encodeFlac, encodeFlacStream, type FlacDepth } from './render/flac';

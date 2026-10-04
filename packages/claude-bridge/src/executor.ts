@@ -53,9 +53,13 @@ import {
   analyzeMix,
   compileProject,
   encodeWav,
+  neededSampleIds,
+  neededPluginIds,
   renderProject,
+  type CompiledProject,
   type MixAnalysis,
   type PlayMode,
+  type SampleData,
 } from '@orbit/engine';
 import {
   MAX_PACK_SOUNDS,
@@ -78,6 +82,13 @@ import {
 
 /** Guarda `data` con nombre sugerido y devuelve la ruta final. */
 export type SaveFileFn = (suggestedName: string, data: Uint8Array) => Promise<string>;
+
+/** El host resuelve bytes/plugins; el bridge no importa UI ni APIs del sistema. */
+export interface RenderInputs {
+  samples: Map<string, SampleData>;
+  plugins: Map<string, string>;
+}
+export type ResolveRenderInputsFn = (project: Project, compiled: CompiledProject) => Promise<RenderInputs>;
 
 /** Resumen de un pack recién generado (lo que el modelo necesita saber). */
 export interface GeneratedPackInfo {
@@ -300,6 +311,8 @@ export class ToolExecutor {
     private readonly generatePack?: GeneratePackFn,
     /** Librería de sonidos del browser (lo cablea el renderer). */
     private readonly library?: LibraryFn,
+    /** Mismas entradas del render/export de la aplicación. */
+    private readonly resolveRenderInputs?: ResolveRenderInputsFn,
   ) {}
 
   /** Adjunta la petición pendiente del usuario al texto de get_project. */
@@ -339,8 +352,8 @@ export class ToolExecutor {
       case 'remove_effect': return { text: this.removeEffect(a) };
       case 'set_automation': return { text: this.setAutomation(a) };
       case 'render': return { text: await this.render(a) };
-      case 'analyze_mix': return { text: this.analyzeMixTool() };
-      case 'advise_mix': return { text: this.adviseMixTool(a) };
+      case 'analyze_mix': return { text: await this.analyzeMixTool() };
+      case 'advise_mix': return { text: await this.adviseMixTool(a) };
       case 'list_library': return { text: await this.listLibrary(a) };
       case 'load_sample': return { text: await this.loadSample(a) };
       case 'generate_pack': return { text: await this.generatePackTool(a) };
@@ -1183,6 +1196,31 @@ export class ToolExecutor {
     return { play: { mode: 'song' }, what: 'canción' };
   }
 
+  private assertRenderCurrent(version: number): void {
+    if (this.store.version !== version) {
+      throw new ToolError('El proyecto cambió mientras se preparaba el audio. Repite la operación sobre el proyecto actual.');
+    }
+  }
+
+  private async renderInputs(project: Project, compiled: CompiledProject): Promise<RenderInputs> {
+    const inputs = this.resolveRenderInputs
+      ? await this.resolveRenderInputs(project, compiled)
+      : { samples: new Map<string, SampleData>(), plugins: new Map<string, string>() };
+    // Comprobar los mapas, no confiar en que un host siempre enumerará sus
+    // errores. Un análisis parcial podría recomendar cambios destructivos a
+    // una mezcla que en realidad está completa en vivo.
+    const missingSamples = [...neededSampleIds(compiled)].filter((id) => !inputs.samples.has(id));
+    const missingPlugins = [...neededPluginIds(compiled)].filter((id) => !inputs.plugins.get(id));
+    if (missingSamples.length || missingPlugins.length) {
+      const missing = [
+        missingSamples.length ? `muestras: ${missingSamples.map((id) => project.samples[id]?.name ?? id).join(', ')}` : '',
+        missingPlugins.length ? `plugins: ${missingPlugins.join(', ')}` : '',
+      ].filter(Boolean).join('; ');
+      throw new ToolError(`Audio incompleto: faltan ${missing}. No se generó audio ni se aplicaron consejos de mezcla.`);
+    }
+    return inputs;
+  }
+
   private async render(a: Record<string, unknown>): Promise<string> {
     if (!this.saveFile) {
       throw new ToolError(
@@ -1190,7 +1228,9 @@ export class ToolExecutor {
       );
     }
     const { play, what } = this.compileFor(a);
-    const compiled = compileProject(this.project, play);
+    const version = this.store.version;
+    const project = structuredClone(this.project);
+    const compiled = compileProject(project, play);
     if (compiled.events.length === 0 && compiled.audioClips.length === 0) {
       throw new ToolError(
         play.mode === 'song'
@@ -1199,11 +1239,13 @@ export class ToolExecutor {
       );
     }
 
-    const { left, right, sampleRate } = renderProject(compiled, { sampleRate: 44100, tailSeconds: 2 });
+    const inputs = await this.renderInputs(project, compiled);
+    this.assertRenderCurrent(version);
+    const { left, right, sampleRate } = renderProject(compiled, { sampleRate: 44100, tailSeconds: 2, ...inputs });
     const analysis = analyzeMix(left, right, sampleRate);
     const wav = encodeWav(left, right, sampleRate, 16);
 
-    const title = this.project.meta.title || 'orbit';
+    const title = project.meta.title || 'orbit';
     const suggested = optString(a, 'path')
       ?? `${`${title} — ${what}`.replace(/[\\/:*?"<>|]/g, '_')}.wav`;
     const finalPath = await this.saveFile(suggested, wav);
@@ -1219,32 +1261,38 @@ export class ToolExecutor {
    * Render en memoria de lo que haya que analizar: la canción si la playlist
    * tiene contenido y, si no, el primer patrón con notas.
    */
-  private renderForAnalysis(): { analysis: MixAnalysis; what: string; seconds: number; lengthBeats: number } {
+  private async renderForAnalysis(): Promise<{ analysis: MixAnalysis; what: string; seconds: number; lengthBeats: number; version: number }> {
+    const version = this.store.version;
+    const project = structuredClone(this.project);
     let play: PlayMode = { mode: 'song' };
     let what = 'canción';
-    let compiled = compileProject(this.project, play);
+    let compiled = compileProject(project, play);
     if (compiled.events.length === 0 && compiled.audioClips.length === 0) {
-      const withNotes = this.project.patternOrder
-        .map((id) => this.project.patterns[id])
+      const withNotes = project.patternOrder
+        .map((id) => project.patterns[id])
         .find((p) => p && Object.values(p.notes).some((n) => n.length > 0));
       if (!withNotes) {
         throw new ToolError('El proyecto no tiene notas todavía: nada que analizar');
       }
       play = { mode: 'pattern', patternId: withNotes.id };
       what = `patrón "${withNotes.name}"`;
-      compiled = compileProject(this.project, play);
+      compiled = compileProject(project, play);
     }
-    const { left, right, sampleRate } = renderProject(compiled, { sampleRate: 44100, tailSeconds: 1 });
+    const inputs = await this.renderInputs(project, compiled);
+    this.assertRenderCurrent(version);
+    const { left, right, sampleRate } = renderProject(compiled, { sampleRate: 44100, tailSeconds: 1, ...inputs });
     return {
       analysis: analyzeMix(left, right, sampleRate),
       what,
       seconds: left.length / sampleRate,
       lengthBeats: compiled.lengthBeats,
+      version,
     };
   }
 
-  private analyzeMixTool(): string {
-    const { analysis: m, what, seconds, lengthBeats } = this.renderForAnalysis();
+  private async analyzeMixTool(): Promise<string> {
+    const { analysis: m, what, seconds, lengthBeats, version } = await this.renderForAnalysis();
+    this.assertRenderCurrent(version);
     const toTarget = -14 - m.lufsIntegrated;
     return [
       `Análisis de mezcla (${what}, ${f(lengthBeats)} beats, ${f(seconds, 1)} s render):`,
@@ -1293,8 +1341,9 @@ export class ToolExecutor {
     return undefined;
   }
 
-  private adviseMixTool(a: Record<string, unknown>): string {
-    const { analysis, what } = this.renderForAnalysis();
+  private async adviseMixTool(a: Record<string, unknown>): Promise<string> {
+    const { analysis, what, version } = await this.renderForAnalysis();
+    this.assertRenderCurrent(version);
 
     const genreArg = optString(a, 'genre') ?? 'auto';
     const genres: MixGenre[] = ['trap', 'boombap', 'reggaeton', 'generico'];
