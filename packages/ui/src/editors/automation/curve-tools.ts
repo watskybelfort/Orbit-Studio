@@ -237,11 +237,20 @@ export function shapePoints(options: ShapeOptions): AutomationPoint[] {
       push(from + (i / steps) * period, at(0.5 + 0.5 * Math.sin(2 * Math.PI * u)));
     }
   } else if (shape === 'triangle') {
-    const total = Math.ceil(cycles * 2);
-    for (let i = 0; i <= total; i++) {
-      const u = (i / 2 + phase) % 1;
-      push(from + (i / 2) * period, at(u < 0.5 ? u * 2 : 2 - u * 2));
+    // La fase desplaza los VÉRTICES en el tiempo. Muestrear siempre en
+    // 0, ½, 1… solo desplaza sus alturas y aplana la onda con fase ¼ o ¾.
+    const offset = phase - Math.floor(phase);
+    const triangleAt = (cycle: number) => {
+      const u = cycle - Math.floor(cycle);
+      return at(u < 0.5 ? u * 2 : 2 - u * 2);
+    };
+    push(from, triangleAt(offset));
+    for (let vertex = Math.floor(offset * 2) + 1; vertex / 2 < offset + cycles; vertex++) {
+      const time = from + (vertex / 2 - offset) * period;
+      if (time > from && time < to) push(time, at(vertex % 2));
     }
+    // Un ciclo parcial termina con su valor real, no repitiendo el último pico.
+    push(to, triangleAt(offset + cycles));
   } else if (shape === 'sawUp' || shape === 'sawDown') {
     const rising = shape === 'sawUp';
     /*
