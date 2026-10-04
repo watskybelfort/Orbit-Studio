@@ -31,6 +31,7 @@ import type { InputRoute } from './model/input-routing';
 import { MAX_INPUT_ROUTES } from './model/input-routing';
 import { wouldLoop } from './model/routing';
 import { assertNoReservedIds } from './model/entity-id';
+import { commandProblem } from './model/command-schema';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -291,6 +292,15 @@ function channelFx(channel: Channel): (EffectSlot | null)[] {
 // ── applyCommand ─────────────────────────────────────────────────────────────
 
 export function applyCommand(project: Project, cmd: Command): Command {
+  // Antes de mutar NADA, y por este orden: primero la FORMA (¿esto es siquiera
+  // un comando del bus?) y después los ids. Un tipo desconocido o un `commands:
+  // null` llegaban hasta el switch y devolvían `undefined` —el que espera un
+  // inverso se comía un `undefined` sin saber de dónde— o reventaban al
+  // reproducir el lote. Ver `model/command-schema.ts` (BUG 018).
+  const problema = commandProblem(cmd);
+  if (problema !== null) {
+    throw new Error(`Comando inválido: ${problema}`);
+  }
   // Antes de mutar NADA: un id reservado (una clave heredada) en cualquier
   // campo de id se rechaza con su nombre, así que el proyecto y el historial
   // quedan intactos y el prototipo global no se toca (ver `model/entity-id.ts`:

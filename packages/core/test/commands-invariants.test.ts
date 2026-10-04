@@ -169,11 +169,16 @@ describe('setRoute: routeTo debe ser una pista real del mixer', () => {
   it('rechaza índices fuera de rango y deja la ruta anterior intacta', () => {
     const p = createEmptyProject();
     const n = p.mixer.length;
-    for (const bad of [-1, n, 1.5, Number.NaN]) {
+    // Un NaN lo para la FORMA antes de llegar al rango (el motivo es más claro y el
+    // contrato es el mismo: no se aplica y la ruta anterior queda intacta).
+    for (const bad of [-1, n, 1.5]) {
       expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: bad })).toThrow(
         /rango/,
       );
     }
+    expect(() => applyCommand(p, { type: 'setRoute', trackIndex: 1, routeTo: Number.NaN })).toThrow(
+      /no es un número/,
+    );
     expect(p.mixer[1]!.routeTo).toBe(0);
     // 0 (Master) y el último índice válido se siguen admitiendo.
     expectInvertible(p, { type: 'setRoute', trackIndex: 1, routeTo: 0 });
