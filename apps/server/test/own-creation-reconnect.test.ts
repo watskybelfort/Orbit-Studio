@@ -63,6 +63,12 @@ class Peer {
   readonly controles: ControlMessage[] = [];
   /** El último mensaje de control recibido (para pedir invitaciones). */
   control: ControlMessage | null = null;
+  /**
+   * El `seq` de cada entrada, como el binding real: numerar SIEMPRE es lo que hace
+   * que las claves sean únicas (BUG 015). Con un `seq` fijo, dos entradas del mismo
+   * cliente eran la misma clave y el servidor se negaba a aplicar la segunda.
+   */
+  private seq = 0;
 
   constructor(port: number, readonly name: string) {
     this.awareness = new awarenessProtocol.Awareness(this.doc);
@@ -109,7 +115,7 @@ class Peer {
   /** Una entrada al log, escrita a pelo (como haría un cliente). */
   meterCrudo(cmd: unknown): void {
     this.doc.transact(() => {
-      this.doc.getArray<unknown>('commands').push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: 1, role: 'invitado', own: true, cmd }]);
+      this.doc.getArray<unknown>('commands').push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: this.seq++, role: 'invitado', own: true, cmd }]);
     });
   }
 

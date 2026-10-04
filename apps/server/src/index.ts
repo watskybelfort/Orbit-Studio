@@ -244,6 +244,23 @@ function readAwarenessAnnouncements(
   }
 }
 
+/**
+ * La clave de idempotencia de una entrada: `client:seq`.
+ *
+ * Una entrada repetida no es un cambio, es la misma clave dos veces. La clave la
+ * escriben dos enteros que pone el cliente; si no lo son no identifica nada (dos
+ * entradas malformadas compartirían clave y una taparía a la otra), así que se
+ * devuelve `null` y la entrada se retira del log.
+ */
+function claveDeEntrada(entry: RawLogEntry): string | null {
+  const client = (entry as { client?: unknown }).client;
+  const seq = (entry as { seq?: unknown }).seq;
+  if (!Number.isSafeInteger(client) || !Number.isSafeInteger(seq)) return null;
+  if ((client as number) < 0 || (seq as number) < 0) return null;
+  return `${String(client)}:${String(seq)}`;
+}
+
+
 // ── Room ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -996,6 +1013,7 @@ class Room {
     // `client:seq`, dos campos que escribe el cliente, así que repetir una
     // clave ya usada saltaba la validación entera.
     let index = 0;
+    const insertados = new Set<number>();
     for (const part of event.changes.delta) {
       if (part.retain !== undefined) {
         index += part.retain;
@@ -1005,6 +1023,7 @@ class Room {
       if (part.insert === undefined) continue;
       const inserted = Array.isArray(part.insert) ? (part.insert as RawLogEntry[]) : [];
       for (const entry of inserted) {
+        insertados.add(index);
         const role = this.roleForEntry(entry, from, senderRole);
         const cmd = entryCommand(entry);
         // ownCreation lo decide el SERVIDOR: ¿los ids que borra los creó ESTE
@@ -1032,10 +1051,20 @@ class Room {
     }
     this.podarAutores();
 
+    // La clave de idempotencia se juzga DESPUÉS del recorrido, sobre el log ya
+    // insertado: hay que compararla con las entradas que ya estaban, y para eso
+    // hace falta una pasada entera (ver `clavesQueNoEntran`).
+    for (const mala of this.clavesQueNoEntran(insertados, from)) {
+      offenders.push({ index: mala.index, reason: mala.reason, type: mala.type });
+    }
+
     if (offenders.length > 0) {
-      // De atrás hacia delante: borrar por índice mueve lo que viene después.
+      // De atrás hacia delante: borrar por índice mueve lo que viene después. Se
+      // ordena por índice (y no solo se invierte) porque las claves se juzgan
+      // después del recorrido y podrían venir en cualquier orden.
+      const porIndice = [...new Set(offenders.map((o) => o.index))].sort((a, b) => b - a);
       this.doc.transact(() => {
-        for (const offender of [...offenders].reverse()) log.delete(offender.index, 1);
+        for (const indice of porIndice) log.delete(indice, 1);
       }, ROLE_ENFORCER);
       for (const offender of offenders) {
         console.warn(`[room ${this.code}] retirado del log: ${offender.type} (${offender.reason})`);
@@ -1051,6 +1080,69 @@ class Room {
     // La copia autoritativa refleja el log ya depurado (con las inserciones
     // aceptadas y sin las retiradas). Desde aquí se restaura si alguien borra.
     this.logShadow = log.toArray();
+  }
+
+  /**
+   * Las entradas insertadas ahora que NO deben entrar en el log (BUG 015).
+   *
+   * Dos reglas, y las dos son sobre el `client:seq` de la entrada, que escribe el
+   * cliente:
+   *
+   * - CLAVE REPETIDA. Con una clave repetida, quien ya estaba dentro había aplicado la
+   *   primera y se saltaba la segunda, mientras que quien entraba tarde se las aplicaba
+   *   las dos: la misma sala acababa con dos proyectos distintos según cuándo se
+   *   entrara (medido: tempo 150 para uno, 160 para otro), y guardar o exportar
+   *   dependía del cliente. Gana la PRIMERA, que es la regla que ya siguen los que van
+   *   aplicando, y el log la deja escrita para todos.
+   * - FIRMA DE OTRO. Si el `client` de la entrada es un clientID que tiene otro socket
+   *   vivo, la entrada viene firmada con la identidad de otro: el mismo agujero que en
+   *   la presencia (BUG 012), y por el mismo motivo se retira en vez de aceptarse.
+   *
+   * Solo se juzga lo que entra AHORA: lo que ya estaba en el log no se re-mira (una sala
+   * que arrastra duplicados de antes se limpia sola al compactar, y reescribir historia
+   * sería peor que dejarla).
+   */
+  private clavesQueNoEntran(
+    insertados: ReadonlySet<number>,
+    from: WsSocket | undefined,
+  ): { index: number; reason: string; type: string }[] {
+    const log = this.doc.getArray<RawLogEntry>('commands');
+    const vistas = new Set<string>();
+    const malas: { index: number; reason: string; type: string }[] = [];
+    const marcar = (i: number, reason: string, entry: RawLogEntry): void => {
+      const raw = entry.cmd as { type?: unknown } | undefined;
+      malas.push({
+        index: i,
+        reason,
+        type: typeof raw?.type === 'string' ? raw.type : '?',
+      });
+    };
+    log.toArray().forEach((entry, i) => {
+      const clave = claveDeEntrada(entry);
+      const esNueva = insertados.has(i);
+      if (clave === null) {
+        // Sin clave no hay idempotencia que respetar: dos entradas así compartirían
+        // clave y una taparía a la otra, así que la que entra se retira.
+        if (esNueva) marcar(i, 'La entrada no tiene una clave válida.', entry);
+        return;
+      }
+      if (!esNueva) {
+        vistas.add(clave);
+        return;
+      }
+      if (vistas.has(clave)) {
+        marcar(i, 'Esa entrada del registro ya estaba: no se aplica dos veces.', entry);
+        return;
+      }
+      vistas.add(clave);
+      if (from !== undefined) {
+        const dueno = this.clientOwner.get(Number((entry as { client: number }).client));
+        if (dueno !== undefined && dueno !== from) {
+          marcar(i, 'La entrada viene firmada con el clientID de otro.', entry);
+        }
+      }
+    });
+    return malas;
   }
 
   /**
