@@ -457,8 +457,12 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
   }
 
   // Mapas de tempo y compás: el valor del proyecto en el 0 y un tramo por
-  // marcador que los cambie. Se ordenan por beat y se quitan los repetidos.
-  const markers = Object.values(project.markers).sort((a, b) => a.time - b.time);
+  // marcador que los cambie EN CANCIÓN. El patrón tiene beats relativos y usa
+  // el tempo/compás del proyecto, igual que su MIDI; los marcadores de la
+  // playlist no deben cambiar la duración del WAV de ese patrón.
+  const markers = play.mode === 'song'
+    ? Object.values(project.markers).sort((a, b) => a.time - b.time)
+    : [];
   const tempoMap: TempoChange[] = [{ beat: 0, tempo: project.tempo }];
   const meterMap: MeterChange[] = [{ beat: 0, num: Math.max(1, project.timeSig.num) }];
   for (const marker of markers) {
