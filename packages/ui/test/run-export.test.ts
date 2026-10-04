@@ -222,6 +222,21 @@ describe('runExport: orquestación de render, corte y formatos', () => {
     expect(midi.tracks[0]!.notes[0]).toMatchObject({ start: 0, duration: 0.5, key: 61 });
   });
 
+  it('una canción que supera el límite falla antes de escribir WAV o formatos secundarios', async () => {
+    const { runExport, writes, channelId } = await rig();
+    const core = await import('@orbit/core');
+    const { store } = await import('../src/state/app');
+    const patternId = store.project.patternOrder[0]!;
+    store.dispatch({ type: 'setTempo', tempo: 120 });
+    store.dispatch({ type: 'addNotes', patternId, channelId, notes: [{ id: core.newId(), start: 0,
+      duration: 1, key: 60, velocity: 1, pan: 0, slide: false }] });
+    store.dispatch({ type: 'addClips', clips: [{ id: core.newId(), kind: 'pattern', patternId,
+      playlistTrackId: Object.keys(store.project.playlistTracks)[0]!, start: 2402, length: 4, muted: false }] });
+    await expect(runExport('/salida/larga.wav', { ...BASE_OPTS, sampleRate: 8000,
+      tailSeconds: 0, midi: true, stems: true })).rejects.toThrow(/límite.*1200/);
+    expect(writes).toEqual([]);
+  });
+
   it('MP3 por encima de 48 kHz se salta con aviso: el WAV se escribe igual', async () => {
     const { runExport, writes } = await rig();
     const summary = await runExport('/salida/hi.wav', {

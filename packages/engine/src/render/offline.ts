@@ -61,6 +61,15 @@ export interface RenderResult {
 
 const HARD_CAP_SECONDS = 60 * 20;
 
+/** Alcanzar el presupuesto nunca convierte un fragmento en un render completo. */
+export class RenderLimitError extends Error {
+  constructor(seconds: number) {
+    super(`El render superó el límite de ${Math.round(seconds)} segundos sin terminar la música y su cola. ` +
+      'Exporta una selección más corta. No se ha generado un render completo.');
+    this.name = 'RenderLimitError';
+  }
+}
+
 /**
  * Copia lo ÚNICO que el kernel ESCRIBE del proyecto compilado: los params de
  * canal y de efecto, los faders y el EQ (ahí es donde aterrizan la
@@ -140,6 +149,7 @@ export function renderProject(
 
   let written = 0;
   let tailLeft = Math.ceil(tail * sr);
+  let complete = false;
   const estTotal = Math.ceil(estSeconds * sr);
 
   while (written < capSamples) {
@@ -149,7 +159,10 @@ export function renderProject(
     written += MAX_BLOCK;
     if (!core.playing) {
       tailLeft -= MAX_BLOCK;
-      if (tailLeft <= 0) break;
+      if (tailLeft <= 0) {
+        complete = true;
+        break;
+      }
     }
     // Mismo guard que antes (`opts.onProgress &&`, ahora + `opts.isCancelled`):
     // sin ninguno de los dos registrado, el módulo ni se calcula — no pagar
@@ -168,6 +181,11 @@ export function renderProject(
   // algunos instrumentos son de módulo, así que lo que no se devuelva se
   // pierde para el resto del proceso, no solo para este render.
   core.dispose();
+
+  // La duración estimada también limita recursos cuando una automatización
+  // alarga el tema. Ni ese presupuesto ni los veinte minutos pueden producir
+  // arrays aparentemente completos: el error viaja por worker, export y bridge.
+  if (!complete) throw new RenderLimitError(capSamples / sr);
 
   const left = new Float32Array(written);
   const right = new Float32Array(written);

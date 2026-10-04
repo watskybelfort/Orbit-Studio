@@ -16,6 +16,7 @@ export {
   renderProject,
   renderStems,
   RenderCancelledError,
+  RenderLimitError,
   type RenderOptions,
   type RenderResult,
   type StemBatchResult,
