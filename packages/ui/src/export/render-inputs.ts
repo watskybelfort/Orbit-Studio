@@ -168,7 +168,7 @@ export async function collectSamples(
   return { samples, missing };
 }
 
-/** Fuentes de los plugins JS que usa el mixer (los que falten van en bypass). */
+/** Fuentes JS de mixer, inserts de canal e instrumentos; ausencias explícitas. */
 export function collectPluginSources(project: Project): {
   plugins: Map<string, string>;
   missing: string[];
@@ -176,12 +176,27 @@ export function collectPluginSources(project: Project): {
   const sources = usePluginsStore.getState().sources;
   const plugins = new Map<string, string>();
   const missing: string[] = [];
+  const seen = new Set<string>();
+  const addSource = (id: string | undefined): void => {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const code = sources.get(id);
+    if (code) plugins.set(id, code);
+    else missing.push(id);
+  };
   for (const track of project.mixer) {
     for (const slot of track.slots) {
-      if (slot?.kind !== 'plugin' || !slot.pluginId || plugins.has(slot.pluginId)) continue;
-      const code = sources.get(slot.pluginId);
-      if (code) plugins.set(slot.pluginId, code);
-      else if (!missing.includes(slot.pluginId)) missing.push(slot.pluginId);
+      if (slot?.kind === 'plugin') addSource(slot.pluginId);
+    }
+  }
+  // El compilador enumera channelOrder: canales fuera del orden tampoco se
+  // instancian en el render. Compartir fuente entre mixer/canal no la duplica.
+  for (const id of project.channelOrder) {
+    const channel = project.channels[id];
+    if (!channel) continue;
+    addSource(channel.instrumentPluginId);
+    for (const slot of channel.fx ?? []) {
+      if (slot?.kind === 'plugin') addSource(slot.pluginId);
     }
   }
   return { plugins, missing };
