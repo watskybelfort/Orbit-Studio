@@ -694,6 +694,19 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'restoreNotes': {
       const pattern = must(project.patterns[cmd.patternId], `patrón ${cmd.patternId}`);
+      // Una lista VACÍA no crea la clave: `removeNotes` de un id que no existe (o con
+      // lista vacía) devuelve un inverso con cero notas, y deshacerlo se llevaba por
+      // delante `notes[channelId] ??= []`, dejando una clave `[]` que antes NO existía
+      // (medido por SOLEANO: cambiaba el proyecto inicial al deshacer, y el proyecto
+      // serializado). Aquí no se toca nada, que es lo que corresponde.
+      if (cmd.notes.length === 0) {
+        return {
+          type: 'removeNotes',
+          patternId: cmd.patternId,
+          channelId: cmd.channelId,
+          noteIds: [],
+        };
+      }
       const list = (pattern.notes[cmd.channelId] ??= []);
       // Con las posiciones, cada nota vuelve a SU sitio. Se insertan en el MISMO orden en
       // que estaban (de delante hacia atrás, que es como las da `removed`): al llegar
