@@ -190,16 +190,27 @@ export function midiMappingFor(
 
 // ── Volcado por frame ───────────────────────────────────────────────────────
 
-/** Último valor recibido de cada origen, pendiente de escribir. */
-const pending = new Map<string, number>();
+/** El destino y la sesión pertenecen al mensaje, no al próximo frame. */
+const pending = new Map<string, { value: number; mapping: MidiMapping; epoch: number }>();
+const mappingIds = new WeakMap<MidiMapping, number>();
+let nextMappingId = 0;
 let flushHandle: number | null = null;
+
+function mappingMergeKey(mapping: MidiMapping): string {
+  let id = mappingIds.get(mapping);
+  if (id === undefined) { id = ++nextMappingId; mappingIds.set(mapping, id); }
+  // Reaprender incluso el mismo destino empieza otro gesto de undo.
+  return `midi:${mapping.source}:${paramRefKey(mapping.ref)}:${id}`;
+}
 
 function flush(): void {
   flushHandle = null;
-  const { mappings } = useMidiLearnStore.getState();
-  for (const [source, value] of pending) {
-    const mapping = mappings[source];
-    if (!mapping) continue;
+  const frame = [...pending];
+  pending.clear();
+  for (const [source, { value, mapping, epoch }] of frame) {
+    // Reasignar, quitar o cargar mapeos invalida los mensajes anteriores.
+    // El epoch cubre sustituir un proyecto incluso conservando su mismo id.
+    if (epoch !== store.historyEpoch || useMidiLearnStore.getState().mappings[source] !== mapping) continue;
     const command = paramRefCommand(mapping.ref, value, store.project);
     // null = el destino ya no existe (efecto quitado, canal borrado). El mapeo
     // se queda por si vuelve; lo que no puede es reventar aquí.
@@ -207,12 +218,11 @@ function flush(): void {
     store.dispatch(command, {
       label: describeParamRef(mapping.ref, store.project),
       // Un barrido del mando entero es UN paso de undo, no doscientos.
-      mergeKey: 'midi:' + source,
+      mergeKey: mappingMergeKey(mapping),
     });
     // La captura lee el valor ya aplicado, igual que una perilla de la UI.
     touchParam(mapping.ref);
   }
-  pending.clear();
 }
 
 function scheduleFlush(): void {
@@ -236,7 +246,8 @@ export function onMidiControl(source: string, value: number): void {
     persistMappings();
     return;
   }
-  if (!mappings[source]) return;
-  pending.set(source, Math.min(1, Math.max(0, value)));
+  const mapping = mappings[source];
+  if (!mapping) return;
+  pending.set(source, { value: Math.min(1, Math.max(0, value)), mapping, epoch: store.historyEpoch });
   scheduleFlush();
 }
