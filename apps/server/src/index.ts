@@ -41,12 +41,14 @@ import {
   MESSAGE_CONTROL,
   authMessage,
   consumeInvite,
+  encodeAudioChunk,
   encodeControl,
   makeInviteRecord,
   newInviteToken,
   parseControl,
   publicInvite,
   randomNonce,
+  readAudioChunkBody,
   verifyProof,
   isChatMessage,
   isSampleAsset,
@@ -504,12 +506,8 @@ class Room {
           break;
         }
         case MESSAGE_AUDIO: {
-          // Streaming del master: se reparte tal cual y NO se guarda (no es
-          // parte del proyecto). Solo se mira el tamaño, para que un cliente
-          // roto —o listo— no llene la sala con un trozo de diez minutos.
-          if (data.byteLength <= AUDIO_MAX_SAMPLES * 2 + 64) {
-            this.broadcastExcept(conn, data);
-          }
+          const fiable = this.audioDeEmisorReal(conn, data);
+          if (fiable !== null) this.broadcastExcept(conn, fiable);
           break;
         }
         default:
@@ -518,6 +516,44 @@ class Room {
     } catch (err) {
       console.error(`[room ${this.code}] mensaje inválido:`, err);
     }
+  }
+
+  /**
+   * El audio que se reparte, con la identidad REAL de quien lo manda.
+   *
+   * El streaming del master no se guarda (no es parte del proyecto), pero su campo
+   * `from` es lo que le dice a quien escucha de quién es el audio que oye: es la
+   * etiqueta del productor y el reloj del stream. El servidor solo miraba el tamaño
+   * del paquete, así que un invitado podía mandar un trozo con el clientID del
+   * PRODUCTOR y a todos les llegaba como suyo (medido en la tarjeta 014: el host
+   * recibía audio con `claimedSender` = su propio ID vindo del socket del invitado).
+   *
+   * Aquí `from` se ata al socket: si es un clientID que este socket controla, el
+   * paquete sale tal cual; si no, se reatribuye a un clientID suyo —el oyente que
+   * sigue al productor oye el audio del QUE LO MANDA, no el que dice el paquete— y si
+   * el socket no controla ninguno se descarta. Los streams legítimos de varios
+   * invitados siguen funcionando con su identidad correcta: cada uno manda lo suyo.
+   *
+   * De paso el mensaje pasa por el lector del codec, así que un trozo mal formado o
+   * de un tamaño disparatado ya no se reparte: antes solo se miraba el byteLength.
+   *
+   * @returns el mensaje a repartir, ya con su identidad correcta, o null si no vale.
+   */
+  private audioDeEmisorReal(conn: WsSocket, data: Uint8Array): Uint8Array | null {
+    // El tamaño, como antes: un cliente roto —o listo— no llena la sala con un
+    // trozo de diez minutos.
+    if (data.byteLength > AUDIO_MAX_SAMPLES * 2 + 64) return null;
+    const controlled = this.conns.get(conn);
+    if (controlled === undefined || controlled.size === 0) return null;
+
+    const decoder = decoding.createDecoder(data);
+    decoding.readVarUint(decoder); // el tipo del mensaje, ya leído
+    const chunk = readAudioChunkBody(decoder);
+    if (chunk === null) return null; // codec o tamaño que no cuadran
+    if (controlled.has(chunk.from)) return data;
+
+    const propio = [...controlled][0]!;
+    return encodeAudioChunk({ ...chunk, from: propio });
   }
 
   /**
