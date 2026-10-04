@@ -30,7 +30,11 @@ interface FakeInput {
 
 interface Rig {
   live: typeof import('../src/state/live-input');
-  send: (bytes: number[]) => void;
+  send: (bytes: number[], timeStamp?: number) => void;
+  app: typeof import('../src/state/app');
+  ui: typeof import('../src/state/ui');
+  preview: ReturnType<typeof vi.spyOn>;
+  channelId: string;
   inputs: Map<string, FakeInput>;
   /** Simula el desenchufe: el aparato sale de la lista y dispara el evento. */
   unplug: () => void;
@@ -56,8 +60,11 @@ async function rig(): Promise<Rig> {
   vi.stubGlobal('navigator', { requestMIDIAccess: () => Promise.resolve(access) });
 
   const core = await import('@orbit/core');
-  const { store, engine } = await import('../src/state/app');
+  const app = await import('../src/state/app');
+  const { store, engine } = app;
   vi.spyOn(engine, 'init').mockResolvedValue(undefined);
+  const preview = vi.spyOn(engine, 'previewNote');
+  const ui = await import('../src/state/ui');
 
   const channel = core.createChannel('synth', 0, 'Lead');
   store.dispatch({ type: 'addChannel', channel }, { label: 'canal de prueba' });
@@ -70,6 +77,10 @@ async function rig(): Promise<Rig> {
 
   return {
     live,
+    app,
+    ui,
+    preview,
+    channelId: channel.id,
     inputs,
     send: (bytes: number[], timeStamp = 0) =>
       fakeInput.onmidimessage?.({ data: new Uint8Array(bytes), timeStamp }),
@@ -130,5 +141,108 @@ describe('live-input: soltar lo que suena cuando cambia el mundo por debajo', ()
     stateChange();
 
     expect(live.useLiveInputStore.getState().heldKeys).toBe(1);
+  });
+
+  it('dos canales sostienen el mismo do hasta el último note-off, sin perder ninguna nota grabada', async () => {
+    const { live, send, preview, app, ui, channelId } = await rig();
+    live.useLiveInputStore.setState({ armed: true });
+    ui.useUiStore.setState({ playing: true });
+    send([0x90, 60, 100]);
+    send([0x91, 60, 80]);
+    expect(live.useLiveInputStore.getState().heldKeys).toBe(2);
+    expect(preview.mock.calls).toEqual([[0, 60, true]]);
+    send([0x80, 60, 0]);
+    expect(live.useLiveInputStore.getState().heldKeys).toBe(1);
+    expect(preview.mock.calls).toEqual([[0, 60, true]]);
+    send([0x81, 60, 0]);
+    expect(live.useLiveInputStore.getState().heldKeys).toBe(0);
+    expect(preview.mock.calls).toEqual([[0, 60, true], [0, 60, false]]);
+    ui.useUiStore.setState({ playing: false });
+    const notes = app.store.project.patterns[app.store.project.patternOrder[0]!]!.notes[channelId]!;
+    expect(notes).toHaveLength(2);
+    expect(notes.map((note) => note.velocity)).toEqual([100 / 127, 80 / 127]);
+    app.store.undo();
+    expect(app.store.project.patterns[app.store.project.patternOrder[0]!]!.notes[channelId] ?? []).toEqual([]);
+  });
+
+  it('el pedal de un canal no retiene la nota del otro canal', async () => {
+    const { live, send, preview } = await rig();
+    send([0xb0, 64, 127]);
+    send([0x90, 60, 100]);
+    send([0x91, 62, 100]);
+    send([0x80, 60, 0]);
+    send([0x81, 62, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 1, sustainedKeys: 1 });
+    expect(preview.mock.calls).toContainEqual([0, 62, false]);
+    send([0xb1, 64, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 1, sustainedKeys: 1 });
+    send([0xb0, 64, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 0, sustainedKeys: 0 });
+  });
+
+  it.each([120, 123])('CC%d suelta solo su canal y su pedal', async (cc) => {
+    const { live, send, preview } = await rig();
+    send([0xb0, 64, 127]);
+    send([0xb1, 64, 127]);
+    send([0x90, 60, 100]);
+    send([0x91, 60, 80]);
+    send([0x80, 60, 0]);
+    send([0x81, 60, 0]);
+    send([0xb0, cc, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 1, sustainedKeys: 1 });
+    expect(preview.mock.calls).toEqual([[0, 60, true]]);
+    send([0xb1, 64, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 0, sustainedKeys: 0 });
+    expect(preview.mock.calls).toEqual([[0, 60, true], [0, 60, false]]);
+  });
+
+  it.each(['unplug', 'disable', 'filter'] as const)('%s limpia todos los canales y pedales sin duplicar note-off', async (action) => {
+    const { live, send, unplug, preview } = await rig();
+    send([0xb0, 64, 127]);
+    send([0xbf, 64, 127]);
+    send([0x90, 60, 100]);
+    send([0x9f, 60, 100]);
+    send([0x80, 60, 0]);
+    send([0x8f, 60, 0]);
+    if (action === 'unplug') unplug();
+    else if (action === 'disable') live.setMidiDeviceEnabled('dev1', false);
+    else live.setMidiChannel(2);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 0, sustainedKeys: 0 });
+    expect(preview.mock.calls).toEqual([[0, 60, true], [0, 60, false]]);
+  });
+
+  it('repicar bajo pedal conserva el ciclo de ataque y liberación de una sola fuente', async () => {
+    const { live, send, preview } = await rig();
+    send([0xb0, 64, 127]);
+    send([0x90, 60, 100]);
+    send([0x80, 60, 0]);
+    send([0x90, 60, 100]);
+    expect(preview.mock.calls).toEqual([[0, 60, true], [0, 60, false], [0, 60, true]]);
+    send([0xb0, 64, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 1, sustainedKeys: 0 });
+    send([0x80, 60, 0]);
+    expect(preview).toHaveBeenLastCalledWith(0, 60, false);
+  });
+
+  it('un note-off sin note-on no inventa una tecla sostenida', async () => {
+    const { live, send } = await rig();
+    send([0xb0, 64, 127]);
+    send([0x80, 60, 0]);
+    expect(live.useLiveInputStore.getState()).toMatchObject({ heldKeys: 0, sustainedKeys: 0 });
+  });
+
+  it('dos dispositivos con ids que comparten prefijo no se cortan al apagar uno', async () => {
+    const { live, send, inputs, stateChange, preview } = await rig();
+    const other: FakeInput = { id: 'dev1:2', name: 'Otro teclado', onmidimessage: null };
+    inputs.set(other.id, other);
+    stateChange();
+    send([0x90, 60, 100]);
+    other.onmidimessage?.({ data: new Uint8Array([0x90, 60, 80]), timeStamp: 0 });
+    live.setMidiDeviceEnabled('dev1', false);
+    expect(live.useLiveInputStore.getState().heldKeys).toBe(1);
+    expect(preview.mock.calls).toEqual([[0, 60, true]]);
+    other.onmidimessage?.({ data: new Uint8Array([0x80, 60, 0]), timeStamp: 0 });
+    expect(live.useLiveInputStore.getState().heldKeys).toBe(0);
+    expect(preview).toHaveBeenLastCalledWith(0, 60, false);
   });
 });

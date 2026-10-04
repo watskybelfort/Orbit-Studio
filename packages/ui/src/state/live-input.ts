@@ -9,7 +9,7 @@
  * dispositivo se enciende y se apaga por su cuenta (el teclado maestro sí, la
  * superficie de mandos no), se elige qué canal se escucha, cuántas octavas se
  * transpone y con qué curva pega el teclado. El pedal de sostenido (CC 64) va
- * por dispositivo, en `sustain.ts`. La lectura de los bytes vive en
+ * por dispositivo y canal MIDI, en `sustain.ts`. La lectura de los bytes vive en
  * `midi-message.ts`. Las dos piezas se prueban sin hardware.
  */
 
@@ -133,7 +133,7 @@ interface HeldNote {
 }
 
 const held = new Map<string, HeldNote>();
-/** Pedal de sostenido (CC 64), por dispositivo. */
+/** Pedal de sostenido (CC 64), por dispositivo y canal MIDI. */
 const pedal = new SustainPedal();
 
 let recorded: { key: number; velocity: number; start: number; duration: number }[] = [];
@@ -158,7 +158,10 @@ function noteOn(source: string, key: number, velocity: number, atMs = performanc
   const ch = targetChannel();
   if (!ch) return;
   ensureAudioReady();
-  previewNote(ch.index, key, true);
+  // El motor identifica la voz de preview por canal Orbit + altura. Dos
+  // entradas físicas pueden compartirla: registrar ambas no debe permitir que
+  // el primer note-off corte la que todavía está pulsada.
+  if (!hasHeldVoice(ch.index, key)) previewNote(ch.index, key, true);
   held.set(source, {
     key,
     velocity,
@@ -175,11 +178,18 @@ function noteOff(source: string, atMs = performance.now()): void {
   if (!h) return;
   held.delete(source);
   useLiveInputStore.setState({ heldKeys: held.size });
-  previewNote(h.channelIndex, h.key, false);
+  if (!hasHeldVoice(h.channelIndex, h.key)) previewNote(h.channelIndex, h.key, false);
 
   if (useLiveInputStore.getState().armed && useUiStore.getState().playing) {
     push(h, beatAt(atMs));
   }
+}
+
+function hasHeldVoice(channelIndex: number, key: number): boolean {
+  for (const h of held.values()) {
+    if (h.channelIndex === channelIndex && h.key === key) return true;
+  }
+  return false;
 }
 
 /** Apunta una nota tocada, cerrada en `endBeat`. */
@@ -410,7 +420,20 @@ export function setMidiBendRange(semitones: number): void {
 
 /** Prefijo de fuente de un dispositivo (para soltar solo lo suyo). */
 function sourcePrefix(deviceId: string): string {
-  return 'midi:' + deviceId + ':';
+  // La longitud hace inequívoco el límite aunque el id contenga ':' o números.
+  return `midi:${deviceId.length}:${deviceId}:`;
+}
+
+function midiChannelPrefix(deviceId: string, channel: number): string {
+  return `${sourcePrefix(deviceId)}${channel}:`;
+}
+
+/** Desconectar/apagar el aparato olvida los 16 pedales, incluso sin notas. */
+function releaseMidiDevice(deviceId: string): void {
+  for (let channel = 1; channel <= 16; channel++) {
+    for (const source of pedal.forgetDevice(midiChannelPrefix(deviceId, channel))) noteOff(source);
+  }
+  releaseAll(sourcePrefix(deviceId));
 }
 
 /** Enciende o apaga un controlador concreto. */
@@ -420,8 +443,7 @@ export function setMidiDeviceEnabled(id: string, enabled: boolean): void {
   persist({ [SETTINGS_DISABLED]: [...disabledIds] });
   // Apagar un teclado con el pedal pisado dejaba sus notas sonando: nadie iba
   // a mandar ya el CC 64 con valor 0.
-  for (const source of pedal.forgetDevice(id)) noteOff(source);
-  releaseAll(sourcePrefix(id));
+  releaseMidiDevice(id);
   reattach?.();
 
 }
@@ -578,8 +600,7 @@ export function initLiveInput(): void {
         // `setMidiDeviceEnabled` al apagar uno a mano.
         for (const id of attachedIds) {
           if (present.has(id)) continue;
-          for (const source of pedal.forgetDevice(id)) noteOff(source);
-          releaseAll(sourcePrefix(id));
+          releaseMidiDevice(id);
         }
         attachedIds = present;
         useLiveInputStore.setState({
@@ -606,14 +627,15 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
   if (!channelMatches(msg.channel, st.channel)) return;
   useLiveInputStore.setState({ lastMessageAt: performance.now() });
 
-  // La fuente lleva el dispositivo y la tecla SIN transponer: así el note-off
+  // La fuente lleva dispositivo, canal MIDI y tecla SIN transponer: el note-off
   // encuentra su nota aunque la octava haya cambiado con la tecla pulsada, y
-  // dos teclados en el mismo do no se pisan el uno al otro.
+  // encuentra su nota también al escuchar todos los canales del mismo teclado.
+  const channelSource = midiChannelPrefix(deviceId, msg.channel);
   switch (msg.kind) {
     case 'noteOn': {
       const key = transposeKey(msg.key, st.octave);
       if (key === null) return;
-      const source = sourcePrefix(deviceId) + msg.key;
+      const source = channelSource + msg.key;
       // Repicar una tecla que el pedal retiene: hay que soltarla antes, o el
       // note-on se ignora (esa fuente ya suena) y la nota nueva no ataca.
       if (pedal.takeRetrigger(source)) noteOff(source, e.timeStamp);
@@ -622,8 +644,8 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       break;
     }
     case 'noteOff': {
-      const source = sourcePrefix(deviceId) + msg.key;
-      if (pedal.holdNoteOff(deviceId, source)) {
+      const source = channelSource + msg.key;
+      if (held.has(source) && pedal.holdNoteOff(channelSource, source)) {
         useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       } else {
         noteOff(source, e.timeStamp);
@@ -633,16 +655,16 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
 
     case 'sustain':
       if (msg.down) {
-        pedal.press(deviceId);
+        pedal.press(channelSource);
       } else {
-        for (const source of pedal.release(deviceId)) noteOff(source);
+        for (const source of pedal.release(channelSource)) noteOff(source, e.timeStamp);
       }
       useLiveInputStore.setState({ sustainedKeys: pedal.holding });
       break;
     case 'allNotesOff':
-      // El panic del teclado se lleva por delante su pedal también.
-      for (const source of pedal.forgetDevice(deviceId)) noteOff(source);
-      releaseAll(sourcePrefix(deviceId));
+      // CC120/123 pertenece a SU canal; los otros canales siguen tocando.
+      for (const source of pedal.forgetDevice(channelSource)) noteOff(source, e.timeStamp);
+      releaseAll(channelSource);
       break;
     case 'cc':
       onMidiControl(ccSource(msg.controller), msg.value);
@@ -659,4 +681,3 @@ function handleMidi(deviceId: string, e: MIDIMessageEvent): void {
       break;
   }
 }
-

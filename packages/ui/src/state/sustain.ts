@@ -11,8 +11,8 @@
  * 2. **Desenchufar el teclado (o apagarlo) con el pedal pisado.** Nadie va a
  *    mandar ya el CC 64 con valor 0.
  *
- * El pedal se lleva POR DISPOSITIVO: con dos teclados enchufados, el pedal de
- * uno no puede sostener lo que toca el otro.
+ * La clave del dueño es opaca: live-input incluye DISPOSITIVO Y CANAL MIDI.
+ * Dos teclados, o dos canales del mismo teclado, tienen pedales independientes.
  */
 
 export class SustainPedal {
