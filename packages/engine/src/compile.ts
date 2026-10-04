@@ -42,6 +42,7 @@ import {
   type MeterChange,
   type TempoChange,
 } from './protocol';
+import { applyMixerSolo } from './mixer-solo';
 
 export type PlayMode =
   | { mode: 'pattern'; patternId: string }
@@ -306,7 +307,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
   });
 
   // Solo/mute del mixer (master siempre audible)
-  const anyMixerSolo = project.mixer.some((t, i) => i !== 0 && t.solo);
+  const mixerSolos = project.mixer.flatMap((t, i) => i !== 0 && t.solo ? [i] : []);
   const mixer: CompiledMixerTrack[] = project.mixer.map((t, i) => ({
     id: t.id,
     volume: t.volume,
@@ -315,7 +316,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     eqLow: t.eqLow ?? 0,
     eqMid: t.eqMid ?? 0,
     eqHigh: t.eqHigh ?? 0,
-    audible: i === 0 ? true : anyMixerSolo ? t.solo : !t.mute,
+    audible: i === 0 || t.solo || !t.mute,
     slots: t.slots.map((s) => (s ? compileEffect(s) : null)),
     // La pista de un canal que vive en una carpeta con bus desemboca en el bus
     // en vez de en el Master: conserva su cadena y encima pasa por la del grupo.
@@ -324,6 +325,10 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
     // tiene que conocer los valores por defecto del modelo.
     sends: t.sends.map((s) => resolveSend(s)),
   }));
+  const soloSources = applyMixerSolo(mixer, mixerSolos);
+  if (soloSources) {
+    for (const channel of channels) channel.audible &&= soloSources.has(channel.mixerTrack);
+  }
 
   const events: CompiledNoteEvent[] = [];
   const audioClips: CompiledAudioClip[] = [];
@@ -407,6 +412,7 @@ export function compileProject(project: Project, play: PlayMode): CompiledProjec
         // no se ha elegido). Se acota al rango real del mixer.
         const lane = project.playlistTracks[clip.playlistTrackId];
         const mixerTrack = Math.max(0, Math.min(project.mixer.length - 1, lane?.mixerTrack ?? 0));
+        if (soloSources && !soloSources.has(mixerTrack)) continue;
         // Fundidos: se acotan AQUÍ y no en el kernel para que dos fundidos que
         // se pisan (arrastrados a tope los dos) repartan el clip por la mitad
         // en vez de cancelarse o dejar la ganancia por encima de 1.
