@@ -552,4 +552,134 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     binding.destroy();
     doc.destroy();
   });
+
+  it('rechazar, borrar y republicar los bytes CORRECTOS: vuelve a servirse', async () => {
+    // La limpieza del veredicto vivía dentro del bucle de `sizes`, y un hash
+    // rechazado nunca llega a `sizes` (se corta antes): su veredicto se quedaba
+    // pegado y los bytes buenos de ese hash no volvían a servirse nunca.
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc);
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(binding.get(HASH_A)).toBeNull(); // veredicto negativo
+
+    doc.transact(() => mapa.delete(HASH_A));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Y ahora llega el sample de verdad, con el mismo hash y SUS bytes.
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('un digest que resuelve DESPUÉS de destroy no toca nada', async () => {
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    // Se suelta el observer con el digest todavía en vuelo.
+    binding.destroy();
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Ni anuncio, ni identidad, ni el contador de reserva en negativo.
+    expect(recibidos).toHaveLength(0);
+    const estado = binding as unknown as {
+      identity: Map<string, string>;
+      pendienteBytes: number;
+      pendientes: Map<string, string>;
+    };
+    expect(estado.identity.size).toBe(0);
+    expect(estado.pendienteBytes).toBe(0);
+    expect(estado.pendientes.size).toBe(0);
+    doc.destroy();
+  });
+
+  it('destroy + start con OTRO digest no se pisan entre sí', async () => {
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    binding.destroy();
+    // Se vuelve a escuchar y llega OTRO sample: este es el pendiente que importa.
+    binding.start();
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Los dos son válidos y los dos entran: lo que se comprueba aquí es que el
+    // veredicto del digest VIEJO no se lleva por delante al pendiente nuevo (si lo
+    // hiciera, el nuevo se quedaría sin_identity y sin servirse nunca).
+    expect(new Set(recibidos.map((a) => a.hash))).toEqual(new Set([HASH_B, HASH_A]));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    expect(iguales(binding.get(HASH_B), B)).toBe(true);
+    const estado = binding as unknown as { pendienteBytes: number };
+    expect(estado.pendienteBytes).toBe(0);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('un pendiente NO cuenta dos veces su propia reserva en el tope de sala', async () => {
+    // Tope JUSTO para lo que entra: un legacy de 1 byte y un sample real (con su sha1,
+    // o sea pendiente) del tamaño justo. Al recorrer su propia entrada, el
+    // pendiente no puede volver a contarse: eso era un `room-full` falso.
+    const uno = new Uint8Array([1]);
+    const avisos: AssetRejection[] = [];
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc, {
+      maxRoomBytes: uno.byteLength + B.byteLength,
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set('legado', asset('legado', 'l.wav', uno, 'yo'));
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Juntos caben justos: no hay room-full falso.
+    expect(avisos.filter((a) => a.reason === 'room-full')).toHaveLength(0);
+    expect(iguales(binding.get('legado'), uno)).toBe(true);
+    expect(iguales(binding.get(HASH_B), B)).toBe(true);
+    // Y el presupuesto se cuenta una vez: 1 + B, ni un byte de más.
+    expect(binding.totalBytes).toBe(uno.byteLength + B.byteLength);
+    binding.destroy();
+    doc.destroy();
+  });
+  it('SIN WebCrypto el veredicto es la huella, no un pendiente eterno', async () => {
+    const original = globalThis.crypto;
+    // Un entorno sin `crypto.subtle` (un motor viejo, o un test sin stub).
+    Object.defineProperty(globalThis, 'crypto', {
+      value: { getRandomValues: original?.getRandomValues?.bind(original) },
+      configurable: true,
+    });
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    try {
+      doc.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+      await new Promise((r) => setTimeout(r, 40));
+
+      // Se anuncia y se sirve por la huella: no se queda esperando a un digest que no
+      // existe, y el servidor es quien exige la correspondencia.
+      expect(recibidos).toHaveLength(1);
+      expect(iguales(binding.get(HASH_B), B)).toBe(true);
+      const estado = binding as unknown as { pendientes: Map<string, string> };
+      expect(estado.pendientes.size).toBe(0);
+    } finally {
+      binding.destroy();
+      doc.destroy();
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true });
+    }
+  });
 });
