@@ -120,6 +120,12 @@ export function clampRoomCapacity(value: number | undefined): number {
   return Math.min(MAX_ROOM_CAPACITY, Math.max(MIN_ROOM_CAPACITY, Math.round(value)));
 }
 const MAX_CONNS_TOTAL = 512;
+/**
+ * Cuántos clientID «soltados» se recuerdan, y con qué credencial (BUG 012). Es un
+ * tope de memoria, no de seguridad: pasado ese número, el ID más viejo vuelve a
+ * ser reclamable, y da igual porque hace tiempo que nadie lo reclama.
+ */
+const MAX_LIBERADOS = 4096;
 
 /**
  * ¿Es un SHA-1 en hexadecimal? (40 caracteres, el formato de `SampleRef.hash`).
@@ -266,6 +272,25 @@ class Room {
   private nextConnKey = 1;
   /** clientID de Yjs → socket que lo controla (para saber quién firma qué). */
   private readonly clientOwner = new Map<number, WsSocket>();
+  /**
+   * clientID que fueron de alguien que se fue, y que ya no se pueden reclamar.
+   *
+   * Antes, al soltarse un clientID (se fue quien lo tenía) quedaba LIBRE, y el
+   * primero que lo anunciara se lo quedaba: un recién llegado podía reclamar el
+   * clientID del que se acaba de caer y todos veían su nombre y su rol bajo el ID
+   * del otro (medido en la tarjeta 012: el host recibía `user: {name: "Impostor"},
+   * role: "productor"` bajo el ID del usuario caído).
+   *
+   * No se recuerda como una lápida plana sino como «este ID era de ESTE», y solo su
+   * credencial puede recuperarlo: así el que reconecta con su invitación sigue
+   * teniendo su presencia y otro no puede quedarse con ella. La excepción es el que
+   * entra sin credencial (sala abierta): para el servidor todos esos sockets son la
+   * misma cosa vacía, y se documenta como limitación conocida. El rol autoritativo
+   * sigue siendo el de la conexión, así que esto no concede nada.
+   */
+  private readonly liberados = new Map<number, string>();
+  /** El orden de liberación, para poder tapar los viejos (ver `soltar`). */
+  private readonly ordenLiberados: number[] = [];
   /**
    * Id de entidad (canal/patrón/pista/arrangement) → QUIÉN la creó, según el
    * servidor. Es la verdad con la que se juzga si un borrado con `own` es legítimo —
@@ -424,6 +449,11 @@ class Room {
         origin: unknown,
       ) => {
         const controlled = this.conns.get(origin as WsSocket);
+        // Lo que controlaba ANTES de este update: una baja de presencia solo se
+        // replica si el socket era el dueño, y para entonces `clientOwner` ya no lo
+        // tiene (se acabamos de borrar). Sin esta foto, el host se quedaba viendo
+        // al que se fue para siempre.
+        const antes = controlled === undefined ? new Set<number>() : new Set(controlled);
         if (controlled) {
           // First-writer-wins: un clientID pertenece al PRIMER socket que lo
           // anuncia. Sin esto, un invitado mandaba awareness para el clientID
@@ -433,6 +463,11 @@ class Room {
           for (const id of changes.added) {
             const owner = this.clientOwner.get(id);
             if (owner !== undefined && owner !== origin) continue; // ya es de otro
+            // Y si se soltó, ese ID fue de alguien que se fue: solo su MISMA
+            // credencial puede reclamarlo. Reclamarlo con otra credencial sería
+            // suplantar su presencia (BUG 012): no se apunta a nadie y no se replica
+            // (ver `replicables`).
+            if (owner === undefined && !this.puedeReclamar(id, origin as WsSocket)) continue;
             controlled.add(id);
             this.clientOwner.set(id, origin as WsSocket);
           }
@@ -453,15 +488,85 @@ class Room {
         }
         const changed = changes.added.concat(changes.updated, changes.removed);
         if (changed.length === 0) return;
+        // La BAJA se reparte siempre: cuando se va un socket, las borra el propio
+        // servidor (`removeAwarenessStates`) y para entonces `clientOwner` ya no
+        // apunta a esos ids. Y cuando la baja la manda un cliente, `ownsAwareness` ya
+        // ha comprobado antes que ese id es suyo. Lo que se filtra son los ANUNCIOS
+        // (alta y cambio) de un id que el servidor no reconoce como suyo (BUG 012).
+        const replicables = changes.added
+          .concat(changes.updated)
+          .filter((id) => this.replicable(id, origin as WsSocket, antes))
+          .concat(changes.removed);
+        if (replicables.length === 0) return;
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
         encoding.writeVarUint8Array(
           encoder,
-          awarenessProtocol.encodeAwarenessUpdate(this.awareness, changed),
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, replicables),
         );
         this.broadcast(encoding.toUint8Array(encoder));
       },
     );
+  }
+
+  /**
+   * ¿Este announce se reparte a los demás?
+   *
+   * Solo lo que el servidor reconoce como de ALGUIEN conectado: si un socket
+   * anuncia un clientID libre que fue de otro, su presencia no existe para nadie
+   * más (BUG 012). Sin esto, la suplantación se vería igual de clara en el host.
+   */
+  private replicable(id: number, origin: WsSocket, antes: ReadonlySet<number>): boolean {
+    const owner = this.clientOwner.get(id);
+    // `antes` cubre la BAJA: al dejar de controlar el ID, `clientOwner` ya no lo
+    // apunta a nadie y sin esto el retiro no se repartiria.
+    return owner === origin || (owner === undefined && antes.has(id));
+  }
+
+  /**
+   * La credencial de un socket: la invitación con la que pasó la puerta, o la vacía si
+   * entró sin ella (quien abre la sala). Es el mismo criterio que usa la autoría en
+   * 011, para que «quién es» se pregunte una sola vez.
+   */
+  private credencialDe(conn: WsSocket): string {
+    return this.connInvites.get(conn) ?? '';
+  }
+
+  /**
+   * ¿Puede este socket tomar un clientID que ahora mismo no tiene dueño?
+   *
+   * Si el ID no se soltó en esta sala, sí: es un clientID nuevo, o de alguien que se fue
+   * hace tanto que ya ni se recuerda. Si se soltó, SOLO su credencial puede reclamarlo.
+   * Eso es lo que deja trabajar al que reconecta (misma invitación, mismo doc) sin que
+   * otro se le cuele encima por el hueco (BUG 012).
+   *
+   * Lo que NO se puede distinguir es a dos sockets de la MISMA credencial (una
+   * invitación multiuso): para el servidor son la misma persona. Se documenta como
+   * limitación conocida, igual que en la autoría de 011.
+   */
+  private puedeReclamar(id: number, conn: WsSocket): boolean {
+    const anterior = this.liberados.get(id);
+    // Nunca fue de nadie en esta sala: no hay a quién usurpare.
+    if (anterior === undefined) return true;
+    // Se lo llevó quien tenía la MISMA credencial: es su doc volviendo (reconexión
+    // legítima). Con otra credencial es otro quien intenta quedarse con su presencia.
+    return anterior === this.credencialDe(conn);
+  }
+
+  /**
+   * Un clientID queda libre al irse quien lo tenía, y se recuerda PARA QUIÉN era: sin
+   * ese recuerdo, el primero que llegue se lo queda y suplanta al que se fue (BUG 012).
+   * Se tapan los más viejos para que no crezca sin límite: un ID soltado hace mucho ya
+   * no lo va a reclamar nadie, y lo que se protege es el caso reciente.
+   */
+  private soltar(id: number, credencial: string): void {
+    if (this.liberados.has(id)) return;
+    this.liberados.set(id, credencial);
+    this.ordenLiberados.push(id);
+    while (this.ordenLiberados.length > MAX_LIBERADOS) {
+      const viejo = this.ordenLiberados.shift();
+      if (viejo !== undefined) this.liberados.delete(viejo);
+    }
   }
 
   addConn(conn: WsSocket, inviteId?: string): void {
@@ -595,8 +700,15 @@ class Room {
     let claimed = false;
     for (const { client, empty } of announcements) {
       if (empty || this.clientOwner.has(client)) continue;
+      // Un clientID LIBRE que se soltó no se lo queda cualquiera: solo su credencial
+      // (ver `puedeReclamar`). Sin esta línea el filtro del observer llegaba tarde:
+      // aquí el id ya quedaba apuntado a este socket como suyo, y la suplantación se
+      // colaba igual (BUG 012).
+      if (!this.puedeReclamar(client, conn)) continue;
       this.clientOwner.set(client, conn);
       controlled.add(client);
+      // Ya es de alguien vivo otra vez: se olvida el recuerdo de la liberación.
+      this.liberados.delete(client);
       claimed = true;
     }
     if (claimed) this.broadcastRoles();
@@ -607,7 +719,13 @@ class Room {
     const controlled = this.conns.get(conn);
     if (!controlled) return;
     this.conns.delete(conn);
-    for (const client of controlled) this.clientOwner.delete(client);
+    // La credencial se lee ANTES de olvidarla: es la que se queda atada a los IDs que
+    // se sueltan, para que solo su dueño pueda recuperarlos (BUG 012).
+    const credencial = this.credencialDe(conn);
+    for (const client of controlled) {
+      this.clientOwner.delete(client);
+      this.soltar(client, credencial);
+    }
     if (controlled.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.awareness, [...controlled], null);
     }
