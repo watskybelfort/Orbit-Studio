@@ -63,6 +63,10 @@ const MAX_VOICES = 64;
  * la cuenta sería duplicar esa lógica en dos sitios que se desincronizan. De
  * más protege; de menos suelta audio que alguien está leyendo.
  */
+/* eslint-disable orbit/no-audio-thread-alloc -- la lista de muestras se arma al nacer la voz (evento, no bloque) */
+/**
+ * La referencia de muestra de un canal: la del canal, o la lista de zonas del keymap.
+ */
 function channelSampleRef(ch: CompiledChannel): string | readonly string[] | null {
   const keymap = ch.keymap;
   if (keymap && keymap.length > 0) {
@@ -73,6 +77,7 @@ function channelSampleRef(ch: CompiledChannel): string | readonly string[] | nul
   }
   return ch.sampleId ?? null;
 }
+/* eslint-enable orbit/no-audio-thread-alloc */
 
 /** Instancia creada por la fábrica `createEffect(sampleRate)` de un plugin JS. */
 interface PluginInstance {
@@ -560,6 +565,7 @@ export class KernelCore {
     }
   }
 
+  /* eslint-disable orbit/no-audio-thread-alloc -- un CAMBIO DE PROYECTO se aplica aqui (tambien desde process, si estaba en cola): compilar el proyecto aloca por definicion y es un evento raro, no el camino por bloque. */
   private setSnapshot(p: CompiledProject): void {
     this.project = p;
     this.tempo = p.tempo;
@@ -665,6 +671,7 @@ export class KernelCore {
     this.syncEffectTempos();
     this.resyncSeconds();
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   /**
    * Segundos de arranque y fin de cada clip del proyecto puesto, con la curva
@@ -675,6 +682,7 @@ export class KernelCore {
    * estado, no solo del beat): la lectura en sí sí lo sigue, porque
    * `posSeconds` avanza en tiempo real mientras el transporte rueda.
    */
+  /* eslint-disable orbit/no-audio-thread-alloc -- lo llama solo `setSnapshot`: es la cache de duraciones de clip, se rehace al cambiar el proyecto. */
   private cacheClipSeconds(p: CompiledProject): void {
     const n = p.audioClips.length;
     if (this.clipStartSecs.length !== n) {
@@ -687,7 +695,9 @@ export class KernelCore {
       this.clipEndSecs[i] = this.secondsAtBeatRuntime(clip.start + clip.length);
     }
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
+  /* eslint-disable orbit/no-audio-thread-alloc -- lo llama solo `setSnapshot`: los tempos de los insert se recalculan al cambiar el proyecto. */
   private updateEffectTempos(): void {
     const p = this.project;
     if (!p) return;
@@ -702,6 +712,7 @@ export class KernelCore {
       }
     }
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   /**
    * Avisa a los efectos sincronizados del tempo EFECTIVO del bloque. Una sola
@@ -770,6 +781,7 @@ export class KernelCore {
     }
   }
 
+  /* eslint-disable orbit/no-audio-thread-alloc -- construye la unidad del plugin de instrumento (mismo caso que `spawnVoice`). */
   private makePluginUnit(pluginId: string | undefined): EffectUnit | null {
     const factory = pluginId ? this.plugins.get(pluginId) : undefined;
     if (!factory) return null;
@@ -812,6 +824,7 @@ export class KernelCore {
       },
     };
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   /** Aplica un snapshot en cola: loop completo del nuevo timeline, desde 0. */
   private applyQueued(p: CompiledProject): void {
@@ -843,6 +856,7 @@ export class KernelCore {
   }
 
   /** Dispara eventos en [fromBeat, toBeat); offsets relativos a sampleBase. */
+  /* eslint-disable orbit/no-audio-thread-alloc -- dispara un RANGO de notas (cruce de loop o fin de arreglo): nace una voz por nota y una voz es un objeto nuevo. Es por evento, no por bloque. */
   private triggerRange(fromBeat: number, toBeat: number, sampleBase: number, spb: number): void {
     const p = this.project;
     if (!p) return;
@@ -873,7 +887,9 @@ export class KernelCore {
       this.spawnVoice(ev.channelIndex, ev.key, ev.velocity, offset, offBeat, null, ev.pan);
     }
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
+  /* eslint-disable orbit/no-audio-thread-alloc -- nace una VOZ: sin un pool de voces, crearla aloca. Cuestion de nota, no de bloque (ver `triggerRange`). */
   private spawnVoice(
     channelIndex: number,
     key: number,
@@ -946,12 +962,14 @@ export class KernelCore {
       sampleRef: this.channelSampleIds[channelIndex] ?? null,
     });
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   /**
    * Voz de plugin JS de instrumento, o null si el canal no usa ninguno, el id
    * no está registrado o la fábrica falla — en esos casos el canal cae a su
    * motor interno, la misma degradación amable que un slot con plugin ausente.
    */
+  /* eslint-disable orbit/no-audio-thread-alloc -- construye la voz del instrumento (mismo caso que `spawnVoice`). */
   private makeInstrumentVoice(
     ch: CompiledChannel,
     channelIndex: number,
@@ -975,6 +993,7 @@ export class KernelCore {
       return null; // el plugin revienta al nacer: suena el motor interno
     }
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   /**
    * Empuja los params del canal a las voces vivas de su plugin (perilla,
@@ -1419,6 +1438,7 @@ export class KernelCore {
    * LFOs se quedaran clavados. Ahora un LFO que no ha cambiado conserva su
    * base: solo se reinician los nuevos o los que se han tocado de verdad.
    */
+  /* eslint-disable orbit/no-audio-thread-alloc -- lo llama solo `setSnapshot`: el estado de los LFO se reinicia al cambiar el proyecto. */
   private resetLfoState(p: CompiledProject): void {
     const n = p.lfos.length;
     const sig = p.lfos.map((l) => {
@@ -1455,6 +1475,7 @@ export class KernelCore {
     }
     this.lfoSig = sig;
   }
+  /* eslint-enable orbit/no-audio-thread-alloc */
 
   private readParam(t: CompiledParamTarget): number | null {
     const p = this.project;
@@ -1808,8 +1829,8 @@ export class KernelCore {
           const capR = this.inputCapR[r];
           const at = this.inputCapPos[r]!;
           if (capL && capR && at + count <= capL.length) {
-            capL.set(cl.subarray(0, count), at);
-            capR.set(cr.subarray(0, count), at);
+            this.copiar(capL, cl, count, at);
+            this.copiar(capR, cr, count, at);
             this.inputCapPos[r] = at + count;
           }
         }
@@ -1988,8 +2009,8 @@ export class KernelCore {
           const mix = slot.mix;
           const useDry = mix < 0.999;
           if (useDry) {
-            this.dryL.set(bl.subarray(0, n));
-            this.dryR.set(br.subarray(0, n));
+            this.copiar(this.dryL, bl, n);
+            this.copiar(this.dryR, br, n);
           }
           const scIdx = slot.sidechainSource;
           const scL = scIdx !== undefined ? this.lastL[scIdx] ?? null : null;
@@ -2193,8 +2214,17 @@ export class KernelCore {
       const br = this.bufR[t]!;
 
       // Pre-fader es antes del FADER, no antes del mute: una pista silenciada
-      // no manda nada por ningún sitio, que es lo que uno espera al muteala.
-      const needsPre = track.sends.some((send) => send.tap === 'pre' && !send.mute);
+      // no manda nada por ningún sitio, que es lo que uno espera al mutearla.
+      // El `some` con flecha se evita a propósito: cada bloque y cada pista
+      // creaba un cierre nuevo (regla dura 2).
+      let needsPre = false;
+      for (let s = 0; s < track.sends.length; s++) {
+        const send = track.sends[s]!;
+        if (send.tap === 'pre' && !send.mute) {
+          needsPre = true;
+          break;
+        }
+      }
 
       if (!track.audible) {
         bl.fill(0, 0, n);
@@ -2213,8 +2243,8 @@ export class KernelCore {
           const mix = slot.mix;
           const useDry = mix < 0.999;
           if (useDry) {
-            this.dryL.set(bl.subarray(0, n));
-            this.dryR.set(br.subarray(0, n));
+            this.copiar(this.dryL, bl, n);
+            this.copiar(this.dryR, br, n);
           }
           const scIdx = slot.sidechainSource;
           const scL = scIdx !== undefined ? this.lastL[scIdx] ?? null : null;
@@ -2245,8 +2275,8 @@ export class KernelCore {
          * bloque, y casi ninguna sesión tiene envíos pre.
          */
         if (needsPre) {
-          this.preL.set(bl.subarray(0, n));
-          this.preR.set(br.subarray(0, n));
+          this.copiar(this.preL, bl, n);
+          this.copiar(this.preR, br, n);
         }
 
         // Width / pan / volumen
@@ -2270,8 +2300,8 @@ export class KernelCore {
       }
 
       // Copia post-fader para detectores sidechain del siguiente bloque
-      this.lastL[t]!.set(bl.subarray(0, n));
-      this.lastR[t]!.set(br.subarray(0, n));
+      this.copiar(this.lastL[t]!, bl, n);
+      this.copiar(this.lastR[t]!, br, n);
 
       // Medidores: peak con decay visual + sum-of-squares para el RMS por pista
       let peak = this.peaks[t]! * 0.85; // decay visual
@@ -2298,8 +2328,8 @@ export class KernelCore {
       // entero en el siguiente frame de medidores (nada se pierde si la UI
       // tarda: el buffer cubre justo el intervalo del frame).
       if (t === this.captureTrack && this.capturePos + n <= this.captureL.length) {
-        this.captureL.set(bl.subarray(0, n), this.capturePos);
-        this.captureR.set(br.subarray(0, n), this.capturePos);
+        this.copiar(this.captureL, bl, n, this.capturePos);
+        this.copiar(this.captureR, br, n, this.capturePos);
         this.capturePos += n;
       }
 
@@ -2391,6 +2421,20 @@ export class KernelCore {
     }
 
     if (countIn) this.mixCountIn(outL, outR, n);
+  }
+
+  /**
+   * Copia `n` muestras de `src` a `dst` (desde `at`) SIN crear una vista.
+   *
+   * `dst.set(src.subarray(0, n))` es la forma corta, pero cada `subarray` es un
+   * objeto NUEVO aunque no reserve memoria: en una mesa con inserts y envíos pre
+   * salían 52 vistas por bloque (medido en la tarjeta 008), y a 48 kHz son unos
+   * 19 500 objetos por segundo de basura en el hilo de audio. Con el bucle no se
+   * aloca nada: `dst` y `src` ya existían, y 128 muestras se copian igual de
+   * rápido (regla dura 2).
+   */
+  private copiar(dst: Float32Array, src: Float32Array, n: number, at = 0): void {
+    for (let i = 0; i < n; i++) dst[at + i] = src[i]!;
   }
 
   /** Vuelca el clic de la cuenta atrás sobre la salida ya montada. */

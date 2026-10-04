@@ -258,7 +258,15 @@ export default [
   // bloques: eso mide el camino ENTERO en ejecución, cruzando módulos, que es
   // justo lo que un linter no puede hacer. Las dos piezas se complementan.
   {
-    files: ['packages/engine/src/worklet/**/*.ts', 'packages/engine/src/dsp/**/*.ts'],
+    files: [
+      'packages/engine/src/worklet/**/*.ts',
+      'packages/engine/src/dsp/**/*.ts',
+      // El kernel también es el hilo de audio: `process` de bloque y todo lo que
+      // llama dentro del mismo archivo (mescla, inserts, tomas, capturas, medidores).
+      // Estaba fuera de la regla y por eso se colaron 52 vistas por bloque (BUG 008);
+      // el test de alocaciones mide el efecto, esta regla lo impide volver.
+      'packages/engine/src/kernel-core.ts',
+    ],
     rules: {
       'orbit/no-audio-thread-alloc': [
         'error',
