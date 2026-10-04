@@ -22,6 +22,7 @@
 import * as Y from 'yjs';
 import {
   applyCommand,
+  commandProblem,
   parseProject,
   serializeProject,
   type Command,
@@ -319,7 +320,18 @@ export class CommandLogBinding {
    * clientes (rol y `own` viajan sellados en la entrada), así que un comando
    * rechazado se rechaza en todas partes y la convergencia se mantiene.
    */
+  /**
+   * ¿Se puede siquiera intentar esta entrada?
+   *
+   * El filtro de FORMA va antes que el de rol a propósito: `checkRole` recorre el
+   * lote (`for (const sub of cmd.commands)`) y el registro de dueños lee
+   * `cmd.channel.id`, así que una entrada con `commands: [null]` o `channel: null`
+   * —que escribe la red— reventaba ahí dentro. Con la forma delante, la entrada
+   * malformada se descarta aquí y la delega quien puede darla: el servidor, que
+   * la retira del log y avisa con el motivo.
+   */
   private entryAllowed(entry: LogEntry): boolean {
+    if (commandProblem(entry.cmd) !== null) return false;
     const role = isCollabRole(entry.role) ? entry.role : DEFAULT_ROLE;
     return checkRole(role, entry.cmd, { ownCreation: entry.own === true }).allowed;
   }

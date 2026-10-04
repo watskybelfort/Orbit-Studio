@@ -167,12 +167,21 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: bo
   return checkRole(role, cmd as Command, { ownCreation });
 }
 
-/** Comando válido con `type` string, o null. Puro, para el registro de dueños. */
+/**
+ * Comando con `type` string Y con la FORMA que el bus puede aplicar, o `null`.
+ *
+ * El filtro de forma no es una segunda barrera, es la primera: el servidor usa
+ * esto para saber qué borra o crea una entrada ANTES de juzgarla, así que un
+ * `batch` con `commands: [null]` o un `addChannel` con `channel: null` llegaban
+ * al recorrido y reventaban al leer `cmd.type`. Aquí se cortan; el motivo lo da
+ * `checkEntry` cuando la entrada se retira del log.
+ */
 export function entryCommand(entry: RawLogEntry): Command | null {
   const cmd = entry.cmd;
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return null;
   }
+  if (commandProblem(cmd) !== null) return null;
   return cmd as Command;
 }
 

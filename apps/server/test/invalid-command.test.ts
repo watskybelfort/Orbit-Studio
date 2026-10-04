@@ -139,15 +139,61 @@ async function serve(): Promise<ServerHandle> {
   return handle;
 }
 
+/** Un clip y un canal que CUMPLEN la tabla de `model/entity-schema.ts`. */
+const CLIP = {
+  id: 'c1',
+  kind: 'pattern',
+  playlistTrackId: 't1',
+  start: 0,
+  length: 4,
+  muted: false,
+};
+const CANAL = {
+  id: 'c1',
+  name: 'C',
+  color: 'rojo',
+  kind: 'synth',
+  params: {},
+  volume: 1,
+  pan: 0,
+  mute: false,
+  solo: false,
+  mixerTrack: 1,
+};
+
+// Cada caso lleva su entidad COMPLETA a propósito: si vinieran a medias, el
+// rechazo lo daría un campo que falta y la prueba no mediría lo que dice medir.
 const BASURA: [string, unknown][] = [
   ['tipo inexistente', { type: 'doesNotExist', id: 'x' }],
+  ['tipo heredado del prototipo', { type: 'toString' }],
   ['batch con commands null', { type: 'batch', commands: null }],
   ['batch ausente', { type: 'batch' }],
+  ['batch con un hijo null', { type: 'batch', commands: [null] }],
   ['sin type', { id: 'x' }],
   ['campo obligatorio que falta', { type: 'setTempo' }],
   ['tipo primitivo equivocado', { type: 'setTempo', tempo: 'pronto' }],
   ['commands no-lista', { type: 'batch', commands: {} }],
   ['hijo inválido dentro de un lote', { type: 'batch', commands: [{ type: 'removeChannel' }] }],
+  ['clips con un elemento null', { type: 'addClips', clips: [null] }],
+  ['addChannel con channel null', { type: 'addChannel', channel: null }],
+  [
+    'addChannel con channel vacio (sin volumen: el motor lo leeria como NaN)',
+    { type: 'addChannel', channel: { id: 'c1' } },
+  ],
+  ['addChannel con el canal completo', { type: 'addChannel', channel: CANAL }],
+  ['setTimeSig con timeSig vacio', { type: 'setTimeSig', timeSig: {} }],
+  ['setTimeSig con num de string', { type: 'setTimeSig', timeSig: { num: 'x', den: 4 } }],
+  ['setEffect sin slot (nullable no es opcional)', { type: 'setEffect', trackIndex: 1, slotIndex: 0 }],
+  ['patch con un campo que no es de la entidad', { type: 'patchChannel', channelId: 'c1', patch: { volumen: 0.5 } }],
+  [
+    'patch de clip con un campo de tipo erroneo',
+    { type: 'patchClips', patches: [{ id: 'c1', start: 'nueve' }] },
+  ],
+  [
+    'patch de clip con un campo que no existe',
+    { type: 'patchClips', patches: [{ id: 'c1', duracion: 9 }] },
+  ],
+  ['patch de clip completo', { type: 'patchClips', patches: [{ ...CLIP, start: 9 }] }],
 ];
 
 describe('018 · por el socket, la basura no entra al log', () => {
@@ -156,13 +202,15 @@ describe('018 · por el socket, la basura no entra al log', () => {
     const host = new Peer(server.port, 'host');
     await host.open();
     for (const [, cmd] of BASURA) host.push(cmd);
-    await sleep(350);
-    expect(host.types()).toEqual([]);
+    await sleep(400);
+    // Solo quedan las DOS entradas con la forma completa: las dieciseis restantes
+    // se retiraron del log sin tumbar la sala.
+    expect(host.types().sort()).toEqual(['addChannel', 'patchClips']);
 
     // Y el comando bueno, después de la basura, entra normal: la sala sigue viva.
     host.push({ type: 'setTempo', tempo: 128 });
-    await sleep(300);
-    expect(host.types()).toEqual(['setTempo']);
+    await sleep(350);
+    expect(host.types()).toEqual(['addChannel', 'patchClips', 'setTempo']);
   });
 
   it('la sala continúa: entra un cliente nuevo y converge con lo que quedó', async () => {
@@ -171,19 +219,20 @@ describe('018 · por el socket, la basura no entra al log', () => {
     await host.open();
     for (const [, cmd] of BASURA) host.push(cmd);
     host.push({ type: 'setTempo', tempo: 128 });
-    await sleep(400);
+    await sleep(450);
 
     const tarde = new Peer(server.port, 'llega-tarde');
     await tarde.open();
     await sleep(300);
-    // Lo que se ve al entrar es el log ya limpio: la basura no quedó registrada.
-    expect(tarde.types()).toEqual(['setTempo']);
+    // Lo que se ve al entrar es el log ya limpio: la basura no quedo registrada,
+    // y las dos entradas con forma completa si estan, en el mismo orden.
+    expect(tarde.types().sort()).toEqual(['addChannel', 'patchClips', 'setTempo']);
 
     // Y sigue habiendo ida y vuelta: el nuevo escribe y el host lo ve.
     tarde.push({ type: 'setSwing', swing: 0.2 });
     await sleep(300);
-    expect(host.types()).toEqual(['setTempo', 'setSwing']);
-    expect(tarde.types()).toEqual(['setTempo', 'setSwing']);
+    expect(host.types()).toEqual(tarde.types());
+    expect(host.types()).toContain('setSwing');
   });
 
   it('un lote con un comando bueno y uno malo se retira entero, sin aplicar el bueno', async () => {
