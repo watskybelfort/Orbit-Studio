@@ -263,6 +263,35 @@ function slotIn(index: number, count: number, what: string): number {
  */
 
 /**
+ * El inverso de un lote de parches se guarda por ENTIDAD, no por parche.
+ *
+ * Un lote puede traer el mismo id dos veces (arrastrar dos notas superpuestas, un
+ * comando armado a mano, un parche que se fusiona con otro). La última mutación gana,
+ * que es lo correcto, pero el inverso tiene que devolver el valor de ANTES de la
+ * primera: si se apila, queda el valor que había entre medias y al deshacer sigue
+ * habiendo un cambio musical puesto después de Ctrl+Z (medido en la tarjeta 004: nota
+ * en key 60, parches [{key 61}, {key 62}], y al deshacer se quedaba en key 61).
+ *
+ * Se podría rechazar los ids repetidos, pero eso rompe los lotes legítimos que tocan
+ * dos veces la misma entidad. Aquí se mantiene la última escritura y el inverso
+ * conserva el PRIMER valor viejo, que es el único que devuelve al estado anterior.
+ */
+function anotarInverso<T extends { id: string }>(
+  inverses: T[],
+  vistos: Set<string>,
+  id: string,
+  patch: object,
+  target: object,
+): void {
+  // `pickOld` se calcula siempre (es barato y lee el estado real), pero al inverso
+  // solo entra la primera vez que se ve el id.
+  const viejo = pickOld(target, patch as Partial<Record<string, unknown>>);
+  if (vistos.has(id)) return;
+  vistos.add(id);
+  inverses.push({ id, ...viejo } as T);
+}
+
+/**
  * Un alta con un id que ya vive en el pool se RECHAZA, antes de mutar nada.
  *
  * Por qué rechazar y no "reemplazar": el alta repetida no perdía solo su propia
@@ -652,10 +681,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const list = pattern.notes[cmd.channelId] ?? [];
       const byId = new Map(list.map((n) => [n.id, n]));
       const inversePatches: NotePatch[] = [];
+      const vistos = new Set<string>();
       for (const patch of cmd.patches) {
         const note = byId.get(patch.id);
         if (!note) continue;
-        inversePatches.push({ id: patch.id, ...pickOld(note, patch) });
+        anotarInverso<NotePatch>(inversePatches, vistos, patch.id, patch, note);
         applyPatch(note, patch);
       }
       return {
@@ -718,10 +748,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'patchClips': {
       const inversePatches: ClipPatch[] = [];
+      const vistos = new Set<string>();
       for (const patch of cmd.patches) {
         const clip = project.clips[patch.id];
         if (!clip) continue;
-        inversePatches.push({ id: patch.id, ...pickOld(clip, patch) });
+        anotarInverso<ClipPatch>(inversePatches, vistos, patch.id, patch, clip);
         applyPatch(clip, patch);
       }
       return { type: 'patchClips', patches: inversePatches };
@@ -881,10 +912,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'patchSections': {
       const inversePatches: SectionPatch[] = [];
+      const vistos = new Set<string>();
       for (const patch of cmd.patches) {
         const section = project.sections[patch.id];
         if (!section) continue;
-        inversePatches.push({ id: patch.id, ...pickOld(section, patch) });
+        anotarInverso<SectionPatch>(inversePatches, vistos, patch.id, patch, section);
         applyPatch(section, patch);
       }
       return { type: 'patchSections', patches: inversePatches };
