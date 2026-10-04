@@ -130,6 +130,60 @@ export class SampleAssetBinding {
   private readonly oversized = new Set<string>();
   /** Hashes malformados ya avisados: no se repite el aviso en cada scan. */
   private readonly malformed = new Set<string>();
+  /** Hashes a los que se les intentó cambiar los bytes (para avisar una vez). */
+  private readonly substituted = new Set<string>();
+  /** Hashes cuyo contenido no corresponde a la clave (para avisar una vez). */
+  private readonly hashFalso = new Set<string>();
+  /** Hashes que no caben ya en el presupuesto de la sala (para avisar una vez). */
+  private readonly overflow = new Set<string>();
+  /**
+   * Hashes A LA ESPERA del veredicto del SHA-1: todavía no son audio de fiar, así que
+   * no se anuncian, no se sirven y no cuentan en el presupuesto. El digest es
+   * asíncrono y no puede ser de otra forma. El valor es la huella de lo que se está
+   * comprobando, para poder invalidar el veredicto si la entrada cambia mientras tanto.
+   */
+  private readonly pendientes = new Map<string, string>();
+  /**
+   * Hashes cuyo contenido NO corresponde a la clave, con veredicto ya firmes.
+   *
+   * Van aparte de `noServibles` porque no son una situación que se pueda deshacer
+   * mirando el mapa: un recorrido posterior no los reanimaba (medido: añadir otro
+   * sample devolvía `get()` a true para el hash rechazado). Solo se olvidan cuando la
+   * entrada desaparece del mapa, que es cuando esos bytes dejan de existir.
+   */
+  private readonly rechazados = new Set<string>();
+  /** Bytes de los pendientes, para que el tope de la sala los tenga en cuenta. */
+  private pendienteBytes = 0;
+  /**
+   * Sello de vida del binding. Sube en `destroy()` (y no baja nunca), y las
+   * comprobaciones asíncronas lo comparan antes de tocar nada: un digest que resuelve
+   * después de que el observer se soltó ya no informa a nadie, y su `onAsset`, su
+   * estado y su contador de reserva se quedan sin aplicar. También evita que el
+   * veredicto de un digest viejo borre el pendiente que dejó un `destroy` + `start`
+   * posterior con otro contenido.
+   */
+  private generacion = 0;
+  /**
+ * Bytes con los que se aceptó cada hash la PRIMERA vez: una HUELLA, no el audio.
+ *
+ * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa más
+ * tarde, el audio que oye esta máquina no cambia por sorpresa. El servidor también
+ * lo restituye (y con el SHA-1 real lo comprueba), pero un `.bin` manipulado o un
+ * cliente modificado pueden llegar al binding antes de que el servidor actúe.
+ *
+ * Se guarda la huella y no los bytes a propósito: una copia por sample duplicaba
+ * hasta 16 MB por entrada en memoria, incluso de los assets que luego se rechazan
+ * por los topes. Y la huella NO se borra cuando el asset desaparece del mapa: eso es
+ * lo que hace que borrar y volver a publicar el mismo hash con otro audio siga sin
+ * colarse (BUG 055).
+ */
+private readonly identity = new Map<string, string>();
+  /**
+   * Hashes que NO se sirven, por lo que sea: los que llegaron con bytes distintos de
+   * los de su huella, los que no corresponden a su hash, y los que ya no caben en el
+   * presupuesto de la sala. Los motivos se recuerdan aparte, para avisar una vez.
+   */
+  private readonly noServibles = new Set<string>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -162,14 +216,35 @@ export class SampleAssetBinding {
       this.observer = null;
     }
     this.callbacks.clear();
+    // Sello de vida para lo que esté en vuelo: cualquier digest que resuelva a partir
+    // de ahora ya no informa a nadie (ver `generacion`).
+    this.generacion++;
+    // Las huellas también se van: no hacen falta sin estar escuchando, y no tiene
+    // sentido acumular la identidad de todo lo que se oyó en una sesión cerrada.
+    this.identity.clear();
+    this.noServibles.clear();
+    this.pendientes.clear();
+    this.rechazados.clear();
+    this.pendienteBytes = 0;
     this.started = false;
   }
 
   // ── Consulta ───────────────────────────────────────────────────────────────
 
-  /** ¿Está el contenido de este sample en la sala? */
+  /** ¿Está el contenido de este sample en la sala Y es servo? */
   has(hash: string): boolean {
-    return isSampleAsset(this.assets.get(hash));
+    return isSampleAsset(this.assets.get(hash)) && this.servible(hash);
+  }
+
+  /**
+   * ¿Se puede servir ya lo de este hash?
+   *
+   * False mientras espera el veredicto del SHA-1 (o si ya se sabe que no): el
+   * criterio es el mismo que en `get`, para que la UI no ofrezca un sample que luego
+   * resulta que no.
+   */
+  private servible(hash: string): boolean {
+    return !this.rechazados.has(hash) && !this.pendientes.has(hash) && !this.noServibles.has(hash);
   }
 
   /** Bytes publicados bajo ese hash, o null si la sala no los tiene. */
@@ -180,6 +255,12 @@ export class SampleAssetBinding {
     // sirve al kernel aunque esté en el doc (un cliente modificado o un .bin
     // manipulado podría haberlo colado saltándose la validación del emisor).
     if (asset.bytes.byteLength > this.maxAssetBytes) return null;
+    // Si estos bytes no son los de la huella que se aceptó para ese hash, no se
+    // sirven: el hash es la identidad y el servidor va a devolver el original
+    // (BUG 055). Y si el hash es nuevo, tampoco hasta que el SHA-1 confirme que sus
+    // bytes son los que dice: anunciarlo antes y retirarlo después sería peor que no
+    // comprobar, porque el kernel ya habría cargado el audio falso.
+    if (!this.servible(hash)) return null;
     return asset.bytes;
   }
 
@@ -246,7 +327,7 @@ export class SampleAssetBinding {
       );
       return 'too-large';
     }
-    if (this.totalBytes + bytes.byteLength > this.maxRoomBytes) {
+    if (this.totalBytes + this.pendienteBytes + bytes.byteLength > this.maxRoomBytes) {
       this.reject(
         hash,
         meta.name,
@@ -270,6 +351,13 @@ export class SampleAssetBinding {
     };
     // Lo nuestro no se anuncia: el contenido ya está en nuestro kernel.
     this.notified.add(hash);
+    // Y tampoco se verifica: lo acabamos de hashear nosotros para sacar el hash (es
+    // lo que travela como identidad), así que su huella es su propia referencia y no
+    // hace falta el SHA-1 de WebCrypto. Lo que llega de OTRO socket sí se comprueba,
+    // porque ahí la huella solo dice "son los mismos bytes que la primera vez", no que
+    // esa primera vez fingiera (BUG 055).
+    this.identity.set(hash, huellaDe(asset.bytes));
+    this.noServibles.delete(hash);
     this.doc.transact(() => {
       this.assets.set(hash, asset);
     }, this);
@@ -282,6 +370,14 @@ export class SampleAssetBinding {
   private scan(): void {
     let changed = false;
     const fresh: SampleAsset[] = [];
+    // Libera primero lo borrado: los candidatos rechazados por falta de espacio
+    // deben poder entrar en ESTE aviso, sin esperar otra edición de la sala.
+    for (const hash of this.sizes.keys()) {
+      if (!this.assets.has(hash)) {
+        this.sizes.delete(hash);
+        changed = true;
+      }
+    }
     for (const [hash, asset] of this.assets.entries()) {
       // La forma primero: una entrada sin bytes (o con hash/name que no son
       // texto) no se cuenta, no se sirve y NO se propaga el error. Antes este
@@ -324,6 +420,103 @@ export class SampleAssetBinding {
         }
         continue;
       }
+      // El tope de la SALA también se comprueba en el receptor, y ANTES de la huella:
+      // si el conjunto ya no cabe en el presupuesto, este sample no se cuenta, no se
+      // recuerda y no se anuncia. Antes solo se miraba el tope por sample, así que
+      // entre todos los clientes podía colarse un conjunto por encima del presupuesto
+      // que sostiene la arquitectura (y el contador de la sala llegaba a mentir).
+      if (
+        !this.sizes.has(hash) &&
+        // Lo que ya está PENDIENTE tiene su plaza reservada: si se vuelve a recorrer su
+        // propia entrada, sumar su tamaño otra vez lo podía declarar «sala llena» sin
+        // serlo (medido: tope de 3 bytes, un pendiente de 2 y al llegar un legacy de 1
+        // salía room-full; al resolver los dos cabían justos).
+        !this.pendientes.has(hash) &&
+        this.totalBytes + this.pendienteBytes + size > this.maxRoomBytes
+      ) {
+        // Fuera de servicio mientras la sala siga llena: si luego se borra algo y
+        // vuelve a caber, la comprobación de arriba la deja pasar sola.
+        this.noServibles.add(hash);
+        if (!this.overflow.has(hash)) {
+          this.overflow.add(hash);
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'room-full',
+            message:
+              `«${asset.name}» llega con ${mb(size)} y la sala ya lleva ${mb(this.totalBytes)} ` +
+              `(tope ${mb(this.maxRoomBytes)}). Se ignora: no sonará en esta máquina.`,
+          });
+        }
+        continue;
+      }
+      // LA IDENTIDAD, después de los topes: solo se recuerda lo que se acepta, y se
+      // recuerda como HUELLA (unos bytes por hash), no como una copia del audio. El
+      // hash es la identidad del contenido, así que si más tarde llegan otros bytes
+      // bajo la misma clave no se anuncian ni se sirven: el servidor restituye el
+      // original y mientras tanto aquí no se sirve nada (BUG 055).
+      //
+      // La huella no se borra cuando el asset desaparece del mapa, y es lo que cierra
+      // el agujero de borrar-y-volver-a-publicar: si el productor borra el sample y
+      // luego publica OTRO audio bajo el mismo hash, la huella sigue diciendo cuál
+      // era el bueno. Cuesta ~40 bytes por sample, no 16 MB.
+      const huella = huellaDe(asset.bytes);
+      const previa = this.identity.get(hash);
+      if (previa === undefined) {
+        // Primera vez que se ve este hash, y hay tres estados posibles antes de poder
+        // aceptarlo. El orden importa: un veredicto NEGATIVO es permanente para esta
+        // entrada (cualquier recorrido posterior vuelve a chocar aquí y se va), y un
+        // digest en vuelo no se duplica.
+        //
+        // Antes esto se colgaba de un único `noServibles` que un `scan` posterior
+        // limpiaba al ver la misma huella, así que añadir cualquier OTRO sample
+        // reanimaba el hash rechazado y `get()` volvía a devolverlo (medido).
+        if (this.rechazados.has(hash)) continue;
+        if (this.pendientes.has(hash)) continue;
+        // Con clave sha1 hay que comprobar que los bytes SON los que el hash dice: la
+        // huella dice «son los mismos que la primera vez», pero no que esa primera vez
+        // fingiera. WebCrypto es asíncrono, así que el sample ESPERA: no se anuncia,
+        // no se cuenta y `get()` no lo devuelve hasta el veredicto. Anunciarlo primero
+        // y retirarlo después sería peor que no comprobar: el kernel ya habría
+        // cargado el audio falso.
+        if (this.esSha1(hash)) {
+          this.pendientes.set(hash, huella);
+          this.pendienteBytes += size;
+          this.verificarSha1(hash, huella, size);
+          continue;
+        }
+        // Sin clave sha1 no hay correspondencia que exigir (proyecto viejo): la huella
+        // es el veredicto, como antes.
+        this.identity.set(hash, huella);
+      } else if (previa !== huella) {
+        this.noServibles.add(hash);
+        if (!this.substituted.has(hash)) {
+          this.substituted.add(hash);
+          console.warn(
+            `[collab] el asset ${hash.slice(0, 12)} ya estaba publicado con otros bytes; ` +
+              'no se sirve y se espera a que el servidor devuelva el original.',
+          );
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'invalid',
+            message:
+              `«${asset.name}» llega con bytes distintos de los ya publicados con ese hash. ` +
+              'No se sirven: la identidad de un sample es su contenido.',
+          });
+        }
+        continue;
+      } else {
+        // Los bytes vuelven a ser los de su huella: la sustitución o el tope de sala
+        // que los dejó fuera de servicio ya no aplican. OJO: esto solo se alcanza con
+        // identidad YA APUNTADA, así que no puede reanimar un veredicto negativo (ese
+        // hash nunca llega aquí: `rechazados` se comprueba antes).
+        this.noServibles.delete(hash);
+      }
+      this.noServibles.delete(hash);
+      this.overflow.delete(hash);
       if (!this.sizes.has(hash)) {
         this.sizes.set(hash, size);
         changed = true;
@@ -332,11 +525,19 @@ export class SampleAssetBinding {
       this.notified.add(hash);
       fresh.push(asset);
     }
-    // El host podría recortar el mapa algún día; el contador no debe mentir.
-    for (const hash of [...this.sizes.keys()]) {
+    // Y lo que NO llegó a contar: lo rechazado y lo pendiente tampoco sobreviven a su
+    // entrada. Antes esta limpieza vivía dentro del bucle de `sizes`, y un hash
+    // rechazado nunca llega a `sizes` (se corta antes), así que su veredicto se
+    // quedaba pegado para siempre: borrar la entrada y republicar los bytes CORRECTOS
+    // bajo ese hash no volvía a servirse nunca (medido: pending 0 y served false
+    // indefinidos). La entrada ya no existe, así que su veredicto se olvida con ella.
+    for (const hash of [...this.rechazados]) {
+      if (!this.assets.has(hash)) this.rechazados.delete(hash);
+    }
+    for (const hash of [...this.noServibles]) {
       if (!this.assets.has(hash)) {
-        this.sizes.delete(hash);
-        changed = true;
+        this.noServibles.delete(hash);
+        this.overflow.delete(hash);
       }
     }
     // Anunciar DESPUÉS de recorrer: el handler suele volver a consultar el mapa.
@@ -355,4 +556,134 @@ export class SampleAssetBinding {
   ): void {
     this.onRejected?.({ hash, name, size, reason, message });
   }
+
+  /**
+   * Comprueba el SHA-1 de verdad del contenido pendiente y, según el veredicto, lo
+   * deja entrar o lo marca como no servible.
+   *
+   * `scan` es síncrono y esta comprobación no puede serlo (WebCrypto devuelve una
+   * promesa), así que el sample ESPERA: mientras está pendiente no se anuncia, no se
+   * cuenta en el presupuesto y `get()` no lo devuelve. Al resolverse, si cuadra se
+   * apunta su huella y se vuelve a recorrer el mapa, que ya lo anunciará por el
+   * camino normal; si no cuadra, el hash pasa a no servible con su aviso.
+   *
+   * Sin WebCrypto el veredicto es la huella y es el servidor el que exige la
+   * correspondencia; no queda un digest pendiente que nadie pueda resolver.
+   */
+  private verificarSha1(hash: string, huella: string, size: number): void {
+    const asset = this.assets.get(hash);
+    if (asset === undefined || !isSampleAsset(asset)) return;
+    const generacion = this.generacion;
+
+    // SIN WebCrypto no hay digest que esperar, así que el veredicto es la HUELLA (que
+    // es lo que siempre prometió este camino) y se resuelve de inmediato. Antes se
+    // volvía sin hacer nada y el sample se quedaba PENDIENTE para siempre: no se
+    // anunciaba ni se servía, sin que nada dijera por qué.
+    const sutil = globalThis.crypto?.subtle;
+    if (sutil === undefined) {
+      this.pendientes.delete(hash);
+      this.pendienteBytes -= size;
+      this.identity.set(hash, huella);
+      this.scan();
+      return;
+    }
+
+    // La copia que se hashea: `bytes` puede ser una vista del buffer del doc, y
+    // `digest` necesita un ArrayBuffer propio.
+    const copia = new Uint8Array(asset.bytes).slice();
+    void sutil
+      .digest('SHA-1', copia)
+      .then((buf) => {
+        // Si mientras tanto se soltó el observer (destroy) o se substituted el binding,
+        // este veredicto ya no tiene a quién informar: no se toca estado, no se anuncia
+        // y no se avisa (medido: `destroy` con el digest en vuelo dejaba `onAsset`
+        // disparado, `identity` con 1 y `pendienteBytes` en -2).
+        if (generacion !== this.generacion) return;
+        this.pendientes.delete(hash);
+        this.pendienteBytes -= size;
+        // ¿Siguen siendo estos los bytes del mapa? Si mientras tanto la entrada se
+        // sustituyó o se retiró, este veredicto habla de algo que ya no está: se
+        // descarta y deja que el `scan` que provocaré a continuación juzgue lo nuevo.
+        const actual = this.assets.get(hash);
+        if (actual === undefined || !isSampleAsset(actual)) return;
+        if (huellaDe(actual.bytes) !== huella) {
+          this.scan();
+          return;
+        }
+        if (hex(new Uint8Array(buf)) === hash.toLowerCase()) {
+          // Cuadra: ya puede entrar por el camino normal, que ya tiene su huella.
+          this.identity.set(hash, huella);
+          this.scan();
+          return;
+        }
+        // No cuadra. Es PERMANENTE para esta entrada: ni se anuncia, ni se sirve, ni
+        // un recorrido posterior lo reanimaba (que era el segundo agujero medido).
+        this.rechazados.add(hash);
+        this.noServibles.add(hash);
+        this.hashFalso.add(hash);
+        console.warn(
+          `[collab] el asset ${hash.slice(0, 12)} no corresponde a su hash; no se sirve.`,
+        );
+        this.onRejected?.({
+          hash,
+          name: actual.name,
+          size,
+          reason: 'invalid',
+          message:
+            `«${actual.name}» llega con bytes que no son los de su hash, así que no son su audio. ` +
+            'Se ignora: la identidad de un sample es su contenido.',
+        });
+      })
+      .catch(() => {
+        // Si el digest revienta (un motor sin SHA-1, un buffer raro), el sample se
+        // queda sin comprobar y se sirve por la huella: es el servidor el que exige
+        // la correspondencia en ese caso.
+        if (generacion !== this.generacion) return;
+        this.pendientes.delete(hash);
+        this.pendienteBytes -= size;
+        const actual = this.assets.get(hash);
+        if (actual === undefined || !isSampleAsset(actual)) return;
+        if (huellaDe(actual.bytes) !== huella) {
+          this.scan();
+          return;
+        }
+        this.identity.set(hash, huella);
+        this.scan();
+      });
+  }
+
+  /** ¿Es un sha1 en hexadecimal? Solo estas claves tienen correspondencia que exigir. */
+  private esSha1(hash: string): boolean {
+    return /^[0-9a-f]{40}$/i.test(hash);
+  }
+}
+
+/** Bytes en hexadecimal en minúsculas, como los sha1 que se comparan. */
+function hex(bytes: Uint8Array): string {
+  let out = '';
+  for (const byte of bytes) out += byte.toString(16).padStart(2, '0');
+  return out;
+}
+/**
+ * Huella de un contenido: 64 bits en 16 caracteres hex.
+ *
+ * No es criptográfica y no pretende serlo: solo sirve para responder "¿son los MISMOS
+ * bytes?" sin guardarlos. El servidor sí comprueba el SHA-1 real (allí hay
+ * `node:crypto`); aquí, en el renderer, hace falta algo síncrono y sin dependencias,
+ * y comparar 16 MB en cada consulta sería criminal. Dos acumuladores distintos
+ * (FNV-1a y una mezcla con signo) para que la unión sea de 64 bits y no de 32.
+ */
+function huellaDe(bytes: Uint8Array): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i]!;
+    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+    b = (Math.imul(b ^ byte, 0x85ebca6b) + ((b << 13) | (b >>> 19))) >>> 0;
+  }
+  // El tamaño va dentro: dos contenidos de igual huella pero distinta longitud son
+  // distinto contenido, y el recorte no tiene por qué notarlo.
+  return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0)
+    .toString(16)
+    .padStart(8, '0')}${bytes.length.toString(16)}`;
 }

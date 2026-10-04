@@ -1,0 +1,685 @@
+/**
+ * BUG 055 — un invitado puede sustituir los BYTES de un sample ya publicado sin
+ * cambiar su hash.
+ *
+ * El hash es la identidad del contenido (`SampleRef.hash`, y la clave del
+ * `Y.Map('assets')`). Con solo la política de 013 —que juzgaba el rol— un invitado
+ * podía escribir `assets[sha1(A)] = B` con otros bytes de la misma forma y tamaño:
+ * el cliente que ya tenía el sample se quedaba con A (solo se avisa una vez por
+ * hash) y uno que entraba tarde cargaba B con el MISMO SampleRef, es decir, mismo
+ * proyecto y mismo hash con distinto audio.
+ *
+ * Aquí se fija la regla por los dos lados: el servidor devuelve los bytes
+ * originales y el receptor congela los primeros que vio para ese hash.
+ */
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { WebSocket } from 'ws';
+import { createHash } from 'node:crypto';
+import * as Y from 'yjs';
+import * as syncProtocol from 'y-protocols/sync';
+import * as awarenessProtocol from 'y-protocols/awareness';
+import * as encoding from 'lib0/encoding';
+import * as decoding from 'lib0/decoding';
+import { SampleAssetBinding, type SampleAsset, type AssetRejection } from '@orbit/collab';
+import { startServer, type ServerHandle } from '../src/index';
+
+const ROOM = 'A5K9ZT';
+const SYNC = 0;
+const AWARENESS = 1;
+/** El hash de un sample ES el sha1 de sus bytes: la identidad se comprueba de verdad. */
+const sha1 = (bytes: Uint8Array): string => createHash('sha1').update(bytes).digest('hex');
+
+let handle: ServerHandle | null = null;
+let dir: string | null = null;
+const peers: Peer[] = [];
+
+afterEach(async () => {
+  for (const peer of peers.splice(0)) peer.close();
+  if (handle) await handle.close();
+  handle = null;
+  if (dir) rmSync(dir, { recursive: true, force: true });
+  dir = null;
+});
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** WAV PCM32 del mismo tamaño con dos tonos distintos: A y B. */
+function wav(hz: number): Uint8Array {
+  const rate = 8000;
+  const muestras = 400;
+  const datos = new Uint8Array(44 + muestras * 4);
+  const vista = new DataView(datos.buffer);
+  const texto = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) vista.setUint8(offset + i, s.charCodeAt(i));
+  };
+  texto(0, 'RIFF');
+  vista.setUint32(4, 36 + muestras * 4, true);
+  texto(8, 'WAVEfmt ');
+  vista.setUint32(16, 16, true);
+  vista.setUint16(20, 3, true);
+  vista.setUint16(22, 1, true);
+  vista.setUint32(24, rate, true);
+  vista.setUint32(28, rate * 4, true);
+  vista.setUint16(32, 4, true);
+  vista.setUint16(34, 32, true);
+  texto(36, 'data');
+  vista.setUint32(40, muestras * 4, true);
+  for (let i = 0; i < muestras; i++) {
+    vista.setInt32(44 + i * 4, Math.round(Math.sin((2 * Math.PI * hz * i) / rate) * 1e6), true);
+  }
+  return datos;
+}
+
+const A = wav(220);
+const B = wav(440);
+/** A (220 Hz) y B (440 Hz): mismo tamaño y forma, distinto audio. */
+const HASH_A = sha1(A);
+const HASH_B = sha1(B);
+/** Una clave que NO es el sha1 de nada: como la que dejaba el cliente viejo. */
+const HASH_LEGADO = 'parte-1';
+
+function asset(hash: string, name: string, bytes: Uint8Array, by: string): SampleAsset {
+  return { hash, name, size: bytes.byteLength, by, at: 1, bytes };
+}
+
+function iguales(a: Uint8Array | null, b: Uint8Array): boolean {
+  if (a === null || a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < b.byteLength; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+class Peer {
+  readonly doc = new Y.Doc();
+  private readonly ws: WebSocket;
+  private readonly awareness: awarenessProtocol.Awareness;
+  readonly assets: SampleAssetBinding;
+  readonly recibidos: SampleAsset[] = [];
+  readonly avisos: AssetRejection[] = [];
+
+  constructor(port: number, readonly name: string) {
+    this.awareness = new awarenessProtocol.Awareness(this.doc);
+    this.assets = new SampleAssetBinding(this.doc, {
+      onAsset: (a) => this.recibidos.push(a),
+      onRejected: (r) => this.avisos.push(r),
+    });
+    this.ws = new WebSocket(`ws://127.0.0.1:${port}/${ROOM}`);
+    this.ws.binaryType = 'arraybuffer';
+    this.ws.on('message', (data: Buffer) => this.onMessage(new Uint8Array(data)));
+    this.ws.on('error', () => undefined);
+    this.doc.on('update', (update: Uint8Array, origin: unknown) => {
+      if (origin === this) return;
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, SYNC);
+      syncProtocol.writeUpdate(encoder, update);
+      this.send(encoding.toUint8Array(encoder));
+    });
+    peers.push(this);
+  }
+
+  async open(): Promise<void> {
+    this.assets.start();
+    if (this.ws.readyState !== WebSocket.OPEN) {
+      await new Promise<void>((resolve, reject) => {
+        this.ws.once('open', () => resolve());
+        this.ws.once('error', reject);
+      });
+    }
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, SYNC);
+    syncProtocol.writeSyncStep1(encoder, this.doc);
+    this.send(encoding.toUint8Array(encoder));
+    this.awareness.setLocalStateField('user', { name: this.name, color: '#fff' });
+    const aEncoder = encoding.createEncoder();
+    encoding.writeVarUint(aEncoder, AWARENESS);
+    encoding.writeVarUint8Array(
+      aEncoder,
+      awarenessProtocol.encodeAwarenessUpdate(this.awareness, [this.doc.clientID]),
+    );
+    this.send(encoding.toUint8Array(aEncoder));
+    await sleep(250);
+  }
+
+  /** Escribe en el mapa de assets SIN pasar por el binding, como haría un peer. */
+  meterCrudo(el: SampleAsset): void {
+    this.doc.transact(() => {
+      this.doc.getMap<SampleAsset>('assets').set(el.hash, el);
+    });
+  }
+
+  bytesDe(hash: string): Uint8Array | null {
+    return this.doc.getMap<SampleAsset>('assets').get(hash)?.bytes ?? null;
+  }
+
+  close(): void {
+    this.assets.destroy();
+    this.ws.close();
+    this.awareness.destroy();
+    this.doc.destroy();
+  }
+
+  private send(bytes: Uint8Array): void {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(bytes);
+  }
+
+  private onMessage(data: Uint8Array): void {
+    const decoder = decoding.createDecoder(data);
+    const type = decoding.readVarUint(decoder);
+    if (type === SYNC) {
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, SYNC);
+      syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
+      if (encoding.length(encoder) > 1) this.send(encoding.toUint8Array(encoder));
+    } else if (type === AWARENESS) {
+      awarenessProtocol.applyAwarenessUpdate(
+        this.awareness,
+        decoding.readVarUint8Array(decoder),
+        this,
+      );
+    }
+  }
+}
+
+async function serve(): Promise<ServerHandle> {
+  dir = mkdtempSync(join(tmpdir(), 'orbit-055-'));
+  handle = await startServer({ port: 0, host: '127.0.0.1', roomsDir: dir });
+  return handle;
+}
+
+describe('055 · el hash es la identidad: los bytes publicados no se sustituyen', () => {
+  it('el invitado que cambia los bytes no cambia lo que oye nadie', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+    const invitado = new Peer(server.port, 'invitado');
+    await invitado.open();
+
+    expect(host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' })).toBe('published');
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_A), A)).toBe(true);
+    expect(iguales(host.assets.get(HASH_A), A)).toBe(true);
+
+    // El invitado del protocolo sustituye los bytes y MIENTE en el campo hash.
+    invitado.meterCrudo(asset(HASH_A, 'a.wav', B, 'invitado'));
+    await sleep(400);
+
+    // El servidor devuelve los originales: ni el host ni el invitado oyen B.
+    expect(iguales(host.bytesDe(HASH_A), A)).toBe(true);
+    expect(iguales(host.assets.get(HASH_A), A)).toBe(true);
+    expect(iguales(invitado.bytesDe(HASH_A), A)).toBe(true);
+  });
+
+  it('y un cliente que llega tarde carga el MISMO audio que el que ya estaba', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+    const invitado = new Peer(server.port, 'invitado');
+    await invitado.open();
+
+    host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' });
+    await sleep(300);
+    // El sustituto entra y lo meten en el mapa a pelo.
+    invitado.meterCrudo(asset(HASH_A, 'a.wav', B, 'invitado'));
+    await sleep(400);
+
+    const tarde = new Peer(server.port, 'tarde');
+    await tarde.open();
+    await sleep(300);
+
+    // El tardío recibe el asset y sus bytes son los de A, no los de B.
+    const recibido = tarde.recibidos.find((a) => a.hash === HASH_A);
+    expect(recibido).toBeDefined();
+    expect(iguales(recibido?.bytes ?? null, A)).toBe(true);
+    expect(iguales(tarde.bytesDe(HASH_A), A)).toBe(true);
+    expect(iguales(tarde.assets.get(HASH_A), A)).toBe(true);
+  });
+
+  it('publicar dos veces el MISMO sample es idempotente, y un hash nuevo se acepta', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+    const invitado = new Peer(server.port, 'invitado');
+    await invitado.open();
+
+    expect(host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' })).toBe('published');
+    // Repetirlo con los mismos bytes no es una sustitución: es el mismo archivo.
+    expect(host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' })).toBe('duplicate');
+    await sleep(300);
+    // Y con un hash nuevo que nadie había publicado, entra normal.
+    expect(invitado.assets.publish(B, { hash: HASH_B, name: 'b.wav', by: 'invitado' })).toBe(
+      'published',
+    );
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_B), B)).toBe(true);
+    // El original sano sigue intacto: rechazar la sustitución no borra nada.
+    expect(iguales(host.bytesDe(HASH_A), A)).toBe(true);
+    // Nadie recibió un aviso por una republicación idéntica.
+    expect(host.avisos).toHaveLength(0);
+  });
+
+  it('el receptor guarda la HUELLA, no una copia: no se sirve lo que no encaja', async () => {
+    // Sin el servidor en medio: el .bin ya guardado y tocado a mano.
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const avisos: AssetRejection[] = [];
+    const binding = new SampleAssetBinding(doc, {
+      onAsset: (a) => recibidos.push(a),
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+
+    // A llega primero. Su hash es un sha1 de verdad, así que hay un instante (el del
+    // digest) en el que todavía no es audio de fiar.
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', A, 'yo'));
+    expect(recibidos).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(recibidos).toHaveLength(1);
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+
+    // El .bin manipulado trae otros bytes bajo el mismo hash.
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    // No se anuncia dos veces, se avisa una, y NO se sirven bytes que no son los
+    // de su hash (el servidor va a devolver el original por su lado).
+    expect(recibidos).toHaveLength(1);
+    expect(avisos.map((a) => a.reason)).toEqual(['invalid']);
+    expect(binding.get(HASH_A)).toBeNull();
+    // Y repetir la sustitución no vuelve a avisar (avisa una vez por hash).
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'otro'));
+    expect(avisos).toHaveLength(1);
+    expect(binding.get(HASH_A)).toBeNull();
+
+    // Cuando el original vuelve (lo restituye el servidor), se sirve otra vez.
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('el receptor NO retiene los bytes: ni de los rechazados ni de los borrados', () => {
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc, { maxAssetBytes: 4 });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    // Un blob de 8 bytes con el tope en 4: se rechaza y NO se guarda nada suyo.
+    const grande = new Uint8Array(8);
+    mapa.set('h1', asset('h1', 'grande.wav', grande, 'yo'));
+    expect(binding.get('h1')).toBeNull();
+
+    // Añadir y borrar muchos no deja nada detrás: la huella son ~40 bytes, no el
+    // audio. Aquí se mira lo observable: el contador de la sala vuelve a cero.
+    // Mismo contenido cada vez (es el mismo archivo): añadir y borrar cinco veces
+    // no deja nada detrás. La huella son ~40 bytes por clave, no el audio.
+    for (let i = 0; i < 5; i++) {
+      mapa.set('h2', asset('h2', 'corto.wav', new Uint8Array([7]), 'yo'));
+      expect(binding.get('h2')).not.toBeNull();
+      doc.transact(() => mapa.delete('h2'));
+    }
+    expect(binding.hashes).not.toContain('h2');
+    expect(binding.get('h2')).toBeNull();
+
+    // Lo que se retiene de un asset aceptado es solo su identidad (~40 bytes), nunca
+    // el audio, y NADA de lo que se rechazó: `h1` (8 bytes con el tope en 4) no
+    // dejó ni huella. Eso se mide mirando lo que el binding retiene, que es
+    // justo lo que se quejó la revisión.
+    const identidades = (b: unknown): number =>
+      (b as { identity: Map<string, string> }).identity.size;
+    expect(identidades(binding)).toBe(1); // solo h2, el que sí se aceptó
+
+    // Y al soltar el observer (destroy) se sueltan también esas identidades.
+    binding.destroy();
+    expect(identidades(binding)).toBe(0);
+
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('borrar el sample y republicar OTRO audio bajo el mismo hash tampoco vale', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' });
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_A), A)).toBe(true);
+
+    // El productor borra el sample: ya no hay original que devolver.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').delete(HASH_A));
+    await sleep(300);
+    expect(host.bytesDe(HASH_A)).toBeNull();
+
+    // Y ahora publica OTRO audio (B) bajo el MISMO hash de A.
+    host.assets.publish(B, { hash: HASH_A, name: 'a.wav', by: 'host' });
+    await sleep(400);
+
+    // No entra: el hash de A no es el sha1 de B. Ni el mapa ni el audio lo dan
+    // por bueno, y quien entre tarde tampoco lo oye.
+    expect(host.bytesDe(HASH_A)).toBeNull();
+    const tarde = new Peer(server.port, 'tarde');
+    await tarde.open();
+    await sleep(300);
+    expect(tarde.bytesDe(HASH_A)).toBeNull();
+    expect(tarde.recibidos.filter((a) => a.hash === HASH_A)).toEqual([]);
+  });
+
+  it('una clave que NO es sha1 se acepta, pero su contenido tampoco se cambia', async () => {
+    // Compatibilidad: el cliente viejo publicaba con el id de la parte cuando no
+    // habia WebCrypto. Esa sala tiene que seguir sonando.
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    expect(host.assets.publish(A, { hash: HASH_LEGADO, name: 'a.wav', by: 'host' })).toBe(
+      'published',
+    );
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_LEGADO), A)).toBe(true);
+
+    // Con la misma clave pero otro contenido: no hay sha1 que comparar, pero se
+    // recuerda la huella de lo aceptado.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_LEGADO, asset(HASH_LEGADO, 'a.wav', B, 'otro')));
+    await sleep(400);
+    expect(iguales(host.bytesDe(HASH_LEGADO), A)).toBe(true);
+  });
+
+  it('una PRIMERA publicacion con bytes que no son su hash se rechaza', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    // B publicado con el hash de A: la correspondencia se comprueba en la primera
+    // publicacion tambien, no solo cuando algo ya estaba antes.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'yo')));
+    await sleep(400);
+    expect(host.bytesDe(HASH_A)).toBeNull();
+
+    // Y el que se publica bien, entra.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo')));
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_B), B)).toBe(true);
+  });
+
+  it('el receptor NO anuncia ni sirve el audio falso: ni antes ni después del veredicto', async () => {
+    // Sin servidor: un `.bin` manipulado o un cliente que publica B con el hash de
+    // A. El digest es asíncrono, así que el sample ESPERA: anunciarlo primero y
+    // retirarlo después sería peor que no comprobar, porque el kernel ya habría
+    // cargado el audio falso.
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const avisos: AssetRejection[] = [];
+    const binding = new SampleAssetBinding(doc, {
+      onAsset: (a) => recibidos.push(a),
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+
+    // Antes del veredicto: ni se anuncia, ni se sirve, ni `has` lo ofrece.
+    expect(recibidos).toHaveLength(0);
+    expect(binding.get(HASH_A)).toBeNull();
+    expect(binding.has(HASH_A)).toBe(false);
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Y después tampoco: los bytes NO son los de su hash.
+    expect(binding.get(HASH_A)).toBeNull();
+    expect(binding.has(HASH_A)).toBe(false);
+    expect(recibidos).toHaveLength(0);
+    expect(avisos.map((a) => a.reason)).toContain('invalid');
+    binding.destroy();
+    doc.destroy();
+
+    // Y un sample bien publicado con SU hash entra, también por el camino del digest.
+    const doc2 = new Y.Doc();
+    const recibidos2: SampleAsset[] = [];
+    const binding2 = new SampleAssetBinding(doc2, { onAsset: (a) => recibidos2.push(a) });
+    binding2.start();
+    doc2.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    expect(recibidos2).toHaveLength(0); // todavía esperando
+    await new Promise((r) => setTimeout(r, 60));
+    expect(recibidos2).toHaveLength(1);
+    expect(iguales(binding2.get(HASH_B), B)).toBe(true);
+    binding2.destroy();
+    doc2.destroy();
+  });
+
+  it('un veredicto NEGATIVO no lo reanima ningún recorrido posterior del mapa', async () => {
+    // El segundo agujero que midió la revisión: el veredicto se colgaba del mismo
+    // conjunto que la sustitución, y un `scan` posterior (por ejemplo al llegar
+    // cualquier OTRO sample) lo limpiaba y `get()` volvía a devolver el audio falso.
+    // Aquí se cuenta además cuántos digest se hacen: el veredicto es firme, así que
+    // el sample envenenado no se rehashea en cada recorrido.
+    let digests = 0;
+    const real = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
+    const espia = vi
+      .spyOn(globalThis.crypto.subtle, 'digest')
+      .mockImplementation(async (algo: AlgorithmIdentifier, datos: BufferSource) => {
+        digests++;
+        return real(algo, datos);
+      });
+
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    try {
+      // B con el hash de A: veredicto negativo.
+      mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+      await new Promise((r) => setTimeout(r, 60));
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(digests).toBe(1);
+
+      // Ahora llega un sample LEGÍTIMO DISTINTO, que obliga a recorrer el mapa entero.
+      const C = wav(660);
+      mapa.set(sha1(C), asset(sha1(C), 'c.wav', C, 'yo'));
+      await new Promise((r) => setTimeout(r, 60));
+
+      // El legítimo entra (su digest cuadró), el falso SIGUE sin servirse, y el hash
+      // envenenado no se ha vuelto a hashear: dos digest en total, no tres.
+      expect(iguales(binding.get(sha1(C)), C)).toBe(true);
+      expect(recibidos.map((a) => a.hash)).toEqual([sha1(C)]);
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(binding.has(HASH_A)).toBe(false);
+      expect(digests).toBe(2);
+
+      // Y tampoco lo reanima un recorte desde el propio mapa.
+      mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'otro'));
+      await new Promise((r) => setTimeout(r, 60));
+      expect(binding.get(HASH_A)).toBeNull();
+      expect(digests).toBe(2);
+    } finally {
+      espia.mockRestore();
+      binding.destroy();
+      doc.destroy();
+    }
+  });
+
+  it('si la entrada cambia mientras se comprueba, el veredicto viejo no decide', async () => {
+    // El digest es asíncrono: entre que se lanza y que vuelve, la entrada puede
+    // cambiar. El veredicto habla de los bytes que se estaban hasheando, así que si ya
+    // no son los del mapa se descarta y se vuelve a recorrer.
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    // Entra B con el hash de A (mal) y, antes de que resuelva, se sustituye por A
+    // (bien) bajo esa misma clave.
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // El veredicto del digest de B se queda sin efecto (sus bytes ya no están) y lo
+    // que decide es el de los bytes buenos.
+    expect(recibidos.map((a) => a.hash)).toEqual([HASH_A]);
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('el tope de la SALA se comprueba antes de la huella y del contador', () => {
+    const doc = new Y.Doc();
+    const avisos: AssetRejection[] = [];
+    // 10 bytes de presupuesto para la sala: entra uno de 8 y el de 4 ya no cabe.
+    const binding = new SampleAssetBinding(doc, {
+      maxAssetBytes: 8,
+      maxRoomBytes: 10,
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+    mapa.set('h1', asset('h1', 'a.wav', new Uint8Array(8), 'yo'));
+    expect(binding.get('h1')).not.toBeNull();
+
+    mapa.set('h2', asset('h2', 'b.wav', new Uint8Array(4), 'yo'));
+    // No se sirve, no se anuncia, y el aviso es el de la sala llena.
+    expect(binding.get('h2')).toBeNull();
+    expect(avisos.map((a) => a.reason)).toContain('room-full');
+    // Y no se recuerda su identidad: lo que no entra, no ocupa (ni 40 bytes).
+    const identidades = (b: unknown): number =>
+      (b as { identity: Map<string, string> }).identity.size;
+    expect(identidades(binding)).toBe(1);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('rechazar, borrar y republicar los bytes CORRECTOS: vuelve a servirse', async () => {
+    // La limpieza del veredicto vivía dentro del bucle de `sizes`, y un hash
+    // rechazado nunca llega a `sizes` (se corta antes): su veredicto se quedaba
+    // pegado y los bytes buenos de ese hash no volvían a servirse nunca.
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc);
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(binding.get(HASH_A)).toBeNull(); // veredicto negativo
+
+    doc.transact(() => mapa.delete(HASH_A));
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Y ahora llega el sample de verdad, con el mismo hash y SUS bytes.
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 60));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('un digest que resuelve DESPUÉS de destroy no toca nada', async () => {
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    // Se suelta el observer con el digest todavía en vuelo.
+    binding.destroy();
+    await new Promise((r) => setTimeout(r, 60));
+
+    // Ni anuncio, ni identidad, ni el contador de reserva en negativo.
+    expect(recibidos).toHaveLength(0);
+    const estado = binding as unknown as {
+      identity: Map<string, string>;
+      pendienteBytes: number;
+      pendientes: Map<string, string>;
+    };
+    expect(estado.identity.size).toBe(0);
+    expect(estado.pendienteBytes).toBe(0);
+    expect(estado.pendientes.size).toBe(0);
+    doc.destroy();
+  });
+
+  it('destroy + start con OTRO digest no se pisan entre sí', async () => {
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    binding.destroy();
+    // Se vuelve a escuchar y llega OTRO sample: este es el pendiente que importa.
+    binding.start();
+    mapa.set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Los dos son válidos y los dos entran: lo que se comprueba aquí es que el
+    // veredicto del digest VIEJO no se lleva por delante al pendiente nuevo (si lo
+    // hiciera, el nuevo se quedaría sin_identity y sin servirse nunca).
+    expect(new Set(recibidos.map((a) => a.hash))).toEqual(new Set([HASH_B, HASH_A]));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    expect(iguales(binding.get(HASH_B), B)).toBe(true);
+    const estado = binding as unknown as { pendienteBytes: number };
+    expect(estado.pendienteBytes).toBe(0);
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('un pendiente NO cuenta dos veces su propia reserva en el tope de sala', async () => {
+    // Tope JUSTO para lo que entra: un legacy de 1 byte y un sample real (con su sha1,
+    // o sea pendiente) del tamaño justo. Al recorrer su propia entrada, el
+    // pendiente no puede volver a contarse: eso era un `room-full` falso.
+    const uno = new Uint8Array([1]);
+    const avisos: AssetRejection[] = [];
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc, {
+      maxRoomBytes: uno.byteLength + B.byteLength,
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    mapa.set('legado', asset('legado', 'l.wav', uno, 'yo'));
+    mapa.set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    await new Promise((r) => setTimeout(r, 80));
+
+    // Juntos caben justos: no hay room-full falso.
+    expect(avisos.filter((a) => a.reason === 'room-full')).toHaveLength(0);
+    expect(iguales(binding.get('legado'), uno)).toBe(true);
+    expect(iguales(binding.get(HASH_B), B)).toBe(true);
+    // Y el presupuesto se cuenta una vez: 1 + B, ni un byte de más.
+    expect(binding.totalBytes).toBe(uno.byteLength + B.byteLength);
+    binding.destroy();
+    doc.destroy();
+  });
+  it('SIN WebCrypto el veredicto es la huella, no un pendiente eterno', async () => {
+    const original = globalThis.crypto;
+    // Un entorno sin `crypto.subtle` (un motor viejo, o un test sin stub).
+    Object.defineProperty(globalThis, 'crypto', {
+      value: { getRandomValues: original?.getRandomValues?.bind(original) },
+      configurable: true,
+    });
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const binding = new SampleAssetBinding(doc, { onAsset: (a) => recibidos.push(a) });
+    binding.start();
+    try {
+      doc.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+      await new Promise((r) => setTimeout(r, 40));
+
+      // Se anuncia y se sirve por la huella: no se queda esperando a un digest que no
+      // existe, y el servidor es quien exige la correspondencia.
+      expect(recibidos).toHaveLength(1);
+      expect(iguales(binding.get(HASH_B), B)).toBe(true);
+      const estado = binding as unknown as { pendientes: Map<string, string> };
+      expect(estado.pendientes.size).toBe(0);
+    } finally {
+      binding.destroy();
+      doc.destroy();
+      Object.defineProperty(globalThis, 'crypto', { value: original, configurable: true });
+    }
+  });
+});
