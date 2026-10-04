@@ -111,11 +111,14 @@ class Peer {
     await sleep(250);
   }
 
+  /** Cada entrada con su `seq`: numerar es lo que hace las claves únicas (BUG 015). */
+  private seq = 0;
+
   meterCrudo(cmd: unknown): void {
     this.doc.transact(() => {
       this.doc
         .getArray<unknown>('commands')
-        .push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: 1, role: 'productor', cmd }]);
+        .push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: this.seq++, role: 'productor', cmd }]);
     });
   }
 

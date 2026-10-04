@@ -121,12 +121,14 @@ class Peer {
     await sleep(250);
   }
 
+  /** Cada entrada con su `seq`: numerar es lo que hace las claves unicas (BUG 015). */
+  private seq = 0;
   /** Escribe en el log sin pasar por el bus, como haría un cliente modificado. */
   meterCrudo(cmd: unknown): void {
     this.doc.transact(() => {
       this.doc
         .getArray<unknown>('commands')
-        .push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: 1, role: 'productor', cmd }]);
+        .push([{ id: `e${Math.random().toString(36).slice(2)}`, client: this.doc.clientID, seq: this.seq++, role: 'productor', cmd }]);
     });
   }
 

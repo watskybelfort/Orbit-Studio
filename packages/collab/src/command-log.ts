@@ -107,6 +107,33 @@ function entryKey(client: number, seq: number): string {
 }
 
 /**
+ * Aplica el log entero a un proyecto, en orden, con la MISMA regla de idempotencia
+ * que `process`: la PRIMERA aparición de una clave gana y las siguientes se saltan.
+ *
+ * Sin esto, entrar tarde y re-derivar dad divergían de los clientes que ya estaban:
+ * `process` se saltaba la segunda entrada con una clave repetida (150) y quien
+ * entraba después se la aplicaba igual (160), así que la misma sala tenía dos
+ * proyectos distintos según cuándo se entra, y guardar o exportar dependía del
+ * cliente (medido en la tarjeta 015). Con la regla repetida aquí, todas las
+ * pasadas del log —unirse, re-derivar y procesar— coinciden.
+ */
+export function applyLogAlProyecto(
+  project: Project,
+  entries: LogEntry[],
+  isAllowed: (entry: LogEntry) => boolean,
+  safeApply: (project: Project, cmd: Command) => void,
+): Set<string> {
+  const claves = new Set<string>();
+  for (const entry of entries) {
+    const clave = entryKey(entry.client, entry.seq);
+    if (claves.has(clave)) continue;
+    claves.add(clave);
+    if (isAllowed(entry)) safeApply(project, structuredClone(entry.cmd));
+  }
+  return claves;
+}
+
+/**
  * Ids de pistas/patrones que borra un comando, entrando también en los lotes.
  *
  * El log de una sala se reproduce entero al entrar, y sus entradas las escribió
@@ -242,11 +269,15 @@ export class CommandLogBinding {
   private join(snapshotJson: string): void {
     const project = this.parseSnapshot(snapshotJson);
     if (!project) return;
-    for (const entry of this.log.toArray()) {
-      // Clonamos: el objeto del log pertenece a Yjs y no debe mutar.
-      if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
-      this.applied.add(entryKey(entry.client, entry.seq));
-    }
+    // Con la regla de idempotencia de `applyLogAlProyecto`: la primera entrada de
+    // cada clave gana (BUG 015). Antes se aplicaban todas, y quien entraba tarde
+    // acababa con un proyecto distinto del que tenían los que ya estaban dentro.
+    this.applied = applyLogAlProyecto(
+      project,
+      this.log.toArray(),
+      (entry) => this.entryAllowed(entry),
+      (p, cmd) => this.safeApply(p, cmd),
+    );
     this.store.replaceProject(project);
     this.notifyProjectReplaced();
   }
@@ -395,16 +426,22 @@ export class CommandLogBinding {
     const entries = this.log.toArray();
     const pending: LogEntry[] = [];
     const present = new Set<string>();
+    // Lo ya aplicado MÁS lo que se aplique en ESTA pasada. Sin esto, dos entradas
+    // con la misma clave que llegan en un mismo envío (un solo update) se aplicaban
+    // las dos aquí, mientras que quien entraba después se aplicaba solo la primera:
+    // otra vez la sala partida por el mismo bug (BUG 015).
+    const vistas = new Set(this.applied);
     let sawPending = false;
     let outOfOrder = false;
     for (const entry of entries) {
       const key = entryKey(entry.client, entry.seq);
       present.add(key);
-      if (this.applied.has(key)) {
+      if (vistas.has(key)) {
         if (sawPending) {
           outOfOrder = true;
         }
       } else {
+        vistas.add(key);
         sawPending = true;
         pending.push(entry);
       }
@@ -493,11 +530,12 @@ export class CommandLogBinding {
       }
       return;
     }
-    this.applied = new Set();
-    for (const entry of entries) {
-      if (this.entryAllowed(entry)) this.safeApply(project, structuredClone(entry.cmd));
-      this.applied.add(entryKey(entry.client, entry.seq));
-    }
+    this.applied = applyLogAlProyecto(
+      project,
+      entries,
+      (entry) => this.entryAllowed(entry),
+      (p, cmd) => this.safeApply(p, cmd),
+    );
     this.store.replaceProject(project);
     this.notifyProjectReplaced();
   }
