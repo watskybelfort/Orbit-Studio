@@ -221,15 +221,22 @@ html[data-theme='acrylic'] .automation {
   right: 8px;
   z-index: 3;
   width: 268px;
+  /* El lienzo ya refleja el zoom y el tamaño de la ventana interna. */
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
   padding: 8px 10px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--popup-bg);
   box-shadow: var(--shadow-float);
 }
 
 .au-shape-head {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
@@ -242,8 +249,16 @@ html[data-theme='acrylic'] .automation {
 
 .au-shape-rows {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.au-shape-rows:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
 }
 
 /* Aquí la etiqueta va ENCIMA del control: en la toolbar caben en línea, pero
@@ -264,6 +279,7 @@ html[data-theme='acrylic'] .automation {
 
 .au-shape-actions {
   display: flex;
+  flex: none;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;

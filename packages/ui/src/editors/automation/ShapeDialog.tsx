@@ -15,7 +15,7 @@
  * El motor es `shapePoints` (puro, con tests); aquí solo viven los controles.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NumberScrubber } from '../../widgets/NumberScrubber';
 import { SHAPE_LABELS, shapePoints, type CurveShape } from './curve-tools';
 import type { AutomationPoint } from '@orbit/core';
@@ -49,6 +49,17 @@ export function ShapeDialog({
   const [phase, setPhase] = useState(0);
   const [resolution, setResolution] = useState(12);
   const [seed, setSeed] = useState(1);
+  const shapeSelect = useRef<HTMLSelectElement>(null);
+
+  useEffect(() => {
+    const invoker = document.activeElement;
+    shapeSelect.current?.focus({ preventScroll: true });
+    return () => {
+      if (invoker instanceof HTMLElement && invoker.isConnected) {
+        invoker.focus({ preventScroll: true });
+      }
+    };
+  }, []);
 
   const points = shapePoints({
     shape,
@@ -83,7 +94,7 @@ export function ShapeDialog({
   }, [onClose]);
 
   return (
-    <div className="au-shape" onPointerDown={(e) => e.stopPropagation()}>
+    <div className="au-shape popup" role="dialog" aria-label="Generador de formas" onPointerDown={(e) => e.stopPropagation()}>
       <div className="au-shape-head">
         <span className="au-shape-title">Forma</span>
         <button className="tbtn" onClick={onClose} title="Cerrar sin tocar la curva (Esc)">
@@ -91,10 +102,11 @@ export function ShapeDialog({
         </button>
       </div>
 
-      <div className="au-shape-rows">
+      <div className="au-shape-rows" role="group" aria-label="Parámetros de la forma" tabIndex={0}>
         <label className="au-field au-shape-wide">
           Onda
           <select
+            ref={shapeSelect}
             value={shape}
             onChange={(e) => setShape(e.target.value as CurveShape)}
           >
