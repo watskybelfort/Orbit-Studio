@@ -85,7 +85,7 @@ export {
 
 export { USER_COLORS, colorForName, pickDistinctColor } from './colors';
 
-export { ChatBinding, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT } from './chat';
+export { ChatBinding, isChatMessage, chatProblem, MAX_CHAT_MESSAGES, MAX_CHAT_TEXT } from './chat';
 export type { ChatMessage, ChatOptions } from './chat';
 
 export {

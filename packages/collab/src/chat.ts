@@ -35,6 +35,39 @@ export interface ChatMessage {
   beat?: number;
 }
 
+/**
+ * El problema de un mensaje de chat, o `null` si su forma sirve.
+ *
+ * El chat viaja en un `Y.Array` que escribe CUALQUIER peer del protocolo y no pasa
+ * por la validación del log de comandos (un mensaje no es una mutación del proyecto,
+ * no entra en el undo ni lo filtran los roles). Leer la conversación con un `null`
+ * dentro —lo que un invitado puede meter a mano— reventaba con `Cannot read
+ * properties of null (reading 'text')` al pintar, tanto en el host como en quien
+ * entra tarde, y el servidor guardaba el dato inválido en el `.bin`: el chat quedaba
+ * inservible hasta limpiar el documento a mano.
+ */
+export function chatProblem(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return 'no es un mensaje';
+  }
+  const m = value as Record<string, unknown>;
+  if (typeof m.id !== 'string') return 'sin id';
+  if (typeof m.user !== 'string') return 'sin autor';
+  if (typeof m.color !== 'string') return 'sin color';
+  if (typeof m.text !== 'string') return 'sin texto';
+  if (typeof m.at !== 'number' || !Number.isFinite(m.at)) return 'sin fecha';
+  if (typeof m.client !== 'number' || !Number.isFinite(m.client)) return 'sin client';
+  if (m.beat !== undefined && (typeof m.beat !== 'number' || !Number.isFinite(m.beat))) {
+    return 'con un ancla que no es un numero';
+  }
+  return null;
+}
+
+/** ¿Es un mensaje de chat con la forma que se puede pintar y borrar? */
+export function isChatMessage(value: unknown): value is ChatMessage {
+  return chatProblem(value) === null;
+}
+
 /** Tope de mensajes retenidos en el doc (lo recorta CUALQUIER peer). */
 export const MAX_CHAT_MESSAGES = 300;
 
@@ -83,12 +116,25 @@ export class ChatBinding {
 
   /** Conversación completa en orden de llegada (orden total del CRDT). */
   get messages(): ChatMessage[] {
-    return this.list.toArray().map((m) => ({
-      ...m,
-      // Un mensaje escrito a mano por un cliente modificado puede traer
-      // cualquier cosa: lo que se pinta se recorta siempre.
-      text: typeof m.text === 'string' ? this.capText(m.text) : '',
-    }));
+    return this.lectura();
+  }
+
+  /**
+   * La conversación legible: solo los mensajes que SÍ tienen forma, con el texto
+   * recortado.
+   *
+   * Lo inválido no se filtra por índice (eso parte el array del CRDT): simplemente no
+   * se devuelve, así que pintar, leer las notas ancladas o borrar un mensaje siguen
+   * funcionando aunque el chat lleve dentro un mensaje envenenado. Quien lo quita del
+   * doc es el servidor, que es el único que puede hacerlo sin dividirlo entre peers.
+   */
+  private lectura(): ChatMessage[] {
+    const out: ChatMessage[] = [];
+    for (const m of this.list.toArray()) {
+      if (!isChatMessage(m)) continue;
+      out.push({ ...m, text: this.capText(m.text) });
+    }
+    return out;
   }
 
   /** Solo las notas ancladas, ordenadas por posición en el timeline. */
@@ -129,7 +175,9 @@ export class ChatBinding {
 
   /** Quita una nota anclada (o cualquier mensaje) por id. */
   remove(id: string): boolean {
-    const index = this.list.toArray().findIndex((m) => m.id === id);
+    // Con un mensaje inválido en medio, los índices del array del doc y los de la
+    // lectura no coinciden: se busca sobre el array REAL con la misma guarda.
+    const index = this.list.toArray().findIndex((m) => isChatMessage(m) && m.id === id);
     if (index < 0) return false;
     this.doc.transact(() => {
       this.list.delete(index, 1);

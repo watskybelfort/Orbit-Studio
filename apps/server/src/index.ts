@@ -47,6 +47,7 @@ import {
   publicInvite,
   randomNonce,
   verifyProof,
+  isChatMessage,
   isSampleAsset,
   type CollabRole,
   type RoomAuthRecord,
@@ -297,6 +298,26 @@ class Room {
       this.enforceAssets(event, from);
     });
 
+    // El chat es otro Y.Array del mismo doc, y también es ENTRADA DE RED: lo
+    // escribe cualquier peer del protocolo y no pasa por el log de comandos (un
+    // mensaje no es una mutación del proyecto ni lo filtran los roles). Un `null`
+    // dentro reventaba al leer la conversación en el host y en quien entraba tarde,
+    // y el servidor lo guardaba en el .bin: el chat quedaba inservible hasta
+    // limpiar el documento. Aquí se poda lo malformado del doc, que es lo único
+    // que puede hacerse sin dividirlo entre peers.
+    this.doc.getArray<unknown>('chat').observe((event, transaction) => {
+      if (transaction.origin === ROLE_ENFORCER) return;
+      const chat = this.doc.getArray<unknown>('chat');
+      const malos: number[] = [];
+      chat.toArray().forEach((mensaje, i) => {
+        if (!isChatMessage(mensaje)) malos.push(i);
+      });
+      if (malos.length === 0) return;
+      this.doc.transact(() => {
+        // De atrás hacia delante: borrar por índice mueve lo que viene después.
+        for (const indice of malos.reverse()) chat.delete(indice, 1);
+      }, ROLE_ENFORCER);
+    });
     // Cualquier update del doc (venga del socket que venga) → a todos.
     this.doc.on('update', (update: Uint8Array) => {
       const encoder = encoding.createEncoder();
