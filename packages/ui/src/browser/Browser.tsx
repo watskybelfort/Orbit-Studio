@@ -33,7 +33,7 @@ import {
   type SoundEntry,
   type SoundManifest,
 } from '@orbit/sound-library';
-import { engine, ensureAudioReady, store } from '../state/app';
+import { ensureAudioReady, store } from '../state/app';
 import { newProjectFromStoredTemplate, saveProjectAsTemplate } from '../state/project-file';
 import {
   allTemplates,
@@ -43,7 +43,7 @@ import {
   type StoredTemplate,
 } from '../state/project-templates';
 import { Knob } from '../widgets/Knob';
-import { addSamplerChannel, loadIntoEngine, runSoundLoadAction, setDragEntries } from './sound-actions';
+import { addSamplerChannel, previewSound, runSoundLoadAction, setDragEntries } from './sound-actions';
 import { createPreviewSequence, type PreviewSequence } from './preview-sequence';
 import {
   dragSetFor,
@@ -241,13 +241,24 @@ export function Browser() {
     };
   }, []);
 
-  // Limpia el timer del indicador de preview al desmontar.
-  useEffect(
-    () => () => {
+  // La baja del consumidor invalida también cargas y errores pendientes.
+  useEffect(() => {
+    const sequence = previewSeq.current!;
+    const invalidate = () => {
+      sequence.invalidate();
       if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
-    },
-    [],
-  );
+      previewTimer.current = null;
+    };
+    const unsubscribe = store.subscribeBeforeReplace(() => {
+      invalidate();
+      setPlayingId(null);
+      setStatus(null);
+    });
+    return () => {
+      invalidate();
+      unsubscribe();
+    };
+  }, []);
 
   // ── Carpetas del usuario (packs propios, persistidas en settings) ──────────
 
@@ -566,24 +577,24 @@ export function Browser() {
 
   // Clic: preview del sample por el kernel, al volumen de la perilla.
   const preview = async (entry: SoundEntry) => {
-    ensureAudioReady();
     setStatus(null);
     const seq = previewSeq.current!.begin();
+    const isCurrent = () => previewSeq.current!.isCurrent(seq);
+    if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
+    previewTimer.current = null;
+    setPlayingId(null);
     try {
-      await loadIntoEngine(entry);
-      // Otra carga más nueva arrancó mientras ésta leía: sonar ahora sería
-      // pisar el preview que el usuario pidió después. Se descarta en silencio.
-      if (!previewSeq.current!.isCurrent(seq)) return;
-      engine.previewSample(entry.id, (entry.gainSuggestion ?? 0.9) * previewGain);
+      const played = await previewSound(entry, (entry.gainSuggestion ?? 0.9) * previewGain, isCurrent);
+      if (!played || !isCurrent()) return;
       if (previewTimer.current !== null) window.clearTimeout(previewTimer.current);
       setPlayingId(entry.id);
       previewTimer.current = window.setTimeout(
-        () => setPlayingId(null),
+        () => { if (isCurrent()) setPlayingId(null); },
         Math.max(200, Math.ceil((entry.durationSec || 2) * 1000)),
       );
     } catch (err) {
       // Un error viejo tampoco puede tapar el estado de la carga nueva.
-      if (!previewSeq.current!.isCurrent(seq)) return;
+      if (!isCurrent()) return;
       setStatus(err instanceof Error ? err.message : `No se pudo leer "${entry.name}"`);
     }
   };

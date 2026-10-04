@@ -30,7 +30,7 @@ import {
   type SoundSample,
 } from '@orbit/sound-library';
 import { countSampleRefs, sampleIsUsed } from '@orbit/engine';
-import { engine, store } from '../state/app';
+import { engine, ensureAudioReady, store } from '../state/app';
 import { collectWorkletSamples, withPinnedSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
 
@@ -223,6 +223,42 @@ export async function loadIntoEngine(entry: SoundEntry): Promise<ArrayBuffer> {
   const bytes = await readEntryFile(entry, entry.file);
   await engine.loadSample(entry.id, bytes);
   return bytes;
+}
+
+/** Mantiene el audio vivo hasta mandar el preview; el kernel protege la voz desde ahí. */
+export async function previewSound(
+  entry: SoundEntry,
+  gain: number,
+  isRequested: () => boolean,
+): Promise<boolean> {
+  const session = soundLoadSession();
+  const isCurrent = () => session.isCurrent() && isRequested();
+  let played = false;
+  try {
+    return await withPinnedSamples([entry.id], async () => {
+      if (!isCurrent()) return false;
+      await ensureAudioReady();
+      if (!isCurrent()) return false;
+      const bytes = await readEntryFile(entry, entry.file);
+      if (!isCurrent()) return false;
+      await engine.loadSample(entry.id, bytes);
+      if (!isCurrent()) return false;
+      engine.previewSample(entry.id, gain);
+      played = true;
+      return true;
+    });
+  } catch (error) {
+    // Cerrar el Browser, otro clic o reemplazar el proyecto también retiran
+    // la propiedad de los errores de init/lectura/decodificación pendientes.
+    if (isCurrent()) throw error;
+    return false;
+  } finally {
+    if (!played) {
+      // Ya se soltó NUESTRO pin; el proyecto vigente y otros consumidores
+      // conservan los suyos. Un barrido fallido no tapa el error original.
+      try { collectWorkletSamples(engine, store.project); } catch { /* mejor esfuerzo */ }
+    }
+  }
 }
 
 /**

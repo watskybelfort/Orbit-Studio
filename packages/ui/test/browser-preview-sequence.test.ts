@@ -1,15 +1,15 @@
 /**
  * Preview del Browser: dos clics seguidos no pueden sonar el primero.
  *
- * `preview()` espera a `loadIntoEngine` (leer y decodificar el archivo) antes
+ * `previewSound()` espera a leer y decodificar el archivo antes
  * de llamar a `engine.previewSample`. Con dos clics rápidos, la carga del
  * PRIMERO puede terminar después de la del segundo (más lenta por lo que sea),
  * y entonces su `previewSample` pisa el sonido del que el usuario acaba de
  * pulsar. `browser/analysis-queue.ts` y `collab/sample-sync.ts` ya resuelven
  * carreras así con un contador de generación; aquí el token es lo mínimo.
  *
- * El test fija la secuencia en el módulo puro y, con `read-source`, que
- * Browser.tsx comprueba el token DESPUÉS del `await` y ANTES de sonar.
+ * El flujo async se prueba en browser-preview-session.test.ts. Aquí se fija
+ * la secuencia y el cableado inseparable de los gestos/efectos de React.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -27,6 +27,11 @@ describe('createPreviewSequence', () => {
     const c = seq.begin();
     expect(seq.isCurrent(b)).toBe(false);
     expect(seq.isCurrent(c)).toBe(true);
+    seq.invalidate();
+    expect(seq.isCurrent(c)).toBe(false);
+    const d = seq.begin();
+    expect(seq.isCurrent(c)).toBe(false);
+    expect(seq.isCurrent(d)).toBe(true);
   });
 
   it('el token viejo nunca revive, aunque se pregunte muchas veces', () => {
@@ -41,19 +46,28 @@ describe('createPreviewSequence', () => {
 });
 
 describe('Browser.preview descarta las cargas viejas', () => {
-  it('comprueba el token entre el await y el previewSample', () => {
+  it('delega audio con el token vigente y guarda indicador, timer y errores', () => {
     const src = readSource('browser/Browser.tsx');
-    const at = src.indexOf('const preview = async (');
-    expect(at).toBeGreaterThanOrEqual(0);
-    const awaitAt = src.indexOf('await loadIntoEngine(entry)', at);
-    const guardAt = src.indexOf('isCurrent(', awaitAt);
-    const playAt = src.indexOf('engine.previewSample(entry.id', awaitAt);
-    const beginAt = src.indexOf('.begin()', at);
+    const body = src.slice(src.indexOf('const preview = async ('), src.indexOf('const addToProject = async ('));
+    expect(body).toContain('const seq = previewSeq.current!.begin()');
+    expect(body).toContain('const isCurrent = () => previewSeq.current!.isCurrent(seq)');
+    expect(body).toContain('await previewSound(entry, (entry.gainSuggestion ?? 0.9) * previewGain, isCurrent)');
+    const guardAt = body.indexOf('if (!played || !isCurrent()) return');
+    expect(guardAt).toBeGreaterThan(0);
+    expect(guardAt).toBeLessThan(body.indexOf('setPlayingId(entry.id)'));
+    expect(body).toContain('() => { if (isCurrent()) setPlayingId(null); }');
+    expect(body.slice(body.indexOf('catch (err)'))).toContain('if (!isCurrent()) return');
+    expect(body).not.toContain('engine.previewSample');
+    expect(body).not.toContain('ensureAudioReady()');
+  });
 
-    expect(beginAt).toBeGreaterThan(at);
-    expect(beginAt).toBeLessThan(awaitAt);
-    expect(awaitAt).toBeGreaterThan(at);
-    expect(guardAt).toBeGreaterThan(awaitAt);
-    expect(guardAt).toBeLessThan(playAt);
+  it('invalida al reemplazar y desmontar, y da de baja listener y timer', () => {
+    const src = readSource('browser/Browser.tsx');
+    const at = src.indexOf('const sequence = previewSeq.current!');
+    const effect = src.slice(at, src.indexOf('}, []);', at));
+    expect(effect).toContain('sequence.invalidate()');
+    expect(effect).toContain('window.clearTimeout(previewTimer.current)');
+    expect(effect).toMatch(/store\.subscribeBeforeReplace\(\(\) => \{\s*invalidate\(\)/);
+    expect(effect).toMatch(/return \(\) => \{\s*invalidate\(\);\s*unsubscribe\(\)/);
   });
 });
