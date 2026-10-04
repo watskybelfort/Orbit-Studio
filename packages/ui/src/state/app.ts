@@ -226,10 +226,17 @@ export function setActivePattern(patternId: string): void {
   }
 }
 
+let transportRevision = 0;
+store.subscribeBeforeReplace(() => { transportRevision++; });
+
+/** Identidad de la última intención de transporte, incluso antes del primer medidor. */
+export function playbackRequestVersion(): number { return transportRevision; }
+
 /** Play desde el caret actual (0 tras stop; donde estaba tras pause/seek). */
 export async function play(isCurrent: () => boolean = () => true): Promise<void> {
+  const request = ++transportRevision;
   await engine.init();
-  if (!isCurrent()) return;
+  if (!isCurrent() || request !== transportRevision) return;
   // Congelado a propósito (ver setEngineSyncFrozen): dar al play NO puede ser
   // la puerta trasera por la que se cuela lo que pediste no oír.
   if (!syncFrozen || !syncedOnce) pushSnapshot();
@@ -237,6 +244,7 @@ export async function play(isCurrent: () => boolean = () => true): Promise<void>
 }
 
 export function stopPlayback(): void {
+  transportRevision++;
   engine.stop();
   // También se lleva el cursor del KERNEL a 0: si no, el siguiente frame de
   // medidores (que trae posBeats del kernel, aún en su sitio) devolvía el caret
@@ -251,6 +259,7 @@ export function stopPlayback(): void {
 
 /** Pausa: para el motor pero conserva el caret (play reanuda desde ahí). */
 export function pausePlayback(): void {
+  transportRevision++;
   engine.stop();
   useUiStore.setState({ playing: false });
 }

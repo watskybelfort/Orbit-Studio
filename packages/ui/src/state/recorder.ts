@@ -36,7 +36,7 @@ import {
 import { encodeWav, type InputCaptureChunk } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
-import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store } from './app';
+import { currentBeat, engine, ensureAudioReady, play, playbackRequestVersion, stopPlayback, store } from './app';
 import {
   currentInputRoutes,
   currentInputStream,
@@ -346,16 +346,30 @@ async function runCountIn(bars: number, target: number, take: RecordingSession):
   engine.seek(from);
   useRecorderStore.setState({ phase: 'countin', countdown: bars * beatsPerBar / unit, error: null });
 
-  await play(() => ownsRecorder(take));
+  const pendingPlay = play(() => ownsRecorder(take));
+  const request = playbackRequestVersion();
+  await pendingPlay;
+  const deadline = performance.now() + 1500;
+  let acknowledged = false;
 
   while (!cancelCountIn && ownsRecorder(take)) {
-    // Si el transporte se para por otro lado (Space, Stop) durante la cuenta,
-    // currentBeat() se congela y este bucle sondearía cada 25 ms para siempre,
-    // dejando la fase en 'countin' con el micro abierto. Se aborta.
-    if (!useUiStore.getState().playing) {
+    if (playbackRequestVersion() !== request) {
       cancelCountIn = true;
       break;
     }
+    // play() envía la orden; el primer medidor tarda hasta unos 46 ms. Un
+    // playing=false anterior al acuse no es Stop. Una intención nueva sí lo
+    // cancela inmediatamente, y el plazo evita retener el micro sin motor.
+    if (!useUiStore.getState().playing) {
+      if (acknowledged || performance.now() >= deadline) {
+        cancelCountIn = true;
+        if (!acknowledged) useRecorderStore.setState({ error: 'El motor no confirmó el inicio de la reproducción.' });
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      continue;
+    }
+    acknowledged = true;
     const beat = currentBeat();
     if (beat >= target - 1e-3) break;
     // La cuenta se enseña en BEATS (4·3·2·1), igual que la del kernel. Tope
@@ -377,7 +391,7 @@ async function runCountIn(bars: number, target: number, take: RecordingSession):
   useRecorderStore.setState({ countdown: 0 });
   if (cancelCountIn) {
     cancelCountIn = false;
-    stopPlayback();
+    if (playbackRequestVersion() === request) stopPlayback();
     useRecorderStore.setState({ phase: 'idle' });
     return null;
   }
