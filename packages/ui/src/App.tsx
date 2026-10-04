@@ -33,6 +33,7 @@ import { registerDefaultCommands } from './palette/default-commands';
 import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
 import { useBounceStore } from './state/bounce';
 import { dismissCaptureRecovery, useTrackCapture } from './state/track-capture';
+import { dismissRecorderRecovery, useRecorderStore } from './state/recorder';
 import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
 import { dismissUpdate, initUpdateCheck, useUpdateCheck } from './state/update-check';
@@ -57,6 +58,7 @@ export function App() {
   const recoveryError = useAutosave((s) => s.error);
   const autosaveNotice = recovery ? null : recoveryError;
   const captureRecovery = useTrackCapture((s) => s.recoveryNotice);
+  const recorderRecovery = useRecorderStore((s) => s.recoveryNotice);
   const fileNotice = bounceBusy ?? bounceNotice ?? autosaveNotice ?? notice;
   const updateAvailable = useUpdateCheck((s) => s.available);
   const updateRelease = useUpdateCheck((s) => s.release);
@@ -202,11 +204,16 @@ export function App() {
         </div>
       )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
-      {(fileNotice ?? captureRecovery) && (
+      {(fileNotice ?? captureRecovery ?? recorderRecovery) && (
         <div className="app-notice popup" role="status" style={{ maxWidth: 'min(680px, calc(100vw / var(--ui-scale, 1) - 32px))', width: 'max-content', overflowWrap: 'anywhere' }}>
-          {fileNotice ?? captureRecovery}
+          {fileNotice ?? captureRecovery ?? recorderRecovery}
           {!fileNotice && captureRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissCaptureRecovery} aria-label="Cerrar aviso de captura">
+              Entendido
+            </button>
+          )}
+          {!fileNotice && !captureRecovery && recorderRecovery && (
+            <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissRecorderRecovery} aria-label="Cerrar aviso de grabación">
               Entendido
             </button>
           )}

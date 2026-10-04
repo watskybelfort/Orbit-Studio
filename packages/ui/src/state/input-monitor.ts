@@ -91,6 +91,11 @@ let source: MediaStreamAudioSourceNode | null = null;
  * llamada espera a ESTA promesa en vez de abrir otro micro.
  */
 let starting: Promise<boolean> | null = null;
+let openRequest = 0;
+
+/** Identidad del stream/apertura que puede cederse al grabador. */
+export function inputMonitorGeneration(): number { return openRequest; }
+export function isInputMonitorOpening(): boolean { return starting !== null; }
 
 /** Lo llama el bucle de medidores del kernel. */
 export function setInputPeak(peak: number): void {
@@ -245,10 +250,12 @@ function knownChannels(deviceId: string): number | undefined {
  * el primer arranque con una interfaz de verdad se queden seis entradas fuera
  * sin que nada lo explique.
  */
-async function openStream(deviceId: string): Promise<{ media: MediaStream; channels: number }> {
+async function openStream(deviceId: string, isCurrent: () => boolean): Promise<{ media: MediaStream; channels: number }> {
   let media = await streamFactory(deviceId, knownChannels(deviceId));
   let channels = streamChannels(media);
+  if (!isCurrent()) return { media, channels };
   await refreshInputDevices();
+  if (!isCurrent()) return { media, channels };
   const max = knownChannels(streamDeviceId(media, deviceId));
   if (max !== undefined && max > channels) {
     media.getTracks().forEach((t) => t.stop());
@@ -354,6 +361,8 @@ function watchDeviceChanges(): void {
 
 /** Cierra el micro y lo desengancha del kernel. */
 export function stopInputMonitor(): void {
+  openRequest++;
+  starting = null;
   source?.disconnect();
   source = null;
   stream?.getTracks().forEach((t) => {
@@ -389,20 +398,25 @@ export function stopInputMonitor(): void {
 export async function startInputMonitor(): Promise<boolean> {
   if (stream) return true;
   if (starting) return starting;
-  starting = openInputMonitor();
+  const operation = openInputMonitor(++openRequest);
+  starting = operation;
   try {
-    return await starting;
+    return await operation;
   } finally {
-    starting = null;
+    if (starting === operation) starting = null;
   }
 }
 
-async function openInputMonitor(): Promise<boolean> {
+async function openInputMonitor(request: number): Promise<boolean> {
   try {
-    ensureAudioReady();
-    await engine.init();
+    await ensureAudioReady();
+    if (request !== openRequest) return false;
     const { deviceId } = useInputMonitorStore.getState();
-    const opened = await openStream(deviceId);
+    const opened = await openStream(deviceId, () => request === openRequest);
+    if (request !== openRequest) {
+      opened.media.getTracks().forEach((track) => track.stop());
+      return false;
+    }
     stream = opened.media;
     // Hot-unplug: si el hardware se va a mitad de una toma, la captura se
     // queda muda sin que nada lo explique (ver `handleStreamLost` arriba).
@@ -429,6 +443,7 @@ async function openInputMonitor(): Promise<boolean> {
     watchDeviceChanges();
     return true;
   } catch (err) {
+    if (request !== openRequest) return false;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
     source = null;

@@ -34,10 +34,12 @@ import {
 import { encodeWav, type InputCaptureChunk } from '@orbit/engine';
 import { create } from 'zustand';
 import { sha1Hex } from '../browser/sound-actions';
-import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store, togglePlay } from './app';
+import { currentBeat, engine, ensureAudioReady, play, stopPlayback, store } from './app';
 import {
   currentInputRoutes,
   currentInputStream,
+  inputMonitorGeneration,
+  isInputMonitorOpening,
   setInputStreamFactory,
   startInputMonitor,
   stopInputMonitor,
@@ -45,7 +47,7 @@ import {
 } from './input-monitor';
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
 import { compensateClipStart } from './input-latency';
-import { noteRecordingWritten, withPinnedSamples } from './sample-gc';
+import { collectWorkletSamples, noteRecordingWritten, withPinnedSamples } from './sample-gc';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -57,7 +59,8 @@ interface RecorderState {
   countInBars: number;
   /** Beats que faltan durante la cuenta (para el rótulo del botón: 4·3·2·1). */
   countdown: number;
-
+  /** Tomas no insertadas o guardados fallidos de una sesión anterior. */
+  recoveryNotice: string | null;
 }
 
 export const useRecorderStore = create<RecorderState>(() => ({
@@ -65,7 +68,12 @@ export const useRecorderStore = create<RecorderState>(() => ({
   error: null,
   countInBars: 1,
   countdown: 0,
+  recoveryNotice: null,
 }));
+
+export function dismissRecorderRecovery(): void {
+  useRecorderStore.setState({ recoveryNotice: null });
+}
 
 /** Cambia la cuenta atrás: 0 (sin cuenta) → 1 → 2 compases. */
 export function cycleCountIn(): void {
@@ -83,15 +91,32 @@ export function cycleCountIn(): void {
  * usa la cadena vacía, o sea el comportamiento de siempre.
  */
 const lastTakeTrackByRoute = new Map<string, Id>();
-/**
- * ¿El micro lo abrió esta grabación? Si ya estaba abierto es del monitor de
- * entrada: cerrarlo al guardar la toma dejaría al usuario sin oírse justo
- * después de cantar.
- */
-let ownsInput = false;
 /** Estamos recogiendo muestras del kernel. */
 let capturing = false;
-let startBeat = 0;
+
+interface RecordingSession {
+  epoch: number;
+  projectId: string;
+  title: string;
+  arrangementId: string;
+  tempo: number;
+  rate: number;
+  latency: number;
+  start: number;
+  /** El monitor ya abierto o pendiente se toma prestado: no se cierra. */
+  ownsInput: boolean;
+  inputGeneration: number;
+  cancelled: boolean;
+  metronome: boolean;
+  unsubscribe: () => void;
+  finishTail?: () => void;
+  stopping?: Promise<void>;
+}
+
+let session: RecordingSession | null = null;
+const sessionCurrent = (take: RecordingSession) => !take.cancelled &&
+  take.epoch === store.historyEpoch && take.projectId === store.project.id;
+const ownsRecorder = (take: RecordingSession) => session === take && sessionCurrent(take);
 
 /** Una toma en curso: los trozos que va soltando el kernel para UNA ruta. */
 interface TakeBuffer {
@@ -232,8 +257,9 @@ let starting = false;
  * reloj de audio), que es cuando quien llama tiene que abrir el micro.
  */
 
-async function waitCountIn(bars: number, beatsPerBar: number, target: number): Promise<number | null> {
+async function waitCountIn(bars: number, beatsPerBar: number, target: number, take: RecordingSession): Promise<number | null> {
   await engine.init();
+  if (!ownsRecorder(take)) return null;
   useUiStore.setState({ positionBeats: target });
   engine.seek(target);
   const beats = bars * beatsPerBar;
@@ -248,19 +274,19 @@ async function waitCountIn(bars: number, beatsPerBar: number, target: number): P
   const ctx = engine.audioContext;
   const t0 = ctx?.currentTime ?? 0;
   engine.countIn(beats, beatsPerBar, target);
-  const countSec = (beats * 60) / Math.max(1, store.project.tempo);
+  const countSec = (beats * 60) / Math.max(1, take.tempo);
   // Red de seguridad por si el audio no llegara a sonar (worklet caído,
   // contexto suspendido): sin esto la espera se queda con el micro abierto.
   const deadline = performance.now() + countSec * 1000 + 1500;
   /** ¿Hemos llegado a ver la cuenta viva? (antes del primer frame, no). */
   let sawCount = false;
-  while (!cancelCountIn) {
+  while (!cancelCountIn && ownsRecorder(take)) {
     const left = ctx ? t0 + countSec - ctx.currentTime : Infinity;
     if (left <= 0) break;
     if (useUiStore.getState().playing) break;
     if (performance.now() > deadline) {
       engine.cancelCountIn();
-      await play();
+      await play(() => ownsRecorder(take));
       break;
     }
     const beatsLeft = engine.lastMeters?.countInBeatsLeft ?? 0;
@@ -279,6 +305,7 @@ async function waitCountIn(bars: number, beatsPerBar: number, target: number): P
     await new Promise((r) => setTimeout(r, left > 0.05 ? 20 : 2));
   }
 
+  if (!ownsRecorder(take)) return null;
   useRecorderStore.setState({ countdown: 0 });
   if (cancelCountIn) {
     cancelCountIn = false;
@@ -295,7 +322,7 @@ async function waitCountIn(bars: number, beatsPerBar: number, target: number): P
  * antes con el metrónomo puesto y la toma empieza EXACTA en el beat donde
  * estaba el caret, que es donde el usuario quería empezar a cantar.
  */
-async function runCountIn(bars: number, target: number): Promise<number | null> {
+async function runCountIn(bars: number, target: number, take: RecordingSession): Promise<number | null> {
   const beatsPerBar = Math.max(1, store.project.timeSig.num);
   const from = Math.max(0, target - bars * beatsPerBar);
   const wasMetronome = useUiStore.getState().metronome;
@@ -308,7 +335,7 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
   // la app, o darle a Stop, deja el caret justo ahí. Sin sitio por delante, la
   // cuenta se hace con el transporte PARADO y el metrónomo puesto.
   if (target - from <= 1e-6) {
-    return waitCountIn(bars, beatsPerBar, target);
+    return waitCountIn(bars, beatsPerBar, target, take);
   }
 
   useUiStore.setState({ metronome: true, positionBeats: from });
@@ -316,9 +343,9 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
   engine.seek(from);
   useRecorderStore.setState({ phase: 'countin', countdown: bars * beatsPerBar, error: null });
 
-  await play();
+  await play(() => ownsRecorder(take));
 
-  while (!cancelCountIn) {
+  while (!cancelCountIn && ownsRecorder(take)) {
     // Si el transporte se para por otro lado (Space, Stop) durante la cuenta,
     // currentBeat() se congela y este bucle sondearía cada 25 ms para siempre,
     // dejando la fase en 'countin' con el micro abierto. Se aborta.
@@ -339,6 +366,7 @@ async function runCountIn(bars: number, target: number): Promise<number | null> 
     await new Promise((r) => setTimeout(r, 25));
   }
 
+  if (!ownsRecorder(take)) return null;
   if (!wasMetronome) {
     useUiStore.setState({ metronome: false });
     engine.setMetronome(false);
@@ -373,17 +401,51 @@ async function startRecording(): Promise<void> {
     return;
   }
   starting = true;
+  const project = store.project;
+  const take: RecordingSession = {
+    epoch: store.historyEpoch, projectId: project.id, title: project.meta.title,
+    arrangementId: project.activeArrangementId, tempo: project.tempo,
+    rate: engine.sampleRate, latency: getLatencyCompensationSamples(), start: 0,
+    ownsInput: false, inputGeneration: -1, cancelled: false,
+    metronome: useUiStore.getState().metronome, unsubscribe: () => undefined,
+  };
+  session = take;
+  const unsubscribe = store.subscribeBeforeReplace(() => {
+    take.cancelled = true;
+    take.unsubscribe();
+    if (session !== take) return;
+    if (useRecorderStore.getState().phase === 'countin') {
+      cancelCountIn = true;
+      engine.cancelCountIn();
+      stopPlayback();
+      useUiStore.setState({ metronome: take.metronome });
+      engine.setMetronome(take.metronome);
+    }
+    // Cortar AHORA evita que los120ms de cola o el kernel de B entren en A.
+    if (capturing || take.stopping) void stopRecording(take, true);
+    else releaseInput(take);
+    session = null;
+    starting = false;
+    lastTakeTrackByRoute.clear();
+    useRecorderStore.setState({ phase: 'idle', countdown: 0, error: null });
+  });
+  take.unsubscribe = () => { unsubscribe(); take.unsubscribe = () => undefined; };
   try {
-    ensureAudioReady();
-    await engine.init();
+    await ensureAudioReady();
+    if (!ownsRecorder(take)) return;
     // Si el monitor ya tiene el micro abierto, se graba de ESE: abrir un
     // segundo getUserMedia sobre el mismo aparato es pedirle al sistema dos
     // capturas del mismo micro, y en Windows eso va de resamplear por su
     // cuenta a directamente fallar.
-    ownsInput = currentInputStream() === null;
-    if (ownsInput && !(await startInputMonitor())) {
-      throw new Error(useInputMonitorStore.getState().error ?? 'No se pudo abrir el micro');
+    take.ownsInput = currentInputStream() === null && !isInputMonitorOpening();
+    if (currentInputStream() === null) {
+      const opening = startInputMonitor();
+      take.inputGeneration = inputMonitorGeneration();
+      const opened = await opening;
+      if (!ownsRecorder(take)) return;
+      if (!opened) throw new Error(useInputMonitorStore.getState().error ?? 'No se pudo abrir el micro');
     }
+    take.rate = engine.sampleRate;
     /*
      * Qué se graba: las entradas ARMADAS del proyecto, resueltas contra el
      * aparato que acaba de abrirse. Sin enrutado declarado sale una sola —la
@@ -404,36 +466,50 @@ async function startRecording(): Promise<void> {
     primaryRoute = takes[0]!.index;
     // Rodando, la posición buena es la extrapolada: la del store viene del
     // último frame de medidores y puede ir hasta 46 ms por detrás.
-    startBeat = useUiStore.getState().playing
+    const startBeat = useUiStore.getState().playing
       ? currentBeat()
       : useUiStore.getState().positionBeats;
+    take.start = startBeat;
 
     const bars = useRecorderStore.getState().countInBars;
     if (bars > 0 && !useUiStore.getState().playing) {
-      const at = await runCountIn(bars, startBeat);
+      const at = await runCountIn(bars, startBeat, take);
+      if (!ownsRecorder(take)) return;
       if (at === null) {
-        releaseInput();
+        releaseInput(take);
+        take.unsubscribe();
+        session = null;
+        starting = false;
         return;
       }
       // Dónde entra la toma lo dice la cuenta atrás, no `currentBeat()`: ese
       // sale del último frame de medidores y puede ir por detrás del seek, que
       // colocaría el clip en el beat equivocado.
-      startBeat = at;
+      take.start = at;
       beginCapture();
       return;
     }
 
     beginCapture();
     // Con el transporte parado, arranca para grabar encima del beat.
-    if (!useUiStore.getState().playing) void togglePlay();
+    if (!useUiStore.getState().playing) await play(() => ownsRecorder(take));
   } catch (err) {
-    releaseInput();
-    useRecorderStore.setState({
-      phase: 'idle',
-      error: err instanceof Error ? err.message : 'No se pudo abrir el micro',
-    });
+    if (ownsRecorder(take)) {
+      if (useRecorderStore.getState().phase === 'countin') {
+        useUiStore.setState({ metronome: take.metronome });
+        engine.setMetronome(take.metronome);
+      }
+      releaseInput(take);
+      take.unsubscribe();
+      session = null;
+      starting = false;
+      useRecorderStore.setState({
+        phase: 'idle',
+        error: err instanceof Error ? err.message : 'No se pudo abrir el micro',
+      });
+    }
   } finally {
-    starting = false;
+    if (session === take) starting = false;
   }
 }
 
@@ -449,12 +525,13 @@ function beginCapture(): void {
 }
 
 /** Deja de capturar y cierra el micro SI era nuestro. */
-function releaseInput(): void {
+function releaseInput(take: RecordingSession): void {
+  if (session !== take) return;
   capturing = false;
   takes = [];
   engine.setInputCapture(false);
-  if (ownsInput) stopInputMonitor();
-  ownsInput = false;
+  if (take.ownsInput && take.inputGeneration === inputMonitorGeneration()) stopInputMonitor();
+  take.ownsInput = false;
 }
 
 /**
@@ -477,8 +554,8 @@ function placeTake(
   lengthBeats: number,
   claimed: Set<Id>,
   commands: Command[],
+  arrangementId = project.activeArrangementId,
 ): Id {
-  const arrangementId = project.activeArrangementId;
   const clips = Object.values(project.clips);
   const overlaps = (c: Clip) =>
     c.start < placedStart + lengthBeats && c.start + c.length > placedStart;
@@ -532,177 +609,206 @@ function placeTake(
   return track.id;
 }
 
-async function stopRecording(): Promise<void> {
-  if (!capturing) return;
-  useRecorderStore.setState({ phase: 'saving' });
+interface RecordedTake { take: TakeBuffer; left: Float32Array; right: Float32Array }
 
-  /*
-   * El kernel acumula la entrada y la entrega en el SIGUIENTE frame de
-   * medidores (~43 ms). Cortar la captura aquí mismo tiraría ese último trozo:
-   * el final de cada toma se perdería. Se le da un par de frames de margen —
-   * lo que entra de más es cola de sala, que no molesta a nadie.
-   */
-  await new Promise((r) => setTimeout(r, 120));
-  capturing = false;
-  engine.setInputCapture(false);
+function stopRecording(take: RecordingSession | null = session, immediate = false): Promise<void> {
+  if (!take) return Promise.resolve();
+  if (take.stopping) {
+    if (immediate) take.finishTail?.();
+    return take.stopping;
+  }
+  if (!capturing || session !== take) return Promise.resolve();
+  if (ownsRecorder(take)) useRecorderStore.setState({ phase: 'saving' });
 
-  const sampleRate = engine.sampleRate;
-  const recorded = takes.map((take) => ({
-    take,
-    left: concatChunks(take.left, take.total),
-    right: concatChunks(take.right, take.total),
-  })).filter((t) => t.left.length > 0);
-  takes = [];
-  if (ownsInput) stopInputMonitor();
-  ownsInput = false;
-
-  /**
-   * Las tomas de esta vuelta, sujetas desde que suben al motor hasta DESPUÉS
-   * del dispatch — y TODAS a la vez, no la que se está guardando.
-   *
-   * El bucle de abajo sube cada toma al kernel y acumula sus comandos, pero no
-   * despacha hasta el final: entre el `loadSample` de la primera y ese dispatch
-   * no hay NADA que nombre su id —ni el proyecto, ni un clip, ni un canal—, así
-   * que `sampleKeepSet` no la incluye y un `collectSessionSamples()` que caiga
-   * ahí le dice al motor que la suelte. Y la ventana es larga de verdad: por
-   * cada toma que queda hay un `recording.save` (escritura de un WAV de varios
-   * megas al disco) y un `sha1Hex` de ese mismo WAV. Con dos micros armados son
-   * cientos de milisegundos en los que el audio RECIÉN CANTADO por el usuario
-   * no lo sujeta nadie, y el Ctrl+Z de `useShortcuts` recolecta sin preguntar.
-   *
-   * **Por qué se sostienen todas hasta el dispatch final y no se despacha por
-   * toma.** Despachar por toma acortaría cada sujeción, pero no la quitaría —la
-   * toma en curso seguiría teniendo su propia ventana entre subir y registrar—,
-   * así que no ahorra este código: solo lo cobra en otro sitio. Y lo que cobra
-   * es caro y no es de implementación:
-   *
-   *  - **Cambia el historial.** Hoy una vuelta de grabación es UN paso de undo
-   *    a propósito (ver el comentario del dispatch): las tomas de dos micros se
-   *    grabaron juntas y deshacerlas de una en una deja media grabación puesta
-   *    —una voz sin su guitarra— sin que la playlist diga cuál falta.
-   *  - **Cambia dónde caen las tomas.** `placeTake` decide contra `project`,
-   *    leído UNA vez antes del bucle, y lleva estado entre tomas (`claimed`,
-   *    `lastTakeTrackByRoute`, los `addPlaylistTrack` que empuja al mismo
-   *    array). Despachar a mitad haría que la toma 2 viera el clip de la toma 1
-   *    como un clip ya existente de esa pista, o sea como una toma ANTERIOR: se
-   *    la mutearía y se la mandaría un carril abajo. Es un cambio de
-   *    comportamiento, no un reordenado.
-   *  - **Rompe el todo-o-nada.** El `batch` de core hace rollback entero; en
-   *    trozos, un fallo a mitad deja registradas unas tomas y otras no.
-   *
-   * El coste de sostenerlas todas es una lista con N ids durante esos
-   * milisegundos: el pin no retiene audio, solo impide soltarlo.
-   *
-   * La sujeción es `withPinnedSamples`, que los ata a todos desde antes del
-   * primer `recording.save` y los suelta en su `finally` — también si el
-   * guardado revienta con dos tomas ya subidas, que un pin que se queda puesto
-   * es la misma fuga del otro lado. Los ids se generan ANTES del bucle para
-   * poder sujetarlos de una vez; generarlos dentro era lo que obligaba a
-   * acumular y soltar a mano.
-   */
-  const takeIds = recorded.map(() => newId());
-
-  await withPinnedSamples(takeIds, async () => {
-    try {
-      const api = window.orbit;
-      if (!api) throw new Error('Sin puente de escritorio');
-      if (recorded.length === 0) throw new Error('La toma salió vacía');
-
-      const project = store.project;
-      // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
-      // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
-      // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
-      // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
-      // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
-      // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
-      //
-      // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
-      // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
-      // por separado sería inventarse diferencias que no existen.
-      const placedStart = compensateClipStart(
-        startBeat,
-        getLatencyCompensationSamples(),
-        sampleRate,
-        project.tempo,
-      );
-
-      const stamp = new Date();
-      const two = (n: number) => String(n).padStart(2, '0');
-      const clock = `${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
-
-      const commands: Command[] = [];
-      const claimed = new Set<Id>();
-      const names: string[] = [];
-
-      for (const [i, { take, left, right }] of recorded.entries()) {
-        // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
-        const wav = encodeWav(left, right, sampleRate, 24);
-        const duration = left.length / sampleRate;
-        const lengthBeats = Math.max(0.25, (duration * project.tempo) / 60);
-        const wavBuf = wav.buffer.slice(
-          wav.byteOffset,
-          wav.byteOffset + wav.byteLength,
-        ) as ArrayBuffer;
-
-        // Nombre por CONTENIDO (mismo criterio que `editFileName` del editor).
-        // El reloj solo era único dentro de la MISMA vuelta: dos grabaciones a
-        // la misma hora —o la otra ventana escribiendo— compartían nombre y
-        // `recording:save` pisa, así que la toma nueva se llevaba por delante
-        // la de antes con su audio ya irrepetible. La entrada sigue en el
-        // nombre para leerse, pero la unicidad la pone el sha1.
-        const sampleId = takeIds[i]!;
-        const hash = (await sha1Hex(wavBuf)) ?? sampleId;
-        const human = recorded.length > 1 ? `Toma ${clock} ${take.route.name}` : `Toma ${clock}`;
-        const file = await api.recording.save(`${human} ${hash}.wav`, wav);
-        // El alta del ARCHIVO nombra su baja aquí mismo, pegada al save y no al
-        // dispatch: un fallo a mitad de la vuelta deja ese `.wav` en disco sin
-        // que nada lo nombre, y es justo el que hay que poder reclamar.
-        noteRecordingWritten({ sampleId, path: `recording:${file}`, bytes: wav.byteLength });
-
-        await engine.loadSample(sampleId, wavBuf);
-
-        const sample: SampleRef = {
-          id: sampleId,
-          // El NOMBRE es el humano, no el del archivo: el auto-mapa de notas
-          // lee los nombres y un hash hexadecimal es puro falso positivo.
-          name: human,
-          path: `recording:${file}`,
-          hash,
-          duration,
-        };
-        commands.push({ type: 'registerSample', sample });
-        names.push(sample.name);
-
-        const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands);
-        const lane = take.lane ?? 0;
-        const clip: Clip = {
-          id: newId(),
-          kind: 'audio',
-          playlistTrackId: trackId,
-          start: placedStart,
-          length: lengthBeats,
-          muted: false,
-          sampleId,
-          audioOffset: 0,
-          audioGain: 1,
-          ...(lane > 0 ? { lane } : null),
-        };
-        commands.push({ type: 'addClips', clips: [clip] });
-      }
-
-      // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y
-      // deshacerlas de una en una dejaría media grabación puesta.
-      const label =
-        names.length === 1 ? `Grabar "${names[0]}"` : `Grabar ${names.length} entradas`;
-      store.dispatch({ type: 'batch', label, commands }, { label });
-      useRecorderStore.setState({ phase: 'idle', error: null });
-    } catch (err) {
-      useRecorderStore.setState({
-        phase: 'idle',
-        error: err instanceof Error ? err.message : 'No se pudo guardar la toma',
-      });
-    }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let separated = false;
+  const recorded = new Promise<RecordedTake[]>((resolve) => {
+    take.finishTail = () => {
+      if (separated) return;
+      separated = true;
+      clearTimeout(timer);
+      const audio = takes.map((buffer) => ({
+        take: buffer, left: concatChunks(buffer.left, buffer.total), right: concatChunks(buffer.right, buffer.total),
+      })).filter((item) => item.left.length > 0);
+      releaseInput(take);
+      resolve(audio);
+    };
   });
+  take.stopping = (async () => {
+    try {
+      await saveRecordedTakes(take, await recorded);
+    } finally {
+      take.unsubscribe();
+      if (ownsRecorder(take)) useRecorderStore.setState({ phase: 'idle' });
+      if (session === take) session = null;
+    }
+  })();
+  // Al parar normalmente se conserva la cola de los medidores (~43ms/frame).
+  // Reemplazar proyecto corta antes: esa cola ya pertenecería a otra sesión.
+  if (immediate) take.finishTail!();
+  else timer = setTimeout(take.finishTail!, 120);
+  return take.stopping;
+}
+
+async function saveRecordedTakes(context: RecordingSession, recorded: RecordedTake[]): Promise<void> {
+  const sampleRate = context.rate;
+
+  /** Todas las tomas permanecen sujetas hasta el único batch: mientras se
+   * guarda/decodifica la segunda, la primera aún no tiene referencias en el
+   * proyecto. Así Ctrl+Z no recolecta audio recién grabado. Se insertan juntas
+   * para conservar un solo undo y decidir el comping sobre el mismo proyecto;
+   * un fallo conserva los WAV completos sin dejar una grabación a medias.
+   * withPinnedSamples libera también al cancelar o fallar. */
+  const takeIds = recorded.map(() => newId());
+  const written: { file: string; bytes: number; sample: SampleRef; take: TakeBuffer }[] = [];
+  const failed: string[] = [];
+  const unsaved: string[] = [];
+  let operationError: string | null = null;
+  let uploaded = false;
+  let inserted = false;
+  const report = (reason: string) => {
+    useRecorderStore.setState({ recoveryNotice: [
+      `Grabación de «${context.title}»: ${reason}.`,
+      ...(written.length ? [
+        `WAV conservados: ${written.map((item) => `«${item.file}»`).join(', ')}.`,
+        'La ruta de datos está en Ayuda → Acerca de. En esa ruta, abre recordings; puedes arrastrar los WAV al proyecto.',
+      ] : []),
+      ...(unsaved.length ? [`No se confirmó ningún WAV recuperable para: ${unsaved.join(', ')}.`] : []),
+      ...failed,
+    ].join(' ') });
+  };
+  try {
+    await withPinnedSamples(takeIds, async () => {
+      try {
+        const api = window.orbit;
+        if (!api) throw new Error('Sin puente de escritorio');
+        if (recorded.length === 0) throw new Error('La toma salió vacía');
+
+        // El clip nace corrido hacia atrás lo que tarda el bucle salida→entrada
+        // de ESTE aparato (calibrado en `latency-calibration.ts`): sin esto, cada
+        // toma cae unos milisegundos tarde respecto de lo que el usuario oyó
+        // cantar, y hoy eso se corregía a ojo arrastrando el clip en la playlist.
+        // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
+        // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
+        //
+        // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
+        // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
+        // por separado sería inventarse diferencias que no existen.
+        const placedStart = compensateClipStart(
+          context.start,
+          context.latency,
+          sampleRate,
+          context.tempo,
+        );
+
+        const stamp = new Date();
+        const two = (n: number) => String(n).padStart(2, '0');
+        const clock = `${two(stamp.getHours())}.${two(stamp.getMinutes())}.${two(stamp.getSeconds())}`;
+
+        for (const [i, { take, left, right }] of recorded.entries()) {
+          const human = recorded.length > 1 ? `Toma ${clock} ${take.route.name}` : `Toma ${clock}`;
+          let file: string | null = null;
+          try {
+            // En crudo y directo a WAV de 24 bits: ningún códec de por medio.
+            const wav = encodeWav(left, right, sampleRate, 24);
+            const duration = left.length / sampleRate;
+            const wavBuf = wav.buffer.slice(
+              wav.byteOffset,
+              wav.byteOffset + wav.byteLength,
+            ) as ArrayBuffer;
+
+            // Nombre por CONTENIDO (mismo criterio que `editFileName` del editor).
+            // El reloj solo era único dentro de la MISMA vuelta: dos grabaciones a
+            // la misma hora —o la otra ventana escribiendo— compartían nombre y
+            // `recording:save` pisa, así que la toma nueva se llevaba por delante
+            // la de antes con su audio ya irrepetible. La entrada sigue en el
+            // nombre para leerse, pero la unicidad la pone el sha1.
+            const sampleId = takeIds[i]!;
+            const hash = (await sha1Hex(wavBuf)) ?? sampleId;
+            // Aun tras abandonar A se conservan TODAS las entradas irrepetibles.
+            // Una escritura fallida tampoco impide intentar guardar las restantes.
+            file = await api.recording.save(`${human} ${hash}.wav`, wav);
+            const sample: SampleRef = {
+              id: sampleId,
+              // El NOMBRE es el humano, no el del archivo: el auto-mapa de notas
+              // lee los nombres y un hash hexadecimal es puro falso positivo.
+              name: human,
+              path: `recording:${file}`,
+              hash,
+              duration,
+            };
+            written.push({ file, sample, take, bytes: wav.byteLength });
+            if (sessionCurrent(context) && failed.length === 0) {
+              uploaded = true;
+              await engine.loadSample(sampleId, wavBuf);
+            }
+          } catch (err) {
+            if (!file) unsaved.push(human);
+            operationError = err instanceof Error ? err.message : 'No se pudo guardar o cargar la toma';
+            failed.push(`${human}: ${operationError}`);
+          }
+        }
+
+        if (!sessionCurrent(context)) {
+          report('no se insertó porque cambiaste de proyecto');
+          return;
+        }
+        const project = store.project;
+        if (!project.arrangements[context.arrangementId]) {
+          report('no se insertó porque el arreglo de origen ya no existe');
+          return;
+        }
+        if (failed.length) {
+          report('no se insertó la grabación completa');
+          if (ownsRecorder(context)) useRecorderStore.setState({ error: operationError });
+          return;
+        }
+
+        const commands: Command[] = [];
+        const claimed = new Set<Id>();
+        const names: string[] = [];
+        for (const { sample, take } of written) {
+          const sampleId = sample.id;
+          const lengthBeats = Math.max(0.25, (sample.duration * context.tempo) / 60);
+          commands.push({ type: 'registerSample', sample });
+          names.push(sample.name);
+
+          const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands, context.arrangementId);
+          const lane = take.lane ?? 0;
+          const clip: Clip = {
+            id: newId(),
+            kind: 'audio',
+            playlistTrackId: trackId,
+            start: placedStart,
+            length: lengthBeats,
+            muted: false,
+            sampleId,
+            audioOffset: 0,
+            audioGain: 1,
+            ...(lane > 0 ? { lane } : null),
+          };
+          commands.push({ type: 'addClips', clips: [clip] });
+        }
+
+        // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y
+        // deshacerlas de una en una dejaría media grabación puesta.
+        const label =
+          names.length === 1 ? `Grabar "${names[0]}"` : `Grabar ${names.length} entradas`;
+        store.dispatch({ type: 'batch', label, commands }, { label });
+        inserted = true;
+        // El ledger solo reclama tomas que sí pertenecieron a esta sesión. Los
+        // WAV conservados para recuperación quedan fuera del GC del proyecto B.
+        for (const { sample, bytes } of written) noteRecordingWritten({ sampleId: sample.id, path: sample.path, bytes });
+        if (ownsRecorder(context)) useRecorderStore.setState({ error: null });
+      } catch (err) {
+        const error = err instanceof Error ? err.message : 'No se pudo guardar la toma';
+        report(error);
+        if (ownsRecorder(context)) useRecorderStore.setState({ error });
+      }
+    });
+  } finally {
+    if (uploaded && !inserted) collectWorkletSamples(engine, store.project);
+  }
 }
 
 /**
@@ -727,8 +833,9 @@ export async function abortRecordingForLostDevice(reason: string): Promise<void>
     return;
   }
   if (!capturing) return;
+  const take = session;
   await stopRecording();
-  useRecorderStore.setState({ error: reason });
+  if (take && sessionCurrent(take) && session === null) useRecorderStore.setState({ error: reason });
 }
 
 // Gancho de QA solo-dev: inyectar una fuente sintética en vez del micro real.

@@ -224,8 +224,9 @@ export function setActivePattern(patternId: string): void {
 }
 
 /** Play desde el caret actual (0 tras stop; donde estaba tras pause/seek). */
-export async function play(): Promise<void> {
+export async function play(isCurrent: () => boolean = () => true): Promise<void> {
   await engine.init();
+  if (!isCurrent()) return;
   // Congelado a propósito (ver setEngineSyncFrozen): dar al play NO puede ser
   // la puerta trasera por la que se cuela lo que pediste no oír.
   if (!syncFrozen || !syncedOnce) pushSnapshot();
@@ -257,8 +258,8 @@ export async function togglePlay(): Promise<void> {
 }
 
 /** Primer gesto del usuario → despierta el AudioContext (política de autoplay). */
-export function ensureAudioReady(): void {
-  void engine.init().then(() => {
+export function ensureAudioReady(): Promise<void> {
+  return engine.init().then(() => {
     if (!syncFrozen || !syncedOnce) pushSnapshot();
   });
 }
