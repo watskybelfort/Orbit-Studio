@@ -844,15 +844,33 @@ export function applyCommand(project: Project, cmd: Command): Command {
       for (const t of tracks) delete project.playlistTracks[t.id];
       for (const s of sections) delete project.sections[s.id];
       delete project.arrangements[cmd.arrangementId];
-      project.arrangementOrder.splice(index, 1);
+      // Si el id no estaba en el orden (estado posible tras un merge: el pool tiene la
+      // entidad y el orden no), `splice(-1, 1)` expulsaba al ÚLTIMO arreglo, que no tiene
+      // nada que ver con este borrado (medido en la tarjeta 010: con base/other/hidden en
+      // el pool y solo [base, other] en el orden, borrar hidden dejaba [base] y `other`
+      // se caía del selector sin haberlo borrado). Aquí no se toca el orden, y el
+      // inverso devuelve el sitio solo si lo había.
+      if (index >= 0) project.arrangementOrder.splice(index, 1);
       if (project.activeArrangementId === cmd.arrangementId) {
-        project.activeArrangementId = project.arrangementOrder[0]!;
+        project.activeArrangementId = project.arrangementOrder[0] ?? project.activeArrangementId;
       }
-      return { type: 'restoreArrangement', arrangement, index, tracks, clips, sections, activeWas };
+      return {
+        type: 'restoreArrangement',
+        arrangement,
+        index,
+        tracks,
+        clips,
+        sections,
+        activeWas,
+      };
     }
     case 'restoreArrangement': {
       project.arrangements[cmd.arrangement.id] = cmd.arrangement;
-      project.arrangementOrder.splice(cmd.index, 0, cmd.arrangement.id);
+      // Mismo criterio que `restorePattern`: si el arrangement no estaba en el orden al
+      // borrarlo (el caso de la tarjeta 010), `index` es -1 y lo reengancha al final; si
+      // lo estaba, vuelve a SU sitio.
+      if (cmd.index >= 0) project.arrangementOrder.splice(cmd.index, 0, cmd.arrangement.id);
+      else project.arrangementOrder.push(cmd.arrangement.id);
       for (const t of cmd.tracks) project.playlistTracks[t.id] = t;
       for (const c of cmd.clips) project.clips[c.id] = c;
       for (const s of cmd.sections) project.sections[s.id] = s;
