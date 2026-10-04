@@ -147,18 +147,10 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
     const antes = serializeProject(p);
     const cmd = {
       type: 'patchClips',
-      batches: [[[[{ id: '__proto__', start: 9 }]]]],
+      patches: [[[[{ id: '__proto__', start: 9 }]]]],
     } as never;
     expect(() => applyCommand(p, cmd)).toThrow(/__proto__/);
     expect(serializeProject(p)).toBe(antes);
-  });
-
-  it('pasarse del presupuesto RECHAZA: nunca se deja de validar a medias', () => {
-    // El otro control: si el recorrido se rinde cuando es grande, lo que venga
-    // después es justo lo que nadie revisa. Uno enorme tiene que FALLAR.
-    const p = createEmptyProject();
-    const cmd = { type: 'addClips', clips: new Array(30_000).fill({ id: 'c', start: 0 }) } as never;
-    expect(() => applyCommand(p, cmd)).toThrow(/demasiado grande para validar/);
   });
 
   it('un id "__defineGetter__" (accesor heredado) también se rechaza', () => {
@@ -169,7 +161,33 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
     expect(protoOwn('start')).toBe(false);
   });
 
-  it('un id normal sigue funcionando y su inverso sigue siendo válido', () => {
+  it('un patrón con 20.000 notas se sigue validando entero (undo de un proyecto real)', () => {
+  // Límite que NO es política: la sonda de review encontró que un proyecto válido
+  // con 20.000 notas, al deshacer el borrado de un patrón, llegaba un `restorePattern`
+  // de ese tamaño y el recorrido lo rechazaba por presupuesto. El contador que
+  // queda es de ciclos, no de tamaño.
+  const p = createEmptyProject();
+  const notas = Array.from({ length: 20_000 }, (_, i) => ({
+    id: `n${i}`, start: (i % 64) * 0.25, duration: 0.25, key: 36, velocity: 0.8, pan: 0,
+  }));
+  const patternId = Object.keys(p.patterns)[0]!;
+  expect(() =>
+    applyCommand(p, { type: 'addNotes', patternId, channelId: 'c1', notes: notas } as never),
+  ).not.toThrow();
+});
+
+it('un ciclo se rechaza con su motivo, y el recorrido sigue entero', () => {
+  // Con objetos vivos del renderer (no hay JSON que no pueda traer ciclo), un
+  // comando que se referencia a sí mismo tiene que terminar, no comerse el hilo.
+  const p = createEmptyProject();
+  const canal: Record<string, unknown> = { id: 'c1', fx: [], grupo: null };
+  canal.grupo = canal;
+  expect(() => applyCommand(p, { type: 'addChannel', channel: canal } as never)).toThrow(
+    /referencia circular/,
+  );
+});
+
+it('un id normal sigue funcionando y su inverso sigue siendo válido', () => {
     const p = createEmptyProject();
     const pattern = createPattern(0);
     applyCommand(p, { type: 'addPattern', pattern });

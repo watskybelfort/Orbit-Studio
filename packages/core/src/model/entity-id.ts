@@ -92,22 +92,12 @@ export function adoptPool<T>(source: unknown): Record<string, T> {
  * prototipo. Un TÍTULO o un nombre que valgan `'__proto__'` sí se dejan: son
  * datos, no claves.
  *
- * El recorrido lleva tope de profundidad y de pasos porque el bus también lo
- * llama desde el renderer con objetos vivos: sin eso, un comando con una
- * referencia circular se comía el hilo. Es una red de seguridad, no una política.
+ * El bus recibe objetos vivos del renderer: detecta ciclos sin imponer un
+ * límite de notas que impida deshacer un patrón grande cargado desde disco.
  */
 export function assertNoReservedIds(command: unknown, what = 'comando'): void {
   walk(command, what);
 }
-
-/**
- * Presupuesto de nodos para UN comando. No es política de tamaño: es el tope del
- * recorrido, y pasarse RECHAZA en vez de dejar de mirar —un recorrido que se
- * rinde a mitad deja sin validar justo lo que vino detrás, que es la parte que
- * nadie revisa—. Ningún comando legítimo se acerca: son ediciones (batches de
- * clips o de notas), ninguno lleva un proyecto entero.
- */
-const MAX_NODOS = 20_000;
 
 function checkIdValue(value: unknown, what: string): void {
   if (typeof value === 'string') {
@@ -122,23 +112,28 @@ function checkIdValue(value: unknown, what: string): void {
 }
 
 /**
- * Recorrido ITERATIVO a propósito. Con recursión hacía falta un tope de
- * profundidad, y un tope de profundidad es justo un agujero: lo que iba más
- * hondo se quedaba sin mirar y pasaba. Con una pila explícita no hay tope —la
- * anidación ya la limita `JSON.parse` al entrar de la red— y lo único que puede
- * acabar el recorrido antes es el presupuesto, que falla con su nombre.
+ * Recorrido iterativo completo. Los ancestros detectan ciclos; `visited` evita
+ * revisar dos veces un objeto compartido entre ramas, que sí es legítimo.
+ * No se omite el fondo de batches ni se rechaza un inverso grande por tamaño.
  */
 function walk(root: unknown, what: string): void {
-  const pendientes: unknown[] = [root];
-  let nodos = 0;
+  const pendientes: { value: unknown; leaving: boolean }[] = [{ value: root, leaving: false }];
+  const ancestors = new WeakSet<object>();
+  const visited = new WeakSet<object>();
   while (pendientes.length > 0) {
-    const value = pendientes.pop();
+    const { value, leaving } = pendientes.pop()!;
     if (value === null || typeof value !== 'object') continue;
-    if (++nodos > MAX_NODOS) {
-      throw new Error(`Comando ${what} demasiado grande para validar (más de ${MAX_NODOS} nodos)`);
+    if (leaving) {
+      ancestors.delete(value);
+      visited.add(value);
+      continue;
     }
+    if (ancestors.has(value)) throw new Error(`Comando ${what} contiene una referencia circular`);
+    if (visited.has(value)) continue;
+    ancestors.add(value);
+    pendientes.push({ value, leaving: true });
     if (Array.isArray(value)) {
-      for (const item of value) pendientes.push(item);
+      for (const item of value) pendientes.push({ value: item, leaving: false });
       continue;
     }
     for (const [key, item] of Object.entries(value)) {
@@ -149,7 +144,7 @@ function walk(root: unknown, what: string): void {
       // prototipo.
       assertEntityId(key, `${what} (clave)`);
       if (ID_FIELD.test(key)) checkIdValue(item, what);
-      pendientes.push(item);
+      pendientes.push({ value: item, leaving: false });
     }
   }
 }
