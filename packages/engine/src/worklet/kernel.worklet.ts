@@ -5,10 +5,12 @@
 
 import { KernelCore } from '../kernel-core';
 import { KERNEL_NAME, METER_INTERVAL_BLOCKS, type ToKernel } from '../protocol';
+import { KernelLoadMeter } from './load-meter';
 
 class OrbitKernelProcessor extends AudioWorkletProcessor {
   private core = new KernelCore(sampleRate);
   private blocks = 0;
+  private loadMeter = new KernelLoadMeter(sampleRate);
 
   constructor() {
     super();
@@ -32,7 +34,9 @@ class OrbitKernelProcessor extends AudioWorkletProcessor {
     // `channelCount` con las entradas reales del aparato (ver `engine.ts`), y
     // quedarse aquí con los dos primeros canales tiraría los otros seis antes
     // de que nadie pudiera elegirlos.
+    const started = this.loadMeter.begin();
     this.core.process(l, r, l.length, inputs[0]);
+    this.loadMeter.end(started, l.length);
 
     if (++this.blocks >= METER_INTERVAL_BLOCKS) {
       this.blocks = 0;
@@ -43,7 +47,7 @@ class OrbitKernelProcessor extends AudioWorkletProcessor {
       // nada. Ocurre una vez cada METER_INTERVAL_BLOCKS (≈46 ms), no por
       // bloque, y es lo que hace visible el nivel en la interfaz.
       // eslint-disable-next-line orbit/no-audio-thread-alloc
-      this.port.postMessage({ type: 'meters', frame: this.core.meterFrame() });
+      this.port.postMessage({ type: 'meters', frame: this.core.meterFrame(this.loadMeter.load) });
     }
     return true;
   }
