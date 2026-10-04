@@ -401,4 +401,65 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     await sleep(300);
     expect(iguales(host.bytesDe(HASH_B), B)).toBe(true);
   });
+
+  it('el receptor comprueba el SHA-1 de verdad en la PRIMERA publicación', async () => {
+    // Sin servidor: un `.bin` manipulado o un cliente que publica B con el hash de
+    // A. La huella del receptor dice «son los mismos bytes que la primera vez», pero
+    // no dice que esa primera vez fingiera, así que el digest se comprueba en segundo
+    // plano y el hash pasa a sospechoso si no cuadra.
+    const doc = new Y.Doc();
+    const recibidos: SampleAsset[] = [];
+    const avisos: AssetRejection[] = [];
+    const binding = new SampleAssetBinding(doc, {
+      onAsset: (a) => recibidos.push(a),
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Los bytes NO son los de su hash: no se sirven y se avisa.
+    expect(binding.get(HASH_A)).toBeNull();
+    expect(avisos.map((a) => a.reason)).toContain('invalid');
+    expect(recibidos).toHaveLength(1);
+    binding.destroy();
+    doc.destroy();
+
+    // Y un sample bien publicado con SU hash se sirve como siempre.
+    const doc2 = new Y.Doc();
+    const binding2 = new SampleAssetBinding(doc2);
+    binding2.start();
+    doc2.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo'));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(iguales(binding2.get(HASH_B), B)).toBe(true);
+    binding2.destroy();
+    doc2.destroy();
+  });
+
+  it('el tope de la SALA se comprueba antes de la huella y del contador', () => {
+    const doc = new Y.Doc();
+    const avisos: AssetRejection[] = [];
+    // 10 bytes de presupuesto para la sala: entra uno de 8 y el de 4 ya no cabe.
+    const binding = new SampleAssetBinding(doc, {
+      maxAssetBytes: 8,
+      maxRoomBytes: 10,
+      onRejected: (r) => avisos.push(r),
+    });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+    mapa.set('h1', asset('h1', 'a.wav', new Uint8Array(8), 'yo'));
+    expect(binding.get('h1')).not.toBeNull();
+
+    mapa.set('h2', asset('h2', 'b.wav', new Uint8Array(4), 'yo'));
+    // No se sirve, no se anuncia, y el aviso es el de la sala llena.
+    expect(binding.get('h2')).toBeNull();
+    expect(avisos.map((a) => a.reason)).toContain('room-full');
+    // Y no se recuerda su identidad: lo que no entra, no ocupa (ni 40 bytes).
+    const identidades = (b: unknown): number =>
+      (b as { identity: Map<string, string> }).identity.size;
+    expect(identidades(binding)).toBe(1);
+    binding.destroy();
+    doc.destroy();
+  });
 });

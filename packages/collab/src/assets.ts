@@ -132,6 +132,10 @@ export class SampleAssetBinding {
   private readonly malformed = new Set<string>();
   /** Hashes a los que se les intentó cambiar los bytes (para avisar una vez). */
   private readonly substituted = new Set<string>();
+  /** Hashes cuyo contenido no corresponde a la clave (para avisar una vez). */
+  private readonly hashFalso = new Set<string>();
+  /** Hashes que no caben ya en el presupuesto de la sala (para avisar una vez). */
+  private readonly overflow = new Set<string>();
   /**
  * Bytes con los que se aceptó cada hash la PRIMERA vez: una HUELLA, no el audio.
  *
@@ -147,8 +151,12 @@ export class SampleAssetBinding {
  * colarse (BUG 055).
  */
 private readonly identity = new Map<string, string>();
-  /** Hashes cuyos bytes del mapa no son los de su huella: no se sirven. */
-  private readonly sospechosos = new Set<string>();
+  /**
+   * Hashes que NO se sirven, por lo que sea: los que llegaron con bytes distintos de
+   * los de su huella, los que no corresponden a su hash, y los que ya no caben en el
+   * presupuesto de la sala. Los motivos se recuerdan aparte, para avisar una vez.
+   */
+  private readonly noServibles = new Set<string>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -184,7 +192,7 @@ private readonly identity = new Map<string, string>();
     // Las huellas también se van: no hacen falta sin estar escuchando, y no tiene
     // sentido acumular la identidad de todo lo que se oyó en una sesión cerrada.
     this.identity.clear();
-    this.sospechosos.clear();
+    this.noServibles.clear();
     this.started = false;
   }
 
@@ -207,7 +215,7 @@ private readonly identity = new Map<string, string>();
     // sirven: el hash es la identidad y el servidor va a devolver el original
     // (BUG 055). Antes se guardaba una copia congelada de los bytes; ahora se
     // guarda solo la huella, así que aquí lo sano es no servir antes de que llegue.
-    if (this.sospechosos.has(hash)) return null;
+    if (this.noServibles.has(hash)) return null;
     return asset.bytes;
   }
 
@@ -352,6 +360,29 @@ private readonly identity = new Map<string, string>();
         }
         continue;
       }
+      // El tope de la SALA también se comprueba en el receptor, y ANTES de la huella:
+      // si el conjunto ya no cabe en el presupuesto, este sample no se cuenta, no se
+      // recuerda y no se anuncia. Antes solo se miraba el tope por sample, así que
+      // entre todos los clientes podía colarse un conjunto por encima del presupuesto
+      // que sostiene la arquitectura (y el contador de la sala llegaba a mentir).
+      if (!this.sizes.has(hash) && this.totalBytes + size > this.maxRoomBytes) {
+        // Fuera de servicio mientras la sala siga llena: si luego se borra algo y
+        // vuelve a caber, la comprobación de arriba la deja pasar sola.
+        this.noServibles.add(hash);
+        if (!this.overflow.has(hash)) {
+          this.overflow.add(hash);
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'room-full',
+            message:
+              `«${asset.name}» llega con ${mb(size)} y la sala ya lleva ${mb(this.totalBytes)} ` +
+              `(tope ${mb(this.maxRoomBytes)}). Se ignora: no sonará en esta máquina.`,
+          });
+        }
+        continue;
+      }
       // LA IDENTIDAD, después de los topes: solo se recuerda lo que se acepta, y se
       // recuerda como HUELLA (unos bytes por hash), no como una copia del audio. El
       // hash es la identidad del contenido, así que si más tarde llegan otros bytes
@@ -366,9 +397,16 @@ private readonly identity = new Map<string, string>();
       const previa = this.identity.get(hash);
       if (previa === undefined) {
         this.identity.set(hash, huella);
-        this.sospechosos.delete(hash);
+        this.noServibles.delete(hash);
+        // Y la CORRESPONDENCIA de verdad, en segundo plano: la huella dice "son los
+        // mismos bytes que la primera vez", pero no dice que esa primera vez
+        // fingiera. El servidor ya lo comprueba (sha1 de los bytes contra la clave),
+        // y aquí se repite para que una publicación con el hash mentido no llegue
+        // ni a anunciarse como audio de fiar en un cliente con el servidor fuera de
+        // juego (un `.bin` manipulado, un cliente modificado).
+        this.verificarSha1(hash, asset.bytes, asset.name, size);
       } else if (previa !== huella) {
-        this.sospechosos.add(hash);
+        this.noServibles.add(hash);
         if (!this.substituted.has(hash)) {
           this.substituted.add(hash);
           console.warn(
@@ -387,7 +425,7 @@ private readonly identity = new Map<string, string>();
         }
         continue;
       } else {
-        this.sospechosos.delete(hash);
+        this.noServibles.delete(hash);
       }
       if (!this.sizes.has(hash)) {
         this.sizes.set(hash, size);
@@ -420,6 +458,61 @@ private readonly identity = new Map<string, string>();
   ): void {
     this.onRejected?.({ hash, name, size, reason, message });
   }
+
+  /**
+   * ¿Son estos bytes los que el hash dice? El SHA-1 de verdad, con `crypto.subtle`
+   * (Chromium y Node lo tienen), pero en SEGUNDO PLANO.
+   *
+   * En segundo plano porque la llegada de un sample no puede esperar a un digest
+   * de 16 MB en el hilo principal, y porque el camino síncrono ya está cubierto por
+   * la huella: aquí lo que se añade es el otro lado del contrato, que es que la
+   * huella misma sea de un archivo que existe. Si el digest no cuadra, el hash pasa
+   * a sospechoso —entonces `get()` deja de servirlo— y se avisa una vez.
+   *
+   * Sin WebCrypto (o con una clave heredada que no es un sha1) no se hace nada: la
+   * huella sigue siendo el veredicto, y es el servidor el que exige la
+   * correspondencia en ese caso.
+   */
+  private verificarSha1(
+    hash: string,
+    bytes: Uint8Array,
+    name: string,
+    size: number,
+  ): void {
+    const sutil = globalThis.crypto?.subtle;
+    if (sutil === undefined || !/^[0-9a-f]{40}$/i.test(hash)) return;
+    // La copia que se hashea: `bytes` puede ser una vista del buffer del doc, y
+    // `digest` necesita un ArrayBuffer propio.
+    const copia = bytes.slice();
+    void sutil
+      .digest('SHA-1', copia)
+      .then((buf) => {
+        if (hex(new Uint8Array(buf)) === hash.toLowerCase()) return;
+        this.noServibles.add(hash);
+        if (this.hashFalso.has(hash)) return;
+        this.hashFalso.add(hash);
+        console.warn(
+          `[collab] el asset ${hash.slice(0, 12)} no corresponde a su hash; no se sirve.`,
+        );
+        this.onRejected?.({
+          hash,
+          name,
+          size,
+          reason: 'invalid',
+          message:
+            `«${name}» llega con bytes que no son los de su hash, así que no son su audio. ` +
+            'Se ignora: la identidad de un sample es su contenido.',
+        });
+      })
+      .catch(() => undefined);
+  }
+}
+
+/** Bytes en hexadecimal en minúsculas, como los sha1 que se comparan. */
+function hex(bytes: Uint8Array): string {
+  let out = '';
+  for (const byte of bytes) out += byte.toString(16).padStart(2, '0');
+  return out;
 }
 /**
  * Huella de un contenido: 64 bits en 16 caracteres hex.
