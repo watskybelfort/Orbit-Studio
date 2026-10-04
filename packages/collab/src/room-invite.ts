@@ -166,6 +166,13 @@ export function pruneInvites(
 
 export interface ConsumeResult {
   ok: boolean;
+  /**
+   * Id de la invitación que se consumió, si entró. Es una CREDENCIAL: quien la
+   * presenta es el mismo autor, y por eso el servidor usa este id —no el socket, que
+   * es efímero— para atribuir lo que crea y poder juzgar después si un borrado suyo
+   * con `own` es legítimo (BUG 011).
+   */
+  inviteId?: string;
   /** Por qué no, para poder decirlo con precisión al cerrar la conexión. */
   reason?: 'unknown' | 'expired' | 'spent';
   /** La lista como queda (con el uso descontado, o sin la que ya no vale). */
@@ -203,7 +210,7 @@ export async function consumeInvite(
   const next = live
     .map((r) => (r.id === found.id ? { ...r, uses: r.uses - 1 } : r))
     .filter((r) => r.uses > 0);
-  return { ok: true, next };
+  return { ok: true, inviteId: found.id, next };
 }
 
 // ── Lo que llega de disco ────────────────────────────────────────────────────
