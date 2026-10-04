@@ -69,6 +69,35 @@ describe('006 · cambiar a una rama solo si el ancla se alcanza de verdad', () =
     const archivada = s.historyTree().branches[0]!;
     expect(archivada.size).toBe(1);
   });
+  it('su sonda: rechazo SIN mutar nada (proyecto, historial y versión intactos)', () => {
+    // Outro caso reproduced con el código real: local pone el tempo (ancla), el swing,
+    // deshace, sigue por el 6/8 (que archiva el swing) y CLAUDE vuelve a poner el tempo
+    // (160). El ancla ya no es la misma entrada y el salto no tiene pasos de este
+    // origen, así que no hay a dónde ir.
+    const s = new ProjectStore();
+    s.dispatch({ type: 'setTempo', tempo: 100 }, { origin: 'local' });
+    s.dispatch({ type: 'setSwing', swing: 0.3 }, { origin: 'local' });
+    s.undo('local');
+    s.dispatch({ type: 'setTimeSig', timeSig: { num: 6, den: 8 } }, { origin: 'local' });
+    const rama = primeraRama(s)!;
+    s.dispatch({ type: 'setTempo', tempo: 160 }, { origin: CLAUDE });
+
+    // Estado completo antes del intento: proyecto, historial y versión.
+    const proyectoAntes = JSON.stringify(s.project);
+    const historiaAntes = s.historyView();
+    const versionAntes = s.version;
+
+    expect(s.switchToBranch(rama)).toBe(0);
+
+    // Un rechazo es «no ha pasado nada»: ni el proyecto, ni el historial, ni la versión.
+    expect(JSON.stringify(s.project)).toBe(proyectoAntes);
+    expect(s.project.timeSig).toEqual({ num: 6, den: 8 });
+    expect(s.version).toBe(versionAntes);
+    expect(s.historyView()).toEqual(historiaAntes);
+    // Y la rama sigue ahí, sin consumir.
+    expect(s.branchCount).toBe(1);
+  });
+
   it('con el ancla en su sitio: la rama entra y el camino abandonado queda archiving', () => {
     const s = new ProjectStore();
     s.dispatch({ type: 'setTempo', tempo: 100 }, { origin: 'local' });
