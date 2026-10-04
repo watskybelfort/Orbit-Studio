@@ -18,6 +18,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
+import { createHash } from 'node:crypto';
 import * as Y from 'yjs';
 import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
@@ -29,9 +30,8 @@ import { startServer, type ServerHandle } from '../src/index';
 const ROOM = 'A5K9ZT';
 const SYNC = 0;
 const AWARENESS = 1;
-/** Hashes de A (220 Hz) y B (440 Hz): mismo tamaño y forma, distinto audio. */
-const HASH_A = 'ff53fd344654db4ffa7d36cc498e24193728c0d5';
-const HASH_B = 'd42df9e3a9b1650f7ba2bda1c6a7868d5aa0e012';
+/** El hash de un sample ES el sha1 de sus bytes: la identidad se comprueba de verdad. */
+const sha1 = (bytes: Uint8Array): string => createHash('sha1').update(bytes).digest('hex');
 
 let handle: ServerHandle | null = null;
 let dir: string | null = null;
@@ -78,6 +78,11 @@ function wav(hz: number): Uint8Array {
 
 const A = wav(220);
 const B = wav(440);
+/** A (220 Hz) y B (440 Hz): mismo tamaño y forma, distinto audio. */
+const HASH_A = sha1(A);
+const HASH_B = sha1(B);
+/** Una clave que NO es el sha1 de nada: como la que dejaba el cliente viejo. */
+const HASH_LEGADO = 'parte-1';
 
 function asset(hash: string, name: string, bytes: Uint8Array, by: string): SampleAsset {
   return { hash, name, size: bytes.byteLength, by, at: 1, bytes };
@@ -257,7 +262,7 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     expect(host.avisos).toHaveLength(0);
   });
 
-  it('el binding congela los bytes: un .bin manipulado no cambia el audio local', () => {
+  it('el receptor guarda la HUELLA, no una copia: no se sirve lo que no encaja', () => {
     // Sin el servidor en medio: el .bin ya guardado y tocado a mano.
     const doc = new Y.Doc();
     const recibidos: SampleAsset[] = [];
@@ -268,22 +273,132 @@ describe('055 · el hash es la identidad: los bytes publicados no se sustituyen'
     });
     binding.start();
 
-    // A llega primero: queda congelado con sus bytes.
+    // A llega primero y es lo que se sirve.
     doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', A, 'yo'));
     expect(recibidos).toHaveLength(1);
     expect(iguales(binding.get(HASH_A), A)).toBe(true);
 
     // El .bin manipulado trae otros bytes bajo el mismo hash.
     doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'alguien'));
-    // No se anuncia dos veces, se avisa una, y lo que se sirve sigue siendo A.
+    // No se anuncia dos veces, se avisa una, y NO se sirven bytes que no son los
+    // de su hash (el servidor va a devolver el original por su lado).
     expect(recibidos).toHaveLength(1);
     expect(avisos.map((a) => a.reason)).toEqual(['invalid']);
-    expect(iguales(binding.get(HASH_A), A)).toBe(true);
+    expect(binding.get(HASH_A)).toBeNull();
     // Y repetir la sustitución no vuelve a avisar (avisa una vez por hash).
     doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'otro'));
     expect(avisos).toHaveLength(1);
+    expect(binding.get(HASH_A)).toBeNull();
+
+    // Cuando el original vuelve (lo restituye el servidor), se sirve otra vez.
+    doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', A, 'servidor'));
+    expect(iguales(binding.get(HASH_A), A)).toBe(true);
 
     binding.destroy();
     doc.destroy();
+  });
+
+  it('el receptor NO retiene los bytes: ni de los rechazados ni de los borrados', () => {
+    const doc = new Y.Doc();
+    const binding = new SampleAssetBinding(doc, { maxAssetBytes: 4 });
+    binding.start();
+    const mapa = doc.getMap<SampleAsset>('assets');
+
+    // Un blob de 8 bytes con el tope en 4: se rechaza y NO se guarda nada suyo.
+    const grande = new Uint8Array(8);
+    mapa.set('h1', asset('h1', 'grande.wav', grande, 'yo'));
+    expect(binding.get('h1')).toBeNull();
+
+    // Añadir y borrar muchos no deja nada detrás: la huella son ~40 bytes, no el
+    // audio. Aquí se mira lo observable: el contador de la sala vuelve a cero.
+    // Mismo contenido cada vez (es el mismo archivo): añadir y borrar cinco veces
+    // no deja nada detrás. La huella son ~40 bytes por clave, no el audio.
+    for (let i = 0; i < 5; i++) {
+      mapa.set('h2', asset('h2', 'corto.wav', new Uint8Array([7]), 'yo'));
+      expect(binding.get('h2')).not.toBeNull();
+      doc.transact(() => mapa.delete('h2'));
+    }
+    expect(binding.hashes).not.toContain('h2');
+    expect(binding.get('h2')).toBeNull();
+
+    // Lo que se retiene de un asset aceptado es solo su identidad (~40 bytes), nunca
+    // el audio, y NADA de lo que se rechazó: `h1` (8 bytes con el tope en 4) no
+    // dejó ni huella. Eso se mide mirando lo que el binding retiene, que es
+    // justo lo que se quejó la revisión.
+    const identidades = (b: unknown): number =>
+      (b as { identity: Map<string, string> }).identity.size;
+    expect(identidades(binding)).toBe(1); // solo h2, el que sí se aceptó
+
+    // Y al soltar el observer (destroy) se sueltan también esas identidades.
+    binding.destroy();
+    expect(identidades(binding)).toBe(0);
+
+    binding.destroy();
+    doc.destroy();
+  });
+
+  it('borrar el sample y republicar OTRO audio bajo el mismo hash tampoco vale', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    host.assets.publish(A, { hash: HASH_A, name: 'a.wav', by: 'host' });
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_A), A)).toBe(true);
+
+    // El productor borra el sample: ya no hay original que devolver.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').delete(HASH_A));
+    await sleep(300);
+    expect(host.bytesDe(HASH_A)).toBeNull();
+
+    // Y ahora publica OTRO audio (B) bajo el MISMO hash de A.
+    host.assets.publish(B, { hash: HASH_A, name: 'a.wav', by: 'host' });
+    await sleep(400);
+
+    // No entra: el hash de A no es el sha1 de B. Ni el mapa ni el audio lo dan
+    // por bueno, y quien entre tarde tampoco lo oye.
+    expect(host.bytesDe(HASH_A)).toBeNull();
+    const tarde = new Peer(server.port, 'tarde');
+    await tarde.open();
+    await sleep(300);
+    expect(tarde.bytesDe(HASH_A)).toBeNull();
+    expect(tarde.recibidos.filter((a) => a.hash === HASH_A)).toEqual([]);
+  });
+
+  it('una clave que NO es sha1 se acepta, pero su contenido tampoco se cambia', async () => {
+    // Compatibilidad: el cliente viejo publicaba con el id de la parte cuando no
+    // habia WebCrypto. Esa sala tiene que seguir sonando.
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    expect(host.assets.publish(A, { hash: HASH_LEGADO, name: 'a.wav', by: 'host' })).toBe(
+      'published',
+    );
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_LEGADO), A)).toBe(true);
+
+    // Con la misma clave pero otro contenido: no hay sha1 que comparar, pero se
+    // recuerda la huella de lo aceptado.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_LEGADO, asset(HASH_LEGADO, 'a.wav', B, 'otro')));
+    await sleep(400);
+    expect(iguales(host.bytesDe(HASH_LEGADO), A)).toBe(true);
+  });
+
+  it('una PRIMERA publicacion con bytes que no son su hash se rechaza', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+
+    // B publicado con el hash de A: la correspondencia se comprueba en la primera
+    // publicacion tambien, no solo cuando algo ya estaba antes.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_A, asset(HASH_A, 'a.wav', B, 'yo')));
+    await sleep(400);
+    expect(host.bytesDe(HASH_A)).toBeNull();
+
+    // Y el que se publica bien, entra.
+    host.doc.transact(() => host.doc.getMap<SampleAsset>('assets').set(HASH_B, asset(HASH_B, 'b.wav', B, 'yo')));
+    await sleep(300);
+    expect(iguales(host.bytesDe(HASH_B), B)).toBe(true);
   });
 });

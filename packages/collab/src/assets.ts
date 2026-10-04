@@ -133,16 +133,22 @@ export class SampleAssetBinding {
   /** Hashes a los que se les intentó cambiar los bytes (para avisar una vez). */
   private readonly substituted = new Set<string>();
   /**
-   * Bytes con los que se aceptó cada hash la PRIMERA vez.
-   *
-   * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa
-   * más tarde, el audio que oye esta máquina no cambia por sorpresa. El servidor
-   * también lo restituye, pero un `.bin` manipulado o un cliente modificado
-   * pueden llegar al binding antes de que el servidor actúe: con los bytes
-   * congelados, el cliente existente y el que entra tarde resuelven el MISMO audio
-   * pase lo que pase en el mapa (BUG 055).
-   */
-  private readonly frozen = new Map<string, Uint8Array>();
+ * Bytes con los que se aceptó cada hash la PRIMERA vez: una HUELLA, no el audio.
+ *
+ * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa más
+ * tarde, el audio que oye esta máquina no cambia por sorpresa. El servidor también
+ * lo restituye (y con el SHA-1 real lo comprueba), pero un `.bin` manipulado o un
+ * cliente modificado pueden llegar al binding antes de que el servidor actúe.
+ *
+ * Se guarda la huella y no los bytes a propósito: una copia por sample duplicaba
+ * hasta 16 MB por entrada en memoria, incluso de los assets que luego se rechazan
+ * por los topes. Y la huella NO se borra cuando el asset desaparece del mapa: eso es
+ * lo que hace que borrar y volver a publicar el mismo hash con otro audio siga sin
+ * colarse (BUG 055).
+ */
+private readonly identity = new Map<string, string>();
+  /** Hashes cuyos bytes del mapa no son los de su huella: no se sirven. */
+  private readonly sospechosos = new Set<string>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -175,6 +181,10 @@ export class SampleAssetBinding {
       this.observer = null;
     }
     this.callbacks.clear();
+    // Las huellas también se van: no hacen falta sin estar escuchando, y no tiene
+    // sentido acumular la identidad de todo lo que se oyó en una sesión cerrada.
+    this.identity.clear();
+    this.sospechosos.clear();
     this.started = false;
   }
 
@@ -193,13 +203,12 @@ export class SampleAssetBinding {
     // sirve al kernel aunque esté en el doc (un cliente modificado o un .bin
     // manipulado podría haberlo colado saltándose la validación del emisor).
     if (asset.bytes.byteLength > this.maxAssetBytes) return null;
-    // Si este hash ya se había servido con otros bytes, se sirven los CONGELADOS
-    // (BUG 055): el hash es la identidad del contenido y el audio que oye esta
-    // máquina no cambia por lo que diga ahora el mapa. El servidor también
-    // restituye los originales, pero un `.bin` manipulado o un cliente
-    // modificado pueden colar la sustitución antes de que el servidor actúe, y
-    // quien entra tarde leería bytes distintos de los que oyó el que ya estaba.
-    return this.frozen.get(hash) ?? asset.bytes;
+    // Si estos bytes no son los de la huella que se aceptó para ese hash, no se
+    // sirven: el hash es la identidad y el servidor va a devolver el original
+    // (BUG 055). Antes se guardaba una copia congelada de los bytes; ahora se
+    // guarda solo la huella, así que aquí lo sano es no servir antes de que llegue.
+    if (this.sospechosos.has(hash)) return null;
+    return asset.bytes;
   }
 
   /** Ficha del asset (sin tocar el blob si solo quieres el nombre/tamaño). */
@@ -324,31 +333,6 @@ export class SampleAssetBinding {
         continue;
       }
       const size = asset.bytes.byteLength;
-      // Primera vez que se ve este hash: sus bytes quedan CONGELADOS. Si más tarde
-      // llegan otros bajo la misma clave, no se anuncian ni se sirven: la identidad
-      // es el hash y el audio original se conserva (BUG 055).
-      const fijados = this.frozen.get(hash);
-      if (fijados === undefined) {
-        this.frozen.set(hash, new Uint8Array(asset.bytes));
-      } else if (!mismosBytes(fijados, asset.bytes)) {
-        if (!this.substituted.has(hash)) {
-          this.substituted.add(hash);
-          console.warn(
-            `[collab] el asset ${hash.slice(0, 12)} ya estaba publicado con otros bytes; ` +
-              'se ignora el cambio y se queda el audio original.',
-          );
-          this.onRejected?.({
-            hash,
-            name: asset.name,
-            size,
-            reason: 'invalid',
-            message:
-              `«${asset.name}» llega con bytes distintos de los ya publicados con ese hash. ` +
-              'Se ignora: la identidad de un sample es su contenido.',
-          });
-        }
-        continue;
-      }
       // El emisor valida los topes al publicar, pero un cliente modificado (o un
       // .bin manipulado) puede meter en el Y.Map blobs por encima del presupuesto
       // que sostiene la arquitectura. El receptor NO los cuenta, NO los anuncia y
@@ -367,6 +351,43 @@ export class SampleAssetBinding {
           });
         }
         continue;
+      }
+      // LA IDENTIDAD, después de los topes: solo se recuerda lo que se acepta, y se
+      // recuerda como HUELLA (unos bytes por hash), no como una copia del audio. El
+      // hash es la identidad del contenido, así que si más tarde llegan otros bytes
+      // bajo la misma clave no se anuncian ni se sirven: el servidor restituye el
+      // original y mientras tanto aquí no se sirve nada (BUG 055).
+      //
+      // La huella no se borra cuando el asset desaparece del mapa, y es lo que cierra
+      // el agujero de borrar-y-volver-a-publicar: si el productor borra el sample y
+      // luego publica OTRO audio bajo el mismo hash, la huella sigue diciendo cuál
+      // era el bueno. Cuesta ~40 bytes por sample, no 16 MB.
+      const huella = huellaDe(asset.bytes);
+      const previa = this.identity.get(hash);
+      if (previa === undefined) {
+        this.identity.set(hash, huella);
+        this.sospechosos.delete(hash);
+      } else if (previa !== huella) {
+        this.sospechosos.add(hash);
+        if (!this.substituted.has(hash)) {
+          this.substituted.add(hash);
+          console.warn(
+            `[collab] el asset ${hash.slice(0, 12)} ya estaba publicado con otros bytes; ` +
+              'no se sirve y se espera a que el servidor devuelva el original.',
+          );
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'invalid',
+            message:
+              `«${asset.name}» llega con bytes distintos de los ya publicados con ese hash. ` +
+              'No se sirven: la identidad de un sample es su contenido.',
+          });
+        }
+        continue;
+      } else {
+        this.sospechosos.delete(hash);
       }
       if (!this.sizes.has(hash)) {
         this.sizes.set(hash, size);
@@ -401,13 +422,25 @@ export class SampleAssetBinding {
   }
 }
 /**
- * ¿Son el MISMO contenido? Se comparan bytes, no objetos: publicar dos veces el
- * mismo sample es idempotente, y cambiar los bytes bajo un hash es una sustitución.
+ * Huella de un contenido: 64 bits en 16 caracteres hex.
+ *
+ * No es criptográfica y no pretende serlo: solo sirve para responder "¿son los MISMOS
+ * bytes?" sin guardarlos. El servidor sí comprueba el SHA-1 real (allí hay
+ * `node:crypto`); aquí, en el renderer, hace falta algo síncrono y sin dependencias,
+ * y comparar 16 MB en cada consulta sería criminal. Dos acumuladores distintos
+ * (FNV-1a y una mezcla con signo) para que la unión sea de 64 bits y no de 32.
  */
-function mismosBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) return false;
+function huellaDe(bytes: Uint8Array): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i]!;
+    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+    b = (Math.imul(b ^ byte, 0x85ebca6b) + ((b << 13) | (b >>> 19))) >>> 0;
   }
-  return true;
+  // El tamaño va dentro: dos contenidos de igual huella pero distinta longitud son
+  // distinto contenido, y el recorte no tiene por qué notarlo.
+  return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0)
+    .toString(16)
+    .padStart(8, '0')}${bytes.length.toString(16)}`;
 }

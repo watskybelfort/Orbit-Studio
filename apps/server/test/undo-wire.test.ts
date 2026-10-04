@@ -157,7 +157,9 @@ describe('002 · el inverso de un campo opcional converge entre clientes', () =>
     await sleep(250);
 
     // Y el inverso, que es el que lleva la marca de borrado.
-    expect(JSON.stringify(inverse)).toContain('\\u0000unset');
+    // El sobre de borrado viaja entero por el socket: es lo que el otro cliente
+    // necesita para deshacer el campo opcional (no un `undefined`, que el JSON tira).
+    expect(JSON.stringify(inverse)).toContain('"$orbitUnset":true');
     productor.push(inverse);
     await sleep(300);
 

@@ -22,6 +22,7 @@
  */
 
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WebSocketServer, WebSocket as WsSocket, type RawData } from 'ws';
@@ -119,16 +120,61 @@ export function clampRoomCapacity(value: number | undefined): number {
 const MAX_CONNS_TOTAL = 512;
 
 /**
- * ¿Son el MISMO contenido? Se comparan los BYTES, no el objeto: publicar dos
- * veces el mismo sample es idempotente, y cambiar los bytes bajo un hash es una
- * sustitución.
+ * ¿Es un SHA-1 en hexadecimal? (40 caracteres, el formato de `SampleRef.hash`).
+ *
+ * Las claves de un sample son el sha1 de sus bytes por construcción. Lo que NO lo es
+ * son las que dejó la versión vieja del cliente, que caía al id de la parte cuando
+ * no había WebCrypto (`sha1Hex(...) ?? part.id`): esas se aceptan por huella, para
+ * no dejar sin audio una sala ya existente.
  */
-function mismosBytes(a: SampleAsset, b: SampleAsset): boolean {
-  if (a.bytes.byteLength !== b.bytes.byteLength) return false;
-  for (let i = 0; i < a.bytes.byteLength; i++) {
-    if (a.bytes[i] !== b.bytes[i]) return false;
+function esSha1(texto: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(texto);
+}
+
+/** El sha1 de unos bytes: la identidad real del contenido. */
+function sha1De(bytes: Uint8Array): string {
+  return createHash('sha1').update(bytes).digest('hex');
+}
+
+/**
+ * Huella para las claves que NO son un sha1 (proyectos viejos), donde no se puede
+ * exigir la correspondencia pero sí detectar que el contenido cambió.
+ */
+function huellaDe(bytes: Uint8Array): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193;
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i]!;
+    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
+    b = (Math.imul(b ^ byte, 0x85ebca6b) + ((b << 13) | (b >>> 19))) >>> 0;
   }
-  return true;
+  return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0)
+    .toString(16)
+    .padStart(8, '0')}${bytes.length.toString(16)}`;
+}
+
+/**
+ * ¿Contradice estos bytes la identidad de la clave?
+ *
+ * Con clave sha1 se exige la CORRESPONDENCIA REAL: lo que llega tiene que ser
+ * justamente el archivo que dice ser. Esto es lo que cierra también el
+ * borrar-y-volver-a-publicar, porque no depende de que el servidor recuerde el
+ * asset anterior (que al borrarlo ya no tiene): comparar contra la clave funciona
+ * siempre, y también para la primera publicación —que si no podía ser falsa—.
+ *
+ * Con clave heredada (no sha1) no hay correspondencia que exigir, así que se
+ * recuerda la huella de lo aceptado. Un historical de huellas son ~40 bytes por
+ * sample, no los WAV enteros: la memoria no depende de lo que se oiga en la sala.
+ */
+function contradiceIdentidad(
+  hash: string,
+  bytes: Uint8Array,
+  huellas: Map<string, string>,
+): boolean {
+  if (esSha1(hash)) return sha1De(bytes) !== hash.toLowerCase();
+  const previa = huellas.get(hash);
+  if (previa === undefined) return false;
+  return previa !== huellaDe(bytes);
 }
 
 /** Origen de las transacciones del guardia de roles (para no re-juzgarlas). */
@@ -244,8 +290,18 @@ class Room {
    * rehidratación de cada cliente futuro salía muda.
    */
   private assetShadow = new Map<string, SampleAsset>();
-  /** Hashes a los que ya se les intentó sustituir los bytes (para avisar una vez). */
+  /** Hashes a los que ya se les intentó cambiar los bytes (para avisar una vez). */
   private readonly assetRewrites = new Set<string>();
+  /**
+   * Huella del contenido aceptado en cada clave, para las claves que NO son un sha1.
+   *
+   * Con clave sha1 la comparación es la real (`sha1(bytes) === clave`), que no
+   * necesita recordar nada. Esto es solo para las claves heredadas del cliente viejo
+   * (`sha1Hex(...) ?? part.id`), donde sí hay que acordarse de qué se aceptó: son
+   * ~40 bytes por sample y, a diferencia de los bytes, se pueden conservar después
+   * de borrar el asset para que un republicado con otro contenido no cuele (BUG 055).
+   */
+  private readonly assetDigests = new Map<string, string>();
 
   constructor(
     code: string,
@@ -881,30 +937,40 @@ class Room {
     const toRestore = new Map<string, SampleAsset>();
     const malformed: string[] = [];
 
-    // Un hash es la IDENTIDAD del contenido: los bytes que se publicaron con un
-    // hash dado no pueden cambiarse después (BUG 055). Antes esto solo se juzgaba
-    // para el oyente, de modo que un INVITADO podía sustituir `assets[sha1(A)]`
-    // por otros bytes de la misma forma y tamaño: el cliente que ya tenía el
-    // sample se quedaba con A (solo se avisa una vez por hash) y uno que entraba
-    // tarde cargaba B con el MISMO SampleRef —mismo proyecto y mismo hash, distinto
-    // audio—, con una diferencia real de 0.1759 entre ambos.
+    // Un hash es la IDENTIDAD del contenido: los bytes que se publican tienen que
+    // SER los que ese hash dice ser, y no se pueden cambiar después (BUG 055). Antes
+    // esto solo se juzgaba para el oyente, de modo que un INVITADO podía sustituir
+    // `assets[sha1(A)]` por otros bytes de la misma forma y tamaño: el cliente que
+    // ya tenía el sample se quedaba con A (solo se avisa una vez por hash) y uno
+    // que entraba tarde cargaba B con el MISMO SampleRef —mismo proyecto y mismo
+    // hash, distinto audio—, con una diferencia real de 0.1759 entre ambos.
     //
-    // Aquí, para todos los roles: si lo que llega no son los bytes ya aceptados
-    // bajo ese hash, se devuelve el original y NO se borra nada sano. Repetir la
-    // publicación idéntica sí es idempotente: son los mismos bytes.
+    // Para TODOS los roles, y en dos tiempos:
+    //  - si contradice la identidad, se devuelve el original si sigue en la sombra
+    //    (`toRestore`); si ya no está —alguien lo borró antes—, no hay nada sano que
+    //    devolver y la entrada impostora se retira (`toDelete`). Así tampoco vale
+    //    borrar el sample y republicar otro audio bajo el mismo hash.
+    //  - si la contradice y NO se puede corregir, tampoco se memoriza: la huella
+    //    guardada es la del contenido bueno, no la del que entró manipulado.
+    // Republicar el mismo archivo sí es idempotente (mismos bytes, misma
+    // correspondencia) y un hash nuevo con sus bytes correspondientes entra normal.
     for (const [key] of changed) {
-      const guardado = this.assetShadow.get(key);
-      if (guardado === undefined) continue;
       const entrante = assets.get(key);
-      if (entrante !== undefined && isSampleAsset(entrante) && mismosBytes(guardado, entrante)) {
+      if (entrante === undefined || !isSampleAsset(entrante)) continue;
+      if (!contradiceIdentidad(key, entrante.bytes, this.assetDigests)) {
+        this.assetDigests.set(key, huellaDe(entrante.bytes));
         continue;
       }
-      toRestore.set(key, guardado);
+      const guardado = this.assetShadow.get(key);
+      if (guardado !== undefined) toRestore.set(key, guardado);
+      else toDelete.add(key);
       if (!this.assetRewrites.has(key)) {
         this.assetRewrites.add(key);
         console.warn(
-          `[room ${this.code}] asset ${key.slice(0, 12)}: se rechaza sustituir sus bytes; ` +
-            'la identidad es el hash y los bytes originales se conservan.',
+          `[room ${this.code}] asset ${key.slice(0, 12)}: se rechazan bytes que no corresponden a su hash; ` +
+            (guardado !== undefined
+              ? 'se conservan los originales.'
+              : 'el original ya no está, así que la entrada se retira.'),
         );
       }
     }
@@ -979,10 +1045,14 @@ class Room {
       if (from) {
         this.sendControl(from, {
           type: 'denied',
+          // Ojo con el motivo: la identidad del contenido NO la tiene ningún rol. Un
+          // invitado puede publicar y el productor puede borrar, pero cambiar los
+          // bytes de un sample ya publicado no lo puede hacer nadie: por eso aquí el
+          // motivo no puede ser el del oyente.
           reason:
             senderRole === 'oyente'
               ? 'Estás como oyente: no puedes borrar ni cambiar los sonidos compartidos de la sala.'
-              : 'Solo el productor puede borrar o cambiar los sonidos compartidos.',
+              : 'Los bytes de un sample no se pueden cambiar: su hash es su identidad.',
           command: 'asset.delete',
         });
       }
