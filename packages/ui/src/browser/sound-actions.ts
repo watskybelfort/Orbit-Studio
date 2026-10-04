@@ -107,14 +107,25 @@ export async function mapLimited<T, R>(
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
+  let failed = false;
+  let failure: unknown;
   const worker = async (): Promise<void> => {
-    for (let i = next++; i < items.length; i = next++) {
-      out[i] = await fn(items[i]!, i);
+    for (let i = next++; i < items.length && !failed; i = next++) {
+      try {
+        out[i] = await fn(items[i]!, i);
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+      }
     }
   };
+  // Recoger el fallo dentro del worker permite esperar a TODOS los ya iniciados.
+  // Rechazar antes soltaría los pins del lote mientras otros siguen leyendo o
+  // subiendo muestras. Tras el primer fallo no se empiezan más trabajos.
   await Promise.all(
     Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, () => worker()),
   );
+  if (failed) throw failure;
   return out;
 }
 
@@ -307,10 +318,22 @@ async function withLoadedSounds<T>(
   // Los ids salen de `loadJobs` antes de leer nada, y el envoltorio los suelta
   // todos en su `finally`: una lectura que revienta a mitad no deja sujeto lo
   // que ya subió, igual de larga la lista que si hubiera terminado.
-  return withPinnedSamples(
-    jobs.map((job) => job.id),
-    async () => run(await loadAll(entries, jobs)),
-  );
+  try {
+    return await withPinnedSamples(
+      jobs.map((job) => job.id),
+      async () => run(await loadAll(entries, jobs)),
+    );
+  } catch (error) {
+    // mapLimited ya terminó TODOS los workers y el finally soltó nuestros pins.
+    // Recolectar contra el proyecto actual conserva muestras registradas y las
+    // que otro consumidor aún sujeta; descargar por id rompería esa propiedad.
+    try {
+      collectWorkletSamples(engine, store.project);
+    } catch {
+      // Un fallo del recolector no debe sustituir el error original de carga.
+    }
+    throw error;
+  }
 }
 
 /**

@@ -470,7 +470,7 @@ describe('los tres archivos sujetan de verdad, y hasta después del dispatch', (
     // `registerCommands` por fuera).
     const llamadas = file.split('loadAll(entries').length - 1;
     expect(llamadas).toBe(2); // la definición y la de `withLoadedSounds`
-    expect(file).toMatch(/return withPinnedSamples\(/);
+    expect(file).toMatch(/return await withPinnedSamples\(/);
     expect(file).toMatch(/async \(\) => run\(await loadAll\(entries, jobs\)\),/);
     // La baja es el `finally` de `withPinnedSamples` (sample-gc): aquí no puede
     // quedar un `unpinSample` a mano, que dependería de que no haya una
