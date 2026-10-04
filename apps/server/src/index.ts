@@ -118,6 +118,19 @@ export function clampRoomCapacity(value: number | undefined): number {
 }
 const MAX_CONNS_TOTAL = 512;
 
+/**
+ * ¿Son el MISMO contenido? Se comparan los BYTES, no el objeto: publicar dos
+ * veces el mismo sample es idempotente, y cambiar los bytes bajo un hash es una
+ * sustitución.
+ */
+function mismosBytes(a: SampleAsset, b: SampleAsset): boolean {
+  if (a.bytes.byteLength !== b.bytes.byteLength) return false;
+  for (let i = 0; i < a.bytes.byteLength; i++) {
+    if (a.bytes[i] !== b.bytes[i]) return false;
+  }
+  return true;
+}
+
 /** Origen de las transacciones del guardia de roles (para no re-juzgarlas). */
 const ROLE_ENFORCER = 'orbit:roles';
 
@@ -231,6 +244,8 @@ class Room {
    * rehidratación de cada cliente futuro salía muda.
    */
   private assetShadow = new Map<string, SampleAsset>();
+  /** Hashes a los que ya se les intentó sustituir los bytes (para avisar una vez). */
+  private readonly assetRewrites = new Set<string>();
 
   constructor(
     code: string,
@@ -865,6 +880,34 @@ class Room {
     const toDelete = new Set<string>();
     const toRestore = new Map<string, SampleAsset>();
     const malformed: string[] = [];
+
+    // Un hash es la IDENTIDAD del contenido: los bytes que se publicaron con un
+    // hash dado no pueden cambiarse después (BUG 055). Antes esto solo se juzgaba
+    // para el oyente, de modo que un INVITADO podía sustituir `assets[sha1(A)]`
+    // por otros bytes de la misma forma y tamaño: el cliente que ya tenía el
+    // sample se quedaba con A (solo se avisa una vez por hash) y uno que entraba
+    // tarde cargaba B con el MISMO SampleRef —mismo proyecto y mismo hash, distinto
+    // audio—, con una diferencia real de 0.1759 entre ambos.
+    //
+    // Aquí, para todos los roles: si lo que llega no son los bytes ya aceptados
+    // bajo ese hash, se devuelve el original y NO se borra nada sano. Repetir la
+    // publicación idéntica sí es idempotente: son los mismos bytes.
+    for (const [key] of changed) {
+      const guardado = this.assetShadow.get(key);
+      if (guardado === undefined) continue;
+      const entrante = assets.get(key);
+      if (entrante !== undefined && isSampleAsset(entrante) && mismosBytes(guardado, entrante)) {
+        continue;
+      }
+      toRestore.set(key, guardado);
+      if (!this.assetRewrites.has(key)) {
+        this.assetRewrites.add(key);
+        console.warn(
+          `[room ${this.code}] asset ${key.slice(0, 12)}: se rechaza sustituir sus bytes; ` +
+            'la identidad es el hash y los bytes originales se conservan.',
+        );
+      }
+    }
 
     if (esOyente) {
       // Borrar también es editar, y solo lo hace el productor. Lo que se va

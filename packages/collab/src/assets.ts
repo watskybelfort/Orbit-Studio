@@ -130,6 +130,19 @@ export class SampleAssetBinding {
   private readonly oversized = new Set<string>();
   /** Hashes malformados ya avisados: no se repite el aviso en cada scan. */
   private readonly malformed = new Set<string>();
+  /** Hashes a los que se les intentó cambiar los bytes (para avisar una vez). */
+  private readonly substituted = new Set<string>();
+  /**
+   * Bytes con los que se aceptó cada hash la PRIMERA vez.
+   *
+   * El hash ES la identidad del contenido: si el mapa del doc dijera otra cosa
+   * más tarde, el audio que oye esta máquina no cambia por sorpresa. El servidor
+   * también lo restituye, pero un `.bin` manipulado o un cliente modificado
+   * pueden llegar al binding antes de que el servidor actúe: con los bytes
+   * congelados, el cliente existente y el que entra tarde resuelven el MISMO audio
+   * pase lo que pase en el mapa (BUG 055).
+   */
+  private readonly frozen = new Map<string, Uint8Array>();
   private readonly callbacks = new Set<() => void>();
   private observer: (() => void) | null = null;
   private started = false;
@@ -180,7 +193,13 @@ export class SampleAssetBinding {
     // sirve al kernel aunque esté en el doc (un cliente modificado o un .bin
     // manipulado podría haberlo colado saltándose la validación del emisor).
     if (asset.bytes.byteLength > this.maxAssetBytes) return null;
-    return asset.bytes;
+    // Si este hash ya se había servido con otros bytes, se sirven los CONGELADOS
+    // (BUG 055): el hash es la identidad del contenido y el audio que oye esta
+    // máquina no cambia por lo que diga ahora el mapa. El servidor también
+    // restituye los originales, pero un `.bin` manipulado o un cliente
+    // modificado pueden colar la sustitución antes de que el servidor actúe, y
+    // quien entra tarde leería bytes distintos de los que oyó el que ya estaba.
+    return this.frozen.get(hash) ?? asset.bytes;
   }
 
   /** Ficha del asset (sin tocar el blob si solo quieres el nombre/tamaño). */
@@ -305,6 +324,31 @@ export class SampleAssetBinding {
         continue;
       }
       const size = asset.bytes.byteLength;
+      // Primera vez que se ve este hash: sus bytes quedan CONGELADOS. Si más tarde
+      // llegan otros bajo la misma clave, no se anuncian ni se sirven: la identidad
+      // es el hash y el audio original se conserva (BUG 055).
+      const fijados = this.frozen.get(hash);
+      if (fijados === undefined) {
+        this.frozen.set(hash, new Uint8Array(asset.bytes));
+      } else if (!mismosBytes(fijados, asset.bytes)) {
+        if (!this.substituted.has(hash)) {
+          this.substituted.add(hash);
+          console.warn(
+            `[collab] el asset ${hash.slice(0, 12)} ya estaba publicado con otros bytes; ` +
+              'se ignora el cambio y se queda el audio original.',
+          );
+          this.onRejected?.({
+            hash,
+            name: asset.name,
+            size,
+            reason: 'invalid',
+            message:
+              `«${asset.name}» llega con bytes distintos de los ya publicados con ese hash. ` +
+              'Se ignora: la identidad de un sample es su contenido.',
+          });
+        }
+        continue;
+      }
       // El emisor valida los topes al publicar, pero un cliente modificado (o un
       // .bin manipulado) puede meter en el Y.Map blobs por encima del presupuesto
       // que sostiene la arquitectura. El receptor NO los cuenta, NO los anuncia y
@@ -355,4 +399,15 @@ export class SampleAssetBinding {
   ): void {
     this.onRejected?.({ hash, name, size, reason, message });
   }
+}
+/**
+ * ¿Son el MISMO contenido? Se comparan bytes, no objetos: publicar dos veces el
+ * mismo sample es idempotente, y cambiar los bytes bajo un hash es una sustitución.
+ */
+function mismosBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  for (let i = 0; i < a.byteLength; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }
