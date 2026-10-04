@@ -108,6 +108,14 @@ export type Command =
   // Notas
   | { type: 'addNotes'; patternId: Id; channelId: Id; notes: Note[] }
   | { type: 'removeNotes'; patternId: Id; channelId: Id; noteIds: Id[] }
+  /**
+   * Devuelve notas a la posición que tenían. A diferencia de los `restore*` de
+   * pools (donde el orden de las claves no importa), el orden de las notas SÍ: es lo
+   * que desempata los eventos que comparten inicio al compilar y lo que sale al
+   * serializar. Por eso el inverso de `removeNotes` no es un `addNotes` (que
+   * empuja al final) sino esto, con el índice de cada nota.
+   */
+  | { type: 'restoreNotes'; patternId: Id; channelId: Id; notes: Note[]; at?: number[] }
   | { type: 'patchNotes'; patternId: Id; channelId: Id; patches: NotePatch[] }
   // Playlist
   | { type: 'addPlaylistTrack'; track: PlaylistTrack }
@@ -667,15 +675,40 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const list = pattern.notes[cmd.channelId] ?? [];
       const ids = new Set(cmd.noteIds);
       const removed = list.filter((n) => ids.has(n.id));
+      // Dónde estaba cada una, en la lista de ORIGEN. El orden de las notas no es
+      // cosmético: desempata los eventos que comparten inicio al compilar y sale al
+      // serializar, así que un `addNotes` que empuja al final dejaba el patrón en otro
+      // orden al deshacer (medido: [a,b,c], borrar b y deshacer daba [a,c,b]).
+      const at = removed.map((n) => list.indexOf(n));
       const remaining = list.filter((n) => !ids.has(n.id));
       // Invariante: sin notas = sin clave (mantiene identidad de undo y CRDT limpio).
       if (remaining.length === 0) delete pattern.notes[cmd.channelId];
       else pattern.notes[cmd.channelId] = remaining;
       return {
-        type: 'addNotes',
+        type: 'restoreNotes',
         patternId: cmd.patternId,
         channelId: cmd.channelId,
         notes: removed,
+        at,
+      };
+    }
+    case 'restoreNotes': {
+      const pattern = must(project.patterns[cmd.patternId], `patrón ${cmd.patternId}`);
+      const list = (pattern.notes[cmd.channelId] ??= []);
+      // Con las posiciones, cada nota vuelve a SU sitio. Se insertan en el MISMO orden en
+      // que estaban (de delante hacia atrás, que es como las da `removed`): al llegar
+      // a la nota n ya están puestas todas las anteriores que también faltaban, así que
+      // su índice original sigue siendo el sitio correcto. Al revés se descentraba
+      // todo (medido: quitar [b,c] de [a,b,c,d] y deshacer daba [a,b,d,c]).
+      for (const [i, nota] of cmd.notes.entries()) {
+        const indice = Math.max(0, Math.min(cmd.at?.[i] ?? list.length, list.length));
+        list.splice(indice, 0, nota);
+      }
+      return {
+        type: 'removeNotes',
+        patternId: cmd.patternId,
+        channelId: cmd.channelId,
+        noteIds: cmd.notes.map((n) => n.id),
       };
     }
     case 'patchNotes': {

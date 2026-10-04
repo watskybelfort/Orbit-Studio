@@ -559,6 +559,7 @@ export function describeCommand(cmd: Command): string {
     case 'patchPattern': return 'Ajustar patrón';
     case 'addNotes': return `${cmd.notes.length} nota(s)`;
     case 'removeNotes': return `Borrar ${cmd.noteIds.length} nota(s)`;
+    case 'restoreNotes': return `Restaurar ${cmd.notes.length} nota(s)`;
     case 'patchNotes': return `Editar ${cmd.patches.length} nota(s)`;
     case 'addPlaylistTrack': return 'Añadir pista';
     case 'removePlaylistTrack': return 'Borrar pista';
