@@ -262,6 +262,38 @@ function slotIn(index: number, count: number, what: string): number {
  * solo sitio (`applyPatch`) la cumple para TODAS las familias de patch.
  */
 
+/**
+ * Un alta con un id que ya vive en el pool se RECHAZA, antes de mutar nada.
+ *
+ * Por qué rechazar y no "reemplazar": el alta repetida no perdía solo su propia
+ * entidad, sino la que ya estaba. El orden de ids se duplicaba y el inverso del
+ * alta (un `remove*`) se llevaba por delante a la ORIGINAL: al deshacer, la entidad
+ * preexistente desaparecía y el resto del proyecto se quedaba con referencias
+ * rotas. Medido en la tarjeta 003 con una entrada de audio: `inputRoutes` vacío y
+ * `inputRouteOrder` con un id huérfano.
+ *
+ * Se comprueba ANTES de escribir (los `add*` que traen una lista recorren dos
+ * veces: primero se juzga que no hay ningún id repetido —ni contra el pool ni
+ * dentro de la propia lista— y después se escribe), de modo que un lote con ids
+ * repetidos tampoco deja el proyecto a medias.
+ */
+function assertIdNuevo(yaExiste: boolean, que: string, id: string): void {
+  if (yaExiste) throw new Error(`Ya existe: ${que} ${id}`);
+}
+
+/** Todos los ids de un alta en lista deben ser nuevos: ni del pool, ni entre ellos. */
+function assertIdsNuevos<T extends { id: string }>(
+  pool: Record<string, unknown>,
+  items: readonly T[],
+  que: string,
+): void {
+  const vistos = new Set<string>();
+  for (const item of items) {
+    assertIdNuevo(pool[item.id] !== undefined || vistos.has(item.id), que, item.id);
+    vistos.add(item.id);
+  }
+}
+
 /** Aplica un patch a una entidad: la marca borra, el resto escribe. */
 function applyPatch<T extends object>(target: T, patch: Partial<T>): void {
   for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
@@ -581,6 +613,15 @@ export function applyCommand(project: Project, cmd: Command): Command {
     // Notas
     case 'addNotes': {
       const pattern = must(project.patterns[cmd.patternId], `patrón ${cmd.patternId}`);
+      // Una nota repetida se cuela en la lista y su inverso (removeNotes, que
+      // borra POR id) se lleva por delante la original. Se juzga antes de tocar
+      // la lista, y se juzga también la lista que trae el comando.
+      const previas = pattern.notes[cmd.channelId] ?? [];
+      assertIdsNuevos(
+        Object.fromEntries(previas.map((n) => [n.id, n])),
+        cmd.notes,
+        'nota',
+      );
       const list = (pattern.notes[cmd.channelId] ??= []);
       list.push(...cmd.notes);
       return {
@@ -627,6 +668,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Playlist
     case 'addPlaylistTrack': {
+      assertIdNuevo(project.playlistTracks[cmd.track.id] !== undefined, 'pista', cmd.track.id);
       project.playlistTracks[cmd.track.id] = cmd.track;
       return { type: 'removePlaylistTrack', trackId: cmd.track.id };
     }
@@ -655,6 +697,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return inverse;
     }
     case 'addClips': {
+      assertIdsNuevos(project.clips, cmd.clips, 'clip');
       for (const clip of cmd.clips) project.clips[clip.id] = clip;
       return { type: 'removeClips', clipIds: cmd.clips.map((c) => c.id) };
     }
@@ -785,6 +828,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // LFOs
     case 'addLfos': {
+      assertIdsNuevos(project.lfos, cmd.lfos, 'LFO');
       for (const lfo of cmd.lfos) project.lfos[lfo.id] = lfo;
       return { type: 'removeLfos', lfoIds: cmd.lfos.map((l) => l.id) };
     }
@@ -816,6 +860,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Marcadores
     case 'addSections': {
+      assertIdsNuevos(project.sections, cmd.sections, 'sección');
       for (const section of cmd.sections) project.sections[section.id] = section;
       return { type: 'removeSections', sectionIds: cmd.sections.map((x) => x.id) };
     }
@@ -845,6 +890,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'patchSections', patches: inversePatches };
     }
     case 'addMarker': {
+      assertIdNuevo(project.markers[cmd.marker.id] !== undefined, 'marcador', cmd.marker.id);
       project.markers[cmd.marker.id] = cmd.marker;
       return { type: 'removeMarker', markerId: cmd.marker.id };
     }
@@ -1014,6 +1060,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       if (project.inputRouteOrder.length >= MAX_INPUT_ROUTES) {
         throw new Error(`No caben más entradas: el máximo son ${MAX_INPUT_ROUTES}`);
       }
+      assertIdNuevo(project.inputRoutes[cmd.route.id] !== undefined, 'entrada', cmd.route.id);
       project.inputRoutes[cmd.route.id] = cmd.route;
       const at = cmd.index ?? project.inputRouteOrder.length;
       project.inputRouteOrder.splice(at, 0, cmd.route.id);
@@ -1043,6 +1090,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
 
     case 'registerSample': {
+      assertIdNuevo(project.samples[cmd.sample.id] !== undefined, 'sample', cmd.sample.id);
       project.samples[cmd.sample.id] = cmd.sample;
       return { type: 'unregisterSample', sampleId: cmd.sample.id };
     }
