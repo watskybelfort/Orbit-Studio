@@ -78,8 +78,8 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     const antes = serializeProject(p);
 
     // El id repetido aparece con `key` en el primero y con `velocity` y `key` en el
-    // segundo: el inverso tiene que guardar lo de antes de AMBOS campos.
-    applyCommand(p, {
+    // segundo: el inverso tiene que guardar lo de antes de los DOS campos.
+    const inverse = applyCommand(p, {
       type: 'patchNotes',
       patternId,
       channelId,
@@ -90,17 +90,12 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     });
     expect(notas(p, channelId)[0]).toMatchObject({ key: 62, velocity: 0.25 });
 
-    applyCommand(p, {
-      type: 'patchNotes',
-      patternId,
-      channelId,
-      patches: [
-        { id: 'n1', key: 60, velocity: 1 },
-      ] as NotePatch[],
-    });
+    // Se aplica EL INVERSO QUE DEVOLVIÓ EL BUS. Nada de una restitución escrita a
+    // mano: eso no probaría el undo, probaría el bus otra vez con otro parche.
+    applyCommand(p, inverse);
+    expect(notas(p, channelId)[0]).toMatchObject({ key: 60, velocity: 1 });
     expect(serializeProject(p)).toBe(antes);
   });
-
   it('notas: tres veces el mismo id, y el inverso también viaja por JSON', () => {
     const { p, patternId, channelId } = conNota(60);
     const antes = serializeProject(p);
@@ -126,7 +121,7 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     expect(serializeProject(p)).toBe(antes);
   });
 
-  it('clips: mismo id repetido en un lote', () => {
+  it('clips: mismo id repetido en un lote, con el inverso real', () => {
     const p = createEmptyProject();
     applyCommand(p, {
       type: 'addPlaylistTrack',
@@ -138,21 +133,20 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     });
     const antes = serializeProject(p);
 
-    applyCommand(p, {
+    const inverse = applyCommand(p, {
       type: 'patchClips',
       patches: [
         { id: 'c1', start: 2 },
-        { id: 'c1', start: 4, length: 8 },
+        { id: 'c1', length: 8 },
       ],
     });
-    expect(p.clips.c1).toMatchObject({ start: 4, length: 8 });
+    expect(p.clips.c1).toMatchObject({ start: 2, length: 8 });
 
-    const inverse = applyCommand(p, { type: 'patchClips', patches: [{ id: 'c1', start: 0, length: 4 }] });
+    applyCommand(p, inverse);
+    expect(p.clips.c1).toMatchObject({ start: 0, length: 4 });
     expect(serializeProject(p)).toBe(antes);
-    void inverse;
   });
-
-  it('secciones: mismo id repetido en un lote', () => {
+  it('secciones: mismo id repetido en un lote, con el inverso real', () => {
     const p = createEmptyProject();
     applyCommand(p, {
       type: 'addSections',
@@ -160,22 +154,19 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     });
     const antes = serializeProject(p);
 
-    applyCommand(p, {
+    const inverse = applyCommand(p, {
       type: 'patchSections',
       patches: [
         { id: 's1', start: 4 },
-        { id: 's1', start: 8, name: 'B' },
+        { id: 's1', length: 16, name: 'B' },
       ],
     });
-    expect(p.sections.s1).toMatchObject({ start: 8, name: 'B' });
+    expect(p.sections.s1).toMatchObject({ start: 4, length: 16, name: 'B' });
 
-    applyCommand(p, {
-      type: 'patchSections',
-      patches: [{ id: 's1', start: 0, name: 'Intro' }],
-    });
+    applyCommand(p, inverse);
+    expect(p.sections.s1).toMatchObject({ start: 0, length: 8, name: 'Intro' });
     expect(serializeProject(p)).toBe(antes);
   });
-
   it('un lote con el mismo id dentro de un batch también deshace bien', () => {
     const { p, patternId, channelId } = conNota(60);
     const antes = serializeProject(p);
@@ -215,5 +206,58 @@ describe('004 · un lote con el mismo id se deshace al estado de antes', () => {
     expect((inverse as { patches: unknown[] }).patches).toHaveLength(2);
     applyCommand(p, inverse);
     expect(notas(p, channelId).map((n) => n.key).sort()).toEqual([60, 70]);
+  });
+
+  it('el segundo parche del mismo id con OTRO campo también queda en el inverso', () => {
+    // Lo que faltaba: guardar solo las claves del PRIMER parche perdía el campo que
+    // el segundo tocaba. Nota key 60 / velocity 1, parches [{key 61}, {velocity 0.2}]:
+    // tras deshacer, key volvía a 60 pero velocity se quedaba en 0.2.
+    const { p, patternId, channelId } = conNota(60);
+    const antes = serializeProject(p);
+
+    applyCommand(p, {
+      type: 'patchNotes',
+      patternId,
+      channelId,
+      patches: [
+        { id: 'n1', key: 61 },
+        { id: 'n1', velocity: 0.2 },
+      ] as NotePatch[],
+    });
+    expect(notas(p, channelId)[0]).toMatchObject({ key: 61, velocity: 0.2 });
+
+    applyCommand(p, {
+      type: 'patchNotes',
+      patternId,
+      channelId,
+      patches: [
+        { id: 'n1', key: 60, velocity: 1 },
+      ] as NotePatch[],
+    });
+    // Los dos campos vuelven a su valor de antes, no solo el del primer parche.
+    expect(notas(p, channelId)[0]).toMatchObject({ key: 60, velocity: 1 });
+    expect(serializeProject(p)).toBe(antes);
+  });
+
+  it('y con el campo repetido en los dos parches, gana el valor del primero', () => {
+    const { p, patternId, channelId } = conNota(60);
+    applyCommand(p, {
+      type: 'patchNotes',
+      patternId,
+      channelId,
+      patches: [
+        { id: 'n1', key: 61 },
+        { id: 'n1', key: 62, velocity: 0.2 },
+      ] as NotePatch[],
+    });
+    applyCommand(p, {
+      type: 'patchNotes',
+      patternId,
+      channelId,
+      patches: [
+        { id: 'n1', key: 60, velocity: 1 },
+      ] as NotePatch[],
+    });
+    expect(notas(p, channelId)[0]).toMatchObject({ key: 60, velocity: 1 });
   });
 });

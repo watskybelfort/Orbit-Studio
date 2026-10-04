@@ -271,32 +271,47 @@ function slotIn(index: number, count: number, what: string): number {
  */
 
 /**
- * El inverso de un lote de parches se guarda por ENTIDAD, no por parche.
+ * El inverso de un lote de parches se guarda por ENTIDAD y POR CLAVE.
  *
  * Un lote puede traer el mismo id dos veces (arrastrar dos notas superpuestas, un
  * comando armado a mano, un parche que se fusiona con otro). La última mutación gana,
- * que es lo correcto, pero el inverso tiene que devolver el valor de ANTES de la
- * primera: si se apila, queda el valor que había entre medias y al deshacer sigue
- * habiendo un cambio musical puesto después de Ctrl+Z (medido en la tarjeta 004: nota
- * en key 60, parches [{key 61}, {key 62}], y al deshacer se quedaba en key 61).
+ * que es lo correcto, pero el inverso tiene que devolver los valores de ANTES de la
+ * primera vez que se vio cada uno: si se apila, queda el valor que había entre medias y
+ * al deshacer sigue habiendo un cambio musical puesto después de Ctrl+Z (medido en la
+ * tarjeta 004: nota en key 60, parches [{key 61}, {key 62}], y al deshacer se quedaba en
+ * key 61).
+ *
+ * Y por CLAVE, no solo por id: si el segundo parche del mismo id toca OTRO campo, ese
+ * campo también necesita su valor viejo (nota key 60/velocity 1, parches [{key 61},
+ * {velocity 0.2}]: guardando solo las claves del primero, el undo dejaba velocity 0.2).
  *
  * Se podría rechazar los ids repetidos, pero eso rompe los lotes legítimos que tocan
- * dos veces la misma entidad. Aquí se mantiene la última escritura y el inverso
- * conserva el PRIMER valor viejo, que es el único que devuelve al estado anterior.
+ * dos veces la misma entidad. Aquí se mantiene la última escritura y el inverso conserva
+ * el PRIMER valor viejo de cada clave, que es el único que devuelve al estado anterior.
+ *
+ * @param vistos qué claves se han guardado ya, por id (el `Map` se crea si no existe).
  */
 function anotarInverso<T extends { id: string }>(
   inverses: T[],
-  vistos: Set<string>,
+  vistos: Map<string, Set<string>>,
   id: string,
   patch: object,
   target: object,
 ): void {
-  // `pickOld` se calcula siempre (es barato y lee el estado real), pero al inverso
-  // solo entra la primera vez que se ve el id.
   const viejo = pickOld(target, patch as Partial<Record<string, unknown>>);
-  if (vistos.has(id)) return;
-  vistos.add(id);
-  inverses.push({ id, ...viejo } as T);
+  let claves = vistos.get(id);
+  if (claves === undefined) {
+    claves = new Set<string>();
+    vistos.set(id, claves);
+  }
+  const nuevo: Record<string, unknown> = {};
+  for (const [clave, valor] of Object.entries(viejo)) {
+    if (claves.has(clave)) continue;
+    claves.add(clave);
+    nuevo[clave] = valor;
+  }
+  if (Object.keys(nuevo).length === 0) return;
+  inverses.push({ id, ...nuevo } as T);
 }
 
 /**
@@ -714,7 +729,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const list = pattern.notes[cmd.channelId] ?? [];
       const byId = new Map(list.map((n) => [n.id, n]));
       const inversePatches: NotePatch[] = [];
-      const vistos = new Set<string>();
+      const vistos = new Map<string, Set<string>>();
       for (const patch of cmd.patches) {
         const note = byId.get(patch.id);
         if (!note) continue;
@@ -781,7 +796,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'patchClips': {
       const inversePatches: ClipPatch[] = [];
-      const vistos = new Set<string>();
+      const vistos = new Map<string, Set<string>>();
       for (const patch of cmd.patches) {
         const clip = project.clips[patch.id];
         if (!clip) continue;
@@ -945,7 +960,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'patchSections': {
       const inversePatches: SectionPatch[] = [];
-      const vistos = new Set<string>();
+      const vistos = new Map<string, Set<string>>();
       for (const patch of cmd.patches) {
         const section = project.sections[patch.id];
         if (!section) continue;
