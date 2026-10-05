@@ -247,16 +247,23 @@ export default [
   // archivos, así que se enciende sobre las dos puntas del camino y en cada
   // archivo arranca por sus propias entradas.
   //
-  // `kernel-core.ts` queda FUERA, y no por comodidad: su `process()` aplica el
-  // proyecto encolado entre bloques (`applyQueued` → `setSnapshot`), que aloca
-  // a propósito — lo dice la cabecera del propio archivo («setSnapshot()/
-  // mensajes, que corren entre bloques»). Encender la regla ahí serían ~60
-  // avisos que solo se pueden callar uno a uno, y un linter con sesenta
-  // silencios no vigila nada. Lo que protege ese archivo hoy es el test que ya
-  // existe (`packages/engine/test/input-routing-v1.test.ts`), que sustituye
-  // `globalThis.Float32Array` por una subclase que cuenta y exige 0 en 32
-  // bloques: eso mide el camino ENTERO en ejecución, cruzando módulos, que es
-  // justo lo que un linter no puede hacer. Las dos piezas se complementan.
+  // `kernel-core.ts` entra CON un barniz de excepciones, no a pelo. Su `process()`
+  // aplica el proyecto encolado entre bloques (`applyQueued` → `setSnapshot`), que
+  // aloca a propósito — lo dice la cabecera del propio archivo («setSnapshot()/
+  // mensajes, que corren entre bloques»). Encender la regla sin más serían ~60 avisos
+  // que solo se pueden callar uno a uno, y un linter con sesenta silencios no vigila
+  // nada. Lo que hay son NUEVE excepciones con bloque y motivo escrito (cambio de
+  // proyecto, cruce de loop/fin de arreglo, y el nacimiento de una voz: sin pool de
+  // voces, crearla aloca), y todo lo demás del archivo queda vigilado. Para que el
+  // barniz no se tragase el resto, la resolución de llamadas de la regla pasó a ser
+  // POR CLASE: en un archivo con la sala, la voz de plugin y las voces, un mismo
+  // nombre significa cosas distintas, y `setSnapshot` (que solo se llama desde los
+  // mensajes de control) se juzgaba como si fuera el hilo de audio.
+  //
+  // El test `packages/engine/test/input-routing-v1.test.ts` ya midía esto por otro
+  // lado (sustituye `globalThis.Float32Array` por una subclase que cuenta y exige 0),
+  // y el de BUG 008 cuenta además las VISTAS (`subarray`/`slice`), que ese otro no
+  // captura: por eso se colaron 52 por bloque. Las tres piezas se complementan.
   {
     files: [
       'packages/engine/src/worklet/**/*.ts',
