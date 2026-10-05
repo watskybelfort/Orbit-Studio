@@ -769,34 +769,28 @@ class Room {
   }
 
   /**
-   * Olvida la autoría de las entidades que ya no existen en el proyecto.
+   * La poda de la autoría ya NO vive aquí, y el motivo está escrito porque la
+   * versión que había era código muerto que parecía vivo.
    *
-   * El índice de autores guardaba una entrada por entidad creada y no soltaba
-   * ninguna: con muchas altas (y con reconexiones) crecía para siempre, y una sala
-   * larga acumulaba ids que nadie puede volver a borrar. Se poda cuando el proyecto
-   * ha cambiado, que es justo cuando hay algo que podar.
+   * Leía `meta.get('project')`, y en el Y.Doc no existe tal clave: el proyecto
+   * viaja en `meta.snapshot`, y solo se escribe al arrancar y al compactar. O sea
+   * que la lectura devolvía `undefined`, la guarda de la línea siguiente cortaba y
+   * el índice no borraba NUNCA —medido con una sonda sobre `Map.prototype.delete`:
+   * 20 altas y 20 bajas de canal, cero `delete`—. El test que la acompaña pasaba
+   * por vacuidad, porque afirmaba sobre la misma clave inexistente.
+   *
+   * Y cambiar `'project'` por `'snapshot'` no lo arregla, por un motivo que sale de
+   * la propia forma del dato: el snapshot va DETRÁS del log (no se escribe en cada
+   * cambio), así que al podar con él se borrarían autoría de entidades que sí
+   * existen, y el primer `restore*` propio del invitado caería en "como invitado no
+   * puedes borrar pistas ni patrones". Comprobado, no deducido.
+   *
+   * La poda que sí funciona es por BAJA ACEPTADA, en el recorrido de las entradas:
+   * cuando el servidor concede un comando que borra, esa entidad ya no existe y su
+   * autoría se suelta en el sitio donde ya se sabe eso. Es O(1) por borrado, no
+   * puede perder la autoría de una entidad viva, y un `restore*` vuelve a
+   * registrarla porque `collectCreations` ya la recorre.
    */
-  private podarAutores(): void {
-    if (this.ownCreations.size === 0) return;
-    const meta = this.doc.getMap<string>('meta');
-    const proyecto = meta.get('project');
-    if (typeof proyecto !== 'string') return; // aún no hay proyecto: no se sabe qué vive
-    const vivos = new Set<string>();
-    try {
-      const p = parseProject(proyecto);
-      for (const id of Object.keys(p.channels)) vivos.add(id);
-      for (const id of Object.keys(p.patterns)) vivos.add(id);
-      for (const id of Object.keys(p.playlistTracks)) vivos.add(id);
-      for (const id of Object.keys(p.arrangements)) vivos.add(id);
-      for (const id of Object.keys(p.channelGroups)) vivos.add(id);
-    } catch {
-      return; // un proyecto ilegible no se poda a ciegas
-    }
-    for (const id of [...this.ownCreations.keys()]) {
-      if (!vivos.has(id)) this.ownCreations.delete(id);
-    }
-  }
-
   get empty(): boolean {
     return this.conns.size === 0;
   }
@@ -1041,15 +1035,27 @@ class Room {
             reason: verdict.reason ?? 'Tu rol no permite ese cambio.',
             type: typeof raw?.type === 'string' ? raw.type : '?',
           });
-        } else if (cmd && entrantKey !== undefined) {
-          // Entrada aceptada: se apunta lo que crea bajo su autor, para poder
-          // juzgar después si un borrado suyo con `own` es legítimo.
-          for (const id of collectCreations(cmd)) this.ownCreations.set(id, autor);
+        } else if (cmd) {
+          // Entrada ACEPTADA. Primero lo que borra, después lo que crea.
+          //
+          // Lo que borra es lo que suelta la autoría (S10, la parte que quedaba
+          // abierta): la entidad ya no existe, así que su autoría no puede volver a
+          // legitimar un `own: true` sobre ella, y el índice tiene que soltarla o
+          // crece una entrada por entidad creada, para siempre.
+          //
+          // Y el orden importa: en un lote que quita y vuelve a poner el MISMO id,
+          // gana lo que crea, porque al final la entidad existe y existe por este
+          // comando.
+          for (const id of collectTrackDeletions(cmd)) this.ownCreations.delete(id);
+          if (entrantKey !== undefined) {
+            // Se apunta lo que crea bajo su autor, para poder juzgar después si un
+            // borrado suyo con `own` es legítimo.
+            for (const id of collectCreations(cmd)) this.ownCreations.set(id, autor);
+          }
         }
         index++;
       }
     }
-    this.podarAutores();
 
     // La clave de idempotencia se juzga DESPUÉS del recorrido, sobre el log ya
     // insertado: hay que compararla con las entradas que ya estaban, y para eso

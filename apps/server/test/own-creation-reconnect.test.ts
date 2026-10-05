@@ -32,7 +32,7 @@ import {
   parseControl,
   type ControlMessage,
 } from '@orbit/collab';
-import { applyCommand, createEmptyProject, type Channel } from '@orbit/core';
+
 import { startServer, type ServerHandle } from '../src/index';
 
 const ROOM = 'J7M2QD';
@@ -174,18 +174,19 @@ async function serve(): Promise<ServerHandle> {
   return handle;
 }
 
-function canal(id: string, nombre: string): Record<string, unknown> {
+function patron(id: string, nombre: string): Record<string, unknown> {
+  return { id, name: nombre, color: '#5aa9e6', length: 4, notes: {} };
+}
+
+function pista(id: string, order: number): Record<string, unknown> {
   return {
     id,
-    name: nombre,
-    color: '#5aa9e6',
-    kind: 'synth',
-    params: {},
-    volume: 0.78,
-    pan: 0,
-    mute: false,
-    solo: false,
-    mixerTrack: 0,
+    arrangementId: 'ar1',
+    name: id,
+    color: '#fff',
+    height: 56,
+    muted: false,
+    order,
   };
 }
 
@@ -269,7 +270,26 @@ describe('011 · la autoría sobrevive al corte de red del autor', () => {
     expect(vuelve.denegados.join(' ')).toMatch(/invitado|borrar|productor/);
   });
 
-  it('el índice de autores se poda: lo que ya no existe no se guarda', async () => {
+  it('borrar una entidad suelta su autoría del índice (S10, la parte que faltaba)', async () => {
+    // Esta es la parte de S10 que quedaba abierta, y el test que la cubría NO LA
+    // CUBRÍA: afirmaba sobre `meta.get('project')`, una clave que nadie escribe (el
+    // proyecto va en `meta.snapshot`), así que leía `undefined`,
+    // `String(undefined ?? '')` daba `''` y `expect('').not.toContain('"c1"')`
+    // pasaba por vacuidad. Medido con una sonda sobre `Map.prototype.delete`: la
+    // poda no borraba NUNCA.
+    //
+    // No se afirma sobre el TAMAÑO del índice —es privado de `Room`, y `ServerHandle`
+    // no expone las salas, así que no hay forma limpia de mirarlo sin abrir la
+    // clase—. Se afirma sobre el `delete`, que es la operación cuya ausencia era el
+    // bug: una vez concededora, el índice suelta la entidad que ya no existe.
+    //
+    // Y una nota sobre la prueba que NO es esta, porque es la que se escribió primero
+    // y es capaz de pasar sin el arreglo: «el invitado borra `p1`, el productor
+    // recrea `p1`, el invitado lo vuelve a borrar con `own` y se deniega» FUNCIONA
+    // sin la poda, porque al recrearlo, el alta del PRODUCTOR SOBREESCRIBE la
+    // autoría de `p1` en el índice. La basura de la autoría vieja no se nota por ahí.
+    // Lo que la distingue de verdad es el crecimiento, y eso se mide como se puede:
+    // contando los `delete`.
     const server = await serve();
     const host = new Peer(server.port, 'host');
     await host.open();
@@ -286,26 +306,72 @@ describe('011 · la autoría sobrevive al corte de red del autor', () => {
     invitado.enviarControl({ type: 'joinInvite', token: token! });
     await sleep(350);
 
-    // Crea un canal y lo borra enseguida: su autoria ya no puede servir de nada,
-    // asi que el indice no deberia seguir guardandola.
-    invitado.meterCrudo({ type: 'addChannel', channel: canal('c1', 'efímero') });
-    await sleep(350);
-    invitado.meterCrudo({ type: 'removeChannel', channelId: 'c1', own: true });
-    await sleep(450);
+    // Se espía `Map.prototype.delete` porque es lo único que empuja la puerta desde
+    // fuera: `Room.ownCreations` es un `Map` y no hay getter. Se filtra por la clave
+    // para no contar los `delete` que hace Yjs por su cuenta.
+    const borradas: unknown[] = [];
+    const real = Map.prototype.delete;
+    Map.prototype.delete = function espia(this: Map<unknown, unknown>, key: unknown): boolean {
+      borradas.push(key);
+      return real.call(this, key);
+    };
 
-    // El proyecto del host ya no tiene ese canal, y el borrado se concedio (es suyo).
-    const proyecto = String(host.doc.getMap<string>('meta').get('project') ?? '');
-    expect(proyecto).not.toContain('"c1"');
-    expect(host.log.some((e) => e.cmd.type === 'removeChannel')).toBe(true);
+    try {
+      // El invitado crea una pista y la borra enseguida (puede: es suya).
+      invitado.meterCrudo({ type: 'addPlaylistTrack', track: pista('t-efimera', 0) });
+      await sleep(350);
+      invitado.meterCrudo({ type: 'removePlaylistTrack', trackId: 't-efimera', own: true });
+      await sleep(450);
+
+      // El borrado entró (era suyo de verdad)...
+      expect(host.log.some((e) => e.cmd.type === 'removePlaylistTrack')).toBe(true);
+      expect(invitado.denegados).toEqual([]);
+      // ...y al concederlo el índice soltó la entidad, que ya no existe.
+      expect(borradas).toContain('t-efimera');
+    } finally {
+      Map.prototype.delete = real;
+    }
+  });
+
+  it('el mismo id quitado y repuesto en un lote conserva la autoría del que lo repuso', async () => {
+    // El orden de la poda: primero lo que borra, después lo que crea. Si fuera al
+    // revés, un lote que quita y vuelve a poner el mismo id se quedaría SIN autoría
+    // de una entidad que existe, y su autor no podría deshacerla — que es el bug
+    // que `87975f7` vino a cerrar, reintroducido por el otro lado.
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+    await sleep(150);
+    host.enviarControl({ type: 'setPassword', auth: await makeRoomAuth('secreto') });
+    await sleep(250);
+    host.enviarControl({ type: 'createInvite', ttlMs: 600000, uses: 2 });
+    await sleep(350);
+    const token = tokenDe(host);
+    expect(token).toBeDefined();
+
+    const invitado = new Peer(server.port, 'invitado');
+    await invitado.open();
+    invitado.enviarControl({ type: 'joinInvite', token: token! });
+    await sleep(350);
+
+    // El invitado se quita y se repone su propia pista en un solo lote.
+    invitado.meterCrudo({ type: 'addPlaylistTrack', track: pista('t1', 0) });
+    await sleep(350);
+    invitado.meterCrudo({
+      type: 'batch',
+      label: 'reponer',
+      commands: [
+        { type: 'removePlaylistTrack', trackId: 't1', own: true },
+        { type: 'addPlaylistTrack', track: pista('t1', 0) },
+      ],
+    });
+    await sleep(450);
     expect(invitado.denegados).toEqual([]);
 
-    // Lo que NO se mide desde aqui: el tamano del indice de autores, que es privado
-    // del Room y el harness no expone. Lo que si se comprueba es que la poda no rompe
-    // nada: con el indice limpio, autor.create -> remove -> undo sigue siendo suyo.
-    const inverse = applyCommand(createEmptyProject(), {
-      type: 'addChannel',
-      channel: { ...(canal('c2', 'otro') as unknown as Channel) },
-    });
-    expect(inverse.type).toBe('removeChannel');
+    // Y la pista sigue siendo suya: puede deshacerla.
+    invitado.meterCrudo({ type: 'removePlaylistTrack', trackId: 't1', own: true });
+    await sleep(450);
+    expect(host.log.filter((e) => e.cmd.type === 'removePlaylistTrack').length).toBe(1);
+    expect(invitado.denegados).toEqual([]);
   });
 });
