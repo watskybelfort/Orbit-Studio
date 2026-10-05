@@ -37,7 +37,7 @@ import { esUnset } from './unset';
 export type Forma = `${Clase}` | `?${Clase}` | `${Clase}|null` | `?${Clase}|null`;
 
 type Clase =
-  | 'num' | 'str' | 'bool' | 'id' | 'id[]'
+  | 'num' | 'str' | 'bool' | 'id' | 'id[]' | 'num[]'
   | 'mapa' | 'mapa:num' | 'mapa:notas'
   | 'obj'
   | `ent:${Entidad}`
@@ -326,6 +326,14 @@ export function checkForma(valor: unknown, forma: Forma, ruta: string): Problema
       return Array.isArray(valor) && valor.every((id) => typeof id === 'string')
         ? null
         : { field: ruta, expected: 'una lista de ids' };
+    case 'num[]':
+      // Una lista de enteros, como el `at` de `restoreNotes` (dónde estaba cada nota
+      // en la lista de origen). Un `indexOf` que devuelve -1 es un entero y pasa: lo
+      // que no puede pasar es un `NaN` o un `null` colados en el hueco, que al
+      // indexar la lista se comían una nota sin decírselo a nadie.
+      return Array.isArray(valor) && valor.every(esNumero)
+        ? null
+        : { field: ruta, expected: 'una lista de números' };
     case 'obj':
       return esObjetoPlano(valor) ? null : { field: ruta, expected: 'un objeto' };
     case 'mapa':

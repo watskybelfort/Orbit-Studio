@@ -41,11 +41,11 @@ describe('018 · un tipo de comando que no existe no es un comando', () => {
     expect(isCommand({ type: 'doesNotExist' })).toBe(false);
   });
 
-  it('el enum de runtime tiene los 61 comandos y ninguno más', () => {
+  it('el enum de runtime tiene los 62 comandos y ninguno más', () => {
     // El número viene de la unión `Command`: si mañana se añade un tipo sin fila
     // en la tabla, el COMPILADOR falla, y esta cuenta avisa de que la tabla y la
     // unión siguen de acuerdo.
-    expect(COMMAND_TYPES.size).toBe(61);
+    expect(COMMAND_TYPES.size).toBe(62);
     expect(COMMAND_TYPES.has('batch')).toBe(true);
     expect(COMMAND_TYPES.has('doesNotExist')).toBe(false);
   });
@@ -174,6 +174,31 @@ describe('018 · campos que faltan o vienen del tipo que no', () => {
   });
 });
 
+describe('018 · el `at` de restoreNotes se mira por dentro, no solo que sea lista', () => {
+  // `at` son las posiciones de origen de las notas borradas: si un hueco llega a ser
+  // `null` o `NaN`, al indexar la lista se come una nota sin avisar, y el undo deja
+  // el patrón en un orden que el usuario no pidió.
+  const base = { type: 'restoreNotes', patternId: 'p', channelId: 'c', notes: [] };
+
+  it('una lista de enteros, y el -1 de un indexOf que no encontró, también', () => {
+    expect(commandProblem({ ...base, at: [0, 3, -1] })).toBeNull();
+  });
+
+  it('sin `at` también vale: es opcional de verdad, no "vacía"', () => {
+    expect(commandProblem(base)).toBeNull();
+  });
+
+  it.each([
+    [null, /no es null/],
+    [{}, /una lista de números/],
+    [[0, null], /una lista de números/],
+    [[0, 'x'], /una lista de números/],
+    [[0, NaN], /una lista de números/],
+  ])('un hueco malo se dice con su nombre: %s', (at, motivo) => {
+    expect(commandProblem({ ...base, at })).toMatch(motivo);
+  });
+});
+
 describe('018 · el presupuesto de nodos aguanta un lote musical de verdad', () => {
   // No vale decir "tres órdenes de magnitud de margen" sin medirlo: aquí se
   // cuentan los nodos de los lotes más PESADOS que genera la app y se compara con
@@ -245,6 +270,19 @@ describe('018 · el presupuesto de nodos aguanta un lote musical de verdad', () 
 });
 
 describe('018 · cada tipo de comando con su comando mínimo', () => {
+  it('la lista de mínimos cubre la tabla entera, en los dos sentidos', () => {
+    // El compilador ya obliga a que la tabla tenga fila para cada tipo de la unión,
+    // pero no obliga a que la lista de MÍNIMOS de este archivo la cubra: una fila
+    // puede quedarse sin comprobar dos veces (la que se añadió al rebasear un
+    // commit ajeno). Si esa fila declarara mal un campo, el test de abajo no lo
+    // vería porque simplemente no la recorre. Los dos conjuntos tienen que ser el
+    // mismo, y en los dos sentidos: ni una fila sin mínimo, ni un mínimo de un tipo
+    // que ya no existe (una fila que se quedó cuando el comando se renombró).
+    const deLaTabla = [...COMMAND_TYPES].sort();
+    const deLaLista = minimos().map(([tipo]) => tipo).sort();
+    expect(deLaLista).toEqual(deLaTabla);
+  });
+
   it('ninguno revienta al aplicarse por leer un campo que no trae', () => {
     // El campo obligatorio de cada fila se rellena con lo mínimo plausible y se
     // aplica contra un proyecto vacío. Lo que se comprueba es que el bus no
@@ -295,6 +333,7 @@ function minimos(): [string, Record<string, unknown>][] {
     ['patchPattern', { patternId: id(), patch: {} }],
     ['addNotes', { patternId: id(), channelId: id(), notes: [] }],
     ['removeNotes', { patternId: id(), channelId: id(), noteIds: [] }],
+    ['restoreNotes', { patternId: id(), channelId: id(), notes: [], at: [] }],
     ['patchNotes', { patternId: id(), channelId: id(), patches: [] }],
     ['addPlaylistTrack', { track: pistaCompleta() }],
     ['removePlaylistTrack', { trackId: id() }],

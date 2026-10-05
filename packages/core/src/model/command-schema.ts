@@ -60,6 +60,7 @@ const FORMAS: Record<Command['type'], Record<string, Forma>> = {
   patchPattern: { patternId: 'id', patch: 'patch:pattern' },
   addNotes: { patternId: 'id', channelId: 'id', notes: 'lista:note' },
   removeNotes: { patternId: 'id', channelId: 'id', noteIds: 'id[]' },
+  restoreNotes: { patternId: 'id', channelId: 'id', notes: 'lista:note', at: '?num[]' },
   patchNotes: { patternId: 'id', channelId: 'id', patches: 'lista:patchid:note' },
   // Playlist
   addPlaylistTrack: { track: 'ent:playlistTrack' },
