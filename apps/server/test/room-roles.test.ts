@@ -122,21 +122,31 @@ describe('validación de entradas del log', () => {
   it('una entrada con id heredado no entra al log, ni del productor', () => {
     // BUG 016: `project.clips['__proto__']` devuelve el prototipo, no `undefined`,
     // así que un patch con ese id escribía sobre `Object.prototype` al aplicar.
+    // El bus ya lo rechaza, pero la entrada se reparte y se REGISTRA: si el
+    // servidor la aceptara, el log guardaría el comando que todos van a rechazar y
+    // los peers divergirían según quién lo aplicara antes.
+    //
+    // Las entidades van COMPLETAS porque la forma se juzga con las tablas de
+    // `model/entity-schema.ts`, las mismas que validan un `.orbit`: un patch de clip
+    // a medias se rechaza antes incluso de mirar el id, y la prueba no mediría lo
+    // que dice medir.
     const id = '__proto__';
+    const clip = { id, kind: 'pattern', playlistTrackId: 't1', start: 0, length: 4, muted: false };
+    const canal = {
+      id, name: 'C', color: 'rojo', kind: 'synth', params: {}, volume: 1, pan: 0,
+      mute: false, solo: false, mixerTrack: 1,
+    };
     const entradas = [
-      { type: 'patchClips', patches: [{ id, start: 9 }] },
-      { type: 'addChannel', channel: { id } },
+      { type: 'patchClips', patches: [{ ...clip, start: 9 }] },
+      { type: 'addChannel', channel: canal },
       { type: 'removeClips', clipIds: [id] },
       { type: 'patchChannel', channelId: id, patch: { volume: 0.5 } },
     ] as const;
-    // El bus ya rechaza esto al aplicar, pero la entrada se reparte y se
-    // REGISTRA: si el servidor la aceptara, el log guardaría el comando que
-    // todos van a rechazar y los peers divergirían según quién lo aplicó antes.
     for (const cmd of entradas) {
       for (const role of ['productor', 'invitado', 'oyente'] as const) {
-        const v = checkEntry({ cmd, client: 5, seq: 1, role }, role, true);
-        expect(v.allowed).toBe(false);
-        expect(v.reason).toContain(id);
+        const veredicto = checkEntry({ cmd, client: 5, seq: 1, role }, role, true);
+        expect(veredicto.allowed).toBe(false);
+        expect(veredicto.reason).toContain(id);
       }
     }
     expect(({} as Record<string, unknown>).start).toBeUndefined();

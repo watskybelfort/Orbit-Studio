@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand } from '../src/commands';
 import { createChannel, createEmptyProject } from '../src/model/defaults';
 import { newId } from '../src/ids';
+import { UNSET } from '../src/model/unset';
 import {
   anyChannelSoloOn,
   busOfChannel,
@@ -290,7 +291,13 @@ describe('bus de carpeta — por el bus de comandos, con su inverso', () => {
       patch: { mute: true, solo: true },
     });
     expect(JSON.parse(JSON.stringify(inverse))).toEqual(inverse);
-    expect(inverse).toMatchObject({ patch: { mute: false, solo: false } });
+    // El inverso dice explícitamente "borra estas claves" (marca UNSET), no un
+    // `false` de neutra: lo que había antes de mutear la carpeta es que no estaba
+    // mutada, y eso es ausencia de campo, no un false escrito.
+    expect(inverse).toMatchObject({ patch: { mute: UNSET, solo: UNSET } });
+    applyCommand(project, inverse);
+    expect(project.channelGroups[g.id]).not.toHaveProperty('mute');
+    expect(project.channelGroups[g.id]).not.toHaveProperty('solo');
   });
 
   it('mute y solo de la carpeta también tienen inverso', () => {

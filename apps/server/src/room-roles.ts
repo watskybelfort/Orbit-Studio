@@ -16,7 +16,7 @@
  */
 
 import { checkRole, trackDeletionTargets, type CollabRole } from '@orbit/collab';
-import { assertNoReservedIds, type Command, type Id } from '@orbit/core';
+import { assertNoReservedIds, commandProblem, type Command, type Id } from '@orbit/core';
 
 /** Rol de quien entra en una sala que ya tiene productor. */
 export const JOIN_ROLE: CollabRole = 'invitado';
@@ -145,6 +145,30 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: bo
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return { allowed: false, reason: 'Entrada sin comando válido.' };
   }
+  // La FORMA primero: un tipo de comando inexistente o un `commands: null`
+  // llegaban al switch y devolvían `undefined` —quien espera un inverso se come
+  // un `undefined` sin saber de dónde— o reventaban al reproducir el lote, desde
+  // el SOCKET y sin red detrás. Con el motivo en la respuesta y sin tocar el
+  // log (BUG 018).
+  //
+  // Y con una barrera más: si el validador REVienta (un hueco suyo, no del
+  // comando), la entrada se rechaza igual, con el motivo. Antes la excepción se
+  // subía al manejador del mensaje, que la cazaba y ya está: la entrada quedaba
+  // APLICADA en el doc, repartida a todos y guardada en el .bin, sin `denied`
+  // para nadie (medido con `{kind:'toString'}` en un `addLfos`: log 4→7 y
+  // `denied` vacío). Un validador que no puede opinar no es permiso para entrar.
+  let problema: string | null;
+  try {
+    problema = commandProblem(cmd);
+  } catch (error) {
+    return {
+      allowed: false,
+      reason: `Comando que no se puede juzgar: ${(error as Error).message}`,
+    };
+  }
+  if (problema !== null) {
+    return { allowed: false, reason: `Comando inválido: ${problema}` };
+  }
   // Un id RESERVADO no puede entrar en el log. El bus de core ya lo rechaza al
   // aplicar, pero aquí importa otra cosa: la entrada se reparte a TODOS los
   // peers y se registra, así que si el servidor la aceptara y el bus la
@@ -158,18 +182,51 @@ export function checkEntry(entry: RawLogEntry, role: CollabRole, ownCreation: bo
   return checkRole(role, cmd as Command, { ownCreation });
 }
 
-/** Comando válido con `type` string, o null. Puro, para el registro de dueños. */
+/**
+ * Comando con `type` string Y con la FORMA que el bus puede aplicar, o `null`.
+ *
+ * El filtro de forma no es una segunda barrera, es la primera: el servidor usa
+ * esto para saber qué borra o crea una entrada ANTES de juzgarla, así que un
+ * `batch` con `commands: [null]` o un `addChannel` con `channel: null` llegaban
+ * al recorrido y reventaban al leer `cmd.type`. Aquí se cortan; el motivo lo da
+ * `checkEntry` cuando la entrada se retira del log.
+ */
 export function entryCommand(entry: RawLogEntry): Command | null {
   const cmd = entry.cmd;
   if (typeof cmd !== 'object' || cmd === null || typeof (cmd as Command).type !== 'string') {
     return null;
   }
+  try {
+    if (commandProblem(cmd) !== null) return null;
+  } catch {
+    // Misma razón que en `checkEntry`: si el validador no puede opinar, el comando
+    // no entra (y así tampoco se recorre para decidir qué borra).
+    return null;
+  }
   return cmd as Command;
+}
+
+/**
+ * Los subcomandos de un lote, o una lista VACÍA si `commands` no es una lista.
+ *
+ * Un lote llega por el socket, y estos walked se ejecutan ANTES de que el
+ * validador de forma juzgue la entrada (el servidor necesita saber qué borra el
+ * comando para decidir `ownCreation`). Si aquí se hiciera `.flatMap` a ciegas, un
+ * `commands: null` reventaba la excepción DENTRO del manejador de Yjs y el
+ * comando se quedaba en el log: justo lo que la tarjeta dice que pasaba. Con
+ * esto, la excepción la lanza el validador, con nombre y sin tocar la sala.
+ */
+function batchDe(cmd: Command): Command[] {
+  // El `as` es porque `Array.isArray` no estrecha el union de `Command`, y aquí la
+  // pregunta es justo si lo que trae es una lista: no se puede dar por supuesto
+  // viniendo de la red.
+  const subs = (cmd as { commands?: unknown }).commands;
+  return Array.isArray(subs) ? (subs as Command[]) : [];
 }
 
 /** Ids de pista/patrón que borra un comando (recursivo en batches). */
 export function collectTrackDeletions(cmd: Command): Id[] {
-  if (cmd.type === 'batch') return cmd.commands.flatMap(collectTrackDeletions);
+  if (cmd.type === 'batch') return batchDe(cmd).flatMap(collectTrackDeletions);
   return trackDeletionTargets(cmd);
 }
 
@@ -193,7 +250,7 @@ export function collectCreations(cmd: Command): Id[] {
     case 'restoreArrangement':
       return [cmd.arrangement.id];
     case 'batch':
-      return cmd.commands.flatMap(collectCreations);
+      return batchDe(cmd).flatMap(collectCreations);
     default:
       return [];
   }

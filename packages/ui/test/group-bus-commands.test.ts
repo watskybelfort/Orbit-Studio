@@ -67,7 +67,9 @@ describe('estrenar el bus de una carpeta', () => {
     expect(project.mixer[1]!.name).toBe('Drums');
 
     applyCommand(project, inverse);
-    expect(project.channelGroups[g.id]!.busTrack).toBe(0);
+    // El inverso BORRA el campo en vez de reponer un 0 de neutra: lo que había
+    // antes de darle un bus es que la carpeta no tenía bus.
+    expect(project.channelGroups[g.id]).not.toHaveProperty('busTrack');
     expect(project.mixer[1]!.name).toBe('Insert 1');
   });
 

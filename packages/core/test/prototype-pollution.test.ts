@@ -141,9 +141,15 @@ describe('016 · el bus rechaza ids reservados antes de mutar', () => {
           id: 'clip1',
           trackId: 't1',
           start: 0,
+          kind: 'pattern',
+          playlistTrackId: 't1',
+          muted: false,
+          length: 4,
           pattern: {
-            id: 'pat1',
-            notes: [{ id: '__proto__', key: 60, start: 0, length: 1, velocity: 100 }],
+            id: 'pat1', name: 'P', color: 'rojo', length: 4,
+            notes: {
+              c1: [{ id: '__proto__', key: 60, start: 0, duration: 1, velocity: 1, pan: 0, slide: false }],
+            },
           },
         },
       ],

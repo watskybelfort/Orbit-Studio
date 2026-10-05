@@ -22,6 +22,7 @@
 import * as Y from 'yjs';
 import {
   applyCommand,
+  commandProblem,
   parseProject,
   serializeProject,
   type Command,
@@ -132,7 +133,6 @@ export function applyLogAlProyecto(
   return claves;
 }
 
-
 /**
  * Ids de pistas/patrones que borra un comando, entrando también en los lotes.
  *
@@ -142,10 +142,10 @@ export function applyLogAlProyecto(
  * aplicar —la sala se quedaba a medias y sin avisar—. Con la lista vacía, lo que
  * no se puede recorrer no borra nada y el comando se juzga por su forma después.
  */
-
 function collectTrackDeletions(cmd: Command): Id[] {
   if (cmd.type === 'batch') {
-    return cmd.commands.flatMap((sub) => collectTrackDeletions(sub));
+    const subs = Array.isArray(cmd.commands) ? cmd.commands : [];
+    return subs.flatMap((sub) => collectTrackDeletions(sub));
   }
   return trackDeletionTargets(cmd);
 }
@@ -351,7 +351,26 @@ export class CommandLogBinding {
    * clientes (rol y `own` viajan sellados en la entrada), así que un comando
    * rechazado se rechaza en todas partes y la convergencia se mantiene.
    */
+  /**
+   * ¿Se puede siquiera intentar esta entrada?
+   *
+   * El filtro de FORMA va antes que el de rol a propósito: `checkRole` recorre el
+   * lote (`for (const sub of cmd.commands)`) y el registro de dueños lee
+   * `cmd.channel.id`, así que una entrada con `commands: [null]` o `channel: null`
+   * —que escribe la red— reventaba ahí dentro. Con la forma delante, la entrada
+   * malformada se descarta aquí y la delega quien puede darla: el servidor, que
+   * la retira del log y avisa con el motivo.
+   */
   private entryAllowed(entry: LogEntry): boolean {
+    // Y con la misma barrera que el servidor: un validador que revienta no es permiso
+    // para aplicar la entrada. Sin esto, una excepción aquí se tragaba el registro de
+    // esa entrada y el resto del log seguía, con el comando inválido dentro.
+    try {
+      if (commandProblem(entry.cmd) !== null) return false;
+    } catch (err) {
+      console.warn('[collab] comando que no se puede juzgar, se descarta:', err);
+      return false;
+    }
     const role = isCollabRole(entry.role) ? entry.role : DEFAULT_ROLE;
     return checkRole(role, entry.cmd, { ownCreation: entry.own === true }).allowed;
   }
@@ -378,7 +397,11 @@ export class CommandLogBinding {
         this.ownCreations.add(cmd.arrangement.id);
         break;
       case 'batch':
-        for (const sub of cmd.commands) this.rememberOwnCreations(sub);
+        // Misma regla que arriba: si `commands` no es una lista, no se recuerda
+        // nada de ese lote. Nadie va a depender de recordar lo que no se pudo leer.
+        if (Array.isArray(cmd.commands)) {
+          for (const sub of cmd.commands) this.rememberOwnCreations(sub);
+        }
         break;
       default:
         break;

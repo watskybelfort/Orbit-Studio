@@ -135,7 +135,11 @@ export function checkRole(
   }
 
   // invitado
+  // `commands` viene de la red y puede no ser una lista: un lote mal formado no
+  // autoriza nada (ni lo recorre nadie). Quien lo rechaza por su nombre es el
+  // validador de forma, antes de que esto decida nada.
   if (cmd.type === 'batch') {
+    if (!Array.isArray(cmd.commands)) return ALLOWED;
     for (const sub of cmd.commands) {
       const verdict = checkRole(role, sub, ctx);
       if (!verdict.allowed) return verdict;

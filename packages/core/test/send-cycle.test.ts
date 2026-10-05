@@ -37,8 +37,10 @@ describe('conexiones del mixer: ningún comando puede cerrar un ciclo', () => {
 
   it.each([-1, 999, 1.5, NaN])('rechaza destinos fuera de rango: %s', (target) => {
     const project = createEmptyProject();
-    expect(() => applyCommand(project, { type: 'setSend', trackIndex: 1, target, level: 1 })).toThrow(/rango/);
-    expect(() => applyCommand(project, { type: 'patchMixerTrack', trackIndex: 1, patch: { routeTo: target } })).toThrow(/rango/);
+    // NaN falla en el esquema antes de mirar el rango de la conexión.
+    const problem = Number.isNaN(target) ? /un número/ : /rango/;
+    expect(() => applyCommand(project, { type: 'setSend', trackIndex: 1, target, level: 1 })).toThrow(problem);
+    expect(() => applyCommand(project, { type: 'patchMixerTrack', trackIndex: 1, patch: { routeTo: target } })).toThrow(problem);
     expect(project.mixer[1]!.sends).toEqual([]);
     expect(project.mixer[1]!.routeTo).toBe(0);
   });

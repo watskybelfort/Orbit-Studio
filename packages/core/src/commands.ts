@@ -31,6 +31,8 @@ import type { InputRoute } from './model/input-routing';
 import { MAX_INPUT_ROUTES } from './model/input-routing';
 import { wouldLoop } from './model/routing';
 import { assertNoReservedIds } from './model/entity-id';
+import { commandProblem } from './model/command-schema';
+import { UNSET, esUnset } from './model/unset';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -342,32 +344,50 @@ function assertIdsNuevos<T extends { id: string }>(
   }
 }
 
-function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
-  const old: Record<string, unknown> = {};
-  for (const k of Object.keys(patch)) {
-    old[k] = (target as Record<string, unknown>)[k];
+/**
+ * MARCA DE BORRADO, explicita y serializable.
+ *
+ * El problema: un patch puede quitar un campo opcional (`groupId`, `busTrack`,
+ * `kind` de una seccion...), y su inverso lo escribia como `undefined`.
+ * Localmente eso funciona, pero el comando de la sala **se serializa** y
+ * `JSON.stringify` borra toda clave que vale `undefined`: el peer recibia
+ * `{ patch: {} }`, no deshacia nada y se quedaba con el campo puesto mientras el
+ * que deshacia se lo quitaba. El undo compartido divergia segun el cliente.
+ *
+ * Antes lo tapaba `neutralizeGroupPatch`, que reponia un valor neutro (0, false)
+ * para tres campos de las carpetas: cubria solo carpetas, y ademas no era el
+ * estado real - lo que habia antes de "darle un bus" es que NO habia bus.
+ *
+ * Ahora el inverso dice explicitamente "borra esta clave" con esta marca, y un
+ * solo sitio (`applyPatch`) la cumple para TODAS las familias de patch.
+ */
+
+/** Aplica un patch a una entidad: la marca borra, el resto escribe. */
+function applyPatch<T extends object>(target: T, patch: Partial<T>): void {
+  for (const [key, value] of Object.entries(patch as Record<string, unknown>)) {
+    // La marca borra la clave. Y `undefined` también la quita: es lo que usa el
+    // motor para dejar un opcional vacío (`patchChannel` con `sampleId: undefined`
+    // saca la muestra del canal) y no es "escribir un undefined".
+    //
+    // Lo que NO puede pasar es vaciar un OBLIGATORIO, y eso no se arregla aquí sino
+    // en la puerta: `commandProblem` rechaza `undefined` y la marca sobre un campo
+    // obligatorio (ver `entityProblem`), así que lo que llega a esta función ya ha
+    // sido juzgado.
+    if (esUnset(value) || value === undefined) delete (target as Record<string, unknown>)[key];
+    else (target as Record<string, unknown>)[key] = value;
   }
-  return old as Partial<T>;
 }
 
-/**
- * Los tres campos opcionales de una carpeta (`busTrack`, `mute`, `solo`) tienen
- * un valor NEUTRO explícito, y el inverso de un patch lo usa en vez del
- * `undefined` que devuelve `pickOld` cuando la carpeta no traía el campo.
- *
- * No es cosmética: el inverso viaja a la sala serializado, y `JSON.stringify`
- * borra las claves que valen `undefined`. Sin esto, deshacer "dale un bus a la
- * batería" quitaba el bus aquí y no lo quitaba en el resto de clientes — el
- * comando llegaba con el patch vacío.
- */
-function neutralizeGroupPatch(
-  patch: Partial<Omit<ChannelGroup, 'id'>>,
-): Partial<Omit<ChannelGroup, 'id'>> {
-  const out = { ...patch };
-  if ('busTrack' in out && out.busTrack === undefined) out.busTrack = 0;
-  if ('mute' in out && out.mute === undefined) out.mute = false;
-  if ('solo' in out && out.solo === undefined) out.solo = false;
-  return out;
+function pickOld<T extends object>(target: T, patch: Partial<T>): Partial<T> {
+  const old: Record<string, unknown> = {};
+  const actual = target as Record<string, unknown>;
+  for (const k of Object.keys(patch)) {
+    // Un valor ausente o `undefined` es lo mismo que no tener el campo, y por eso
+    // el inverso lleva la marca de borrado y no un `undefined` que el JSON tira.
+    const valor = actual[k];
+    old[k] = valor === undefined ? UNSET : valor;
+  }
+  return old as Partial<T>;
 }
 
 /**
@@ -391,6 +411,15 @@ function channelFx(channel: Channel): (EffectSlot | null)[] {
 // ── applyCommand ─────────────────────────────────────────────────────────────
 
 export function applyCommand(project: Project, cmd: Command): Command {
+  // Antes de mutar NADA, y por este orden: primero la FORMA (¿esto es siquiera
+  // un comando del bus?) y después los ids. Un tipo desconocido o un `commands:
+  // null` llegaban hasta el switch y devolvían `undefined` —el que espera un
+  // inverso se comía un `undefined` sin saber de dónde— o reventaban al
+  // reproducir el lote. Ver `model/command-schema.ts` (BUG 018).
+  const problema = commandProblem(cmd);
+  if (problema !== null) {
+    throw new Error(`Comando inválido: ${problema}`);
+  }
   // Antes de mutar NADA: un id reservado (una clave heredada) en cualquier
   // campo de id se rechaza con su nombre, así que el proyecto y el historial
   // quedan intactos y el prototipo global no se toca (ver `model/entity-id.ts`:
@@ -497,9 +526,9 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const inverse: Command = {
         type: 'patchChannelGroup',
         groupId: cmd.groupId,
-        patch: neutralizeGroupPatch(pickOld(group, cmd.patch)),
+        patch: pickOld(group, cmd.patch),
       };
-      Object.assign(group, cmd.patch);
+      applyPatch(group, cmd.patch);
       return inverse;
     }
     case 'patchChannel': {
@@ -509,7 +538,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         channelId: cmd.channelId,
         patch: pickOld(channel, cmd.patch),
       };
-      Object.assign(channel, cmd.patch);
+      applyPatch(channel, cmd.patch);
       return inverse;
     }
     case 'setChannelParam': {
@@ -577,7 +606,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         slotIndex: cmd.slotIndex,
         patch: pickOld(slot, cmd.patch),
       };
-      Object.assign(slot, cmd.patch);
+      applyPatch(slot, cmd.patch);
       return inverse;
     }
     case 'setChannelEffectParam': {
@@ -645,7 +674,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         patternId: cmd.patternId,
         patch: pickOld(pattern, cmd.patch),
       };
-      Object.assign(pattern, cmd.patch);
+      applyPatch(pattern, cmd.patch);
       return inverse;
     }
 
@@ -734,7 +763,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         const note = byId.get(patch.id);
         if (!note) continue;
         anotarInverso<NotePatch>(inversePatches, vistos, patch.id, patch, note);
-        Object.assign(note, patch);
+        applyPatch(note, patch);
       }
       return {
         type: 'patchNotes',
@@ -771,7 +800,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         trackId: cmd.trackId,
         patch: pickOld(track, cmd.patch),
       };
-      Object.assign(track, cmd.patch);
+      applyPatch(track, cmd.patch);
       return inverse;
     }
     case 'addClips': {
@@ -801,7 +830,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         const clip = project.clips[patch.id];
         if (!clip) continue;
         anotarInverso<ClipPatch>(inversePatches, vistos, patch.id, patch, clip);
-        Object.assign(clip, patch);
+        applyPatch(clip, patch);
       }
       return { type: 'patchClips', patches: inversePatches };
     }
@@ -886,7 +915,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         arrangementId: cmd.arrangementId,
         patch: pickOld(arr, cmd.patch),
       };
-      Object.assign(arr, cmd.patch);
+      applyPatch(arr, cmd.patch);
       return inverse;
     }
     case 'setActiveArrangement': {
@@ -951,7 +980,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         lfoId: cmd.lfoId,
         patch: pickOld(lfo, cmd.patch),
       };
-      Object.assign(lfo, cmd.patch);
+      applyPatch(lfo, cmd.patch);
       return inverse;
     }
 
@@ -983,7 +1012,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         const section = project.sections[patch.id];
         if (!section) continue;
         anotarInverso<SectionPatch>(inversePatches, vistos, patch.id, patch, section);
-        Object.assign(section, patch);
+        applyPatch(section, patch);
       }
       return { type: 'patchSections', patches: inversePatches };
     }
@@ -1004,7 +1033,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         markerId: cmd.markerId,
         patch: pickOld(marker, cmd.patch),
       };
-      Object.assign(marker, cmd.patch);
+      applyPatch(marker, cmd.patch);
       return inverse;
     }
 
@@ -1019,7 +1048,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         trackIndex: cmd.trackIndex,
         patch: pickOld(track, cmd.patch),
       };
-      Object.assign(track, cmd.patch);
+      applyPatch(track, cmd.patch);
       return inverse;
     }
     case 'setEffect': {
@@ -1043,7 +1072,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         slotIndex: cmd.slotIndex,
         patch: pickOld(slot, cmd.patch),
       };
-      Object.assign(slot, cmd.patch);
+      applyPatch(slot, cmd.patch);
       return inverse;
     }
     case 'setEffectParam': {
@@ -1113,7 +1142,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         target: cmd.target,
         patch: pickOld(send, cmd.patch),
       };
-      Object.assign(send, cmd.patch);
+      applyPatch(send, cmd.patch);
       return inverse;
     }
     case 'setRoute': {
@@ -1163,7 +1192,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         routeId: cmd.routeId,
         patch: pickOld(route, cmd.patch),
       };
-      Object.assign(route, cmd.patch);
+      applyPatch(route, cmd.patch);
       return inverse;
     }
 
