@@ -245,6 +245,42 @@ function readAwarenessAnnouncements(
 }
 
 /**
+ * El MISMO update, quitándole los clientIDs que no le corresponden a este socket.
+ *
+ * Descartar el mensaje entero (`ownsAwareness` devolviendo `false`) sería más
+ * simple pero tiraría por el suelo los anuncios LEGÍTIMOS que venían en el mismo
+ * paquete, que es como los manda y-protocols: varios estados en un mensaje. Aquí
+ * se reconstruye el update con lo que sí vale, así que un presencia normal no se
+ * pierde porque viaje junto a una suplantación.
+ *
+ * `null` si no queda nada que aplicar.
+ */
+function filtrarAwareness(update: Uint8Array, permitidos: ReadonlySet<number>): Uint8Array | null {
+  try {
+    const decoder = decoding.createDecoder(update);
+    const len = decoding.readVarUint(decoder);
+    const out: { client: number; clock: number; state: string }[] = [];
+    for (let i = 0; i < len; i++) {
+      const client = decoding.readVarUint(decoder);
+      const clock = decoding.readVarUint(decoder);
+      const state = decoding.readVarString(decoder);
+      if (permitidos.has(client)) out.push({ client, clock, state });
+    }
+    if (out.length === 0) return null;
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, out.length);
+    for (const { client, clock, state } of out) {
+      encoding.writeVarUint(encoder, client);
+      encoding.writeVarUint(encoder, clock);
+      encoding.writeVarString(encoder, state);
+    }
+    return encoding.toUint8Array(encoder);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * La clave de idempotencia de una entrada: `client:seq`.
  *
  * Una entrada repetida no es un cambio, es la misma clave dos veces. La clave la
@@ -611,13 +647,21 @@ class Room {
     syncProtocol.writeSyncStep1(encoder, this.doc);
     conn.send(encoding.toUint8Array(encoder));
     // Presencia actual del room para el que entra.
+    //
+    // Solo la que el servidor reconoce como de ALGUIEN conectado. Volcar
+    // `[...states.keys()]` a pelo entregaba al recién llegado TODO lo que hubiera
+    // en el Awareness, incluida una presencia suplantada que el filtro de
+    // replicación ya impedía repartir en vivo pero que se había quedado guardada
+    // (S7). El estado espurio no debe entrar por la puerta de atrás: aquí se le
+    // aplica la misma defensa que al observador.
     const states = this.awareness.getStates();
-    if (states.size > 0) {
+    const visibles = [...states.keys()].filter((id) => this.clientOwner.has(id));
+    if (visibles.length > 0) {
       const aEncoder = encoding.createEncoder();
       encoding.writeVarUint(aEncoder, MESSAGE_AWARENESS);
       encoding.writeVarUint8Array(
         aEncoder,
-        awarenessProtocol.encodeAwarenessUpdate(this.awareness, [...states.keys()]),
+        awarenessProtocol.encodeAwarenessUpdate(this.awareness, visibles),
       );
       conn.send(encoding.toUint8Array(aEncoder));
     }
@@ -640,11 +684,12 @@ class Room {
         }
         case MESSAGE_AWARENESS: {
           const update = decoding.readVarUint8Array(decoder);
-          if (!this.ownsAwareness(conn, update)) {
+          const permitido = this.ownsAwareness(conn, update);
+          if (permitido === null) {
             console.warn(`[room ${this.code}] presencia con clientID ajeno: se descarta`);
             break;
           }
-          awarenessProtocol.applyAwarenessUpdate(this.awareness, update, conn);
+          awarenessProtocol.applyAwarenessUpdate(this.awareness, permitido, conn);
           break;
         }
         case MESSAGE_CONTROL: {
@@ -709,17 +754,23 @@ class Room {
    * rol) con el clientID del productor, el servidor lo replicaba a todos y
    * además lo apuntaba como suyo. Los IDs libres se reclaman aquí mismo, para
    * que dos sockets no puedan reclamar el mismo a la vez.
+   *
+   * Devuelve el update YA FILTRADO con lo que este socket puede anunciar, o `null`
+   * si no le queda nada. No devuelve un booleano porque «no aplica» y «aplica solo
+   * parte» no son lo mismo: y-protocols manda varios estados en un mensaje, y con
+   * un `false` se perdían también los legítimos que viajaban en el mismo paquete (S7).
    */
-  private ownsAwareness(conn: WsSocket, update: Uint8Array): boolean {
+  private ownsAwareness(conn: WsSocket, update: Uint8Array): Uint8Array | null {
     const announcements = readAwarenessAnnouncements(update);
-    if (!announcements) return false;
+    if (!announcements) return null;
     const controlled = this.conns.get(conn);
-    if (!controlled) return false;
+    if (!controlled) return null;
     for (const { client } of announcements) {
       const owner = this.clientOwner.get(client);
-      if (owner !== undefined && owner !== conn) return false;
+      if (owner !== undefined && owner !== conn) return null;
     }
     let claimed = false;
+    const permitidos = new Set<number>();
     for (const { client, empty } of announcements) {
       if (empty || this.clientOwner.has(client)) continue;
       // Un clientID LIBRE que se soltó no se lo queda cualquiera: solo su credencial
@@ -734,7 +785,19 @@ class Room {
       claimed = true;
     }
     if (claimed) this.broadcastRoles();
-    return true;
+    // Lo que NO se concede no se anuncia, y además no se guarda. Antes se anunciaba
+    // igual: `continue` saltaba al siguiente cliente, pero el mensaje entero se
+    // aplicaba igual después, así que el estado falso acababa en el Awareness del
+    // servidor. De ahí salían los tres síntomas que quedaban (S7): un recién llegado
+    // se lo llevaba entero en el volcado de `addConn`, sobrevivía al reaper de
+    // y-protocols mientras el impostor lo refrescara, y —peor— cuando volvía su
+    // dueño, y-protocols no protege un estado local de otro remoto con reloj mayor
+    // que si sea `null`, así que su presencia se pisaba y su renovación de 15 s
+    // reemitía el estado falso con un reloj que el servidor aceptaba.
+    for (const { client } of announcements) {
+      if (controlled.has(client)) permitidos.add(client);
+    }
+    return filtrarAwareness(update, permitidos);
   }
 
   removeConn(conn: WsSocket): void {
