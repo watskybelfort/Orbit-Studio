@@ -13,10 +13,23 @@ verificados con su test, 6 abiertos con causa raíz**. El detalle completo
 —evidencia, medidas antes/después, límites aceptados y commits— está en
 [REVISION-2026-09-21.md](REVISION-2026-09-21.md). La red quedó en **222 archivos
 / 2609 tests**, lint y typecheck limpios, build en verde y golden sin tocar.
-Lo abierto, en una línea cada uno: la simetría de ramas con ancla ajena
-(`store.ts`), los bytes realtime del MIDI, las alocaciones de `kernel-core.ts`,
-el medidor de CPU que nadie calcula, la identidad de presencia sin firma y
-`ownCreations` por conexión.
+
+**Actualización — la tanda de abiertos se cerró después.** Los seis de arriba se
+auditaron uno a uno contra el código, ejecutando los tests y buscando el defecto,
+no leyendo el mensaje del commit. Resultado: **cuatro ya estaban arreglados** por
+commits posteriores y solo faltaba darles el alta (la simetría de ramas, las
+alocaciones de `kernel-core.ts`, el medidor de CPU y la identidad de presencia),
+**los bytes realtime del MIDI se cierran** (`dcd7154`) y **`ownCreations` queda a
+medias** (`5d0d4da`): la fuga se cerró —la poda anterior leía una clave que nadie
+escribe y no borraba nunca— y queda abierta la identidad estable del invitado real,
+que al reconectar pierde su invitación y no puede volver. **Queda 1 abierto.** La red
+completa: **306 archivos / 3632 tests**, typecheck y lint limpios, build en verde,
+golden sin tocar.
+
+Y dos cifras que la verificación **no** sostiene, escritas aquí para que no vuelvan:
+los «58 `.subarray()` por bloque» del tablero son ejecuciones, no lugares de código
+(13 en el texto, 12 en el camino caliente), y el mensaje del commit que los arregla
+dice 52, o sea **subestima la medida del propio tablero**.
 
 ---
 
