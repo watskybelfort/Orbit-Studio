@@ -161,8 +161,31 @@ function parseTrack(data: Uint8Array): ParsedTrack {
     let status = r.peek();
     if (status >= 0x80) {
       r.u8();
-      // Sysex y meta cancelan el running status; los de canal lo fijan.
-      runningStatus = status < 0xf0 ? status : null;
+      // Qué cancela el running status y qué no. Antes era una sola pregunta,
+      // `status < 0xf0 ? status : null`, que contestaba lo mismo para channel,
+      // sysex/meta y realtime: los tres los trataban como "se acabó".
+      //
+      // Cancelan SOLO `0xF0`, `0xF7` y `0xFF`: los dos sysex y el meta. Fijate en
+      // el `0xFF` — el reset del protocolo REAL-TIME no lo cancela, pero aquí es
+      // la cabecera de un meta y tiene que hacerlo, porque el cuerpo del meta
+      // (`FF 2F 00`) no es un evento de canal y dejar el running status vivo
+      // haría que el note-off siguiente se comiera el cuerpo. Es el mismo byte con
+      // dos papeles y el que manda es el del archivo.
+      //
+      // NO lo cancelan ni el resto de system common (`F1`–`F6`) ni los realtime
+      // (`F8`–`FE`): un reloj o un active sensing intercalado en una racha de
+      // note-on encadenados sin status debe dejar el status de canal en pie, que
+      // es justo lo que dice el estándar.
+      //
+      // Es un archivo ENTERO lo que se perdia: `runningStatus` a `null` y el
+      // primer byte de datos de la nota siguiente se comia el parseo con
+      // "byte de datos sin status previo" (C8). Y que aqui no aparezca ningun
+      // `.mid` real que lo dispare no lo hacia inocuo: se cruzan por cable con
+      // `MIDI` entre dos apps, que si meten un clock de verdad.
+      if (status === 0xf0 || status === 0xf7 || status === 0xff) runningStatus = null;
+      else if (status < 0xf0) runningStatus = status;
+      // `F1`..`F6` y `F8`..`FE` se comen sus bytes de datos mas abajo (tabla
+      // `SYSTEM_DATA_BYTES`) y NO tocan el running status.
     } else {
       // Running status: byte de datos, se reutiliza el último status de canal.
       if (runningStatus === null) {
@@ -237,7 +260,11 @@ function parseTrack(data: Uint8Array): ParsedTrack {
         r.skip(1);
         break;
       default:
-        // System common/realtime 0xF1..0xFE (no deberían aparecer en un SMF).
+        // System common/realtime `0xF1`..`0xFE`. No deberían aparecer en un SMF,
+        // pero aparecen: se comen sus bytes de datos y SALTAN, sin tocar el
+        // running status (arriba está el porqué). Antes esta rama existía y
+        // consumía los datos, pero el status ya venía anulado de arriba, así que
+        // el trabajo se deshacía justo en la nota siguiente (C8).
         r.skip(SYSTEM_DATA_BYTES[status - 0xf0] ?? 0);
         break;
     }

@@ -186,6 +186,128 @@ describe('decodeMidi: lectura de eventos', () => {
   });
 });
 
+describe('C8 · qué cancela el running status y qué no', () => {
+  // Antes, `status < 0xf0 ? status : null` contestaba lo mismo para channel,
+  // sysex/meta y realtime, así que cualquier byte >= 0xF0 lo anulaba. Con un reloj
+  // intercalado en una racha de note-on sin status, el byte de datos de la nota
+  // siguiente se comía el parseo entero con "byte de datos sin status previo": no
+  // se perdía UNA nota, se perdía el archivo.
+
+  it('un clock (F8) en mitad de un running status NO lo cancela', () => {
+    // Es el repro del finding: reloj entre el note-on y su note-off encadenados.
+    const track = [
+      0x00, 0x90, 60, 100, // on 60 @0  → running status 0x90
+      0x00, 0xf8, // clock: 0 bytes de datos, y NO toca el status
+      0x00, 64, 100, // running status: on 64 @0
+      0x60, 60, 0, // running status: off 60 @96
+      0x00, 64, 0, // running status: off 64 @96
+      ...EOT,
+    ];
+    const d = decodeMidi(smf(0, 96, [track]));
+    expectNotesClose(d.tracks[0]!.notes, [
+      makeNote(0, 1, 60, 100 / 127),
+      makeNote(0, 1, 64, 100 / 127),
+    ]);
+  });
+
+  it.each([
+    ['active sensing', 0xfe],
+    ['start', 0xfa],
+    ['continue', 0xfb],
+    ['stop', 0xfc],
+    ['undefined realtime', 0xf9],
+  ])('el realtime %s tampoco lo cancela', (_nombre, status) => {
+    const track = [
+      0x00, 0x90, 60, 100,
+      0x00, status,
+      0x60, 60, 0,
+      ...EOT,
+    ];
+    const d = decodeMidi(smf(0, 96, [track]));
+    expectNotesClose(d.tracks[0]!.notes, [makeNote(0, 1, 60, 100 / 127)]);
+  });
+
+  it.each([
+    ['MTC quarter frame', 0xf1, [0x7e]],
+    ['song position pointer', 0xf2, [0x00, 0x40]],
+    ['song select', 0xf3, [0x05]],
+    ['tuner dump request', 0xf6, []],
+  ])('el system common %s se come SUS datos y deja el status en pie', (_n, status, datos) => {
+    // Lo importante aquí es el `skip` de los datos: si no se comieran, el primer
+    // byte de datos se leería como status y las notas saldrían corruptionadas.
+    const track = [
+      0x00, 0x90, 60, 100,
+      0x00, status, ...datos,
+      0x60, 60, 0,
+      ...EOT,
+    ];
+    const d = decodeMidi(smf(0, 96, [track]));
+    expectNotesClose(d.tracks[0]!.notes, [makeNote(0, 1, 60, 100 / 127)]);
+  });
+
+  it.each([
+    ['sysex F0', [0x00, 0xf0, 2, 0x7e, 0xf7]],
+    ['EOX F7', [0x00, 0xf7, 0x00]],
+  ])('%s SÍ cancela el running status (y el archivo se rechaza con motivo)', (_n, bytes) => {
+    // El otro lado de la regla, para que el arreglo no se pase de tolerante: tras un
+    // sysex, un byte de datos sigue sin status de canal y es un archivo mal formado.
+    const track = [
+      0x00, 0x90, 60, 100,
+      ...bytes,
+      0x60, 60, 0,
+      ...EOT,
+    ];
+    expect(() => decodeMidi(smf(0, 96, [track]))).toThrow(/running status/);
+  });
+
+  it('el meta FF SÍ cancela, aunque el cuerpo sea de un evento de canal', () => {
+    // El 0xFF del protocolo REALTIME (reset) no cancela el running status, pero en
+    // un archivo es la cabecera de un meta, y ahí sí lo cancela. La consecuencia
+    // observable es que un note-off encadenado después de un meta es un archivo mal
+    // formado: el meta no es un evento de canal y no devuelve el status.
+    //
+    // La primera versión de este test daba por hecho lo contrario y falló: el
+    // código estaba bien y la expectativa no. Queda escrito porque es el error
+    // fácil al leer el arreglo — "FF es realtime, pues no cancela" — y es al revés
+    // justo en la línea que decide.
+    const track = [
+      0x00, 0x90, 60, 100,
+      0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // meta de tempo
+      0x60, 60, 0, // sin status de canal: mal formado a propósito
+      ...EOT,
+    ];
+    expect(() => decodeMidi(smf(0, 96, [track]))).toThrow(/running status/);
+  });
+
+  it('con el status repetido tras el meta, la nota se cierra bien', () => {
+    // El control del anterior: el meta se come SU cuerpo entero y no se come ni un
+    // byte del note-off. Si el `skip` del meta se comiera de más, esta nota saldría
+    // con la duración mal; si se comiera de menos, no llegaría aquí.
+    const track = [
+      0x00, 0x90, 60, 100,
+      0x00, 0xff, 0x51, 0x03, 0x07, 0xa1, 0x20, // meta de tempo
+      0x60, 0x80, 60, 0, // off 60 @96, con su status
+      ...EOT,
+    ];
+    const d = decodeMidi(smf(0, 96, [track]));
+    expectNotesClose(d.tracks[0]!.notes, [makeNote(0, 1, 60, 100 / 127)]);
+  });
+
+  it('varios realtime seguidos tampoco acumulan nada', () => {
+    const track = [
+      0x00, 0x90, 60, 100,
+      0x00, 0xf8,
+      0x00, 0xfa,
+      0x00, 0xfe,
+      0x00, 0xfb,
+      0x60, 60, 0,
+      ...EOT,
+    ];
+    const d = decodeMidi(smf(0, 96, [track]));
+    expectNotesClose(d.tracks[0]!.notes, [makeNote(0, 1, 60, 100 / 127)]);
+  });
+});
+
 describe('decodeMidi: formatos y metas', () => {
   it('formato 0 con dos canales → dos DecodedMidiTrack', () => {
     const track = [
