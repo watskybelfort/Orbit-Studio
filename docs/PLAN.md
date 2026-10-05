@@ -19,17 +19,20 @@ auditaron uno a uno contra el código, ejecutando los tests y buscando el defect
 no leyendo el mensaje del commit. Resultado: **cuatro ya estaban arreglados** por
 commits posteriores y solo faltaba darles el alta (la simetría de ramas, las
 alocaciones de `kernel-core.ts`, el medidor de CPU y la identidad de presencia),
-**los bytes realtime del MIDI se cierran** (`dcd7154`) y **`ownCreations` queda a
-medias** (`5d0d4da`): la fuga se cerró —la poda anterior leía una clave que nadie
-escribe y no borraba nunca— y queda abierta la identidad estable del invitado real,
-que al reconectar pierde su invitación y no puede volver. **Queda 1 abierto.** La red
-completa: **306 archivos / 3632 tests**, typecheck y lint limpios, build en verde,
-golden sin tocar.
+**los bytes realtime del MIDI se cierran** (`dcd7154`), y **`ownCreations` y la
+identidad de presencia se cierran en lo que se puede de cada uno** (`5d0d4da`,
+`1ba0cdb`). **No queda ningún hallazgo abierto sin documentar**: los dos últimos
+comparten un resto, la **identidad de sesión firmada en el `challenge`**, que es una
+pieza de diseño que falta y no un bug. La red completa: **306 archivos / 3635
+tests**, typecheck y lint limpios, build en verde, golden sin tocar.
 
-Y dos cifras que la verificación **no** sostiene, escritas aquí para que no vuelvan:
+Y tres cifras que la verificación **no** sostiene, escritas aquí para que no vuelvan:
 los «58 `.subarray()` por bloque» del tablero son ejecuciones, no lugares de código
 (13 en el texto, 12 en el camino caliente), y el mensaje del commit que los arregla
-dice 52, o sea **subestima la medida del propio tablero**.
+dice 52, o sea **subestima la medida del propio tablero**; el límite de S7 que decía
+«sala sin contraseña» es más ancho que eso, porque **todo socket que entra con
+contraseña comparte la credencial vacía**; y la poda de la autoría de S10 era código
+muerto que leía una clave que nadie escribe.
 
 ---
 
