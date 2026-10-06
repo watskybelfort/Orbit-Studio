@@ -106,7 +106,35 @@ npm run golden:update   # diff de sonido; sin --accept NO escribe (docs/GOLDEN.m
 npm run golden:bite     # ¿algún fixture del golden dejó de medir?
 npm run listen:kit      # renderiza a out/escucha lo que hay que juzgar con el oído
 npm run ci:status       # cómo quedó el último push (o cualquier SHA), en una línea
+npm run test:timeouts   # qué tests se están acercando a su timeout. AVISA, no falla
 ```
+
+### El timeout de los tests (reporter de la v3.10)
+
+Seis tests en dos rondas se acercaron a su límite y el sexto lo cazó la CI de Windows
+en rojo por 5358 ms contra 5000. Desde entonces, `npm run test:timeouts` corre la suite
+con un reporter que anota **duración y timeout efectivo** de cada test, y avisa de los
+que pasan del 50 % de su límite (`::warning::` en el resumen del run). Sale siempre con
+0: una máquina lenta no es un bug, y el rojo tiene que seguir siendo para lo que está
+roto. Va también como paso de la CI, con la misma regla.
+
+Dos cosas que la tarjeta dejó decididas y que conviene no deshacer:
+
+- **El umbral es una fracción del timeout efectivo**, no un absoluto ni un porcentaje
+  del declarado. Medido en la suite: p50 2 ms · p90 210 ms · p99 1385 ms, y el más alto
+  de todos al 82 % de su límite. 0.5 está dos veces por encima del percentil 99 y deja
+  11 tests a la vista; por debajo de 0.4 la lista se triplica sin mejorar la señal.
+- **El reporter guarda el timeout que Vitest ya tiene resuelto** (`options.timeout`, que
+  incluye el default del proyecto cuando el test no declara ninguno), no el que escribe
+  el test. Unir el JSON de Vitest con el timeout por `fullName` era lo primero que se
+  probó y es frágil: el JSON no siempre separa igual los ancestros, y dos tests de
+  render con 30 s declarados salían como si tuvieran 5 s —una alarma falsa—.
+
+**No subir timeouts para callar un aviso.** La regla de la v3.9 sigue en pie, y el
+default de 5000 ms no es el problema: el p50 de la suite es de 2 ms. Lo que hay es una
+cola de tests caros (renders, codificación) que ya declaran su margen con el motivo
+escrito —`render-integrity-v1.test.ts` lo explica en seis líneas antes de declarar
+30 s—, y con la cola a la vista cada uno decide.
 
 ## Contexto de producto
 

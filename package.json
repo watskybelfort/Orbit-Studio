@@ -30,6 +30,7 @@
     "listen:kit": "tsx tools/qa/listen-kit.ts",
     "golden:bite": "tsx tools/qa/golden-bite.ts",
     "ci:status": "tsx tools/qa/ci-status.ts",
+    "test:timeouts": "vitest run --reporter=default --reporter=./tools/qa/test-timeout-reporter.mjs && node tools/qa/test-timeouts.mjs",
     "build": "npm run build -w @orbit/desktop"
   },
   "devDependencies": {

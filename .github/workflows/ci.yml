@@ -39,4 +39,10 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # Avisa de los tests que se están acercando a su timeout. NO falla el job (una
+      # máquina lenta no es un bug, y el rojo tiene que seguir siendo para lo que
+      # está roto): lo que hace es dejar los `::warning::` en el resumen del run, que
+      # es donde se mira. Los datos salen de la corrida de arriba, así que no cuesta
+      # una segunda pasada.
+      - run: npm run test:timeouts
       - run: npm run build
