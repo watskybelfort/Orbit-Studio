@@ -200,16 +200,22 @@ export function PluginView({
         // de una pista ajena (mismo criterio que el EQ y el Orbit Scope).
         const owns = trackIndex !== undefined && isScopeTrackActive(trackIndex);
         const frame = owns ? useUiStore.getState().scopeFrame : null;
-        if (view.needs.level) levelOfFrame(frame, level);
-        if (spectrum && frame) spectrum.update(frame);
+        if (owns) {
+          if (view.needs.level) levelOfFrame(frame, level);
+          if (spectrum && frame) spectrum.update(frame);
+        } else if (spectrum) {
+          // Otra vista se llevó el tap: no se le pasa el último espectro de una
+          // pista ajena. `reset()` lo deja en el piso y baja el suavizado.
+          spectrum.reset();
+        }
         fillViewInput(input, {
           aspect: h / Math.max(1, w),
           sampleRate: engine.sampleRate,
           paramKeys: keysRef.current,
           params: readRef.current(),
           defaults: defaultsRef.current,
-          level: view.needs.level ? level : null,
-          spectrumDb: spectrum ? spectrum.db : null,
+          level: owns && view.needs.level ? level : null,
+          spectrumDb: owns && spectrum ? spectrum.db : null,
         });
       });
     };

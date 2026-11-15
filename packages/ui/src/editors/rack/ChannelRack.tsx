@@ -1691,6 +1691,11 @@ function ChannelRow({
           ⧉
         </button>
       )}
+      {/* La ranura existe SIEMPRE: sin ella, las filas con plugin medían 27 px
+          más y los pasos quedaban a la derecha de su graph de velocity. */}
+      {(!instrumentPlugin?.view || !instrumentPluginSource) && (
+        <span className="rack-view-spacer" aria-hidden="true" />
+      )}
 
       {melodic ? (
         <MiniPreview

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { store } from '../src/state/app';
 import { useUiStore } from '../src/state/ui';
-import { applyLayout, applyLayoutWindows, applyPreset, areaAfterPanels, captureLayout, LAYOUT_PRESETS, savePresetAs, useLayoutNotice, workspaceArea } from '../src/state/layouts';
+import { applyLayout, applyLayoutWindows, applyPreset, applyStartupLayout, areaAfterPanels, captureLayout, LAYOUT_PRESETS, savePresetAs, useLayoutNotice, workspaceArea } from '../src/state/layouts';
 import { fitWindowToWorkspace, PRESET_EDITOR_MINIMUMS, type WorkspaceSize } from '../src/shell/window-bounds';
 import type { LayoutWindow } from '@orbit/core';
 
@@ -213,6 +213,16 @@ describe('BUG028: medir el área de destino de un layout', () => {
 });
 
 describe('presets: cabida con los mínimos reales de los editores', () => {
+  it.each([1, 1.25, 1.5])('el arranque sin memoria no solapa Rack y Playlist a escala %s', (scale) => {
+    useUiStore.setState({ browserOpen: true, claudePanelOpen: false, compact: false });
+    const view = fakeWorkspace(scale);
+    applyStartupLayout();
+    view.commitRender();
+    expect(useUiStore.getState().windows.channelRack.open).toBe(true);
+    expect(useUiStore.getState().windows.playlist.open).toBe(true);
+    expectVisibleWithoutOverlap(captureLayout(), view.total);
+  });
+
   it.each([
     ['componer', { w: 1126, h: 600 }, ['channelRack', 'pianoRoll']],
     ['componer', { w: 852, h: 450 }, ['channelRack']],

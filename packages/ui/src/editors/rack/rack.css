@@ -13,7 +13,8 @@
   --rack-mix-w: 26px;
   --rack-lead: calc(
     var(--rack-led) + var(--rack-knob) * 2 + var(--rack-name-w) + var(--rack-mix-w) +
-      var(--rack-gap) * 5
+      20px /* ranura del botón de vista (existe siempre, ver abajo) */ +
+      var(--rack-gap) * 6
   );
   /* Rejilla de pasos (la comparten .rack-steps y el graph editor). */
   --rack-step-gap: 3px;
@@ -497,6 +498,14 @@
 .rack-view-btn.on {
   color: var(--accent);
   border-color: var(--accent);
+}
+
+/* La ranura del botón de vista en las filas sin plugin: mantiene el mismo
+   `--rack-lead` para todas y alinea pasos y graph. */
+.rack-view-spacer {
+  flex: none;
+  width: 20px;
+  height: 20px;
 }
 
 .rack-plugin-view-menu {

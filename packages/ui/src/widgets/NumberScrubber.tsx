@@ -88,6 +88,11 @@ export function NumberScrubber({
         drag.current = null;
         onCommit?.();
       }}
+      onLostPointerCapture={() => {
+        if (!drag.current) return;
+        drag.current = null;
+        onCommit?.();
+      }}
       onDoubleClick={() => {
         setText(String(value));
         setEditing(true);

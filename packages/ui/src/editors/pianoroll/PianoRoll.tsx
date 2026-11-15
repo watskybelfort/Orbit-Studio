@@ -958,13 +958,23 @@ export function PianoRoll() {
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
       if (e.ctrlKey) {
+        // Zoom anclado al puntero: el beat bajo el cursor no se mueve. Antes
+        // solo cambiaba `zoomX` y el contenido se iba bajo la mano.
+        const px = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const beat = px / zoomX + scrollX;
         const next = Math.min(160, Math.max(12, zoomX * (e.deltaY < 0 ? 1.15 : 0.87)));
         setZoomX(next);
+        setScrollX(Math.max(0, beat - px / next));
       } else if (e.shiftKey) {
         setScrollX(Math.max(0, scrollX + (e.deltaY > 0 ? 2 : -2)));
       } else {
-        setScrollY(Math.min(KEYS * KEY_H - 200, Math.max(0, scrollY + e.deltaY)));
+        // El tope sale del alto MEDIDO del teclado, no de 200 px fijos: con una
+        // ventana alta no se llegaba a las teclas graves, y con una baja se
+        // pasaba del final.
+        const gridH = Math.max(1, rect.height - VEL_LANE_H);
+        setScrollY(Math.min(Math.max(0, KEYS * KEY_H - gridH), Math.max(0, scrollY + e.deltaY)));
       }
     },
     [zoomX, scrollX, scrollY],
