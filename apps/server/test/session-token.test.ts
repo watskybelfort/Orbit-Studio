@@ -18,7 +18,11 @@ describe('credencial de sesión firmada', () => {
   it('un cambio de un carácter en la firma o en el payload la invalida', () => {
     const token = signSession(claim());
     const [payload, sig] = token.split('.');
-    expect(verifySession(`${payload}.${sig!.slice(0, -1)}A`, 'K3P9QF')).toBeNull();
+    // El carácter elegido tiene que ser DISTINTO del que ya está: el test
+    // anterior cambiaba el último por 'A' y en Windows la firma ya acababa en
+    // 'A', así que no cambiaba nada y el token seguía siendo válido.
+    const changed = sig!.startsWith('A') ? 'B' : 'A';
+    expect(verifySession(`${payload}.${changed}${sig!.slice(1)}`, 'K3P9QF')).toBeNull();
     const altered = Buffer.from(payload!, 'base64url').toString('utf8').replace('invitado', 'productor');
     const fakePayload = Buffer.from(altered, 'utf8').toString('base64url');
     expect(verifySession(`${fakePayload}.${sig}`, 'K3P9QF')).toBeNull();
