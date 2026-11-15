@@ -283,6 +283,12 @@ describe('sin enrutado declarado: una toma, un micro', () => {
       expect.closeTo(0.71, 2),
     ]);
     expect(clips.map((c) => c.start)).toEqual([0, 0, 0]);
+    // Cada vuelta es una toma: carril propio y solo la última suena.
+    expect(clips.map((c) => c.lane ?? 0)).toEqual([0, 1, 2]);
+    expect(clips.map((c) => c.muted)).toEqual([true, true, false]);
+    expect(Object.values(app.store.project.playlistTracks).find((t) =>
+      Object.values(app.store.project.clips).some((c) => c.playlistTrackId === t.id)
+    )!.height).toBeGreaterThanOrEqual(3 * 30);
     // Cada pieza salta en el audio a donde el loop volvió.
     expect(clips.map((c) => c.audioOffset)).toEqual([
       0,

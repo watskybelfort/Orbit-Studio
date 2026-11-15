@@ -854,20 +854,39 @@ async function saveRecordedTakes(context: RecordingSession, recorded: RecordedTa
           names.push(sample.name);
 
           const trackId = placeTake(project, take, first.start, span, claimed, commands, context.arrangementId);
-          const lane = take.lane ?? 0;
+          const baseLane = take.lane ?? 0;
+          const lastLane = baseLane + segments.length - 1;
+          /*
+           * Cada vuelta del loop es una TOMA distinta de la misma región: va a
+           * su propio carril y la última es la que suena. Antes las tres
+           * piezas caían en el carril 0, una encima de otra, y solo se oía la
+           * que quedaba arriba. Sin loop (una pieza) todo queda como siempre.
+           */
+          if (segments.length > 1) {
+            const track = project.playlistTracks[trackId];
+            const taller = heightForTakeLanes(track?.height ?? 56, lastLane + 1);
+            if (track && taller > track.height) {
+              commands.push({
+                type: 'patchPlaylistTrack',
+                trackId,
+                patch: { height: taller },
+              });
+            }
+          }
           const clips: Clip[] = segments.map((segment, index) => {
             const start = index === 0 ? first.start : segment.start;
             const length = index === 0 ? first.lengthBeats : segment.length;
             const audioOffset = index === 0
               ? first.audioOffset
               : segment.offsetBeats * beatSec;
+            const lane = segments.length > 1 ? baseLane + index : baseLane;
             return {
               id: newId(),
               kind: 'audio',
               playlistTrackId: trackId,
               start,
               length,
-              muted: false,
+              muted: segments.length > 1 ? index < segments.length - 1 : false,
               sampleId,
               audioOffset,
               audioGain: 1,
