@@ -231,6 +231,7 @@ export type Command =
   // Samples
   | { type: 'registerSample'; sample: SampleRef }
   | { type: 'unregisterSample'; sampleId: Id }
+  | { type: 'patchSample'; sampleId: Id; patch: Partial<Omit<SampleRef, 'id'>> }
   // Lote (un solo paso de undo)
   | { type: 'batch'; label?: string; commands: Command[] };
 
@@ -1249,6 +1250,16 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const sample = must(project.samples[cmd.sampleId], `sample ${cmd.sampleId}`);
       delete project.samples[cmd.sampleId];
       return { type: 'registerSample', sample };
+    }
+    case 'patchSample': {
+      const sample = must(project.samples[cmd.sampleId], `sample ${cmd.sampleId}`);
+      const inverse: Command = {
+        type: 'patchSample',
+        sampleId: cmd.sampleId,
+        patch: pickOld(sample, cmd.patch),
+      };
+      applyPatch(sample, cmd.patch);
+      return inverse;
     }
 
     // Lote

@@ -108,6 +108,7 @@ const FORMAS: Record<Command['type'], Record<string, Forma>> = {
   // Samples
   registerSample: { sample: 'ent:sample' },
   unregisterSample: { sampleId: 'id' },
+  patchSample: { sampleId: 'id', patch: 'patch:sample' },
   // Lote (un solo paso de undo)
   batch: { label: '?str', commands: 'comandos' },
 };

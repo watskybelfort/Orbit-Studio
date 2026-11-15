@@ -726,6 +726,7 @@ export function describeCommand(cmd: Command): string {
     case 'patchInputRoute': return 'Ajustar entrada';
     case 'registerSample': return `Sample "${cmd.sample.name}"`;
     case 'unregisterSample': return 'Quitar sample';
+    case 'patchSample': return 'Renombrar sample';
     case 'batch': return cmd.label ?? `${cmd.commands.length} cambios`;
   }
 }

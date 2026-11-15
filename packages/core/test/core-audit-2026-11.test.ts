@@ -132,8 +132,25 @@ describe('cadena de inserts', () => {
   });
 });
 
-describe('campos fantasma de una nota', () => {
-  it('patchNotes rechaza un campo que Note no tiene', () => {
+describe('renombrar una toma', () => {
+  it('patchSample cambia el nombre y su inverso lo repone', () => {
+    const p = createEmptyProject();
+    applyCommand(p, {
+      type: 'registerSample',
+      sample: { id: 's1', name: 'Toma', path: 'recording:a.wav', hash: 'h', duration: 1 },
+    });
+    const inverse = applyCommand(p, {
+      type: 'patchSample',
+      sampleId: 's1',
+      patch: { name: 'Toma 2 · doblaje' },
+    });
+    expect(p.samples['s1']!.name).toBe('Toma 2 · doblaje');
+    applyCommand(p, inverse);
+    expect(p.samples['s1']!.name).toBe('Toma');
+  });
+});
+
+describe('campos fantasma de una nota', () => {  it('patchNotes rechaza un campo que Note no tiene', () => {
     const p = createEmptyProject();
     const patternId = p.patternOrder[0]!;
     const channel = createChannel('synth', 0);
