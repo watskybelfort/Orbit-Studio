@@ -168,6 +168,15 @@ function tokenDe(peer: Peer): string | undefined {
   return undefined;
 }
 
+/** La credencial de sesión que el servidor entregó a este peer. */
+function sesionDe(peer: Peer): string | undefined {
+  for (let i = peer.controles.length - 1; i >= 0; i--) {
+    const c = peer.controles[i]!;
+    if (c.type === 'session') return c.token;
+  }
+  return undefined;
+}
+
 async function serve(): Promise<ServerHandle> {
   dir = mkdtempSync(join(tmpdir(), 'orbit-011-'));
   handle = await startServer({ port: 0, host: '127.0.0.1', roomsDir: dir });
@@ -228,6 +237,43 @@ describe('011 · la autoría sobrevive al corte de red del autor', () => {
     await sleep(400);
 
     // Sigue en el log y no hay ningún `denied`: es suyo y el servidor lo reconoce.
+    expect(vuelve.log.some((e) => e.cmd.type === 'removePlaylistTrack')).toBe(true);
+    expect(vuelve.denegados).toEqual([]);
+  });
+
+  it('con la credencial de sesión vuelve sin gastar otra invitación y conserva su autoría', async () => {
+    const server = await serve();
+    const host = new Peer(server.port, 'host');
+    await host.open();
+    await sleep(150);
+    host.enviarControl({ type: 'setPassword', auth: await makeRoomAuth('secreto') });
+    await sleep(250);
+    host.enviarControl({ type: 'createInvite', ttlMs: 600000, uses: 1 });
+    await sleep(350);
+    const token = tokenDe(host)!;
+    expect(token).toBeDefined();
+
+    const invitado = new Peer(server.port, 'invitado');
+    await invitado.open();
+    invitado.enviarControl({ type: 'joinInvite', token });
+    await sleep(400);
+    const sesion = sesionDe(invitado);
+    expect(sesion).toBeDefined();
+    invitado.meterCrudo({ type: 'addPlaylistTrack', track: { id: 't-sesion', arrangementId: 'ar1', name: 'Mía', color: '#fff', height: 56, muted: false, order: 0 } });
+    await sleep(350);
+
+    // Se corta la red: la invitación de UN uso ya está gastada. Solo queda la
+    // credencial de sesión.
+    invitado.cerrar();
+    await sleep(250);
+    const vuelve = new Peer(server.port, 'invitado-2');
+    await vuelve.open();
+    vuelve.enviarControl({ type: 'resume', token: sesion!, clientIds: [] });
+    await sleep(450);
+    expect(vuelve.controles.some((c) => c.type === 'sessionExpired')).toBe(false);
+
+    vuelve.meterCrudo({ type: 'removePlaylistTrack', trackId: 't-sesion', own: true });
+    await sleep(400);
     expect(vuelve.log.some((e) => e.cmd.type === 'removePlaylistTrack')).toBe(true);
     expect(vuelve.denegados).toEqual([]);
   });

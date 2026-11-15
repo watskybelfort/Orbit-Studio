@@ -53,6 +53,25 @@ export class RoomRoles {
   }
 
   /**
+   * Vuelve una conexión que ya tenía sesión. Si la sala se quedó sin
+   * productor, la recupera; si ya hay otro, un productor que vuelve entra como
+   * invitado (no se le quita el mando a quien está dentro). Un rol guardado de
+   * invitado/oyente se respeta.
+   */
+  rejoin(key: ConnKey, preferred: CollabRole): RoleAssignment {
+    if (this.roles.has(key)) return this.join(key);
+    const hasProducer = [...this.roles.values()].includes('productor');
+    const role: CollabRole = !hasProducer
+      ? 'productor'
+      : preferred === 'productor'
+        ? JOIN_ROLE
+        : preferred;
+    this.roles.set(key, role);
+    this.order.push(key);
+    return { role, host: role === 'productor' };
+  }
+
+  /**
    * Se va una conexión. Si era la única productora y queda gente, el mando
    * pasa a la más antigua: una sala sin productor no se puede administrar (y
    * nadie podría volver a repartir roles).

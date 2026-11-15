@@ -22,7 +22,7 @@
  */
 
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WebSocketServer, WebSocket as WsSocket, type RawData } from 'ws';
@@ -221,8 +221,79 @@ function toUint8(data: RawData): Uint8Array {
 }
 
 /**
- * Tope de clientIDs que un socket puede anunciar.
+ * Credencial de SESIÓN firmada por el servidor.
  *
+ * El servidor ya tenía invitaciones (una credencial verificada), pero se
+ * gastaban al entrar y no decían quién eras al reconectar; y quien entraba con
+ * contraseña compartía la credencial vacía, así que podía reclamar los
+ * clientID liberados del anfitrión. Esta pieza faltaba: un `sid` estable, con
+ * rol, firmado con un secreto que solo vive en este proceso. El cliente lo
+ * presenta al reconectar (`resume`) y el servidor recupera autoría, rol y
+ * propiedad de sus clientID sin gastar otro uso de invitación.
+ *
+ * El secreto es del PROCESO, no del archivo: si el servidor se reinicia, los
+ * tokens caducan con él y el cliente vuelve a la puerta (contraseña o
+ * invitación). Es a propósito — un secreto persistido en disco sería otra cosa
+ * que robar.
+ */
+const SESSION_SECRET = randomBytes(32);
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const MAX_SESSION_TOKEN = 512;
+
+export interface SessionClaim {
+  sid: string;
+  room: string;
+  role: CollabRole;
+  exp: number;
+}
+
+export function signSession(claim: SessionClaim): string {
+  const payload = Buffer.from(JSON.stringify(claim), 'utf8').toString('base64url');
+  const sig = createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
+  return `${payload}.${sig}`;
+}
+
+export function verifySession(token: string, room: string): SessionClaim | null {
+  if (token.length > MAX_SESSION_TOKEN) return null;
+  const dot = token.lastIndexOf('.');
+  if (dot <= 0 || dot === token.length - 1) return null;
+  const payload = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const expected = createHmac('sha256', SESSION_SECRET).update(payload).digest();
+  let given: Buffer;
+  try {
+    given = Buffer.from(sig, 'base64url');
+  } catch {
+    return null;
+  }
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (typeof raw !== 'object' || raw === null) return null;
+  const claim = raw as Record<string, unknown>;
+  if (typeof claim['sid'] !== 'string' || claim['sid'].length === 0 || claim['sid'].length > 64) {
+    return null;
+  }
+  if (claim['room'] !== room) return null;
+  if (claim['role'] !== 'productor' && claim['role'] !== 'invitado' && claim['role'] !== 'oyente') {
+    return null;
+  }
+  if (typeof claim['exp'] !== 'number' || !Number.isFinite(claim['exp'])) return null;
+  if (claim['exp'] <= Date.now()) return null;
+  return {
+    sid: claim['sid'],
+    room,
+    role: claim['role'],
+    exp: claim['exp'],
+  };
+}
+
+/**
+ * Tope de clientIDs que un socket puede anunciar. *
  * Un usuario = una pestaña = un clientID; 8 deja margen para reconexiones de la
  * misma sesión, pero corta el mensaje de 20 000 IDs que un oyente podía meter
  * (medido: +18,5 MB de heap y una tabla de roles de 371 KB repartida a todos).
@@ -354,7 +425,7 @@ class Room {
    * misma cosa vacía, y se documenta como limitación conocida. El rol autoritativo
    * sigue siendo el de la conexión, así que esto no concede nada.
    */
-  private readonly liberados = new Map<number, string>();
+  private readonly liberados = new Map<number, Set<string>>();
   /** El orden de liberación, para poder tapar los viejos (ver `soltar`). */
   private readonly ordenLiberados: number[] = [];
   /**
@@ -373,12 +444,19 @@ class Room {
    * que 013 cerró (creerse el `own` del cliente), con la diferencia de que ahora
    * falsearía también quién puede borrar qué.
    */
-  private readonly ownCreations = new Map<string, string>();
+  private readonly ownCreations = new Map<string, Set<string>>();
   /**
    * Invitación con la que entró cada socket vivo. Se guarda como credencial para que
    * la autoría sobreviva a una reconexión (ver `ownCreations`).
    */
   private readonly connInvites = new Map<WsSocket, string>();
+  /**
+   * La sesión firmada de cada socket (ver `signSession`). Es la credencial de
+   * autoría y de los clientID liberados; sobrevive a la reconexión.
+   */
+  private readonly connSessions = new Map<WsSocket, string>();
+  /** clientID que cada sesión puede reclamar al volver. */
+  private readonly sessionClients = new Map<string, Set<number>>();
   /**
    * Copia autoritativa del log. Borrar entradas del log solo lo hace
    * legítimamente el compactador (productor); si un no-productor las borra, se
@@ -599,8 +677,58 @@ class Room {
    * entró sin ella (quien abre la sala). Es el mismo criterio que usa la autoría en
    * 011, para que «quién es» se pregunte una sola vez.
    */
-  private credencialDe(conn: WsSocket): string {
-    return this.connInvites.get(conn) ?? '';
+  private credencialesDe(conn: WsSocket): string[] {
+    const out: string[] = [];
+    const sid = this.connSessions.get(conn);
+    if (sid !== undefined) out.push(sid);
+    const invite = this.connInvites.get(conn);
+    if (invite !== undefined && invite !== '') out.push(invite);
+    return out;
+  }
+
+  /** Manda al cliente la credencial de sesión y la apunta como suya. */
+  private issueSession(conn: WsSocket, sid: string, role: CollabRole): void {
+    this.connSessions.set(conn, sid);
+    const token = signSession({
+      sid,
+      room: this.code,
+      role,
+      exp: Date.now() + SESSION_TTL_MS,
+    });
+    this.sendControl(conn, { type: 'session', token, role });
+  }
+
+  /**
+   * Devuelve a una sesión los clientID que ya eran suyos. Solo los del
+   * conjunto `sessionClients[sid]`: un token robado no sirve para reclamar los
+   * IDs de otra sesión, y uno de contraseña no puede tocar los del anfitrión.
+   */
+  private bindSessionClients(conn: WsSocket, sid: string, clientIds: readonly number[]): void {
+    if (clientIds.length === 0) return;
+    const owned = this.sessionClients.get(sid);
+    if (!owned || owned.size === 0) return;
+    const controlled = this.conns.get(conn);
+    if (!controlled) return;
+    for (const id of clientIds) {
+      if (!owned.has(id)) continue;
+      const owner = this.clientOwner.get(id);
+      if (owner !== undefined && owner !== conn) continue;
+      this.clientOwner.set(id, conn);
+      controlled.add(id);
+      this.liberados.delete(id);
+    }
+  }
+
+  /** El cliente dice «soy esta sesión» en una sala abierta (sin puerta). */
+  private resumeSession(conn: WsSocket, claim: SessionClaim, clientIds: readonly number[]): void {
+    const key = this.connKeys.get(conn);
+    if (key === undefined) return;
+    this.connSessions.set(conn, claim.sid);
+    const { role } = this.roles.rejoin(key, claim.role);
+    this.sendControl(conn, { type: 'role', role });
+    this.broadcastRoles();
+    this.bindSessionClients(conn, claim.sid, clientIds);
+    this.issueSession(conn, claim.sid, role);
   }
 
   /**
@@ -619,9 +747,15 @@ class Room {
     const anterior = this.liberados.get(id);
     // Nunca fue de nadie en esta sala: no hay a quién usurpare.
     if (anterior === undefined) return true;
-    // Se lo llevó quien tenía la MISMA credencial: es su doc volviendo (reconexión
-    // legítima). Con otra credencial es otro quien intenta quedarse con su presencia.
-    return anterior === this.credencialDe(conn);
+    // Sala abierta: no hay credencial que distinguir; el código de sala es
+    // toda la puerta que existe, y era el comportamiento de siempre.
+    if (!this.hooks.isProtected()) return true;
+    // Se lo llevó quien tenía la MISMA credencial: es su doc volviendo.
+    // Se acepta tanto la sesión como la invitación: un cliente que aún no ha
+    // recibido su token (o un peer de prueba) conserva el comportamiento de
+    // siempre, y la sesión añade la identidad que la invitación no tenía.
+    const actuales = this.credencialesDe(conn);
+    return actuales.some((credential) => anterior.has(credential));
   }
 
   /**
@@ -630,9 +764,9 @@ class Room {
    * Se tapan los más viejos para que no crezca sin límite: un ID soltado hace mucho ya
    * no lo va a reclamar nadie, y lo que se protege es el caso reciente.
    */
-  private soltar(id: number, credencial: string): void {
+  private soltar(id: number, credenciales: readonly string[]): void {
     if (this.liberados.has(id)) return;
-    this.liberados.set(id, credencial);
+    this.liberados.set(id, new Set(credenciales.filter((c) => c !== '')));
     this.ordenLiberados.push(id);
     while (this.ordenLiberados.length > MAX_LIBERADOS) {
       const viejo = this.ordenLiberados.shift();
@@ -640,15 +774,24 @@ class Room {
     }
   }
 
-  addConn(conn: WsSocket, inviteId?: string): void {
+  addConn(
+    conn: WsSocket,
+    inviteId?: string,
+    claim?: SessionClaim,
+    clientIds: readonly number[] = [],
+  ): void {
     this.conns.set(conn, new Set());
     const key = this.nextConnKey++;
     this.connKeys.set(conn, key);
-    // La invitación es la credencial estable de este autor. Sin ella (quien abre la
-    // sala) la autoría se ata al socket, como antes: es lo único que hay.
+    // La invitación sigue guardándose por compatibilidad, pero la credencial
+    // estable es la SESIÓN: dos invitados con la misma invitación multiuso ya
+    // no son la misma autoría.
     if (inviteId !== undefined && inviteId !== '') this.connInvites.set(conn, inviteId);
-    const { role } = this.roles.join(key);
+    const sid = claim?.sid ?? randomUUID();
+    const { role } = claim ? this.roles.rejoin(key, claim.role) : this.roles.join(key);
     this.sendControl(conn, { type: 'role', role });
+    this.issueSession(conn, sid, role);
+    this.bindSessionClients(conn, sid, clientIds);
     // Si la sala tiene contraseña, el que entra ya la ha pasado; se le dice de
     // todas formas para que el panel pinte el candado y el productor sepa si
     // hay que ponerla.
@@ -801,6 +944,17 @@ class Room {
       if (!this.puedeReclamar(client, conn)) continue;
       this.clientOwner.set(client, conn);
       controlled.add(client);
+      // La sesión recuerda qué clientID eran suyos: es lo que le deja
+      // recuperarlos al reconectar sin abrir la puerta a los de otra sesión.
+      const sid = this.connSessions.get(conn);
+      if (sid !== undefined) {
+        let owned = this.sessionClients.get(sid);
+        if (!owned) {
+          owned = new Set();
+          this.sessionClients.set(sid, owned);
+        }
+        owned.add(client);
+      }
       // Ya es de alguien vivo otra vez: se olvida el recuerdo de la liberación.
       this.liberados.delete(client);
       claimed = true;
@@ -827,7 +981,7 @@ class Room {
     this.conns.delete(conn);
     // La credencial se lee ANTES de olvidarla: es la que se queda atada a los IDs que
     // se sueltan, para que solo su dueño pueda recuperarlos (BUG 012).
-    const credencial = this.credencialDe(conn);
+    const credencial = this.credencialesDe(conn);
     for (const client of controlled) {
       this.clientOwner.delete(client);
       this.soltar(client, credencial);
@@ -837,10 +991,11 @@ class Room {
     }
     const key = this.connKeys.get(conn);
     this.connKeys.delete(conn);
-    // La invitación se olvida con el socket, pero la AUTORÍA se queda: es lo que
+    // La invitación se olvida con el socket, pero la SESIÓN no: es lo que
     // permite que el mismo autor, al reconectar, siga pudiendo deshacer lo suyo
-    // (BUG 011).
+    // y recuperar sus clientID (S7/S10).
     this.connInvites.delete(conn);
+    this.connSessions.delete(conn);
     if (key === undefined) return;
     const { promoted } = this.roles.leave(key);
     if (promoted !== null) {
@@ -914,6 +1069,15 @@ class Room {
   private handleControl(conn: WsSocket, json: string): void {
     const message = parseControl(json);
     if (!message) return;
+    if (message.type === 'resume') {
+      const claim = verifySession(message.token, this.code);
+      if (!claim) {
+        this.sendControl(conn, { type: 'sessionExpired' });
+        return;
+      }
+      this.resumeSession(conn, claim, message.clientIds);
+      return;
+    }
     if (message.type === 'setPassword') {
       this.handleSetPassword(conn, message.auth);
       return;
@@ -1063,13 +1227,12 @@ class Room {
     // el registro de dueños). Se usa el socket que inserta, no el `client` que
     // diga la entrada.
     const entrantKey = from === undefined ? undefined : this.connKeys.get(from);
-    // QUIÉN es el autor de lo que entra por este socket. Es su invitación si entró con
-    // una (una credencial, así que se puede reconocer tras un corte de red), y su
-    // socket si abrió la sala (que no tiene invitación: es lo único que hay).
-    const autor =
-      from === undefined
-        ? 'socket:nadie'
-        : (this.connInvites.get(from) ?? `socket:${String(entrantKey)}`);
+    // QUIÉN es el autor de lo que entra por este socket, como conjunto de
+    // credenciales: la sesión (estable entre reconexiones) y la invitación
+    // (compatibilidad con clientes que aún no han guardado su token). Se usa el
+    // socket que inserta, no el `client` que diga la entrada.
+    const autorKeys =
+      from === undefined ? [] : this.credencialesDe(from);
     const offenders: { index: number; reason: string; type: string }[] = [];
 
     // Borrar entradas del log solo lo hace legítimamente el compactador
@@ -1115,7 +1278,12 @@ class Room {
         let ownCreation = false;
         if (cmd) {
           const dels = collectTrackDeletions(cmd);
-          ownCreation = dels.length > 0 && dels.every((id) => this.ownCreations.get(id) === autor);
+          ownCreation =
+            dels.length > 0 &&
+            dels.every((id) => {
+              const dueños = this.ownCreations.get(id);
+              return dueños !== undefined && autorKeys.some((key) => dueños.has(key));
+            });
         }
         const verdict = checkEntry(entry, role, ownCreation);
         if (!verdict.allowed) {
@@ -1140,7 +1308,14 @@ class Room {
           if (entrantKey !== undefined) {
             // Se apunta lo que crea bajo su autor, para poder juzgar después si un
             // borrado suyo con `own` es legítimo.
-            for (const id of collectCreations(cmd)) this.ownCreations.set(id, autor);
+            for (const id of collectCreations(cmd)) {
+              let dueños = this.ownCreations.get(id);
+              if (!dueños) {
+                dueños = new Set();
+                this.ownCreations.set(id, dueños);
+              }
+              for (const key of autorKeys) dueños.add(key);
+            }
           }
         }
         index++;
@@ -1775,9 +1950,15 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
    * pouvant deshacer lo suyo (BUG 011). Sin ella —una sala abierta, que no tiene
    * invitación— la autoría se ata al socket, como antes.
    */
-  function admit(conn: WsSocket, code: string, inviteId?: string): void {
+  function admit(
+    conn: WsSocket,
+    code: string,
+    inviteId?: string,
+    claim?: SessionClaim,
+    clientIds: readonly number[] = [],
+  ): void {
     const room = getRoom(code);
-    room.addConn(conn, inviteId);
+    room.addConn(conn, inviteId, claim, clientIds);
     console.log(`[room ${code}] peer conectado (${room.conns.size} en el room)`);
   }
 
@@ -1808,6 +1989,30 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
      * alguien sin darle la contraseña, así que se comprueba aquí mismo y con
      * las mismas reglas: una por conexión, y fallar cierra.
      */
+    if (message.type === 'resume') {
+      // La credencial de sesión responde al mismo challenge sin gastar otra
+      // invitación ni pedir la contraseña otra vez. Si no vale (servidor
+      // reiniciado), se dice y el cliente vuelve a la puerta normal.
+      const claim = verifySession(message.token, code);
+      if (!claim) {
+        conn.send(encodeControl({ type: 'sessionExpired' }));
+        clearTimeout(waiting.timer);
+        pending.delete(conn);
+        conn.close(CLOSE_POLICY, 'La sesión ya no vale');
+        return;
+      }
+      const room = rooms.get(code);
+      if (room && room.conns.size >= roomCapacity) {
+        conn.close(CLOSE_TRY_LATER, `La sala está llena (caben ${roomCapacity})`);
+        return;
+      }
+      clearTimeout(waiting.timer);
+      pending.delete(conn);
+      conn.send(encodeControl({ type: 'authOk' }));
+      admit(conn, code, undefined, claim, message.clientIds);
+      return;
+    }
+
     if (message.type === 'joinInvite') {
       waiting.checking = true;
       // Leer→consumir→escribir DENTRO del candado por sala: así el segundo join

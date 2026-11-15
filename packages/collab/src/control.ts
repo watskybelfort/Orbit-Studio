@@ -77,7 +77,22 @@ export type ControlMessage =
    * la contraseña. Es la alternativa a `auth`, no un añadido: se responde al
    * mismo `challenge`.
    */
-  | { type: 'joinInvite'; token: string };
+  | { type: 'joinInvite'; token: string }
+  /**
+   * Servidor → cliente: credencial de SESIÓN firmada. Sobrevive a una
+   * reconexión (mismo `sid`), así que la autoría, el rol y los clientID
+   * liberados siguen siendo del mismo usuario. No se puede falsificar sin el
+   * secreto del servidor.
+   */
+  | { type: 'session'; token: string; role: CollabRole }
+  /**
+   * Cliente → servidor: «soy el de esta sesión». Se responde al `challenge`
+   * (sala con contraseña) o se manda al abrir (sala abierta). `clientIds` son
+   * los que el doc ya usaba; el servidor solo devuelve los que esa sesión tenía.
+   */
+  | { type: 'resume'; token: string; clientIds: number[] }
+  /** Servidor → cliente: la credencial de sesión ya no vale; vuelve a la puerta. */
+  | { type: 'sessionExpired' };
 
 export function encodeControl(message: ControlMessage): Uint8Array {
   const encoder = encoding.createEncoder();
@@ -215,6 +230,27 @@ export function parseControl(json: string): ControlMessage | null {
         ? null
         : { type: 'joinInvite', token: token as string };
     }
+    case 'session': {
+      const token = o['token'];
+      if (typeof token !== 'string' || token.length < 20 || token.length > 512) return null;
+      if (!isCollabRole(o['role'])) return null;
+      return { type: 'session', token, role: o['role'] };
+    }
+    case 'resume': {
+      const token = o['token'];
+      const ids = o['clientIds'];
+      if (typeof token !== 'string' || token.length < 20 || token.length > 512) return null;
+      if (!Array.isArray(ids) || ids.length > 8) return null;
+      const clientIds: number[] = [];
+      for (const id of ids) {
+        if (typeof id !== 'number' || !Number.isFinite(id) || id < 0) return null;
+        const clean = Math.floor(id);
+        if (!clientIds.includes(clean)) clientIds.push(clean);
+      }
+      return { type: 'resume', token, clientIds };
+    }
+    case 'sessionExpired':
+      return { type: 'sessionExpired' };
     case 'roomAuth': {
       const isProtected = o['protected'];
       return typeof isProtected === 'boolean'

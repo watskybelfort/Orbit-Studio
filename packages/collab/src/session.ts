@@ -192,6 +192,8 @@ export class CollabSession {
    */
   private password = '';
   private inviteToken = '';
+  /** Credencial de sesión firmada por el servidor (sobrevive a reconexión). */
+  private sessionToken = '';
   /** Esta sala tiene contraseña (lo dice el servidor al entrar). */
   private roomProtected = false;
   /** Rol de cada clientID según el servidor (para saber quién compacta). */
@@ -202,6 +204,8 @@ export class CollabSession {
    * "sala llena", que llegan por el mismo camino.
    */
   private awaitingAuth = false;
+  /** Estamos intentando entrar con la credencial de sesión. */
+  private resuming = false;
 
   private readonly chatBinding: ChatBinding;
   private readonly assetBinding: SampleAssetBinding;
@@ -403,6 +407,20 @@ export class CollabSession {
       case 'challenge':
         this.answerChallenge(message.salt, message.iterations, message.nonce);
         break;
+      case 'session':
+        // La credencial estable. Se guarda y, a partir de aquí, la invitación
+        // ya no hace falta: el próximo corte se resuelve con esto.
+        this.sessionToken = message.token;
+        this.inviteToken = '';
+        this.resuming = false;
+        this.awaitingAuth = false;
+        break;
+      case 'sessionExpired':
+        // El servidor se reinició (o el token caducó). Se vuelve a la puerta
+        // normal; si hay contraseña o invitación viva, el siguiente intento
+        // entra por ahí.
+        this.sessionToken = '';
+        break;
       case 'authOk':
         // Hasta aquí el servidor no ha mirado NADA de lo que mandamos: lo del
         // `onopen` se lo tragó la puerta. El sync empieza ahora.
@@ -429,23 +447,43 @@ export class CollabSession {
    * viaja es una firma del nonce que acaba de mandar el servidor, distinta en
    * cada conexión.
    */
+  /**
+   * Presenta la credencial de sesión si la hay. Devuelve si la mandó, para que
+   * quien llama sepa que no debe caer a la contraseña ni a la invitación.
+   */
+  private resumeSession(): boolean {
+    if (this.sessionToken === '') return false;
+    this.awaitingAuth = true;
+    this.resuming = true;
+    this.send(encodeControl({
+      type: 'resume',
+      token: this.sessionToken,
+      clientIds: [this.doc.clientID],
+    }));
+    return true;
+  }
+
   private answerChallenge(salt: string, iterations: number, nonce: string): void {
     this.roomProtected = true;
     this.onRoomProtected?.(true);
     const ws = this.ws;
 
     /*
-     * Con invitación no hay nada que derivar: el token ES la respuesta. Va
-     * ANTES de mirar la contraseña porque entrar invitado es justo el caso en
-     * el que uno no la tiene, y pedírsela sería quitarle el sentido.
-     *
-     * El token se gasta al entrar: si esta conexión se cae y se reintenta,
-     * la de un solo uso ya no valdrá. Por eso no se reconecta a ciegas con él
-     * — se limpia y, si hace falta, se vuelve a invitar.
+     * La credencial de sesión va PRIMERO: es la que sobrevive a un corte de red
+     * y la que el servidor reconoce como «el mismo de antes» (mismo rol, misma
+     * autoría, mismos clientID). Sin ella, un invitado de un solo uso no podía
+     * volver a entrar y quien entraba con contraseña compartía una credencial
+     * vacía con todo el que también la sabía.
+     */
+    if (this.resumeSession()) return;
+
+    /*
+     * Con invitación no hay nada que derivar: el token ES la respuesta. No se
+     * borra hasta que el servidor entregue la sesión; si el primer intento no
+     * llega a buen puerto, tenerlo permite reintentar.
      */
     if (this.inviteToken !== '') {
       const token = this.inviteToken;
-      this.inviteToken = '';
       this.awaitingAuth = true;
       this.send(encodeControl({ type: 'joinInvite', token }));
       return;
@@ -645,6 +683,10 @@ export class CollabSession {
       if (this.ws !== ws) return;
       this.wsOpen = true;
       this.backoffMs = BACKOFF_START_MS;
+      // En una sala abierta no hay `challenge`: la sesión se presenta aquí.
+      // En una con contraseña, el servidor la ignora y llega el desafío, que se
+      // responde con `resume` en `answerChallenge`.
+      this.resumeSession();
       // Si la sala pide contraseña esto se lo traga la puerta y se repite tras
       // el authOk; para una sala abierta es el arranque de siempre.
       this.sendHandshake();
@@ -765,6 +807,22 @@ export class CollabSession {
     // en "Conectando…" hasta el timeout, con un mensaje genérico que no decía
     // lo único que importaba: que la sala está llena.
     if (code === CLOSE_POLICY || code === CLOSE_TRY_LATER) {
+      // La sesión caducó (servidor reiniciado): no es una puerta cerrada, es
+      // «vuelve a entrar». Se olvida el token y se reintenta por la puerta
+      // normal en vez de dejar al usuario fuera con un error de contraseña.
+      if (code === CLOSE_POLICY && this.resuming) {
+        this.resuming = false;
+        this.sessionToken = '';
+        this.awaitingAuth = false;
+        if (this.shouldReconnect) {
+          this.reconnectTimer = setTimeout(() => {
+            this.reconnectTimer = null;
+            this.openSocket();
+          }, this.backoffMs);
+          this.backoffMs = Math.min(this.backoffMs * 2, BACKOFF_MAX_MS);
+        }
+        return;
+      }
       this.shouldReconnect = false;
       const message = reason.trim() !== '' ? reason.trim() : 'El servidor rechazó la conexión';
       // Cerrada la puerta con nuestra prueba en la mano: la contraseña no era.
