@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DISCOVERY_VERSION,
+  MAX_DISCOVERY_PEERS,
   MAX_NAME,
   PEER_TTL_MS,
   cleanName,
@@ -136,6 +137,14 @@ describe('lista de peers', () => {
     let list = upsertPeer([], peer('b', 'Zoe', 1));
     list = upsertPeer(list, peer('a', 'Ana', 1));
     expect(list.map((p) => p.name)).toEqual(['Ana', 'Zoe']);
+  });
+
+  it('un diluvio de ids nuevos no crece sin límite', () => {
+    let list: Peer[] = [];
+    for (let i = 0; i < MAX_DISCOVERY_PEERS + 20; i++) {
+      list = upsertPeer(list, peer(`p${i}`, `P${i}`, 1));
+    }
+    expect(list).toHaveLength(MAX_DISCOVERY_PEERS);
   });
 
   it('el que lleva rato callado se cae de la lista', () => {

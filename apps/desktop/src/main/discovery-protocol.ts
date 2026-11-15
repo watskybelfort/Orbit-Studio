@@ -164,8 +164,16 @@ export function parseMessage(raw: string | Uint8Array): DiscoveryMessage | null 
 }
 
 /** Mete o refresca un peer en la lista. Devuelve la lista nueva. */
+export const MAX_DISCOVERY_PEERS = 64;
+
 export function upsertPeer(peers: readonly Peer[], peer: Peer): Peer[] {
   const rest = peers.filter((p) => p.id !== peer.id);
+  // Un `hello` con un id nuevo por paquete podía hacer crecer la lista hasta
+  // el prune de 13 s y disparaba un IPC a todas las ventanas por datagrama. El
+  // tope es de la lista, no del protocolo: 64 equipos en una LAN ya es un aula.
+  if (rest.length >= MAX_DISCOVERY_PEERS && !peers.some((p) => p.id === peer.id)) {
+    rest.shift();
+  }
   return [...rest, peer].sort((a, b) => a.name.localeCompare(b.name));
 }
 

@@ -269,6 +269,9 @@ describe('ToolExecutor', () => {
     await expect(
       executor.execute('generate_pack', { family: 'hats', style: 'cumbia' }),
     ).rejects.toThrow(/Estilo desconocido/);
+    await expect(
+      executor.execute('generate_pack', { family: 'hats', key: 'H' }),
+    ).rejects.toThrow(/Tonalidad desconocida/);
   });
 
   it('sin generador cableado lo dice en vez de fallar raro', async () => {

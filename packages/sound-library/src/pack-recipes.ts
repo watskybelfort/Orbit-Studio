@@ -169,8 +169,15 @@ const DRUM = {
 } as const;
 
 /** Semitonos de cada nota respecto a C (para la raíz de los 808s). */
-const NOTE_OFFSETS: Record<string, number> = {
-  C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11,
+export function isPackKey(key: string): boolean {
+  return Object.hasOwn(NOTE_OFFSETS, key.trim().toUpperCase());
+}
+
+export function packKeys(): string[] {
+  return Object.keys(NOTE_OFFSETS);
+}
+
+const NOTE_OFFSETS: Record<string, number> = {  C: 0, 'C#': 1, D: 2, 'D#': 3, E: 4, F: 5, 'F#': 6, G: 7, 'G#': 8, A: 9, 'A#': 10, B: 11,
 };
 
 function channel(kind: string, params: Record<string, number>, volume = 0.85): CompiledChannel {

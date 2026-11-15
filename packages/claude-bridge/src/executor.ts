@@ -66,7 +66,9 @@ import {
   PACK_FAMILIES,
   PACK_STYLES,
   isPackFamily,
+  isPackKey,
   isPackStyle,
+  packKeys,
   type PackRequest,
 } from '@orbit/sound-library';
 import {
@@ -1678,7 +1680,15 @@ export class ToolExecutor {
     const name = a['name'];
     if (typeof name === 'string' && name.trim() !== '') request.name = name.trim();
     const key = a['key'];
-    if (typeof key === 'string' && key.trim() !== '') request.key = key.trim().toUpperCase();
+    if (typeof key === 'string' && key.trim() !== '') {
+      const clean = key.trim().toUpperCase();
+      if (!isPackKey(clean)) {
+        throw new ToolError(
+          `Tonalidad desconocida: "${key}". Válidas: ${packKeys().join(', ')}`,
+        );
+      }
+      request.key = clean;
+    }
     const seed = a['seed'];
     if (typeof seed === 'number' && Number.isFinite(seed)) request.seed = Math.round(seed);
 

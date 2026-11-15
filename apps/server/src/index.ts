@@ -1575,7 +1575,14 @@ class Room {
         else toDelete.add(key);
       }
     } else {
-      for (const key of borrados) this.assetShadow.delete(key);
+      for (const key of borrados) {
+        this.assetShadow.delete(key);
+        // El digest y el aviso de reescritura son memoria POR CLAVE: si no se
+        // sueltan al borrar el asset, publicar y borrar claves únicas (un
+        // asset de 0 bytes pasaba la validación) crecía sin límite.
+        this.assetDigests.delete(key);
+        this.assetRewrites.delete(key);
+      }
       for (const [key] of changed) {
         const asset = assets.get(key);
         if (asset !== undefined && !isSampleAsset(asset)) {
