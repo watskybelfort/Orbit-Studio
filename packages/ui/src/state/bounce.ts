@@ -228,7 +228,7 @@ async function bounceClips(
       tailSeconds: TAIL_SECONDS,
     };
     const res = canUseRenderWorker()
-      ? await renderProjectInWorker(compiled, renderOpts)
+      ? await renderProjectInWorker(compiled, renderOpts, 'bounce')
       : renderProject(compiled, renderOpts);
     if (!canContinue()) return;
     const wav = encodeWav(res.left, res.right, res.sampleRate, 24);

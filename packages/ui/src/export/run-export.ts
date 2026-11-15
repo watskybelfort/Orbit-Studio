@@ -344,7 +344,7 @@ export function isExporting(): boolean {
 export function cancelExport(): void {
   if (!running) return;
   cancelRequested = true;
-  cancelActiveRenderWorker();
+  cancelActiveRenderWorker('export');
 }
 
 /** Un export a la vez: el render bloquea el hilo del renderer. */
@@ -477,7 +477,7 @@ async function renderAndWrite(
   let mix: RenderResult;
   try {
     mix = canUseRenderWorker()
-      ? await renderProjectInWorker(compiled, renderOpts)
+      ? await renderProjectInWorker(compiled, renderOpts, 'export')
       : renderProject(compiled, { ...renderOpts, isCancelled });
   } catch (e) {
     if (cancelRequested) throw new ExportCancelledError(partialSummary());
@@ -727,6 +727,7 @@ async function renderAndWrite(
             batchIndices,
             renderOpts,
             (idx) => reportStem(idx),
+            'export',
           ));
         } else {
           ({ results, errors } = renderStems(compiled, batchIndices, { ...renderOpts, isCancelled }));

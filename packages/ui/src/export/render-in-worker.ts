@@ -3,8 +3,19 @@
  * `renderProject`/`renderStems` del engine, pero el cómputo (y la ejecución de
  * los plugins JS) ocurre en un worker aislado, no en el hilo de la UI.
  *
- * Un solo worker reutilizado; las peticiones se casan por id. Si el worker no
- * está disponible (test/Node), el llamante debe caer al render directo.
+ * **Un worker POR DUEÑO, no uno solo.** La cancelación real de un render es
+ * tirar el worker entero (`cancelActiveRenderWorker`): el bucle de render es
+ * síncrono y no atiende mensajes a mitad, así que no hay forma de pedirle a un
+ * worker compartido "corta ESTA petición y sigue con la otra". Con un worker
+ * único, cancelar el export mataba también el Consolidar o el Congelar que
+ * estuviera corriendo en paralelo — su promesa se rechazaba con "Export
+ * cancelado por el usuario" y su WAV nunca se escribía. Ahora cada dueño
+ * (`export`, `bounce`, y `default` para cualquier otro) tiene su carril: sus
+ * peticiones y su worker, y cancelar uno no toca el otro.
+ *
+ * Dentro de un carril el worker se reutiliza y las peticiones se casan por id.
+ * Si el worker no está disponible (test/Node), el llamante debe caer al render
+ * directo.
  */
 
 import type { CompiledProject, RenderResult, SampleData, StemBatchResult } from '@orbit/engine';
@@ -17,6 +28,13 @@ export interface WorkerRenderOpts {
   startBeat?: number;
   endBeat?: number;
 }
+
+/**
+ * Dueño de un worker. `export` y `bounce` son los dos que pueden correr a la
+ * vez en la app; `default` queda para llamadas nuevas que no elijan carril
+ * (no pierden el comportamiento de siempre y no comparten el de nadie).
+ */
+export type RenderLane = 'export' | 'bounce' | 'default';
 
 interface Resp {
   id: number;
@@ -50,9 +68,22 @@ interface PendingRequest {
   touch: () => void;
 }
 
-let worker: Worker | null = null;
-let seq = 0;
-const pending = new Map<number, PendingRequest>();
+interface Lane {
+  worker: Worker | null;
+  seq: number;
+  pending: Map<number, PendingRequest>;
+}
+
+const lanes = new Map<RenderLane, Lane>();
+
+function laneOf(key: RenderLane): Lane {
+  let lane = lanes.get(key);
+  if (!lane) {
+    lane = { worker: null, seq: 0, pending: new Map() };
+    lanes.set(key, lane);
+  }
+  return lane;
+}
 
 /** ¿Se puede usar el worker aquí? (No en Node/tests). */
 export function canUseRenderWorker(): boolean {
@@ -60,9 +91,9 @@ export function canUseRenderWorker(): boolean {
 }
 
 /**
- * Rechaza lo pendiente y TIRA el worker.
+ * Rechaza lo pendiente DEL CARRIL y tira su worker.
  *
- * Lo importante es el `worker = null`: rechazar y quedarse con el cadáver
+ * Lo importante es dejar `worker = null`: rechazar y quedarse con el cadáver
  * dejaba a `getWorker()` devolviéndolo para siempre, y `postMessage` a un
  * worker muerto no hace nada ni falla — la siguiente petición se quedaba
  * colgada sin resolver NUNCA. Y con ella, el `running` del export y el `busy`
@@ -70,43 +101,60 @@ export function canUseRenderWorker(): boolean {
  * export decía "ya hay uno en marcha" y Consolidar y Congelar dejaban de
  * funcionar sin decir nada.
  */
-function killWorker(reason: string): void {
-  for (const [, p] of pending) p.reject(new Error(reason));
-  pending.clear();
+function killLane(reason: string, key: RenderLane): void {
+  const lane = lanes.get(key);
+  if (!lane) return;
+  for (const [, p] of lane.pending) p.reject(new Error(reason));
+  lane.pending.clear();
   try {
-    worker?.terminate();
+    lane.worker?.terminate();
   } catch {
     // ya estaba muerto: nada que terminar
   }
-  worker = null;
+  // El carril entero se va: la próxima petición crea worker y contador nuevos.
+  lanes.delete(key);
 }
 
 /**
- * Corta YA lo que el worker esté haciendo, sea lo que sea. Es la única forma
+ * Corta YA lo que ese carril esté haciendo, sea lo que sea. Es la única forma
  * real de cancelar un render A MITAD de camino cuando corre en el worker: el
  * bucle de `renderProject` (packages/engine/src/render/offline.ts) es
  * síncrono y no cede el hilo, así que un `postMessage` de cancelación se
  * quedaría en la cola de eventos del worker sin procesarse hasta que ese
  * bucle termine solo — exactamente el problema que se quiere resolver.
  *
- * Tirar el worker entero SÍ interrumpe de inmediato, y a coste CERO en el
- * bucle caliente: no hay nada que comprobar ahí dentro para este camino (a
+ * Tirar el worker SÍ interrumpe de inmediato, y a coste CERO en el bucle
+ * caliente: no hay nada que comprobar ahí dentro para este camino (a
  * diferencia de `RenderOptions.isCancelled`, que es el mecanismo equivalente
  * para cuando no hay worker — Node/tests, o quien llame a `renderProject`
- * directo). `killWorker` ya reserva lo pendiente y limpia `worker` a null
- * para que la siguiente petición cree uno nuevo: reutilizarlo aquí evita
- * duplicar esa lógica de "no dejar un cadáver colgado".
+ * directo).
  */
-export function cancelActiveRenderWorker(): void {
-  if (pending.size === 0) return; // nada corriendo ahora mismo: no hay nada que cortar
-  killWorker('Export cancelado por el usuario.');
+export function cancelActiveRenderWorker(key: RenderLane = 'default'): void {
+  const lane = lanes.get(key);
+  if (!lane || lane.pending.size === 0) return; // nada corriendo: nada que cortar
+  killLane('Render cancelado por el usuario.', key);
 }
 
-function getWorker(): Worker {
-  if (!worker) {
-    worker = new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' });
+/**
+ * Solo para tests: tira TODOS los carriles aunque estén ociosos. Sin esto, el
+ * worker cacheado de un test anterior reaparece en el siguiente (que ya reseteó
+ * su lista de instancias) y no se crea ninguno nuevo.
+ */
+export function resetRenderWorkerLanes(): void {
+  for (const key of [...lanes.keys()]) killLane('reset de tests', key);
+}
+
+function getWorker(key: RenderLane): Worker {
+  const lane = laneOf(key);
+  if (!lane.worker) {
+    const worker = new Worker(new URL('./render-worker.ts', import.meta.url), { type: 'module' });
+    lane.worker = worker;
     worker.addEventListener('message', (e: MessageEvent<Resp | ProgressMsg>) => {
-      const p = pending.get(e.data.id);
+      // El carril pudo morir entre el envío y la respuesta: el mensaje tardío
+      // no puede resucitar una petición ni tocar el worker nuevo.
+      const current = lanes.get(key);
+      if (current !== lane) return;
+      const p = lane.pending.get(e.data.id);
       if (!p) return;
       if (isProgressMsg(e.data)) {
         // No resuelve nada: solo avisa y rearma el watchdog de la petición.
@@ -114,18 +162,18 @@ function getWorker(): Worker {
         p.onProgress?.(e.data.progress.index, e.data.progress.total);
         return;
       }
-      pending.delete(e.data.id);
+      lane.pending.delete(e.data.id);
       if (e.data.ok) p.resolve(e.data);
       else p.reject(new Error(e.data.error ?? 'Fallo en el worker de render'));
     });
     worker.addEventListener('error', (e) => {
-      killWorker(e.message || 'Error del worker de render');
+      killLane(e.message || 'Error del worker de render', key);
     });
     worker.addEventListener('messageerror', () => {
-      killWorker('El worker de render mandó un mensaje ilegible');
+      killLane('El worker de render mandó un mensaje ilegible', key);
     });
   }
-  return worker;
+  return lane.worker;
 }
 
 /**
@@ -138,10 +186,12 @@ const REQUEST_TIMEOUT_MS = 15 * 60_000;
 
 function request(
   msg: Record<string, unknown>,
+  key: RenderLane,
   onProgress?: (index: number, total: number) => void,
 ): Promise<Resp> {
-  const id = ++seq;
-  const w = getWorker();
+  const lane = laneOf(key);
+  const id = ++lane.seq;
+  const w = getWorker(key);
   return new Promise<Resp>((resolve, reject) => {
     // El timer se REARMA en cada progreso intermedio (`touch`, más abajo): el
     // tope es para un worker que se calla del todo, no para el total de una
@@ -151,15 +201,15 @@ function request(
     let timer: ReturnType<typeof setTimeout>;
     const arm = () => {
       timer = setTimeout(() => {
-        if (!pending.has(id)) return;
-        killWorker('El worker de render no respondió');
+        if (!lane.pending.has(id)) return;
+        killLane('El worker de render no respondió', key);
       }, REQUEST_TIMEOUT_MS);
     };
     const done = <T>(fn: (value: T) => void) => (value: T) => {
       clearTimeout(timer);
       fn(value);
     };
-    pending.set(id, {
+    lane.pending.set(id, {
       resolve: done(resolve),
       reject: done(reject),
       onProgress,
@@ -176,8 +226,9 @@ function request(
 export async function renderProjectInWorker(
   compiled: CompiledProject,
   opts: WorkerRenderOpts,
+  lane: RenderLane = 'default',
 ): Promise<RenderResult> {
-  const resp = await request({ kind: 'project', compiled, opts });
+  const resp = await request({ kind: 'project', compiled, opts }, lane);
   if (!resp.result) throw new Error('El worker no devolvió el render');
   return resp.result;
 }
@@ -199,8 +250,9 @@ export async function renderStemsInWorker(
   trackIndices: number[],
   opts: WorkerRenderOpts,
   onProgress?: (index: number, total: number) => void,
+  lane: RenderLane = 'default',
 ): Promise<StemBatchResult> {
-  const resp = await request({ kind: 'stems', compiled, trackIndices, opts }, onProgress);
+  const resp = await request({ kind: 'stems', compiled, trackIndices, opts }, lane, onProgress);
   const results = new Map<number, RenderResult>();
   for (const s of resp.stems ?? []) results.set(s.idx, s.result);
   const errors = new Map<number, string>();
