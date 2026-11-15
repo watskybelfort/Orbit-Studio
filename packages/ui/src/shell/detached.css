@@ -6,8 +6,16 @@
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: 13px;
+}
+
+/* El acrílico del renderer principal es una capa translúcida sobre el material
+   DWM de ESA ventana. Una ventana desacoplada nace con su propio backgroundColor
+   opaco, así que `--bg` translúcido dejaba texto casi blanco sobre gris claro.
+   Aquí el fondo es sólido y el texto conserva su contraste. */
+html[data-theme='acrylic'] .detached-body {
+  background: var(--surface);
 }
 
 .detached-root {

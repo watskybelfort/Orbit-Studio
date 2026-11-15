@@ -222,6 +222,8 @@ export async function clearRecents(): Promise<void> {
   if (!api) return;
   try {
     await api.project.forgetRecent();
+  } catch (err) {
+    notify(err instanceof Error ? err.message : 'No se pudo vaciar la lista de recientes.');
   } finally {
     void refreshRecents();
   }

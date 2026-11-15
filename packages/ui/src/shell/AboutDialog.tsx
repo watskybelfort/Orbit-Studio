@@ -8,7 +8,7 @@
  * portapapeles para pegarla en un reporte.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUiStore } from '../state/ui';
 import './about.css';
 
@@ -33,6 +33,7 @@ export function AboutDialog() {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const close = () => useUiStore.setState({ aboutOpen: false });
 
   useEffect(() => {
@@ -57,6 +58,7 @@ export function AboutDialog() {
 
   // Esc cierra, como cualquier diálogo de la app.
   useEffect(() => {
+    closeRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') close();
     };
@@ -86,9 +88,20 @@ export function AboutDialog() {
   };
 
   return (
-    <div className="about-backdrop" onPointerDown={close}>
+    <div
+      className="about-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Acerca de Orbit Studio"
+      onPointerDown={close}
+      onKeyDown={(e) => {
+        // El diálogo es modal: Espacio no puede arrancar el transporte de
+        // detrás mientras el foco está en su velo o en un botón.
+        if (e.code === 'Space' || e.code === 'F1') e.stopPropagation();
+      }}
+    >
       <div className="about popup" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="about-close" title="Cerrar (Esc)" onClick={close}>
+        <button ref={closeRef} className="about-close" title="Cerrar (Esc)" onClick={close}>
           ✕
         </button>
         <div className="about-head">
