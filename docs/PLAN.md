@@ -15,7 +15,7 @@ correcciones en el sitio y un tablero de restos. El detalle completo está en
 (S7/S10) cerrada**, tomas de voz con carriles legibles y comping, stop del
 transporte que cierra la toma, loop que parte la toma por vuelta, latencia que
 no se pierde en el compás 1, y un lote de puertas del bus (transporte, layouts,
-altas repetidas, `patchNotes`, `fx`). La red queda en **313 archivos / 3718
+altas repetidas, `patchNotes`, `fx`). La red queda en **314 archivos / 3721
 tests**, lint y typecheck limpios, build en verde y golden sin tocar.
 
 Lo que sigue abierto está en el documento de la revisión, con el porqué escrito:
