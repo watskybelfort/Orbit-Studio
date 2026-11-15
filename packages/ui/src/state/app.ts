@@ -8,7 +8,7 @@ import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { setInputPeak } from './input-monitor';
-import { pushInputChunk, stopRecordingForTransport } from './recorder';
+import { pushInputChunk, stopRecordingForTransport, useRecorderStore } from './recorder';
 import { installRecordingSweepHook, pinnedSamples, uiAudioCacheStats } from './sample-gc';
 import { peaksCacheStats, peaksListenerCount } from './sample-peaks';
 import { pushCaptureChunk } from './track-capture';
@@ -270,6 +270,15 @@ export function pausePlayback(): void {
 }
 
 export async function togglePlay(): Promise<void> {
+  // Espacio durante una toma es «parar», no «arrancar el transporte»: en la
+  // cuenta atrás desde el compás 1 el transporte está parado y antes Space
+  // llamaba a play() en vez de cancelar la espera.
+  const phase = useRecorderStore.getState().phase;
+  if (phase === 'recording' || phase === 'countin') {
+    stopRecordingForTransport();
+    if (useUiStore.getState().playing) stopPlayback();
+    return;
+  }
   if (useUiStore.getState().playing) stopPlayback();
   else await play();
 }

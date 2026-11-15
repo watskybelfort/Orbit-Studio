@@ -327,6 +327,16 @@ describe('el transporte para la toma', () => {
     expect(recorder.useRecorderStore.getState().error).toBeNull();
   });
 
+  it('Espacio durante la toma la cierra en vez de arrancar el transporte', async () => {
+    const { app, recorder } = await rig(2);
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    await app.togglePlay();
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    expect(recorder.useRecorderStore.getState().phase).toBe('idle');
+    expect(Object.values(app.store.project.clips)).toHaveLength(1);
+  });
+
   it('Pausa también cierra la toma', async () => {
     const { app, recorder } = await rig(2);
     await recorder.toggleRecording();
