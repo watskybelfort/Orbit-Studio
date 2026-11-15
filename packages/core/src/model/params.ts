@@ -370,12 +370,20 @@ export function defaultEffectParams(kind: EffectKind): Record<string, number> {
   return out;
 }
 
-/** Busca el spec de un parámetro concreto. */
+/**
+ * Busca el spec de un parámetro concreto.
+ *
+ * Acepta `undefined` a propósito: el `kind` de un instrumento/efecto viene del
+ * archivo y el validador todavía no lo cierra a la unión, así que un `.orbit`
+ * con un kind desconocido llegaba aquí con `INSTRUMENT_PARAMS[kind]` =
+ * undefined y reventaba con un TypeError en toda la UI de perillas. Sin spec la
+ * respuesta correcta es «no hay parámetro», no una excepción.
+ */
 export function findParamSpec(
-  specs: ParamSpec[],
+  specs: readonly ParamSpec[] | undefined,
   key: string,
 ): ParamSpec | undefined {
-  return specs.find((s) => s.key === key);
+  return specs?.find((s) => s.key === key);
 }
 
 /** Desnormaliza 0..1 → rango real del spec (respetando curva exp). */

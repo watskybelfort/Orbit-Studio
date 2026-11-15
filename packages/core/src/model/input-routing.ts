@@ -34,6 +34,7 @@
  */
 
 import { newId } from '../ids';
+import { nullPool } from './entity-id';
 import type { Id, Project } from './types';
 
 /**
@@ -192,7 +193,7 @@ export function normalizeInputRoute(raw: unknown): InputRoute | null {
  */
 export function normalizeProjectInputRoutes(project: Partial<Project>): void {
   const raw = (project.inputRoutes ?? {}) as Record<string, unknown>;
-  const clean: Record<Id, InputRoute> = {};
+  const clean = nullPool<InputRoute>();
   for (const [id, value] of Object.entries(raw)) {
     const route = normalizeInputRoute(value);
     // La clave del pool manda sobre el id de dentro: es por la que se busca.

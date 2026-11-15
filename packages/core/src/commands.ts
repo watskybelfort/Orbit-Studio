@@ -251,6 +251,22 @@ function assertRange(value: number, min: number, max: number, what: string): num
 }
 
 /**
+ * Índice de inserción en un orden.
+ *
+ * `splice(-1, 0, id)` inserta ANTES DEL ÚLTIMO, no al final, y hasta ahora tres
+ * comandos lo aceptaban con semánticas distintas (los `add*` de grupo y ruta ya
+ * trataban `<0` como «al final»). Un índice fraccionario se rechaza: `splice`
+ * lo trunca y el resultado no es el que pidió nadie.
+ */
+function insertIndex(index: number | undefined, length: number, what: string): number {
+  if (index === undefined) return length;
+  if (!Number.isInteger(index)) {
+    throw new Error(`${what}: el índice tiene que ser entero (${String(index)})`);
+  }
+  return index < 0 ? length : Math.min(index, length);
+}
+
+/**
  * Valida un índice de slot de efecto. Sin esto, un slotIndex fuera de rango o
  * fraccionario (p. ej. vía MCP) rompía la invariante de longitud fija del array
  * de slots (huecos, claves no-índice) y se PERSISTÍA en el .orbit.
@@ -477,7 +493,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         throw new Error(`Ya existe: canal ${cmd.channel.id}`);
       }
       project.channels[cmd.channel.id] = cmd.channel;
-      const index = cmd.index ?? project.channelOrder.length;
+      const index = insertIndex(cmd.index, project.channelOrder.length, 'addChannel');
       project.channelOrder.splice(index, 0, cmd.channel.id);
       return { type: 'removeChannel', channelId: cmd.channel.id };
     }
@@ -522,10 +538,18 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const at = cmd.index !== undefined && cmd.index >= 0 ? Math.min(cmd.index, project.channelGroupOrder.length) : project.channelGroupOrder.length;
       project.channelGroups[cmd.group.id] = { ...cmd.group };
       project.channelGroupOrder.splice(at, 0, cmd.group.id);
-      // Al deshacer un borrado, los canales vuelven a su carpeta.
+      // Al deshacer un borrado, los canales vuelven a su carpeta. Un canal que
+      // YA estaba en otra carpeta se rechaza: el inverso solo borra el
+      // `groupId`, así que deshacer dejaba al canal suelto y no en su carpeta
+      // original. El único llamante del repo es el inverso de
+      // `removeChannelGroup`, que llega con los canales ya desagrupados.
       for (const id of cmd.members ?? []) {
         const ch = project.channels[id];
-        if (ch) ch.groupId = cmd.group.id;
+        if (!ch) continue;
+        if (ch.groupId !== undefined && ch.groupId !== cmd.group.id) {
+          throw new Error(`El canal ${id} ya está en la carpeta ${ch.groupId}`);
+        }
+        ch.groupId = cmd.group.id;
       }
       return { type: 'removeChannelGroup', groupId: cmd.group.id };
     }
@@ -585,8 +609,15 @@ export function applyCommand(project: Project, cmd: Command): Command {
     case 'moveChannel': {
       const from = project.channelOrder.indexOf(cmd.channelId);
       if (from < 0) throw new Error(`No existe: canal ${cmd.channelId}`);
+      if (!Number.isInteger(cmd.toIndex)) {
+        throw new Error(`moveChannel: el índice tiene que ser entero (${String(cmd.toIndex)})`);
+      }
+      // El destino se mide sobre el orden SIN el canal (por eso -1 es el final).
+      const target = cmd.toIndex < 0
+        ? project.channelOrder.length - 1
+        : Math.min(cmd.toIndex, project.channelOrder.length - 1);
       project.channelOrder.splice(from, 1);
-      project.channelOrder.splice(cmd.toIndex, 0, cmd.channelId);
+      project.channelOrder.splice(target, 0, cmd.channelId);
       return { type: 'moveChannel', channelId: cmd.channelId, toIndex: from };
     }
 
@@ -663,7 +694,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
         throw new Error(`Ya existe: patrón ${cmd.pattern.id}`);
       }
       project.patterns[cmd.pattern.id] = cmd.pattern;
-      const index = cmd.index ?? project.patternOrder.length;
+      const index = insertIndex(cmd.index, project.patternOrder.length, 'addPattern');
       project.patternOrder.splice(index, 0, cmd.pattern.id);
       return { type: 'removePattern', patternId: cmd.pattern.id };
     }
@@ -1013,6 +1044,10 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restoreLfos', lfos: removed };
     }
     case 'restoreLfos': {
+      // Como el resto de las familias `restore*`: un id ya presente se rechaza
+      // en vez de pisarlo. Sin esta guarda, deshacer el inverso borraba el LFO
+      // que ya existía antes del comando.
+      assertIdsNuevos(project.lfos, cmd.lfos, 'LFO');
       for (const lfo of cmd.lfos) project.lfos[lfo.id] = lfo;
       return { type: 'removeLfos', lfoIds: cmd.lfos.map((l) => l.id) };
     }
@@ -1045,6 +1080,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restoreSections', sections: removed };
     }
     case 'restoreSections': {
+      assertIdsNuevos(project.sections, cmd.sections, 'sección');
       for (const section of cmd.sections) project.sections[section.id] = section;
       return { type: 'removeSections', sectionIds: cmd.sections.map((x) => x.id) };
     }

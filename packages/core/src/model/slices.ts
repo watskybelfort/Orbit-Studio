@@ -28,7 +28,11 @@ export const MAX_SLICE_POINTS = 64;
 export function normalizeSlicePoints(
   points: readonly number[] | undefined | null,
 ): number[] | undefined {
-  if (!points || points.length === 0) return undefined;
+  // El validador de `parseProject` exime `slicePoints` del chequeo de forma
+  // porque este saneo existe; si el archivo trae una cadena, `.filter` no
+  // existe y el error que salía era un TypeError pelado. Un valor que no es
+  // lista no tiene cortes: se descarta.
+  if (!Array.isArray(points) || points.length === 0) return undefined;
   const clean = points
     .filter((v) => typeof v === 'number' && Number.isFinite(v))
     .map((v) => Math.min(1, Math.max(0, v)))

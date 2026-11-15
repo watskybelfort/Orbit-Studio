@@ -59,6 +59,25 @@ export interface Tabla {
   opcional?: Record<string, Forma>;
 }
 
+/**
+ * Campos que existen en la ENTIDAD pero no se pueden tocar con un `patch*`.
+ *
+ * La tabla de una entidad describe el objeto completo, y el patch la reutiliza
+ * para saber qué campos admite. Eso deja pasar los que tienen su propio
+ * comando o una invariante que el `Object.assign` no comprueba:
+ *
+ * - `mixerTrack.slots` y `mixerTrack.sends`: la lista de inserts es de longitud
+ *   fija y los envíos tienen guardia de ciclos (`setSend`/`setRoute`). Un patch
+ *   reemplazaba el array entero y se saltaba las dos.
+ * - `pattern.notes`: reemplaza el mapa de notas sin `assertIdsNuevos`, con ids
+ *   repetidos que el inverso no puede deshacer; para eso están `addNotes`,
+ *   `removeNotes` y `patchNotes`.
+ */
+export const NO_PARCEABLES: Partial<Record<Entidad, readonly string[]>> = {
+  mixerTrack: ['slots', 'sends'],
+  pattern: ['notes'],
+};
+
 /** Todas las entidades del modelo, con sus campos y sus tipos. */
 export const ENTIDADES: Record<Entidad, Tabla> = {
   channel: {
@@ -240,6 +259,12 @@ export function entityProblem(
       const forma = todos[campo] as Forma | undefined;
       if (forma === undefined) {
         return { field: `${ruta}.${campo}`, expected: 'no es un campo de la entidad' };
+      }
+      if (NO_PARCEABLES[entidad]?.includes(campo)) {
+        return {
+          field: `${ruta}.${campo}`,
+          expected: 'no se puede parchear aquí: usa su comando propio',
+        };
       }
       // Una clave presente con valor `undefined` es lo mismo que no venir: el
       // `Object.assign` del bus la escribiría como `undefined`, que no es un campo

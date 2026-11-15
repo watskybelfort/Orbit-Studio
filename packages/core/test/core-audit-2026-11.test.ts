@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyCommand,
+  commandProblem,
   createChannel,
   createEmptyProject,
   createInputRoute,
@@ -116,6 +117,29 @@ describe('layouts', () => {
     })).toThrow(/reservada/);
     expect(Object.keys(p.layouts ?? {})).toEqual([]);
   });
+
+  it('un layout guardado por la app vuelve a abrirse (dos niveles)', () => {
+    const p = createEmptyProject();
+    applyCommand(p, {
+      type: 'setLayout',
+      name: 'Mezcla',
+      windows: {
+        playlist: { open: true, x: 12, y: 12, w: 700, h: 400 },
+        mixer: { open: true, x: 12, y: 424, w: 700, h: 300 },
+        browser: { open: true, x: 0, y: 0, w: 0, h: 0 },
+      },
+    });
+    const json = serializeProject(p);
+    const reopened = parseProject(json);
+    expect(reopened.layouts?.['Mezcla']).toEqual(p.layouts?.['Mezcla']);
+  });
+
+  it('un layout con una ventana rota se rechaza con la ruta completa', () => {
+    const p = createEmptyProject();
+    const json = JSON.parse(roundTrip(p)) as Record<string, unknown>;
+    json['layouts'] = { Mezcla: { playlist: { open: 'sí', x: 0, y: 0, w: 10, h: 10 } } };
+    expect(() => parseProject(JSON.stringify(json))).toThrow(/layouts\.Mezcla\.playlist\.open/);
+  });
 });
 
 describe('cadena de inserts', () => {
@@ -129,6 +153,80 @@ describe('cadena de inserts', () => {
       patch: { fx: [null] },
     })).toThrow(/huecos/);
     expect(p.channels[channel.id]!.fx).toHaveLength(4);
+  });
+});
+
+describe('restore* con id ocupado', () => {
+  it('restoreLfos rechaza pisar un LFO que ya existe', () => {
+    const p = createEmptyProject();
+    const lfo = {
+      id: 'L1', target: { kind: 'channel', channelId: 'c', param: 'cutoff' },
+      shape: 'sine', rateBeats: 4, amount: 0.5, phase: 0, enabled: true,
+    } as never;
+    applyCommand(p, { type: 'addLfos', lfos: [lfo] });
+    expect(p.lfos['L1']).toBeTruthy();
+    expect(() => applyCommand(p, { type: 'restoreLfos', lfos: [lfo] })).toThrow(/LFO/);
+    // El que ya estaba sigue exactamente donde estaba.
+    expect(p.lfos['L1']).toBeTruthy();
+  });
+
+  it('restoreSections rechaza pisar una sección que ya existe', () => {
+    const p = createEmptyProject();
+    const section = {
+      id: 'S1', arrangementId: p.activeArrangementId, name: 'Estribillo', start: 8, length: 4,
+    } as never;
+    applyCommand(p, { type: 'addSections', sections: [section] });
+    expect(() => applyCommand(p, { type: 'restoreSections', sections: [section] })).toThrow(/sección/);
+    expect(p.sections['S1']).toBeTruthy();
+  });
+});
+
+describe('campos que un patch no puede tocar', () => {
+  it('patchMixerTrack no puede reemplazar la lista de inserts ni los envíos', () => {
+    expect(commandProblem({
+      type: 'patchMixerTrack', trackIndex: 0, patch: { slots: null },
+    } as never)).toBeTruthy();
+    expect(commandProblem({
+      type: 'patchMixerTrack', trackIndex: 0, patch: { sends: null },
+    } as never)).toBeTruthy();
+    // Los campos normales siguen pasando.
+    expect(commandProblem({
+      type: 'patchMixerTrack', trackIndex: 0, patch: { volume: 0.8 },
+    } as never)).toBeNull();
+  });
+
+  it('patchPattern no puede reemplazar el mapa de notas', () => {
+    const p = createEmptyProject();
+    expect(commandProblem({
+      type: 'patchPattern', patternId: p.patternOrder[0]!, patch: { notes: {} },
+    } as never)).toBeTruthy();
+    expect(commandProblem({
+      type: 'patchPattern', patternId: p.patternOrder[0]!, patch: { name: 'Otro' },
+    } as never)).toBeNull();
+  });
+});
+
+describe('keymap y slicePoints rotos no revientan con un TypeError', () => {
+  it('un keymap que no es lista se descarta al parsear', () => {
+    const p = createEmptyProject();
+    const channel = createChannel('sampler', 0);
+    applyCommand(p, { type: 'addChannel', channel });
+    const json = JSON.parse(roundTrip(p)) as Record<string, Record<string, unknown>>;
+    const channels = json['channels'] as Record<string, Record<string, unknown>>;
+    channels[channel.id]!['keymap'] = 42;
+    const parsed = parseProject(JSON.stringify(json));
+    expect(parsed.channels[channel.id]?.keymap).toBeUndefined();
+  });
+
+  it('un slicePoints que no es lista se descarta al parsear', () => {
+    const p = createEmptyProject();
+    const channel = createChannel('sampler', 0);
+    applyCommand(p, { type: 'addChannel', channel });
+    const json = JSON.parse(roundTrip(p)) as Record<string, Record<string, unknown>>;
+    const channels = json['channels'] as Record<string, Record<string, unknown>>;
+    channels[channel.id]!['slicePoints'] = 'hola';
+    const parsed = parseProject(JSON.stringify(json));
+    expect(parsed.channels[channel.id]?.slicePoints).toBeUndefined();
   });
 });
 

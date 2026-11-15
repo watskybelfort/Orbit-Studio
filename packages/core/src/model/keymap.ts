@@ -99,7 +99,10 @@ export function normalizeKeymapZone(zone: KeymapZone): KeymapZone {
 export function normalizeKeymap(
   zones: readonly KeymapZone[] | undefined | null,
 ): KeymapZone[] | undefined {
-  if (!zones || zones.length === 0) return undefined;
+  // Mismo caso que `normalizeSlicePoints`: el validador exime este campo del
+  // chequeo de forma, así que un `keymap: 42` de un archivo manipulado llegaba
+  // aquí y reventaba con «zones.filter is not a function».
+  if (!Array.isArray(zones) || zones.length === 0) return undefined;
   const out = zones
     .filter((z) => typeof z?.sampleId === 'string' && z.sampleId.length > 0)
     .map(normalizeKeymapZone)

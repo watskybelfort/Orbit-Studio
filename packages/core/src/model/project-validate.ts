@@ -171,23 +171,34 @@ export function findProjectProblems(project: Record<string, unknown>): ParseProb
   }
   // `layouts` es el único contenedor opcional que no se miraba: un `layouts: 42`
   // pasaba y el primer «guardar layout» reventaba con un TypeError sin nombre.
+  //
+  // Y es de DOS niveles: `layouts[nombre]` es el mapa de ventanas de ese layout,
+  // no una ventana. Validarlo como ventana rechazaba exactamente los archivos
+  // que la app acababa de guardar («layouts.Mezcla.open» no es un booleano) y
+  // con ellos el autosave, las versiones y el snapshot base de una sala.
   if (project.layouts !== undefined && project.layouts !== null) {
     const layouts = project.layouts;
     if (typeof layouts !== 'object' || Array.isArray(layouts)) {
       problemas.push({ field: 'layouts', expected: 'un mapa de ventanas' });
     } else {
-      for (const [name, win] of Object.entries(layouts as Record<string, unknown>)) {
-        if (typeof win !== 'object' || win === null || Array.isArray(win)) {
-          problemas.push({ field: `layouts.${name}`, expected: 'una ventana (objeto)' });
+      for (const [name, layout] of Object.entries(layouts as Record<string, unknown>)) {
+        if (typeof layout !== 'object' || layout === null || Array.isArray(layout)) {
+          problemas.push({ field: `layouts.${name}`, expected: 'un mapa de ventanas' });
           continue;
         }
-        const w = win as Record<string, unknown>;
-        if (typeof w['open'] !== 'boolean') {
-          problemas.push({ field: `layouts.${name}.open`, expected: 'un booleano' });
-        }
-        for (const key of ['x', 'y', 'w', 'h'] as const) {
-          if (typeof w[key] !== 'number' || !Number.isFinite(w[key])) {
-            problemas.push({ field: `layouts.${name}.${key}`, expected: 'un número' });
+        for (const [windowId, win] of Object.entries(layout as Record<string, unknown>)) {
+          if (typeof win !== 'object' || win === null || Array.isArray(win)) {
+            problemas.push({ field: `layouts.${name}.${windowId}`, expected: 'una ventana (objeto)' });
+            continue;
+          }
+          const w = win as Record<string, unknown>;
+          if (typeof w['open'] !== 'boolean') {
+            problemas.push({ field: `layouts.${name}.${windowId}.open`, expected: 'un booleano' });
+          }
+          for (const key of ['x', 'y', 'w', 'h'] as const) {
+            if (typeof w[key] !== 'number' || !Number.isFinite(w[key])) {
+              problemas.push({ field: `layouts.${name}.${windowId}.${key}`, expected: 'un número' });
+            }
           }
         }
       }

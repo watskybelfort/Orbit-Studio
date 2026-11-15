@@ -160,8 +160,25 @@ export class ProjectStore {
       return;
     }
     this.version++;
-    for (const l of this.listeners) l();
-    for (const l of this.commandListeners) l(cmd, origin, label);
+    // Un listener roto no puede dejar el comando a medias: `dispatch` ya mutó
+    // el proyecto y apiló la entrada antes de llegar aquí. Si lanzara, el
+    // llamante vería una excepción de un cambio que SÍ se aplicó y SÍ tiene
+    // undo, y los demás listeners no se enterarían. Mismo criterio que
+    // `replaceProject`.
+    for (const l of this.listeners) {
+      try {
+        l();
+      } catch (err) {
+        console.warn('[orbit] listener de proyecto roto:', err);
+      }
+    }
+    for (const l of this.commandListeners) {
+      try {
+        l(cmd, origin, label);
+      } catch (err) {
+        console.warn('[orbit] listener de comandos roto:', err);
+      }
+    }
   }
 
   // ── Dispatch / undo / redo ────────────────────────────────────────────────
