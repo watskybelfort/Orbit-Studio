@@ -9,7 +9,7 @@ import { useUiStore, type WindowId } from '../state/ui';
 import { capturePointer } from '../widgets/pointer';
 import { DetachedWindow } from './DetachedWindow';
 import { WorkspaceAreaContext } from './WorkspaceArea';
-import { fitWindowToWorkspace } from './window-bounds';
+import { clampResize, fitWindowToWorkspace } from './window-bounds';
 import { EDITOR_GUIDES } from './editor-guides';
 import './studio-guide.css';
 import './shell.css';
@@ -50,10 +50,15 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
       if (d.mode === 'move') {
         moveWindow(id, Math.max(0, d.x + dx), Math.max(0, d.y + dy));
       } else {
-        resizeWindow(id, Math.max(minW, d.w + dx), Math.max(minH, d.h + dy));
+        const next = clampResize(
+          { x: d.x, y: d.y, w: d.w + dx, h: d.h + dy },
+          isDetached ? null : area,
+          { w: minW, h: minH },
+        );
+        resizeWindow(id, next.w, next.h);
       }
     },
-    [id, moveWindow, resizeWindow, minW, minH],
+    [id, moveWindow, resizeWindow, minW, minH, area, isDetached],
   );
 
   /**

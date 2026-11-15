@@ -1,5 +1,5 @@
 /** Navegación estable por el flujo de producción; el transporte queda aparte. */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { IconBrowser, IconChannelRack, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
 import { usePaletteStore } from '../palette';
@@ -28,6 +28,15 @@ export function StudioNavigation() {
   const browserOpen = useUiStore((s) => s.browserOpen);
   const compact = useUiStore((s) => s.compact);
   const front = Object.entries(windows).filter(([, w]) => w.open).sort((a, b) => b[1].z - a[1].z)[0]?.[0];
+
+  // El aviso de «espacio reducido» explica una decisión, no bloquea nada: a los
+  // 8 s se va solo. Antes se quedaba fijo en la esquina tapando los controles
+  // inferiores de la ventana que cayera ahí hasta que alguien pulsara la ×.
+  useEffect(() => {
+    if (layoutNotice === null) return;
+    const timer = window.setTimeout(dismissLayoutNotice, 8000);
+    return () => window.clearTimeout(timer);
+  }, [layoutNotice, dismissLayoutNotice]);
 
   return (
     <div className="studio-nav-container">
@@ -106,8 +115,10 @@ export function StudioNavigation() {
       </div>
       {guideOpen && <StudioGuide onClose={() => setGuideOpen(false)} returnFocusTo={guideTrigger.current} />}
       {layoutNotice && createPortal(
-        <div className="studio-layout-notice popup" role="status">
-          <p>{layoutNotice}</p>
+        <div className="studio-layout-notice popup">
+          {/* La región viva envuelve solo el texto: un botón dentro de un
+              `role=status` se anuncia como parte del aviso y se lee raro. */}
+          <p role="status">{layoutNotice}</p>
           <button onClick={dismissLayoutNotice} aria-label="Cerrar aviso de distribución">×</button>
         </div>,
         document.body,

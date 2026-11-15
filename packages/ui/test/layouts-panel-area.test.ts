@@ -10,9 +10,11 @@ const flag = (open: boolean) => ({ open, x: 0, y: 0, w: 0, h: 0 });
 
 /** Solo geometría/estados: el DOM simulado conserva el render viejo hasta
  * commitRender, igual que React dentro del manejador que elige el preset. */
-function fakeWorkspace(scale = 1, browserWidth = 240, claudeWidth = 280, physicalHeight = 660) {
+function fakeWorkspace(scale = 1, browserWidth = 240, claudeWidth = 280, physicalHeight = 660, chromeHeight = 0) {
   let rendered = { ...useUiStore.getState() };
   const total = { w: Math.floor(1366 / scale), h: Math.floor(physicalHeight / scale) };
+  /** Alto real del `.workspace`: debajo de titlebar, toolbar y nav. */
+  const workspaceHeight = Math.max(0, total.h - chromeHeight);
   class Element {
     constructor(readonly kind: 'columns' | 'workspace' | 'browser' | 'claude') {}
     get clientWidth() {
@@ -21,7 +23,7 @@ function fakeWorkspace(scale = 1, browserWidth = 240, claudeWidth = 280, physica
       if (this.kind === 'claude') return claudeWidth;
       return total.w - (rendered.browserOpen && !rendered.compact ? browserWidth : 0) - (rendered.claudePanelOpen && !rendered.compact ? claudeWidth : 0);
     }
-    get clientHeight() { return total.h; }
+    get clientHeight() { return this.kind === 'workspace' ? workspaceHeight : total.h; }
   }
   const columns = new Element('columns');
   const workspace = new Element('workspace');
@@ -213,14 +215,36 @@ describe('BUG028: medir el área de destino de un layout', () => {
 });
 
 describe('presets: cabida con los mínimos reales de los editores', () => {
-  it.each([1, 1.25, 1.5])('el arranque sin memoria no solapa Rack y Playlist a escala %s', (scale) => {
+  it.each([
+    [1, ['channelRack', 'playlist']],
+    [1.25, ['channelRack', 'playlist']],
+    [1.5, ['playlist']],
+  ] as const)('el arranque sin memoria no solapa Rack y Playlist a escala %s', (scale, expected) => {
     useUiStore.setState({ browserOpen: true, claudePanelOpen: false, compact: false });
-    const view = fakeWorkspace(scale);
+    // 1280×720 con el chrome real: titlebar 38 + toolbar 44 + nav 44 = 126 px
+    // de layout. El test viejo no los descontaba y por eso daba por bueno un
+    // arranque que en la app solapaba 82 px a 150 %.
+    const view = fakeWorkspace(scale, 240, 280, 720, 126);
     applyStartupLayout();
     view.commitRender();
-    expect(useUiStore.getState().windows.channelRack.open).toBe(true);
-    expect(useUiStore.getState().windows.playlist.open).toBe(true);
-    expectVisibleWithoutOverlap(captureLayout(), view.total);
+    const open = (['channelRack', 'playlist'] as const).filter(
+      (id) => useUiStore.getState().windows[id].open,
+    );
+    expect([...open].sort()).toEqual([...expected].sort());
+    const area = { w: view.total.w - 240, h: view.total.h - 126 };
+    expectVisibleWithoutOverlap(captureLayout(), area);
+  });
+
+  it('a 1280×720 al 150 % el Rack se cierra con aviso, no se apila encima', () => {
+    useUiStore.setState({ browserOpen: true, claudePanelOpen: false, compact: false });
+    const view = fakeWorkspace(1.5, 240, 280, 720, 126);
+    applyStartupLayout();
+    view.commitRender();
+    expect(useUiStore.getState().windows.channelRack.open).toBe(false);
+    const playlist = useUiStore.getState().windows.playlist;
+    expect(playlist.open).toBe(true);
+    expect(playlist.y + playlist.h).toBeLessThanOrEqual(view.total.h - 126);
+    expect(useLayoutNotice.getState().message).toContain('Abre Ritmos');
   });
 
   it.each([

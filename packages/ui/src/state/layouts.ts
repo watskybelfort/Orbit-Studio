@@ -297,6 +297,25 @@ export function applyStartupLayout(): void {
     return;
   }
   const rackH = clamp(Math.round(h * 0.45), 200, Math.max(200, h - 200 - GAP));
+  /*
+   * Con menos de dos mínimos + márgenes no hay reparto que valga: el render
+   * sube cada caja a su mínimo (`fitWindowToWorkspace`), así que pedir 200 y
+   * 200 en 330 px no deja «dos cajas chicas», deja la Playlist ENCIMA del Rack
+   * (medido a 1280×720 al 150 %: 82 px de solape). Mejor abrir solo Arreglo —la
+   * vista de la canción— y decir cómo se abre el otro, que es la misma política
+   * que ya usan los predefinidos.
+   */
+  if (h < MIN_H * 2 + GAP * 2) {
+    applyLayoutWindows({
+      playlist: box(GAP, GAP, w, h),
+      [BROWSER_KEY]: panelFlag(true),
+      [CLAUDE_KEY]: panelFlag(false),
+    });
+    useLayoutNotice.setState({
+      message: 'Espacio reducido: Arreglo ocupa el escritorio. Abre Ritmos desde la barra para programar el beat.',
+    });
+    return;
+  }
   applyLayoutWindows({
     channelRack: box(GAP, GAP, w, rackH),
     playlist: box(GAP, GAP * 2 + rackH, w, Math.max(200, h - rackH - GAP)),

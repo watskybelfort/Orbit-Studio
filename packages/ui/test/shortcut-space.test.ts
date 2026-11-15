@@ -58,6 +58,11 @@ describe('BUG043: Espacio pertenece primero al control enfocado', () => {
     expect(shouldHandleTransportSpace(space(node('CANVAS'), true))).toBe(false);
     expect(shouldHandleTransportSpace({ ...space(node('CANVAS')), code: 'Enter' })).toBe(false);
   });
+
+  it('mantener Espacio pulsado no alterna el transporte en cada autorepetición', () => {
+    expect(shouldHandleTransportSpace({ ...space(node('CANVAS')), repeat: true })).toBe(false);
+    expect(shouldHandleTransportSpace({ ...space(node('CANVAS')), repeat: false })).toBe(true);
+  });
 });
 
 /** Ejecuta el callback instalado de verdad por useShortcuts, como la sonda de

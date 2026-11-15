@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
-import { parseWorkspace } from '../src/state/workspace-memory';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  forgetWorkspace,
+  parseWorkspace,
+  setWorkspaceMemory,
+} from '../src/state/workspace-memory';
+import { useUiStore } from '../src/state/ui';
 
 const AREA = { w: 1400, h: 780 };
 
-describe('disposición guardada del escritorio', () => {
-  it('acepta una disposición normal tal cual', () => {
+describe('disposiciÃ³n guardada del escritorio', () => {
+  it('acepta una disposiciÃ³n normal tal cual', () => {
     const got = parseWorkspace(
       {
         playlist: { open: true, x: 20, y: 30, w: 800, h: 400 },
@@ -18,7 +23,7 @@ describe('disposición guardada del escritorio', () => {
     expect(got?.['browser']).toEqual({ open: false, x: 0, y: 0, w: 0, h: 0 });
   });
 
-  it('una ventana que se quedó en el monitor que ya no está vuelve a la vista', () => {
+  it('una ventana que se quedÃ³ en el monitor que ya no estÃ¡ vuelve a la vista', () => {
     // Segundo monitor a la derecha: x = 2600 en un escritorio de 1400.
     const got = parseWorkspace({ mixer: { open: true, x: 2600, y: 1900, w: 600, h: 300 } }, AREA);
     expect(got?.['mixer']?.x).toBeLessThanOrEqual(AREA.w);
@@ -26,13 +31,13 @@ describe('disposición guardada del escritorio', () => {
     expect(got?.['mixer']?.open).toBe(true);
   });
 
-  it('una ventana más grande que la pantalla se encoge hasta caber', () => {
+  it('una ventana mÃ¡s grande que la pantalla se encoge hasta caber', () => {
     const got = parseWorkspace({ mixer: { open: true, x: 0, y: 0, w: 4000, h: 3000 } }, AREA);
     expect(got?.['mixer']?.w).toBeLessThanOrEqual(AREA.w);
     expect(got?.['mixer']?.h).toBeLessThanOrEqual(AREA.h);
   });
 
-  it('nunca deja una ventana por debajo de su tamaño mínimo', () => {
+  it('nunca deja una ventana por debajo de su tamaÃ±o mÃ­nimo', () => {
     const got = parseWorkspace({ mixer: { open: true, x: 0, y: 0, w: 10, h: 10 } }, AREA);
     expect(got?.['mixer']?.w).toBeGreaterThanOrEqual(320);
     expect(got?.['mixer']?.h).toBeGreaterThanOrEqual(200);
@@ -42,7 +47,7 @@ describe('disposición guardada del escritorio', () => {
     const got = parseWorkspace(
       {
         playlist: { open: true, x: 10, y: 10, w: 700, h: 400 },
-        mixer: { open: true, x: 'ahí', y: null, w: 600 },
+        mixer: { open: true, x: 'ahÃ­', y: null, w: 600 },
         inventada: { open: true, x: 0, y: 0, w: 500, h: 300 },
       },
       AREA,
@@ -56,5 +61,50 @@ describe('disposición guardada del escritorio', () => {
     expect(parseWorkspace({}, AREA)).toBeNull();
     // Solo paneles, sin una sola ventana: no merece pisar el escritorio.
     expect(parseWorkspace({ browser: { open: true } }, AREA)).toBeNull();
+  });
+});
+
+describe('olvidar la disposiciÃ³n', () => {
+  afterEach(() => {
+    setWorkspaceMemory(false);
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('cancela el guardado que estaba en vuelo', () => {
+    vi.useFakeTimers();
+    const set = vi.fn(async (_patch: Record<string, unknown>) => undefined);
+    vi.stubGlobal('window', { orbit: { settings: { set } } });
+    setWorkspaceMemory(true);
+    set.mockClear();
+
+    // Mover una ventana agenda el guardado con 700 ms de retardoâ€¦
+    const playlist = useUiStore.getState().windows.playlist;
+    useUiStore.setState({
+      windows: { ...useUiStore.getState().windows, playlist: { ...playlist, x: playlist.x + 40 } },
+    });
+    // â€¦y olvidar antes de que dispare no puede dejar que dispare despuÃ©s.
+    forgetWorkspace();
+    vi.advanceTimersByTime(2000);
+
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set).toHaveBeenCalledWith({ workspaceLayout: null });
+  });
+
+  it('el primer cambio despuÃ©s de olvidar vuelve a guardarse', () => {
+    vi.useFakeTimers();
+    const set = vi.fn(async (_patch: Record<string, unknown>) => undefined);
+    vi.stubGlobal('window', { orbit: { settings: { set } } });
+    setWorkspaceMemory(true);
+    forgetWorkspace();
+    set.mockClear();
+
+    const playlist = useUiStore.getState().windows.playlist;
+    useUiStore.setState({
+      windows: { ...useUiStore.getState().windows, playlist: { ...playlist, x: playlist.x + 10 } },
+    });
+    vi.advanceTimersByTime(1000);
+    expect(set).toHaveBeenCalledTimes(1);
+    expect(set.mock.calls[0]![0]).toHaveProperty('workspaceLayout');
   });
 });

@@ -18,9 +18,11 @@ const WIDGET_ROLES = new Set([
 export function shouldHandleTransportSpace(event: {
   code: string;
   defaultPrevented: boolean;
+  /** Autorepetición del teclado: mantener Espacio no puede alternar play/stop. */
+  repeat?: boolean;
   target: unknown;
 }): boolean {
-  if (event.code !== 'Space' || event.defaultPrevented) return false;
+  if (event.code !== 'Space' || event.defaultPrevented || event.repeat) return false;
   let node = event.target && typeof event.target === 'object' ? event.target as ShortcutNode : null;
   let editable: boolean | undefined;
   for (; node; node = node.parentElement ?? null) {

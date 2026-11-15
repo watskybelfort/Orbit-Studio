@@ -496,16 +496,22 @@ export function SettingsPanel() {
         <p role="status" className={fileNotice.kind === 'error' ? 'set-error' : 'set-note'}>{fileNotice.text}</p>
       )}
       </section>
-      <section className="settings-section" aria-label="Audio y MIDI" hidden={visibleSection !== 'devices'}>
-      <InputSection />
-      <MidiSection />
-      </section>
-      <section className="settings-section" aria-label="Plugins" hidden={visibleSection !== 'plugins'}>
-      <GallerySection />
-      </section>
-      <section className="settings-section" aria-label="Actualizaciones" hidden={visibleSection !== 'updates'}>
-      <UpdateSection />
-      </section>
+      {visibleSection === 'devices' && (
+        <section className="settings-section" aria-label="Audio y MIDI">
+          <InputSection />
+          <MidiSection />
+        </section>
+      )}
+      {visibleSection === 'plugins' && (
+        <section className="settings-section" aria-label="Plugins">
+          <GallerySection />
+        </section>
+      )}
+      {visibleSection === 'updates' && (
+        <section className="settings-section" aria-label="Actualizaciones">
+          <UpdateSection />
+        </section>
+      )}
       </div>
     </div>
   );

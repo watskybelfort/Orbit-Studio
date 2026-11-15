@@ -176,7 +176,17 @@ export function workspaceMemoryOn(): boolean {
 
 /** Olvida la disposición guardada (el próximo arranque sale de fábrica). */
 export function forgetWorkspace(): void {
+  // El guardado en vuelo también se olvida: sin esto, mover una ventana y
+  // pulsar «Olvidar» dentro de los 700 ms del debounce volvía a escribir el
+  // layout recién olvidado, sin ningún aviso.
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
   lastSaved = '';
   lastSeen = '';
+  // El próximo cambio real tiene que volver a programar un guardado.
+  lastWindows = null;
+  lastPanels = '';
   void window.orbit?.settings.set({ [SETTINGS_KEY]: null });
 }

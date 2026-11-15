@@ -34,6 +34,7 @@ export function AboutDialog() {
   const [failed, setFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDialogElement>(null);
   const close = () => useUiStore.setState({ aboutOpen: false });
 
   useEffect(() => {
@@ -56,14 +57,21 @@ export function AboutDialog() {
     };
   }, []);
 
-  // Esc cierra, como cualquier diálogo de la app.
+  // Esc cierra, como cualquier diálogo de la app. El diálogo NATIVO confina
+  // Tab y deja inerte el estudio: el `aria-modal` de un div no hacía ninguna
+  // de las dos cosas, y con el foco escapado los atajos globales (F5/F6,
+  // Ctrl+S) seguían actuando detrás del modal.
   useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
+    const dialog = dialogRef.current;
+    const previousFocus = dialog?.ownerDocument.activeElement;
+    dialog?.showModal();
+    closeRef.current?.focus({ preventScroll: true });
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+        previousFocus.focus({ preventScroll: true });
+      }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const rows: [string, string][] = info
@@ -88,22 +96,39 @@ export function AboutDialog() {
   };
 
   return (
-    <div
-      className="about-backdrop"
-      role="dialog"
-      aria-modal="true"
+    <dialog
+      ref={dialogRef}
+      className="about popup"
       aria-label="Acerca de Orbit Studio"
-      onPointerDown={close}
-      onKeyDown={(e) => {
-        // El diálogo es modal: Espacio no puede arrancar el transporte de
-        // detrás mientras el foco está en su velo o en un botón.
-        if (e.code === 'Space' || e.code === 'F1') e.stopPropagation();
+      onCancel={(event) => {
+        event.preventDefault();
+        close();
+      }}
+      onKeyDown={(event) => {
+        // Un keydown del diálogo sube hasta el listener global de atajos:
+        // mientras el modal está abierto, ninguna tecla puede llegar detrás.
+        event.stopPropagation();
+        if (event.code === 'F1') {
+          event.preventDefault();
+          close();
+        }
+      }}
+      onPointerDown={(event) => {
+        // Clic fuera de la caja = cerrar. Con <dialog> el evento llega al
+        // propio elemento cuando cae en el backdrop.
+        const box = event.currentTarget.getBoundingClientRect();
+        if (
+          event.target === event.currentTarget &&
+          (event.clientX < box.left || event.clientX > box.right ||
+            event.clientY < box.top || event.clientY > box.bottom)
+        ) {
+          close();
+        }
       }}
     >
-      <div className="about popup" onPointerDown={(e) => e.stopPropagation()}>
-        <button ref={closeRef} className="about-close" title="Cerrar (Esc)" onClick={close}>
-          ✕
-        </button>
+      <button ref={closeRef} className="about-close" title="Cerrar (Esc)" onClick={close}>
+        ✕
+      </button>
         <div className="about-head">
           <div className="about-mark">◍</div>
           <div>
@@ -136,7 +161,6 @@ export function AboutDialog() {
             Cerrar
           </button>
         </div>
-      </div>
-    </div>
+    </dialog>
   );
 }
