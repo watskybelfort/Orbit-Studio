@@ -80,6 +80,12 @@ function connectOnce(): Promise<WebSocket> {
     // Se relee aquí, no al cargar el módulo: el token cambia en cada arranque
     // de la app y el archivo puede no existir todavía.
     const { url, token } = bridgeNow();
+    // Sin token no se conecta: el host de la app SIEMPRE lo exige. Antes se
+    // abría el socket sin handshake y el host lo cerraba en la primera tool,
+    // con un mensaje que parecía un fallo de red. Tratar la ausencia como
+    // "todavía no está abierto" deja que el backoff reintente cuando el main
+    // haya publicado el archivo, y no manda la sesión a un 7855 ajeno.
+    if (!token) throw new Error(NOT_OPEN_MSG);
     const ws = new WebSocket(url);
     let settled = false;
 

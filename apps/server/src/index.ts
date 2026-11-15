@@ -221,16 +221,29 @@ function toUint8(data: RawData): Uint8Array {
 }
 
 /**
+ * Tope de clientIDs que un socket puede anunciar.
+ *
+ * Un usuario = una pestaña = un clientID; 8 deja margen para reconexiones de la
+ * misma sesión, pero corta el mensaje de 20 000 IDs que un oyente podía meter
+ * (medido: +18,5 MB de heap y una tabla de roles de 371 KB repartida a todos).
+ */
+const MAX_CLIENTS_PER_CONN = 8;
+const MAX_AWARENESS_ANNOUNCEMENTS = MAX_CLIENTS_PER_CONN * 4;
+/** Un update legítimo de 8 presencias no llega ni a 2 KB. */
+const MAX_AWARENESS_BYTES = 64 * 1024;
+
+/**
  * clientIDs (y si el anuncio los deja vacíos) que toca un update de awareness.
  * Se decodifica aquí, antes de aplicarlo, para poder descartar lo que venga
  * firmado con un clientID ajeno. `null` si el update no tiene la forma.
  */
-function readAwarenessAnnouncements(
-  update: Uint8Array,
+function readAwarenessAnnouncements(  update: Uint8Array,
 ): { client: number; empty: boolean }[] | null {
   try {
+    if (update.byteLength > MAX_AWARENESS_BYTES) return null;
     const decoder = decoding.createDecoder(update);
     const len = decoding.readVarUint(decoder);
+    if (len > MAX_AWARENESS_ANNOUNCEMENTS) return null;
     const out: { client: number; empty: boolean }[] = [];
     for (let i = 0; i < len; i++) {
       const client = decoding.readVarUint(decoder);
@@ -765,6 +778,14 @@ class Room {
     if (!announcements) return null;
     const controlled = this.conns.get(conn);
     if (!controlled) return null;
+    // Un socket anuncia SU clientID (y como mucho los de sus reconexiones).
+    // Sin este tope un oyente metía 20 000 IDs y el mapa de dueños, la tabla
+    // de roles y el Awareness del servidor crecían sin poder recuperarse.
+    const nuevos = new Set<number>();
+    for (const { client, empty } of announcements) {
+      if (!empty && !controlled.has(client)) nuevos.add(client);
+    }
+    if (controlled.size + nuevos.size > MAX_CLIENTS_PER_CONN) return null;
     for (const { client } of announcements) {
       const owner = this.clientOwner.get(client);
       if (owner !== undefined && owner !== conn) return null;
@@ -977,43 +998,49 @@ class Room {
       });
       return;
     }
-    const live = this.hooks.invites();
-    if (live.length >= INVITE_MAX_PER_ROOM) {
-      this.sendControl(conn, {
-        type: 'denied',
-        reason: `Ya hay ${live.length} invitaciones vivas: revoca alguna antes.`,
-      });
-      return;
-    }
-    try {
-      const fresh = newInviteToken();
-      const by = this.connKeys.get(conn);
-      const record = await makeInviteRecord(
-        fresh,
-        ttlMs,
-        uses,
-        by === undefined ? 'productor' : String(by),
-        Date.now(),
-      );
-      if (!this.hooks.setInvites([...live, record])) {
-        this.sendControl(conn, { type: 'denied', reason: 'No se pudo guardar la invitación.' });
+    // Leer → await(hash) → escribir va DENTRO del candado de la sala: dos
+    // «Invitar» en el mismo tick entregaban dos tokens y solo uno quedaba
+    // guardado (el otro nacía muerto), y una escritura tardía podía devolver al
+    // archivo una invitación ya consumida.
+    await withInviteLock(this.code, async () => {
+      const live = this.hooks.invites();
+      if (live.length >= INVITE_MAX_PER_ROOM) {
+        this.sendControl(conn, {
+          type: 'denied',
+          reason: `Ya hay ${live.length} invitaciones vivas: revoca alguna antes.`,
+        });
         return;
       }
-      this.sendControl(conn, {
-        type: 'inviteCreated',
-        token: fresh.token,
-        expiresAt: record.expiresAt,
-        uses: record.uses,
-      });
-      this.sendInvites(conn);
-      console.log(
-        `[room ${this.code}] invitación creada (${record.uses} uso(s), caduca en ` +
-          `${Math.round((record.expiresAt - Date.now()) / 60000)} min)`,
-      );
-    } catch (err) {
-      console.error(`[room ${this.code}] no se pudo crear la invitación:`, err);
-      this.sendControl(conn, { type: 'denied', reason: 'No se pudo crear la invitación.' });
-    }
+      try {
+        const fresh = newInviteToken();
+        const by = this.connKeys.get(conn);
+        const record = await makeInviteRecord(
+          fresh,
+          ttlMs,
+          uses,
+          by === undefined ? 'productor' : String(by),
+          Date.now(),
+        );
+        if (!this.hooks.setInvites([...live, record])) {
+          this.sendControl(conn, { type: 'denied', reason: 'No se pudo guardar la invitación.' });
+          return;
+        }
+        this.sendControl(conn, {
+          type: 'inviteCreated',
+          token: fresh.token,
+          expiresAt: record.expiresAt,
+          uses: record.uses,
+        });
+        this.sendInvites(conn);
+        console.log(
+          `[room ${this.code}] invitación creada (${record.uses} uso(s), caduca en ` +
+            `${Math.round((record.expiresAt - Date.now()) / 60000)} min)`,
+        );
+      } catch (err) {
+        console.error(`[room ${this.code}] no se pudo crear la invitación:`, err);
+        this.sendControl(conn, { type: 'denied', reason: 'No se pudo crear la invitación.' });
+      }
+    });
   }
 
   private handleRevokeInvite(conn: WsSocket, id: string): void {
@@ -1786,14 +1813,28 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       // Leer→consumir→escribir DENTRO del candado por sala: así el segundo join
       // ve los usos ya descontados por el primero (no hay doble gasto ni pisadas).
       void withInviteLock(code, async () => {
+        // El aforo se mira ANTES de gastar el uso: quien llega con la sala
+        // llena recibía 1013 y su invitación de un uso ya no existía. La
+        // comprobación va dentro del mismo candado para que dos joins no vean
+        // los dos el último hueco.
+        const roomNow = rooms.get(code);
+        if (roomNow && roomNow.conns.size >= roomCapacity) return { full: true as const };
         const live = authStore.getInvites(code);
         const result = await consumeInvite(live, message.token, Date.now());
         // El id de la invitación es la credencial del autor (para la autoría).
         authStore.setInvites(code, result.next);
-        return result;
+        const used = result.ok ? live.find((invite) => invite.id === result.inviteId) : undefined;
+        return { full: false as const, result, used };
       })
-        .then((result) => {
+        .then((outcome) => {
           if (!pending.has(conn)) return;
+          if (outcome.full) {
+            clearTimeout(waiting.timer);
+            pending.delete(conn);
+            conn.close(CLOSE_TRY_LATER, `La sala está llena (caben ${roomCapacity})`);
+            return;
+          }
+          const result = outcome.result;
           clearTimeout(waiting.timer);
           pending.delete(conn);
           if (!result.ok) {
@@ -1806,6 +1847,14 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
           }
           const room = rooms.get(code);
           if (room && room.conns.size >= roomCapacity) {
+            // Carrera entre el candado y el alta: el uso ya se gastó, pero no
+            // se pierde — se repone la invitación consumida.
+            if (outcome.used) {
+              const current = authStore
+                .getInvites(code)
+                .filter((invite) => invite.id !== outcome.used!.id);
+              authStore.setInvites(code, [...current, outcome.used]);
+            }
             conn.close(CLOSE_TRY_LATER, `La sala está llena (caben ${roomCapacity})`);
             return;
           }

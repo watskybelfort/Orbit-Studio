@@ -48,7 +48,21 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
   const wss = new WebSocketServer({ host: '127.0.0.1', port });
   const clients = new Set<WebSocket>();
 
-  if (requireAuth) writeBridgeInfo({ port, token: opts.token! });
+  /*
+   * El token se PUBLICA cuando el puerto está escuchando, no antes.
+   *
+   * Si se escribía primero y el puerto estaba ocupado (otra app, o un proceso
+   * local que llegó antes), el relay leía el token del archivo y se lo mandaba
+   * al impostor que tenía el 7855. Publicar en `listening` cierra esa ventana:
+   * si no hay puerto, no hay bridge.json y el relay dice "Orbit no está
+   * abierto" en vez de autenticarse contra un desconocido.
+   */
+  let closed = false;
+  if (requireAuth) {
+    wss.on('listening', () => {
+      if (!closed) writeBridgeInfo({ port, token: opts.token! });
+    });
+  }
 
   const notify = () => opts.onStatus?.({ connected: clients.size > 0 });
 
@@ -127,6 +141,7 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
   return {
     port,
     close() {
+      closed = true;
       for (const socket of clients) {
         try {
           socket.close();

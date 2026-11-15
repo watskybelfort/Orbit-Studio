@@ -111,6 +111,21 @@ class RawPeer {
     this.sendRaw(encoding.toUint8Array(encoder));
   }
 
+  /** Un solo update con MUCHOS clientIDs: el vector de memoria del oyente. */
+  announceMany(clientIDs: readonly number[], state: unknown): void {
+    const inner = encoding.createEncoder();
+    encoding.writeVarUint(inner, clientIDs.length);
+    for (const id of clientIDs) {
+      encoding.writeVarUint(inner, id);
+      encoding.writeVarUint(inner, 1);
+      encoding.writeVarString(inner, JSON.stringify(state));
+    }
+    const encoder = encoding.createEncoder();
+    encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+    encoding.writeVarUint8Array(encoder, encoding.toUint8Array(inner));
+    this.sendRaw(encoding.toUint8Array(encoder));
+  }
+
   nameOf(clientID: number): string | null {
     const state = this.awareness.getStates().get(clientID) as
       | { user?: { name?: unknown } }
@@ -203,5 +218,21 @@ describe('la presencia tiene dueño', () => {
     await sleep(350);
 
     expect(productor.nameOf(sameId)).toBe('Invitado');
+  });
+
+  it('un solo update con 20 000 clientIDs se rechaza entero', async () => {
+    const server = await serve();
+    const peer = new RawPeer(server.port, 'Ocupa');
+    await peer.open();
+
+    // El vector medido en la auditoría: 20 000 IDs en un mensaje de ~800 KB.
+    const ids = Array.from({ length: 20_000 }, (_, i) => 1_000_000 + i);
+    peer.announceMany(ids, { user: { name: 'inundación', color: '#000' } });
+    await sleep(350);
+
+    // Ni uno solo entra al Awareness: el tope se juzga antes de aplicar.
+    expect(ids.some((id) => peer.nameOf(id) !== null)).toBe(false);
+    // Y el peer legítimo sigue estando.
+    expect(peer.nameOf(peer.doc.clientID)).toBe('Ocupa');
   });
 });

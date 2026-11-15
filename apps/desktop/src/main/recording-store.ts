@@ -32,9 +32,10 @@
  *   purgar; si la papelera no pasa la guarda, se trata como si no existiera.
  */
 
-import { mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, utimes } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRealPathWithin } from './path-guard';
+import { writeFileAtomic } from './atomic-write';
 
 /** Dentro de `recordings/`; el nombre se compara tal cual. */
 export const RECORDINGS_TRASH = '.papelera';
@@ -177,7 +178,9 @@ export function createRecordingStore(dir: () => string): RecordingStore {
       throw new Error('recording:save solo escribe dentro de la carpeta de grabaciones');
     }
     await mkdir(dir(), { recursive: true });
-    await writeFile(target, bytes);
+    // Temporal + rename: un crash o una lectura concurrente no puede dejar un
+    // WAV truncado bajo un nombre que contiene el sha1 del contenido bueno.
+    await writeFileAtomic(target, bytes);
     return safe;
   }
 
