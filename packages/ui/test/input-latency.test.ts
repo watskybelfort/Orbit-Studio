@@ -8,6 +8,7 @@ import {
   generateChirp,
   latencyBeats,
   msToSamples,
+  placeRecordedClip,
   samplesToMs,
 } from '../src/state/input-latency';
 
@@ -284,5 +285,37 @@ describe('samplesToMs / msToSamples', () => {
 
   it('0 muestras son 0 ms', () => {
     expect(samplesToMs(0, SAMPLE_RATE)).toBe(0);
+  });
+});
+
+describe('placeRecordedClip: la latencia no se pierde al nacer en el compás 1', () => {
+  const SR = 48000;
+  const TEMPO = 120; // 1 beat = 0.5 s
+  const DELAY = 5760; // 120 ms = 0.24 beats a 120 BPM
+
+  it('en mitad de la canción corre el clip y no recorta audio', () => {
+    const placed = placeRecordedClip(8, 2, DELAY, SR, TEMPO);
+    expect(placed.start).toBeCloseTo(8 - 0.24, 10);
+    expect(placed.audioOffset).toBe(0);
+    expect(placed.lengthBeats).toBeCloseTo(4, 10); // 2 s a 120 BPM
+  });
+
+  it('pegado al 0 salta por audioOffset lo que caía fuera', () => {
+    const placed = placeRecordedClip(0.05, 2, DELAY, SR, TEMPO);
+    expect(placed.start).toBe(0);
+    // 0.24 - 0.05 = 0.19 beats = 0.095 s fuera del timeline.
+    expect(placed.audioOffset).toBeCloseTo(0.095, 10);
+    expect(placed.lengthBeats).toBeCloseTo((2 - 0.095) * 2, 10);
+  });
+
+  it('sin calibrar no toca nada', () => {
+    const placed = placeRecordedClip(4, 1, 0, SR, TEMPO);
+    expect(placed).toEqual({ start: 4, audioOffset: 0, lengthBeats: 2 });
+  });
+
+  it('nunca salta más audio del que existe', () => {
+    const placed = placeRecordedClip(0, 0.01, 96000, SR, TEMPO);
+    expect(placed.audioOffset).toBeLessThanOrEqual(0.01);
+    expect(placed.lengthBeats).toBeGreaterThanOrEqual(0.25);
   });
 });

@@ -258,3 +258,35 @@ export function compensateClipStart(
 ): number {
   return Math.max(0, startBeat - latencyBeats(delaySamples, sampleRate, tempoBpm));
 }
+
+export interface RecordedClipPlacement {
+  start: number;
+  /** Segundos de la toma que quedan FUERA del clip por nacer en el compás 0. */
+  audioOffset: number;
+  lengthBeats: number;
+}
+
+/**
+ * Dónde nace una toma **sin comerse su ataque** cuando la compensación de
+ * latencia la empujaría antes del compás 1.
+ *
+ * Antes se recortaba `start` a 0 y se perdía la compensación entera: grabar en
+ * el beat 0 con 60 ms de latencia dejaba la toma tarde para siempre. Ahora el
+ * clip nace en 0 y su `audioOffset` salta los segundos que caían fuera del
+ * timeline; el audio útil (lo que el usuario cantó) entra en su sitio y el
+ * attack no se pierde.
+ */
+export function placeRecordedClip(
+  startBeat: number,
+  durationSec: number,
+  delaySamples: number,
+  sampleRate: number,
+  tempoBpm: number,
+): RecordedClipPlacement {
+  const latencia = latencyBeats(delaySamples, sampleRate, tempoBpm);
+  const start = Math.max(0, startBeat - latencia);
+  const fueraBeats = Math.max(0, latencia - startBeat);
+  const fueraSec = Math.min(durationSec, (fueraBeats * 60) / Math.max(1, tempoBpm));
+  const lengthBeats = Math.max(0.25, ((durationSec - fueraSec) * tempoBpm) / 60);
+  return { start, audioOffset: fueraSec, lengthBeats };
+}

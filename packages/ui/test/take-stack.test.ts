@@ -6,6 +6,7 @@ import {
   clipsOverlap,
   compactTakeLanePatches,
   heightForTakeLanes,
+  recordedTakeSegments,
   takeLaneCount,
   takeRows,
 } from '../src/state/take-stack';
@@ -119,8 +120,40 @@ describe('filas del menú de tomas', () => {
   });
 });
 
-describe('renumerar carriles al borrar una toma', () => {
-  it('cierra el hueco sin reordenar ni tocar otras pistas', () => {
+describe('partir la toma en las vueltas del loop', () => {
+  it('sin loop es una sola pieza', () => {
+    expect(recordedTakeSegments(2, 8)).toEqual([{ start: 2, length: 8, offsetBeats: 0 }]);
+  });
+
+  it('con loop de 0..8 y 20 beats salen tres piezas', () => {
+    expect(recordedTakeSegments(0, 20, { start: 0, end: 8 })).toEqual([
+      { start: 0, length: 8, offsetBeats: 0 },
+      { start: 0, length: 8, offsetBeats: 8 },
+      { start: 0, length: 4, offsetBeats: 16 },
+    ]);
+  });
+
+  it('empezando dentro de la región, la primera pieza acaba en loop.end', () => {
+    expect(recordedTakeSegments(6, 6, { start: 0, end: 8 })).toEqual([
+      { start: 6, length: 2, offsetBeats: 0 },
+      { start: 0, length: 4, offsetBeats: 2 },
+    ]);
+  });
+
+  it('empezar fuera de la región no inventa un wrap', () => {
+    expect(recordedTakeSegments(12, 4, { start: 0, end: 8 })).toEqual([
+      { start: 12, length: 4, offsetBeats: 0 },
+    ]);
+  });
+
+  it('una región inválida se ignora', () => {
+    expect(recordedTakeSegments(1, 4, { start: 8, end: 8 })).toEqual([
+      { start: 1, length: 4, offsetBeats: 0 },
+    ]);
+  });
+});
+
+describe('renumerar carriles al borrar una toma', () => {  it('cierra el hueco sin reordenar ni tocar otras pistas', () => {
     const clips = [
       clip('t1', 0, 4, 0),
       clip('t2', 0, 4, 1),

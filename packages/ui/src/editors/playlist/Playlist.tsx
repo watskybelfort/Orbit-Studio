@@ -518,9 +518,13 @@ export function Playlist() {
 
   /** ¿Está libre [start, start+length) en la pista? (para el pintado en serie) */
   const freeAt = useCallback(
-    (trackId: Id, start: number, length: number): boolean => {
+    (trackId: Id, start: number, length: number, lane?: number): boolean => {
       const list = clipsByTrack.get(trackId) ?? [];
-      return !list.some((c) => c.start < start + length && c.start + c.length > start);
+      return !list.some(
+        (c) =>
+          (lane === undefined || (c.lane ?? 0) === lane) &&
+          c.start < start + length && c.start + c.length > start,
+      );
     },
     [clipsByTrack],
   );
@@ -835,7 +839,19 @@ export function Playlist() {
     if (paintGhost.current) {
       for (const c of paintGhost.current) {
         const r = rows.find((row) => row.track.id === c.playlistTrackId);
-        if (r) drawClip(c, RULER_H + r.top - scrollY, r.track.height, true);
+        if (r) {
+          const lanes = laneCount(r.track.id);
+          const laneH = r.track.height / lanes;
+          const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
+          drawClip(
+            c,
+            RULER_H + r.top - scrollY + lane * laneH,
+            laneH,
+            true,
+            false,
+            lanes > 1 ? lane + 1 : undefined,
+          );
+        }
       }
     }
 
@@ -1201,6 +1217,18 @@ export function Playlist() {
       const row = rowAtY(y);
       if (!row || !activePattern || patternId === undefined) return;
       const length = Math.max(0.25, activePattern.length);
+      /*
+       * El carril bajo el cursor, no siempre el 0: en una pista con tomas,
+       * pintar encima de la toma 3 tiene que caer en SU carril (y el fantasma
+       * dibujarse ahí). Antes el clip nacía en el 0 y el fantasma ocupaba toda
+       * la fila, así que el resultado no era el que se veía.
+       */
+      const lanes = laneCount(row.track.id);
+      const laneH = row.track.height / lanes;
+      const localY = y - RULER_H + scrollY - row.top;
+      const lane = lanes > 1
+        ? Math.min(lanes - 1, Math.max(0, Math.floor(localY / laneH)))
+        : 0;
       const first: Clip = {
         id: newId(),
         kind: 'pattern',
@@ -1210,12 +1238,13 @@ export function Playlist() {
         muted: false,
         patternId,
         patternOffset: 0,
+        ...(lane > 0 ? { lane } : null),
       };
       paintGhost.current = [first];
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove, fadeHandleAt],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove, fadeHandleAt, scrollY],
   );
 
   const onPointerMove = useCallback(
@@ -1432,8 +1461,9 @@ export function Playlist() {
             if (c.start + c.length > maxEnd) maxEnd = c.start + c.length;
           }
           let changed = false;
+          const lane = g[0]?.lane;
           for (let i = 0; i < 128 && beat > maxEnd; i++) {
-            if (freeAt(d.trackId, maxEnd, d.length)) {
+            if (freeAt(d.trackId, maxEnd, d.length, lane)) {
               g.push({
                 id: newId(),
                 kind: 'pattern',
@@ -1443,6 +1473,7 @@ export function Playlist() {
                 muted: false,
                 patternId: d.patternId,
                 patternOffset: 0,
+                ...(lane === undefined ? null : { lane }),
               });
               changed = true;
             }
@@ -1450,7 +1481,7 @@ export function Playlist() {
           }
           for (let i = 0; i < 128 && beat < minStart && minStart - d.length >= 0; i++) {
             minStart -= d.length;
-            if (freeAt(d.trackId, minStart, d.length)) {
+            if (freeAt(d.trackId, minStart, d.length, lane)) {
               g.push({
                 id: newId(),
                 kind: 'pattern',
@@ -1460,6 +1491,7 @@ export function Playlist() {
                 muted: false,
                 patternId: d.patternId,
                 patternOffset: 0,
+                ...(lane === undefined ? null : { lane }),
               });
               changed = true;
             }
@@ -2080,8 +2112,21 @@ function TrackHeader({ track }: TrackHeaderProps) {
     setTakeMenu(null);
   };
 
-  const removeTake = (clip: Clip) => {
-    const remaining = trackClips.filter((item) => item.id !== clip.id);
+  const renameTake = (clip: Clip) => {
+    const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
+    if (!sample) return;
+    const raw = window.prompt('Nombre de la toma', sample.name);
+    if (raw === null) return;
+    const name = raw.trim();
+    if (!name || name === sample.name) return;
+    store.dispatch(
+      { type: 'patchSample', sampleId: sample.id, patch: { name } },
+      { label: `Renombrar toma a "${name}"` },
+    );
+    setTakeMenu(null);
+  };
+
+  const removeTake = (clip: Clip) => {    const remaining = trackClips.filter((item) => item.id !== clip.id);
     const beforeLanes = takeLaneCount(trackClips);
     const afterLanes = takeLaneCount(remaining);
     // Si la altura la puso el crecimiento automático (o el usuario la dejó
@@ -2236,6 +2281,14 @@ function TrackHeader({ track }: TrackHeaderProps) {
                 <span>Compás {Math.floor(row.clip.start / barLen) + 1}</span>
                 <span>{row.clip.length.toFixed(1)} beats</span>
                 <em>{row.active ? 'Sonando' : 'Muteada'}</em>
+              </button>
+              <button
+                className="pl-take-rename"
+                title={`Renombrar la toma ${row.number}`}
+                aria-label={`Renombrar la toma ${row.number}`}
+                onClick={() => renameTake(row.clip)}
+              >
+                ✎
               </button>
               <button
                 className="pl-take-del"

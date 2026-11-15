@@ -261,6 +261,36 @@ describe('sin enrutado declarado: una toma, un micro', () => {
     expect(clips.find((c) => c.id === 'toma-vieja')!.muted).toBe(true);
   });
 
+  it('con loop, la toma se parte en cada vuelta', async () => {
+    const { app, recorder } = await rig(2);
+    // Módulo fresco: `rig` hace resetModules y el store del top del test es
+    // otra instancia (el loop que lee el grabador es el de ESTA).
+    const ui = await import('../src/state/ui');
+    ui.useUiStore.setState({ loopRegion: { start: 0, end: 1 } });
+
+    await recorder.toggleRecording();
+    // 400 bloques de 128 = 51 200 muestras ≈ 1,07 s ≈ 2,5 beats a 140 BPM:
+    // suficiente para que el loop de 1 beat dé más de dos vueltas.
+    for (let i = 0; i < 400; i++) recorder.pushInputChunk(block(0.5), block(0.5));
+    await recorder.toggleRecording();
+
+    const clips = Object.values(app.store.project.clips);
+    // 1,07 s de toma a 140 BPM son ~2,5 beats: dos vueltas de 1 beat y el resto.
+    expect(clips).toHaveLength(3);
+    expect(clips.map((c) => c.length)).toEqual([
+      expect.closeTo(1, 5),
+      expect.closeTo(1, 5),
+      expect.closeTo(0.71, 2),
+    ]);
+    expect(clips.map((c) => c.start)).toEqual([0, 0, 0]);
+    // Cada pieza salta en el audio a donde el loop volvió.
+    expect(clips.map((c) => c.audioOffset)).toEqual([
+      0,
+      expect.closeTo(60 / 140, 5),
+      expect.closeTo(120 / 140, 5),
+    ]);
+    ui.useUiStore.setState({ loopRegion: null });
+  });
   it('la toma nace en el beat donde empezó (sin latencia calibrada, tal cual)', async () => {
     const { app, recorder } = await rig(2);
     await recorder.toggleRecording();

@@ -48,9 +48,9 @@ import {
   useInputMonitorStore,
 } from './input-monitor';
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
-import { compensateClipStart } from './input-latency';
+import { placeRecordedClip } from './input-latency';
 import { collectWorkletSamples, noteRecordingWritten, withPinnedSamples } from './sample-gc';
-import { heightForTakeLanes } from './take-stack';
+import { heightForTakeLanes, recordedTakeSegments } from './take-stack';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -111,6 +111,8 @@ interface RecordingSession {
   inputGeneration: number;
   cancelled: boolean;
   metronome: boolean;
+  /** Región de loop activa al empezar: la toma se parte en sus vueltas. */
+  loop: { start: number; end: number } | null;
   unsubscribe: () => void;
   finishTail?: () => void;
   stopping?: Promise<void>;
@@ -401,7 +403,10 @@ async function runCountIn(bars: number, target: number, take: RecordingSession):
     if (left !== useRecorderStore.getState().countdown) {
       useRecorderStore.setState({ countdown: left });
     }
-    await new Promise((r) => setTimeout(r, 25));
+    // Fino en el último tramo: el `beginCapture` tiene que caer EN el downbeat.
+    // A 25 ms se entraba hasta un cuarto de beat tarde y se comía el ataque de
+    // la primera palabra; a 2 ms el error baja al orden de un bloque de audio.
+    await new Promise((r) => setTimeout(r, target - beat < 0.1 ? 2 : 25));
   }
 
   if (!ownsRecorder(take)) return null;
@@ -445,7 +450,9 @@ async function startRecording(): Promise<void> {
     arrangementId: project.activeArrangementId, tempo: project.tempo,
     rate: engine.sampleRate, latency: getLatencyCompensationSamples(), start: 0,
     ownsInput: false, inputGeneration: -1, cancelled: false,
-    metronome: useUiStore.getState().metronome, unsubscribe: () => undefined,
+    metronome: useUiStore.getState().metronome,
+    loop: useUiStore.getState().loopRegion,
+    unsubscribe: () => undefined,
   };
   session = take;
   const unsubscribe = store.subscribeBeforeReplace(() => {
@@ -510,8 +517,7 @@ async function startRecording(): Promise<void> {
     take.start = startBeat;
 
     const bars = useRecorderStore.getState().countInBars;
-    if (bars > 0 && !useUiStore.getState().playing) {
-      const at = await runCountIn(bars, startBeat, take);
+    if (bars > 0 && !useUiStore.getState().playing) {      const at = await runCountIn(bars, startBeat, take);
       if (!ownsRecorder(take)) return;
       if (at === null) {
         releaseInput(take);
@@ -761,15 +767,9 @@ async function saveRecordedTakes(context: RecordingSession, recorded: RecordedTa
         // Sin calibrar (0 muestras) esto no mueve nada — mismo comportamiento de
         // siempre. La cuenta en sí vive en `input-latency.ts` (pura, testeada).
         //
-        // Es el MISMO desplazamiento para todas las tomas de la vuelta: entraron
-        // por el mismo aparato y por el mismo bloque de audio, así que corregirlas
-        // por separado sería inventarse diferencias que no existen.
-        const placedStart = compensateClipStart(
-          context.start,
-          context.latency,
-          sampleRate,
-          context.tempo,
-        );
+        // El desplazamiento es el MISMO para todas las tomas de la vuelta: entraron
+        // por el mismo aparato y por el mismo bloque de audio. Lo que cambia por
+        // toma es cuánto cae fuera del compás 1 (su `audioOffset`).
 
         const stamp = new Date();
         const two = (n: number) => String(n).padStart(2, '0');
@@ -839,25 +839,42 @@ async function saveRecordedTakes(context: RecordingSession, recorded: RecordedTa
         const names: string[] = [];
         for (const { sample, take } of written) {
           const sampleId = sample.id;
-          const lengthBeats = Math.max(0.25, (sample.duration * context.tempo) / 60);
+          const beatSec = 60 / context.tempo;
+          const totalBeats = sample.duration / beatSec;
+          const segments = recordedTakeSegments(context.start, totalBeats, context.loop);
+          const first = placeRecordedClip(
+            segments[0]!.start,
+            segments[0]!.length * beatSec,
+            context.latency,
+            sampleRate,
+            context.tempo,
+          );
+          const span = Math.max(...segments.map((segment) => segment.length));
           commands.push({ type: 'registerSample', sample });
           names.push(sample.name);
 
-          const trackId = placeTake(project, take, placedStart, lengthBeats, claimed, commands, context.arrangementId);
+          const trackId = placeTake(project, take, first.start, span, claimed, commands, context.arrangementId);
           const lane = take.lane ?? 0;
-          const clip: Clip = {
-            id: newId(),
-            kind: 'audio',
-            playlistTrackId: trackId,
-            start: placedStart,
-            length: lengthBeats,
-            muted: false,
-            sampleId,
-            audioOffset: 0,
-            audioGain: 1,
-            ...(lane > 0 ? { lane } : null),
-          };
-          commands.push({ type: 'addClips', clips: [clip] });
+          const clips: Clip[] = segments.map((segment, index) => {
+            const start = index === 0 ? first.start : segment.start;
+            const length = index === 0 ? first.lengthBeats : segment.length;
+            const audioOffset = index === 0
+              ? first.audioOffset
+              : segment.offsetBeats * beatSec;
+            return {
+              id: newId(),
+              kind: 'audio',
+              playlistTrackId: trackId,
+              start,
+              length,
+              muted: false,
+              sampleId,
+              audioOffset,
+              audioGain: 1,
+              ...(lane > 0 ? { lane } : null),
+            };
+          });
+          commands.push({ type: 'addClips', clips });
         }
 
         // Todas las tomas de la vuelta en UN paso de undo: se grabaron juntas y

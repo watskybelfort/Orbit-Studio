@@ -84,6 +84,54 @@ export function chooseTakePatches(
   return patches;
 }
 
+export interface TakeSegment {
+  /** Beat absoluto donde empieza esta pieza. */
+  start: number;
+  /** Cuántos beats de audio caen en esta pieza. */
+  length: number;
+  /** Segundos de la toma que hay que saltar para llegar a esta pieza. */
+  offsetBeats: number;
+}
+
+/**
+ * Parte una toma en las piezas que el LOOP hizo sonar en sitios distintos.
+ *
+ * Con el loop activo el transporte vuelve a `loop.start` a mitad de la toma: un
+ * solo clip con toda la duración pondría el audio de la segunda vuelta sobre el
+ * timeline de la primera. Aquí se corta en el mismo sitio en que el kernel
+ * vuelve, y cada pieza conserva su `offsetBeats` dentro de la toma.
+ *
+ * Sin región (o con una inválida) devuelve la toma entera: el camino de
+ * siempre no cambia.
+ */
+export function recordedTakeSegments(
+  startBeat: number,
+  totalBeats: number,
+  loop?: { start: number; end: number } | null,
+): TakeSegment[] {
+  if (!(totalBeats > 0)) return [{ start: Math.max(0, startBeat), length: 0.25, offsetBeats: 0 }];
+  const loopOk = loop !== undefined && loop !== null && loop.end > loop.start;
+  // Empezar fuera de la región no es un wrap: se graba lineal y ya.
+  if (!loopOk || startBeat < loop.start || startBeat >= loop.end) {
+    return [{ start: Math.max(0, startBeat), length: totalBeats, offsetBeats: 0 }];
+  }
+  const out: TakeSegment[] = [];
+  let at = startBeat;
+  let consumed = 0;
+  for (let guard = 0; guard < 256 && consumed < totalBeats - 1e-9; guard++) {
+    const room = Math.max(0, loop.end - at);
+    const length = Math.min(room, totalBeats - consumed);
+    if (length <= 1e-9) break;
+    out.push({ start: at, length, offsetBeats: consumed });
+    consumed += length;
+    at = loop.start;
+  }
+  if (out.length === 0) {
+    return [{ start: Math.max(0, startBeat), length: totalBeats, offsetBeats: 0 }];
+  }
+  return out;
+}
+
 export interface TakeRow {
   clip: Clip;
   /** Carril 1-based, el que ve el usuario. */
