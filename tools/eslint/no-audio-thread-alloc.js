@@ -31,6 +31,9 @@ const ALLOCATING_METHODS = new Set([
   'map',
   'filter',
   'slice',
+  // `splice` también DEVUELVE un array nuevo (y lo usaban los borrados de voz
+  // del kernel, que ahora compactan moviendo la última).
+  'splice',
   'concat',
   'flat',
   'flatMap',

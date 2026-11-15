@@ -212,10 +212,14 @@ export function topoOrder(
       if (--indeg[t]! === 0) queue.push(t);
     }
   }
-  // Ciclos (sends circulares): añade lo que falte en orden de índice.
+  // Ciclos (sends circulares): añade lo que falte, pero el MASTER AL FINAL.
+  // Antes se añadía en orden de índice, así que la pista 0 podía quedar antes
+  // que sus fuentes y, como solo el master escribe la salida, todo lo que se
+  // sumaba después se perdía en silencio.
   if (order.length < n) {
     const seen = new Set(order);
-    for (let i = 0; i < n; i++) if (!seen.has(i)) order.push(i);
+    for (let i = 1; i < n; i++) if (!seen.has(i)) order.push(i);
+    if (!seen.has(0)) order.push(0);
   }
   return order;
 }

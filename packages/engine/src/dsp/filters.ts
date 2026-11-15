@@ -315,7 +315,10 @@ export class Allpass1 {
   set(f: number, sr: number): void {
     const t = Math.tan((Math.PI * Math.min(f, sr * 0.49)) / sr);
     this.aTarget = (t - 1) / (t + 1);
-    this.smoothCoef = timeCoef(COEF_SMOOTH_SECONDS, sr);
+    // El coeficiente de suavizado solo depende de `sr`: el phaser lo llamaba
+    // por muestra y por etapa (8 etapas × 2 canales), recalculando el mismo
+    // `Math.exp` 768 000 veces por segundo a 48 kHz.
+    if (this.smoothCoef === 0) this.smoothCoef = timeCoef(COEF_SMOOTH_SECONDS, sr);
     if (!this.primed) {
       this.a = this.aTarget;
       this.primed = true;

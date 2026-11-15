@@ -110,8 +110,17 @@ interface InstrumentInstance {
   ): boolean;
 }
 
-export class KernelCore {
-  private project: CompiledProject | null = null;
+/**
+ * Tempo utilizable por el transporte. Los comandos validan 20..999 y la
+ * automatización usa la misma LUT, pero un `.orbit` manipulado puede traer 0 o
+ * NaN: con `spb = 0` el transporte nunca avanza y la app se queda muda sin un
+ * solo error. 120 es el tempo por defecto del proyecto.
+ */
+function safeTempo(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 120;
+}
+
+export class KernelCore {  private project: CompiledProject | null = null;
   private samples = new Map<string, SampleData>();
   private voiceCtx: VoiceContext;
 
@@ -220,17 +229,20 @@ export class KernelCore {
   private clickPhase = 0;
   private clickEnv = 0;
   private clickFreq = 1760;
+  /** Decaimiento del clic (constante para este sample rate). */
+  private clickDecay = 1;
+  private ciDecay = 1;
 
-  // Cuenta atrÃ¡s con el transporte PARADO (el metrÃ³nomo de arriba solo suena
+  // Cuenta atrás con el transporte PARADO (el metrónomo de arriba solo suena
   // rodando). Va con su propia envolvente: la cuenta puede seguir sonando la
-  // cola del Ãºltimo clic cuando el transporte ya entrÃ³ y el metrÃ³nomo empieza.
+  // cola del último clic cuando el transporte ya entró y el metrónomo empieza.
   /** Clics de cuenta que faltan por disparar. */
   private countInLeft = 0;
   /** Samples hasta el siguiente clic de la cuenta (0 = ya). */
   private countInWait = 0;
   private countInBeatsPerBar = 4;
   private countInBeatUnit = 1;
-  /** Beat de la cuenta ya disparado (para acentuar el 1 de cada compÃ¡s). */
+  /** Beat de la cuenta ya disparado (para acentuar el 1 de cada compás). */
   private countInBeat = 0;
   /** Beat en el que entra el transporte al cerrar la cuenta (null = no entra). */
   private countInPlayFrom: number | null = null;
@@ -239,7 +251,7 @@ export class KernelCore {
   private ciFreq = 1760;
   /**
    * El clic de la cuenta NO puede sumarse a la pista master: el master
-   * ESCRIBE sobre la salida (`outL[i] = ...`), no suma, y ademÃ¡s puede estar
+   * ESCRIBE sobre la salida (`outL[i] = ...`), no suma, y además puede estar
    * muteada o con el fader abajo. Se renderiza aparte y se vuelca al final.
    */
   private countInBuf = new Float32Array(MAX_BLOCK);
@@ -328,6 +340,11 @@ export class KernelCore {
       scratchL: new Float32Array(MAX_BLOCK),
       scratchR: new Float32Array(MAX_BLOCK),
     };
+    // La envolvente del clic decae 20 ms: el coeficiente solo depende de `sr`,
+    // no hay razón para recalcularlo con un `Math.exp` por muestra.
+    const decay = Math.exp(-1 / (0.02 * sr));
+    this.clickDecay = decay;
+    this.ciDecay = decay;
   }
 
   // ── Mensajes ──────────────────────────────────────────────────────────────
@@ -419,8 +436,8 @@ export class KernelCore {
         this.metronome = msg.enabled;
         break;
       case 'countIn':
-        // Solo tiene sentido parado: rodando ya hay metrÃ³nomo y arrancar el
-        // transporte "otra vez" al cerrar la cuenta serÃ­a un salto.
+        // Solo tiene sentido parado: rodando ya hay metrónomo y arrancar el
+        // transporte "otra vez" al cerrar la cuenta sería un salto.
         if (this.playing) break;
         this.countInBeatUnit = msg.beatUnit !== undefined && Number.isFinite(msg.beatUnit) && msg.beatUnit > 0 ? msg.beatUnit : 1;
         this.countInLeft = Math.max(1, Math.round(msg.beats / this.countInBeatUnit));
@@ -471,8 +488,8 @@ export class KernelCore {
         this.capturePos = 0;
         break;
       case 'setTempo':
-        this.tempo = msg.tempo;
-        if (this.project) this.project.tempo = msg.tempo;
+        this.tempo = safeTempo(msg.tempo);
+        if (this.project) this.project.tempo = this.tempo;
         this.syncEffectTempos();
         break;
       case 'channelParam': {
@@ -568,7 +585,10 @@ export class KernelCore {
   /* eslint-disable orbit/no-audio-thread-alloc -- un CAMBIO DE PROYECTO se aplica aqui (tambien desde process, si estaba en cola): compilar el proyecto aloca por definicion y es un evento raro, no el camino por bloque. */
   private setSnapshot(p: CompiledProject): void {
     this.project = p;
-    this.tempo = p.tempo;
+    // Un tempo 0 o NaN congela el transporte sin ningún error visible: no hay
+    // eventos, no hay wrap y la app se queda muda. Los comandos ya validan
+    // 20..999, así que esto solo puede venir de un archivo manipulado.
+    this.tempo = safeTempo(p.tempo);
     this.timeSigNum = p.timeSigNum ?? 4;
     this.meterBeatUnit = 4 / (p.timeSigDen && Number.isFinite(p.timeSigDen) && p.timeSigDen > 0 ? p.timeSigDen : 4);
     const n = p.mixer.length;
@@ -874,10 +894,17 @@ export class KernelCore {
       );
       const offBeat = ev.start + ev.duration;
       if (ev.slide) {
-        // Slide: reusa la voz activa del canal (glide 808).
-        const existing = this.voices.find(
-          (v) => v.voice.channelIndex === ev.channelIndex && !v.released && v.previewKey === null,
-        );
+        // Slide: reusa la voz activa del canal (glide 808). La ÚLTIMA, no la
+        // primera: `find` recorría desde el principio y en un sinte poli el
+        // slide arrastraba una nota vieja que podía ser otra distinta.
+        let existing: ActiveVoice | undefined;
+        for (let i = this.voices.length - 1; i >= 0; i--) {
+          const v = this.voices[i]!;
+          if (v.voice.channelIndex === ev.channelIndex && !v.released && v.previewKey === null) {
+            existing = v;
+            break;
+          }
+        }
         if (existing) {
           existing.voice.glideTo(ev.key, ev.velocity);
           existing.offBeat = Math.max(existing.offBeat, offBeat);
@@ -890,6 +917,21 @@ export class KernelCore {
   /* eslint-enable orbit/no-audio-thread-alloc */
 
   /* eslint-disable orbit/no-audio-thread-alloc -- nace una VOZ: sin un pool de voces, crearla aloca. Cuestion de nota, no de bloque (ver `triggerRange`). */
+  /**
+   * Saca la voz de la posición `index` sin `splice`: `splice` devuelve un array
+   * nuevo y esto corre en el hilo de audio. Se compacta a mano (mover cada una
+   * una posición a la izquierda) en vez de traer la última: el orden de las
+   * voces decide el orden de las sumas y cambiarlo movía el último bit del
+   * render — un diff de golden sin ningún cambio audible. No dispone la voz:
+   * eso lo decide quien llama.
+   */
+  private removeVoiceAt(index: number): void {
+    for (let i = index; i < this.voices.length - 1; i++) {
+      this.voices[i] = this.voices[i + 1]!;
+    }
+    this.voices.pop();
+  }
+
   private spawnVoice(
     channelIndex: number,
     key: number,
@@ -928,15 +970,42 @@ export class KernelCore {
     }
 
     if (this.voices.length >= MAX_VOICES) {
-      // Roba la voz más antigua. `dispose` devuelve lo que tenga prestado de
-      // un pool (las cuerdas pulsadas de Prisma): sin esto, un pasaje denso
-      // agotaba el pool y las notas siguientes cambiaban de timbre.
-      let oldest = 0;
+      // Roba la voz más antigua SIN cortarla en seco: `noteOff` la deja caer
+      // con su propia envolvente. `dispose` + `splice` en el borde del bloque
+      // producía un escalón de hasta el pico de la voz (un clic audible en
+      // pasajes densos). La voz robada sigue viva hasta que su release
+      // termina; el tope duro de abajo evita que se acumulen sin fin.
+      let victim = 0;
       for (let i = 1; i < this.voices.length; i++) {
-        if (this.voices[i]!.voice.startOrder < this.voices[oldest]!.voice.startOrder) oldest = i;
+        const a = this.voices[i]!;
+        const b = this.voices[victim]!;
+        // Preferir una que ya esté soltando; si no, la más antigua.
+        if (a.released !== b.released) {
+          if (a.released) victim = i;
+        } else if (a.voice.startOrder < b.voice.startOrder) {
+          victim = i;
+        }
       }
-      this.voices[oldest]!.voice.dispose();
-      this.voices.splice(oldest, 1);
+      const stolen = this.voices[victim]!;
+      if (!stolen.released) {
+        stolen.voice.noteOff();
+        stolen.released = true;
+      }
+      // Tope duro: si el pasaje mantiene más de MAX_VOICES + 16 voces porque
+      // todas tienen releases larguísimos, se tira la liberada más antigua.
+      while (this.voices.length > MAX_VOICES + 16) {
+        let oldestReleased = -1;
+        for (let i = 0; i < this.voices.length; i++) {
+          const v = this.voices[i]!;
+          if (!v.released) continue;
+          if (oldestReleased < 0 || v.voice.startOrder < this.voices[oldestReleased]!.voice.startOrder) {
+            oldestReleased = i;
+          }
+        }
+        if (oldestReleased < 0) break;
+        this.voices[oldestReleased]!.voice.dispose();
+        this.removeVoiceAt(oldestReleased);
+      }
     }
     const order = this.voiceOrder++;
     const voice =
@@ -1629,7 +1698,7 @@ export class KernelCore {
         this.ciPhase += this.ciFreq / this.sr;
         if (this.ciPhase >= 1) this.ciPhase -= 1;
         buf[i] = Math.sin(2 * Math.PI * this.ciPhase) * this.ciEnv * 0.5;
-        this.ciEnv *= Math.exp(-1 / (0.02 * this.sr));
+        this.ciEnv *= this.ciDecay;
       }
     }
     return true;
@@ -1752,6 +1821,12 @@ export class KernelCore {
     inL?: Float32Array | readonly (Float32Array | undefined)[],
     inR?: Float32Array,
   ): void {
+    // Todo el kernel asume el quantum de 128 (`MAX_BLOCK`). Un host con otro
+    // quantum dejaría buffers cortos y las escrituras fuera de rango se
+    // descartarían en silencio: mejor recortar y sonar recortado que perder
+    // muestras sin avisar.
+    n = Math.min(n, MAX_BLOCK, outL.length, outR.length);
+    if (n <= 0) return;
     const p = this.project;
     // Samples que esperaban a que muriese la voz que los leía. Las voces solo
     // mueren aquí dentro, así que el reintento tiene que vivir aquí; en el caso
@@ -1949,7 +2024,7 @@ export class KernelCore {
       const ch = p.channels[chIndex];
       if (!ch) {
         av.voice.dispose();
-        this.voices.splice(i, 1);
+        this.removeVoiceAt(i);
         continue;
       }
       const slot = this.chBufOf[chIndex] ?? -1;
@@ -1984,7 +2059,7 @@ export class KernelCore {
       }
       if (!alive) {
         av.voice.dispose();
-        this.voices.splice(i, 1);
+        this.removeVoiceAt(i);
       }
     }
 
@@ -2208,7 +2283,7 @@ export class KernelCore {
           const s = Math.sin(2 * Math.PI * this.clickPhase) * this.clickEnv * 0.5;
           this.bufL[0]![i]! += s;
           this.bufR[0]![i]! += s;
-          this.clickEnv *= Math.exp(-1 / (0.02 * this.sr));
+          this.clickEnv *= this.clickDecay;
         }
       }
     }
