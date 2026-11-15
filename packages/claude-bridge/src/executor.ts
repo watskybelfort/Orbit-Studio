@@ -1295,6 +1295,11 @@ export class ToolExecutor {
   private async analyzeMixTool(): Promise<string> {
     const { analysis: m, what, seconds, lengthBeats, version } = await this.renderForAnalysis();
     this.assertRenderCurrent(version);
+    if (m.peakDb < -60 || !Number.isFinite(m.stereoCorrelation)) {
+      throw new ToolError(
+        'La mezcla está en silencio: no hay nada que medir. Revisa mutes, samples sin cargar y clips muted.',
+      );
+    }
     const toTarget = -14 - m.lufsIntegrated;
     return [
       `Análisis de mezcla (${what}, ${f(lengthBeats)} beats, ${f(seconds, 1)} s render):`,
@@ -1346,6 +1351,11 @@ export class ToolExecutor {
   private async adviseMixTool(a: Record<string, unknown>): Promise<string> {
     const { analysis, what, version } = await this.renderForAnalysis();
     this.assertRenderCurrent(version);
+    if (analysis.peakDb < -60 || !Number.isFinite(analysis.stereoCorrelation)) {
+      throw new ToolError(
+        'La mezcla está en silencio: no hay nada que medir. Revisa mutes, samples sin cargar y clips muted.',
+      );
+    }
 
     const genreArg = optString(a, 'genre') ?? 'auto';
     const genres: MixGenre[] = ['trap', 'boombap', 'reggaeton', 'generico'];
@@ -1406,7 +1416,14 @@ export class ToolExecutor {
       const specs = EFFECT_PARAMS[step.kind];
       const params = validateParams(step.params, specs, step.kind);
       if (step.existing) {
-        for (const [key, value] of Object.entries(params)) {
+        // Un efecto que YA estaba conserva sus parámetros viejos si solo se
+        // mandan los del plan. Lo anunciado era «esta cadena», así que se
+        // reescribe entera: defaults del tipo y encima los del consejo, igual
+        // que hace el camino de inserción.
+        const full: Record<string, number> = {};
+        for (const spec of specs) full[spec.key] = spec.default;
+        Object.assign(full, params);
+        for (const [key, value] of Object.entries(full)) {
           commands.push({
             type: 'setEffectParam',
             trackIndex: step.trackIndex,
@@ -1416,7 +1433,7 @@ export class ToolExecutor {
           });
         }
         const patch: { enabled?: boolean; mix?: number; sidechainSource?: number } = { enabled: true };
-        if (step.mix !== undefined) patch.mix = clamp(step.mix, 0, 1);
+        patch.mix = clamp(step.mix ?? 1, 0, 1);
         if (step.sidechainSource !== undefined) patch.sidechainSource = step.sidechainSource;
         commands.push({
           type: 'patchEffect',
@@ -1544,10 +1561,13 @@ export class ToolExecutor {
           .filter(Boolean)
           .join(' · ');
         const grupo = sound.subcategory ? `${sound.category}/${sound.subcategory}` : sound.category;
-        lines.push(`  - "${sound.name}" · ${grupo} · ${extra}`);
+        // El id va impreso: `load_sample` lo acepta y sin él dos packs con el
+        // mismo nombre visible ("Kick Trap 01" de fábrica y "Kick trap 01"
+        // generado) dejan la tool en un callejón sin salida.
+        lines.push(`  - "${sound.name}" · ${grupo} · ${extra} · id=${sound.id}`);
       }
     }
-    lines.push('\nPara meterlos en el proyecto: load_sample con sus nombres.');
+    lines.push('\nPara meterlos en el proyecto: load_sample con sus nombres o con el id que sale aquí.');
     return lines.join('\n');
   }
 
@@ -1589,9 +1609,9 @@ export class ToolExecutor {
         throw new ToolError(`No hay ningún sonido "${query}" en la librería (mira list_library)`);
       }
       if (candidates.length > 1) {
-        const nombres = candidates.slice(0, 6).map((s) => `"${s.name}"`).join(', ');
+        const nombres = candidates.slice(0, 6).map((s) => `"${s.name}" (id ${s.id})`).join(', ');
         throw new ToolError(
-          `"${query}" cuadra con ${candidates.length} sonidos (${nombres}${candidates.length > 6 ? '…' : ''}): concreta`,
+          `"${query}" cuadra con ${candidates.length} sonidos (${nombres}${candidates.length > 6 ? '…' : ''}): concreta con uno de los ids`,
         );
       }
       ids.push(candidates[0]!.id);

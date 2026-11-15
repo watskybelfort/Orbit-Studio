@@ -23,7 +23,7 @@
  */
 
 import type { EffectKind } from '@orbit/core';
-import { gainToTarget, type MixAnalysis } from '@orbit/engine';
+import { type MixAnalysis } from '@orbit/engine';
 
 /** Objetivo de loudness de las plataformas de streaming. */
 export const STREAMING_LUFS = -14;
@@ -350,7 +350,15 @@ function diagnoseStereo(analysis: MixAnalysis): MixIssue[] {
 /** LUFS y pico frente al objetivo de streaming. */
 function diagnoseLoudness(analysis: MixAnalysis, target: number): MixIssue[] {
   const issues: MixIssue[] = [];
-  const need = gainToTarget(analysis, target);
+  /*
+   * El déficit es `objetivo − LUFS`, NO `gainToTarget`. Aquel devuelve
+   * `min(déficit, −pico)` para normalizar sin clipear, y usarlo aquí hacía que
+   * un master a −22 LUFS con pico a −1 dBFS se declarara «en su sitio» (le
+   * faltaban 8 dB y solo se veía 1) y que el limitador propuesto saliera con
+   * +1 dB. El limitador tiene techo: su trabajo es subir y recortar picos, así
+   * que el tope por pico no aplica a esta cuenta.
+   */
+  const need = target - analysis.lufsIntegrated;
 
   if (need > 1) {
     issues.push({
@@ -548,7 +556,9 @@ function buildChain(
   }
 
   // ── Loudness: limitador al final ───────────────────────────────────────────
-  const need = gainToTarget(analysis, ctx.targetLufs);
+  // Mismo criterio que el diagnóstico: el limitador sube el LUFS que falta; el
+  // techo se encarga de los picos.
+  const need = ctx.targetLufs - analysis.lufsIntegrated;
   const loud = has(issues, 'loudness-alto');
   const limiterGain = loud ? 0 : clamp(need, 0, 12);
   push(
@@ -622,7 +632,7 @@ export function adviseMix(analysis: MixAnalysis, ctx: MixContext): MixAdvice {
   return {
     genre: ctx.genre,
     targetLufs: ctx.targetLufs,
-    gainToTargetDb: round(gainToTarget(analysis, ctx.targetLufs)),
+    gainToTargetDb: round(ctx.targetLufs - analysis.lufsIntegrated),
     tilts: {
       low: round(analysis.bands.low - analysis.bands.highMid),
       body: round(analysis.bands.lowMid - analysis.bands.highMid),

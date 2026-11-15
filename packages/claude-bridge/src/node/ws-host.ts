@@ -74,6 +74,15 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
       return;
     }
     let authed = !requireAuth;
+    /**
+     * Una tool a la vez por conexión.
+     *
+     * El executor y el renderer asumen un proyecto estable durante la llamada;
+     * dos `generate_pack` en paralelo elegían el mismo slug y el segundo pisaba
+     * al primero, y `load_sample` atribuía a una llamada los canales de la otra.
+     * El protocolo MCP permite paralelismo, así que la serialización va aquí.
+     */
+    let chain: Promise<unknown> = Promise.resolve();
     // Sin token la conexión se acepta de entrada (autenticación implícita):
     // hay que registrarla YA, o `onStatus` no dice nunca "conectado" y
     // `close()` no cierra a nadie. Con token, el alta llega en el handshake.
@@ -110,9 +119,10 @@ export function startBridgeHost(opts: BridgeHostOptions): BridgeHost {
         safeSend(socket, { error: 'Petición inválida: se espera { id, tool, args? }' });
         return;
       }
-      // Cada petición vuela por su cuenta: varias tools pueden estar en curso.
-      void opts
-        .dispatch({ tool, args })
+      // Serializada por conexión (ver `chain`): la siguiente espera a que
+      // termine la anterior, pase lo que pase con ella.
+      chain = chain
+        .then(() => opts.dispatch({ tool, args }))
         .then((result) => {
           if ('error' in result) safeSend(socket, { id, error: result.error });
           else safeSend(socket, { id, result });
