@@ -116,6 +116,12 @@ export function startDiscovery(id: string, name: string, next: DiscoveryHooks): 
         // ya estaba cerrado
       }
       if (socket === sock) socket = null;
+      // El latido también se va: sin esto el timer seguía disparando contra un
+      // socket que ya no existe (no-op, prune y emitPeers) hasta cerrar la app.
+      if (beaconTimer) {
+        clearInterval(beaconTimer);
+        beaconTimer = null;
+      }
       emitPeers();
     });
 

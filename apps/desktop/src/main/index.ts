@@ -504,7 +504,11 @@ function createWindow(): BrowserWindow {
     // de construcción (y no con un setBounds después) para que la ventana no
     // aparezca en mitad de la pantalla principal y salte al segundo monitor.
     const id = childWindowId(details.frameName);
-    const saved = id ? savedDetachedBounds(id, readSettings()) : null;
+    // Una hija que no es una ventana desacoplada nuestra NO se abre: heredaría
+    // el preload con `file`, `settings` y `plugins` y la ventana no pasaría por
+    // las guardas de navegación (adoptDetachedWindow sale antes de ponerlas).
+    if (!id) return { action: 'deny' };
+    const saved = savedDetachedBounds(id, readSettings());
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
