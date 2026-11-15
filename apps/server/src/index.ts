@@ -210,6 +210,19 @@ function isProjectSnapshot(value: unknown): boolean {
 // chat. Los 100 MiB por defecto de `ws` dan poco margen para una sala llena.
 const MAX_PAYLOAD_BYTES = 192 * 1024 * 1024;
 
+/**
+ * Topes por TIPO de mensaje, comprobados antes de decodificar.
+ *
+ * `maxPayload` protege la memoria del socket, pero el tope de 192 MB se
+ * aplicaba también a un `control` o a un frame de presencia: el servidor
+ * materializaba el array entero y hacía `JSON.parse` del mensaje completo antes
+ * de mirar si le correspondía. Un invitado podía bloquear el hilo principal con
+ * uno solo. El sync sí puede ser grande (lleva el documento), pero control,
+ * presencia y audio tienen tamaños conocidos.
+ */
+const MAX_CONTROL_BYTES = 8 * 1024;
+const MAX_AUDIO_MESSAGE_BYTES = 512 * 1024;
+
 function roomFile(code: string): string {
   return join(roomsDir, `${code}.bin`);
 }
@@ -455,6 +468,15 @@ class Room {
    * autoría y de los clientID liberados; sobrevive a la reconexión.
    */
   private readonly connSessions = new Map<WsSocket, string>();
+  /** Rol VIGENTE de cada sesión (un cambio de rol no puede revivir al reconectar). */
+  private readonly sessionRoles = new Map<string, CollabRole>();
+  /**
+   * Guardado con retardo: un update por comando no puede ser una escritura de
+   * todo el documento. Solo se guardaba al cerrar la última conexión, así que
+   * un crash del servidor perdía la sesión entera (y COLLAB.md promete que
+   * sobrevive).
+   */
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
   /** clientID que cada sesión puede reclamar al volver. */
   private readonly sessionClients = new Map<string, Set<number>>();
   /**
@@ -583,6 +605,18 @@ class Room {
     pruneChat();
     // Cualquier update del doc (venga del socket que venga) → a todos.
     this.doc.on('update', (update: Uint8Array) => {
+      // Guardado periódico además del de cierre: 1,5 s de debounce agrupa las
+      // ráfagas de un arrastre y acota a eso lo que se pierde en un crash. Antes
+      // solo se guardaba al quedar la sala vacía.
+      if (this.persistTimer !== null) clearTimeout(this.persistTimer);
+      this.persistTimer = setTimeout(() => {
+        this.persistTimer = null;
+        try {
+          this.persist();
+        } catch (err) {
+          console.error(`[room ${this.code}] no se pudo guardar:`, err);
+        }
+      }, 1500);
       const encoder = encoding.createEncoder();
       encoding.writeVarUint(encoder, MESSAGE_SYNC);
       syncProtocol.writeUpdate(encoder, update);
@@ -689,6 +723,11 @@ class Room {
   /** Manda al cliente la credencial de sesión y la apunta como suya. */
   private issueSession(conn: WsSocket, sid: string, role: CollabRole): void {
     this.connSessions.set(conn, sid);
+    // El rol de la sesión no es el del momento en que se firmó: si el productor
+    // degrada a alguien, su token viejo no puede devolverle el permiso tras un
+    // corte de red. Se guarda por `sid` y `rejoin` lo usa como preferencia.
+    this.sessionRoles.set(sid, role);
+    this.podarSesiones();
     const token = signSession({
       sid,
       room: this.code,
@@ -696,6 +735,25 @@ class Room {
       exp: Date.now() + SESSION_TTL_MS,
     });
     this.sendControl(conn, { type: 'session', token, role });
+  }
+
+  /**
+   * Los mapas por sesión viven lo que viva la sala y una sala puede estar
+   * ocupada días con gente entrando y saliendo. 512 sesiones es de sobra para
+   * una sala (el aforo es 12) y evita que el mapa crezca sin tope; se tira la
+   * más antigua, que es la que menos probablemente vuelva.
+   */
+  private podarSesiones(): void {
+    while (this.sessionRoles.size > 512) {
+      const first = this.sessionRoles.keys().next().value;
+      if (first === undefined) break;
+      this.sessionRoles.delete(first);
+    }
+    while (this.sessionClients.size > 512) {
+      const first = this.sessionClients.keys().next().value;
+      if (first === undefined) break;
+      this.sessionClients.delete(first);
+    }
   }
 
   /**
@@ -724,7 +782,9 @@ class Room {
     const key = this.connKeys.get(conn);
     if (key === undefined) return;
     this.connSessions.set(conn, claim.sid);
-    const { role } = this.roles.rejoin(key, claim.role);
+    // El rol VIGENTE de la sesión manda sobre el que se firmó en el token.
+    const preferred = this.sessionRoles.get(claim.sid) ?? claim.role;
+    const { role } = this.roles.rejoin(key, preferred);
     this.sendControl(conn, { type: 'role', role });
     this.broadcastRoles();
     this.bindSessionClients(conn, claim.sid, clientIds);
@@ -788,7 +848,10 @@ class Room {
     // no son la misma autoría.
     if (inviteId !== undefined && inviteId !== '') this.connInvites.set(conn, inviteId);
     const sid = claim?.sid ?? randomUUID();
-    const { role } = claim ? this.roles.rejoin(key, claim.role) : this.roles.join(key);
+    const preferred = claim ? (this.sessionRoles.get(claim.sid) ?? claim.role) : undefined;
+    const { role } = claim
+      ? this.roles.rejoin(key, preferred!)
+      : this.roles.join(key);
     this.sendControl(conn, { type: 'role', role });
     this.issueSession(conn, sid, role);
     this.bindSessionClients(conn, sid, clientIds);
@@ -839,6 +902,11 @@ class Room {
           break;
         }
         case MESSAGE_AWARENESS: {
+          // Antes de decodificar: 64 KB es el tope de un update legítimo.
+          if (data.byteLength > MAX_AWARENESS_BYTES) {
+            console.warn(`[room ${this.code}] presencia gigante: se descarta`);
+            break;
+          }
           const update = decoding.readVarUint8Array(decoder);
           const permitido = this.ownsAwareness(conn, update);
           if (permitido === null) {
@@ -849,10 +917,18 @@ class Room {
           break;
         }
         case MESSAGE_CONTROL: {
+          if (data.byteLength > MAX_CONTROL_BYTES) {
+            console.warn(`[room ${this.code}] control demasiado grande: se descarta`);
+            break;
+          }
           this.handleControl(conn, decoding.readVarString(decoder));
           break;
         }
         case MESSAGE_AUDIO: {
+          if (data.byteLength > MAX_AUDIO_MESSAGE_BYTES) {
+            console.warn(`[room ${this.code}] frame de audio demasiado grande: se descarta`);
+            break;
+          }
           const fiable = this.audioDeEmisorReal(conn, data);
           if (fiable !== null) this.broadcastExcept(conn, fiable);
           break;
@@ -1045,6 +1121,13 @@ class Room {
   }
 
   destroy(): void {
+    if (this.persistTimer !== null) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+    // El candado de invitaciones es global y sobrevive a la sala: sin esto, una
+    // sala por código deja su entrada para siempre.
+    inviteLocks.delete(this.code);
     this.awareness.destroy();
     this.doc.destroy();
   }
@@ -1104,7 +1187,13 @@ class Room {
       });
       return;
     }
-    if (target) this.sendControl(target, { type: 'role', role: message.role });
+    if (target) {
+      this.sendControl(target, { type: 'role', role: message.role });
+      // Token nuevo con el rol nuevo: si esa persona reconecta, el token viejo
+      // no le devuelve el permiso que acaba de perder.
+      const targetSid = this.connSessions.get(target);
+      if (targetSid !== undefined) this.issueSession(target, targetSid, message.role);
+    }
     this.broadcastRoles();
     console.log(`[room ${this.code}] rol de ${message.client} → ${message.role}`);
   }
@@ -1209,10 +1298,15 @@ class Room {
 
   private handleRevokeInvite(conn: WsSocket, id: string): void {
     if (!this.guardProducer(conn, 'revoca invitaciones')) return;
-    const live = this.hooks.invites();
-    this.hooks.setInvites(live.filter((r) => r.id !== id));
-    this.sendInvites(conn);
-    console.log(`[room ${this.code}] invitación ${id} revocada`);
+    // Bajo el MISMO candado que crear: leer → filtrar → escribir sin él dejaba
+    // resucitar una invitación revocada si un alta concurrente terminaba
+    // después con la lista vieja.
+    void withInviteLock(this.code, async () => {
+      const live = this.hooks.invites();
+      this.hooks.setInvites(live.filter((r) => r.id !== id));
+      this.sendInvites(conn);
+      console.log(`[room ${this.code}] invitación ${id} revocada`);
+    });
   }
 
   /**
@@ -1987,6 +2081,12 @@ export function startServer(opts: ServerOptions = {}): Promise<ServerHandle> {
       return;
     }
     if (waiting.checking) return;
+    // La puerta solo espera prueba o invitación: un control legítimo no llega a
+    // 8 KB. Sin este tope, `readControl` parseaba los 192 MB del socket.
+    if (data.byteLength > MAX_CONTROL_BYTES) {
+      conn.close(CLOSE_POLICY, 'Mensaje de entrada demasiado grande');
+      return;
+    }
     const message = readControl(data);
     if (!message) return;
 
