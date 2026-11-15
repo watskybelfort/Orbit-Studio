@@ -2136,7 +2136,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
     const autoHeight = beforeLanes * TAKE_LANE_MIN_H;
     const nextHeight =
       track.height <= autoHeight
-        ? Math.max(TRACK_H_MIN, afterLanes * TAKE_LANE_MIN_H)
+        ? Math.max(TRACK_H_DEFAULT, afterLanes * TAKE_LANE_MIN_H)
         : track.height;
     const commands: Command[] = [
       { type: 'removeClips', clipIds: [clip.id] },
