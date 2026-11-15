@@ -50,6 +50,7 @@ import {
 import { getLatencyCompensationSamples, useLatencyCalibrationStore } from './latency-calibration';
 import { compensateClipStart } from './input-latency';
 import { collectWorkletSamples, noteRecordingWritten, withPinnedSamples } from './sample-gc';
+import { heightForTakeLanes } from './take-stack';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -238,6 +239,26 @@ export async function toggleRecording(): Promise<void> {
     return;
   }
   if (phase === 'idle') return startRecording();
+}
+
+/**
+ * Stop/Pausa del TRANSPORTE también cierran la toma en curso.
+ *
+ * Sin esto, pulsar Espacio o ⏹ paraba el motor y dejaba la fase en
+ * `recording`: el micro seguía capturando, el clip crecía con el silencio de
+ * después y solo el botón Rec lo cerraba. Es el gesto más natural del mundo
+ * —parar la canción— y no puede dejar una toma abierta.
+ *
+ * Durante la cuenta atrás cancela la cuenta (no hay audio que guardar); en
+ * `saving` no hace nada: la toma ya está cerrándose y su WAV no se pierde.
+ */
+export function stopRecordingForTransport(): void {
+  const { phase } = useRecorderStore.getState();
+  if (phase === 'countin') {
+    cancelCountIn = true;
+    return;
+  }
+  if (phase === 'recording') void stopRecording();
 }
 
 /** Bandera de cancelación mientras corre la cuenta atrás. */
@@ -582,7 +603,24 @@ function placeTake(
     ? project.playlistTracks[take.route.playlistTrackId]
     : undefined;
   const previousId = declared ? declared.id : lastTakeTrackByRoute.get(routeKey);
-  const previous = previousId ? project.playlistTracks[previousId] : undefined;
+  let previous = previousId ? project.playlistTracks[previousId] : undefined;
+  /*
+   * Sin memoria de sesión (la app se acaba de abrir, o el proyecto viene de
+   * otro lado) pero con una toma ya puesta en ese tramo: se apila ENCIMA de
+   * ella. Antes se caía a la primera pista libre, que al reabrir un proyecto de
+   * voz mandaba la segunda toma a «Dobles» o a una pista vacía, partiendo el
+   * comping en dos. La ruta declarada sigue mandando; esto es solo el fallback
+   * cuando no la hay.
+   */
+  if (!previous) {
+    const hit = clips.find(
+      (c) =>
+        c.kind === 'audio' &&
+        overlaps(c) &&
+        project.playlistTracks[c.playlistTrackId]?.arrangementId === arrangementId,
+    );
+    if (hit) previous = project.playlistTracks[hit.playlistTrackId];
+  }
   const previousTakes =
     previous && previous.arrangementId === arrangementId
       ? clips.filter((c) => c.playlistTrackId === previous.id && overlaps(c))
@@ -599,6 +637,21 @@ function placeTake(
     }
     take.lane =
       previousTakes.length > 0 ? Math.max(...previousTakes.map((c) => c.lane ?? 0)) + 1 : 0;
+    /*
+     * La toma nueva abre un carril: la pista crece si hace falta para que todos
+     * se lean. Sin esto, cuatro tomas de voz en una pista de 56 px se reparten
+     * 14 px cada una —el carril existe y el usuario no ve ni el nombre ni la
+     * onda—, que es el fallo visual que este cambio cierra. Va en el mismo
+     * `batch` que las tomas: deshacer la grabación devuelve también la altura.
+     */
+    const taller = heightForTakeLanes(previous.height, take.lane + 1);
+    if (taller > previous.height) {
+      commands.push({
+        type: 'patchPlaylistTrack',
+        trackId: previous.id,
+        patch: { height: taller },
+      });
+    }
     claimed.add(previous.id);
     lastTakeTrackByRoute.set(routeKey, previous.id);
     return previous.id;

@@ -203,12 +203,102 @@ describe('sin enrutado declarado: una toma, un micro', () => {
     expect(clips[0]!.kind).toBe('audio');
   });
 
+  it('la segunda toma de la misma entrada se apila en otro carril y la pista crece', async () => {
+    const { app, recorder } = await rig(2);
+
+    const recordOnce = async () => {
+      await recorder.toggleRecording();
+      recorder.pushInputChunk(block(0.5), block(0.5));
+      await recorder.toggleRecording();
+    };
+
+    await recordOnce();
+    const first = Object.values(app.store.project.clips)[0]!;
+    const trackId = first.playlistTrackId;
+    expect(app.store.project.playlistTracks[trackId]!.height).toBe(56);
+
+    await recordOnce();
+    await recordOnce();
+    const clips = Object.values(app.store.project.clips);
+    expect(clips).toHaveLength(3);
+
+    // Las tres en la MISMA pista (es la misma entrada) y en carriles distintos:
+    // la nueva va encima y calla a las anteriores, que es la regla de comping.
+    expect(new Set(clips.map((c) => c.playlistTrackId))).toEqual(new Set([trackId]));
+    expect(clips.map((c) => c.lane ?? 0).sort()).toEqual([0, 1, 2]);
+    expect(clips.filter((c) => !c.muted).map((c) => c.lane)).toEqual([2]);
+
+    // Tres carriles en 56 px serían 18 px cada uno: la pista crece para que
+    // cada toma conserve altura legible, y la altura viaja en el MISMO undo.
+    expect(app.store.project.playlistTracks[trackId]!.height).toBeGreaterThanOrEqual(3 * 30);
+  });
+
+  it('al reabrir, una toma que se pisa en el mismo tramo se apila en SU pista', async () => {
+    const { app, recorder } = await rig(2);
+    const track = Object.values(app.store.project.playlistTracks)[0]!;
+    app.store.dispatch({
+      type: 'addClips',
+      clips: [{
+        id: 'toma-vieja',
+        kind: 'audio',
+        playlistTrackId: track.id,
+        start: 0,
+        length: 8,
+        muted: false,
+        sampleId: 'sample-viejo',
+      }],
+    });
+
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    await recorder.toggleRecording();
+
+    const clips = Object.values(app.store.project.clips);
+    expect(clips).toHaveLength(2);
+    const nueva = clips.find((c) => c.id !== 'toma-vieja')!;
+    expect(nueva.playlistTrackId).toBe(track.id);
+    expect(nueva.lane ?? 0).toBe(1);
+    expect(clips.find((c) => c.id === 'toma-vieja')!.muted).toBe(true);
+  });
+
   it('la toma nace en el beat donde empezó (sin latencia calibrada, tal cual)', async () => {
     const { app, recorder } = await rig(2);
     await recorder.toggleRecording();
     recorder.pushInputChunk(block(0.5), block(0.5));
     await recorder.toggleRecording();
     expect(Object.values(app.store.project.clips)[0]!.start).toBe(0);
+  });
+});
+
+describe('el transporte para la toma', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('Stop cierra la grabación y coloca el clip en vez de dejar el micro abierto', async () => {
+    const { app, recorder } = await rig(2);
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    expect(recorder.useRecorderStore.getState().phase).toBe('recording');
+
+    app.stopPlayback();
+    expect(recorder.useRecorderStore.getState().phase).toBe('saving');
+    await new Promise((resolve) => setTimeout(resolve, 220));
+
+    expect(recorder.useRecorderStore.getState().phase).toBe('idle');
+    expect(Object.values(app.store.project.clips)).toHaveLength(1);
+    expect(recorder.useRecorderStore.getState().error).toBeNull();
+  });
+
+  it('Pausa también cierra la toma', async () => {
+    const { app, recorder } = await rig(2);
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    app.pausePlayback();
+    await new Promise((resolve) => setTimeout(resolve, 220));
+    expect(recorder.useRecorderStore.getState().phase).toBe('idle');
+    expect(Object.values(app.store.project.clips)).toHaveLength(1);
   });
 });
 

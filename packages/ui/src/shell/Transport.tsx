@@ -7,6 +7,7 @@ import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
 
 import { toggleParamRecordArmed, useParamRecord } from '../state/param-record';
 import { cycleCountIn, toggleRecording, useRecorderStore } from '../state/recorder';
+import { prepareVocalSetup } from '../state/vocal';
 import {
   IconKnobRec,
   IconMetronome,
@@ -180,6 +181,26 @@ export function Transport() {
           ) : (
             <span className="rec-dot" />
           )}
+        </button>
+        <button
+          className={`tbtn voz${recPhase === 'recording' ? ' active' : ''}`}
+          aria-label={recPhase === 'recording' ? 'Detener la toma de voz' : 'Grabar la voz en su pista'}
+          aria-pressed={recPhase === 'recording'}
+          disabled={recPhase === 'saving'}
+          title={
+            recPhase === 'recording'
+              ? 'Detener la toma de voz y dejarla en su carril'
+              : 'Grabar voz: prepara la pista «Voz», enlaza el micro armado y empieza la toma'
+          }
+          onClick={() => {
+            // Con una toma en marcha esto es el botón de parar; preparar la
+            // pista a mitad de grabación sería un cambio de proyecto en vivo.
+            if (recPhase === 'idle') prepareVocalSetup();
+            void toggleRecording();
+          }}
+        >
+          <IconMic size={14} />
+          <span className="voz-label">Voz</span>
         </button>
         <button
           className={`tbtn countin${countInBars > 0 ? ' active' : ''}`}

@@ -28,6 +28,7 @@ import {
   newId,
   pickColor,
   type Clip,
+  type Command,
   type Id,
   type Marker,
   type PlaylistTrack,
@@ -49,8 +50,9 @@ import {
   useBounceStore,
 } from '../../state/bounce';
 import { packClips, readClipboard, setClipboard, unpackClips } from '../../state/clipboard';
-import { claimEditFocus, registerEditActions } from '../../state/edit-focus';
+import { claimEditFocus, registerEditActions, activeEditTarget } from '../../state/edit-focus';
 import { PEAK_COLS, onPeaksReady, requestPeaks } from '../../state/sample-peaks';
+import { chooseTakePatches, compactTakeLanePatches, heightForTakeLanes, TAKE_LANE_MIN_H, takeLaneCount, takeRows } from '../../state/take-stack';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -75,7 +77,7 @@ const MARKER_EDIT_W = 330;
 const RESIZE_EDGE = 7;
 /** Límites de la altura de pista (px) y valor al que vuelve con doble clic. */
 const TRACK_H_MIN = 30;
-const TRACK_H_MAX = 220;
+const TRACK_H_MAX = 420;
 const TRACK_H_DEFAULT = 56;
 const MIN_ZOOM = 6;
 const MAX_ZOOM = 120;
@@ -126,7 +128,7 @@ type DragState =
   | { mode: 'move'; clipId: Id; grabOffset: number; orig: Map<Id, MoveAnchor> }
   | { mode: 'resize'; clipId: Id }
   | { mode: 'seek' }
-  | { mode: 'loop'; anchor: number; moved: boolean }
+  | { mode: 'loop'; anchor: number; moved: boolean; x0: number }
   /** Rectángulo de selección. `add` = suma a lo ya seleccionado (Shift). */
   | { mode: 'marquee'; x0: number; y0: number; x1: number; y1: number; add: boolean }
   /**
@@ -450,11 +452,7 @@ export function Playlist() {
    * en cuanto hay tomas apiladas, la fila se divide.
    */
   const laneCount = useCallback(
-    (trackId: Id): number => {
-      let max = 0;
-      for (const c of clipsByTrack.get(trackId) ?? []) max = Math.max(max, c.lane ?? 0);
-      return max + 1;
-    },
+    (trackId: Id): number => takeLaneCount(clipsByTrack.get(trackId) ?? []),
     [clipsByTrack],
   );
 
@@ -582,7 +580,7 @@ export function Playlist() {
     };
 
     /** Pinta un clip (cuerpo, franja de nombre y contenido según su kind). */
-    const drawClip = (c: Clip, rowY: number, rowH: number, ghost = false, selected = false) => {
+    const drawClip = (c: Clip, rowY: number, rowH: number, ghost = false, selected = false, takeNumber?: number) => {
       const x = beatToX(c.start);
       const cw = Math.max(2, c.length * zoom - 1);
       if (x + cw < 0 || x > w) return;
@@ -592,7 +590,7 @@ export function Playlist() {
           ? project.patterns[c.patternId]?.color ?? accent
           : accent);
       const base = c.muted ? 0.45 : 1;
-      const stripH = Math.min(13, rowH - 6);
+      const stripH = Math.max(0, Math.min(13, rowH - 6));
 
       ctx.beginPath();
       ctx.roundRect(x + 0.5, rowY + 1.5, cw, rowH - 4, 3);
@@ -630,11 +628,17 @@ export function Playlist() {
       ctx.globalAlpha = base * 0.85;
       ctx.fillStyle = color;
       ctx.fillRect(x + 0.5, rowY + 1.5, cw, stripH);
-      if (cw > 26) {
+      if (cw > 26 && rowH >= 12) {
         ctx.globalAlpha = base;
         ctx.fillStyle = col('--pl-clip-text');
         ctx.font = `9px ${font}`;
-        ctx.fillText(clipLabel(c, project), x + 4, rowY + stripH - 2);
+        // En una pista con tomas apiladas el número va DELANTE del nombre: con
+        // el carril estrecho solo se lee el principio, y "T3" es justo lo que
+        // hay que saber para elegir. Sin tomas apiladas no cambia nada.
+        const label = takeNumber === undefined
+          ? clipLabel(c, project)
+          : `T${takeNumber} · ${clipLabel(c, project)}`;
+        ctx.fillText(label, x + 4, rowY + stripH - 2);
       }
 
       const top = rowY + 1.5 + stripH + 2;
@@ -820,7 +824,7 @@ export function Playlist() {
       const laneH = r.track.height / lanes;
       for (const c of clipsByTrack.get(r.track.id) ?? []) {
         const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
-        drawClip(c, y + lane * laneH, laneH, false, selection.has(c.id));
+        drawClip(c, y + lane * laneH, laneH, false, selection.has(c.id), lanes > 1 ? lane + 1 : undefined);
       }
       // Línea fina entre carriles para que se vea que hay tomas apiladas.
       if (lanes > 1) {
@@ -1090,7 +1094,11 @@ export function Playlist() {
         if (e.button !== 0) return;
         const beat = quant(xToBeat(x), snapOf(e), true);
         if (y < RULER_H / 2) {
-          drag.current = { mode: 'loop', anchor: beat, moved: false };
+          // Sobre una bandera de marcador el gesto es del marcador (doble clic
+          // para editarlo): antes el primer clic de ese doble clic borraba la
+          // región de loop sin que el usuario lo pidiera.
+          if (markerAt(x)) return;
+          drag.current = { mode: 'loop', anchor: beat, moved: false, x0: x };
         } else {
           // Clic sobre una bandera: salto exacto a su marcador.
           const m = markerAt(x);
@@ -1109,17 +1117,13 @@ export function Playlist() {
           const lanes = laneCount(hit.row.track.id);
           if (lanes > 1) {
             const list = clipsByTrack.get(hit.row.track.id) ?? [];
-            const patches = list
-              .filter(
-                (c) =>
-                  c.start < hit.clip.start + hit.clip.length &&
-                  c.start + c.length > hit.clip.start,
-              )
-              .map((c) => ({ id: c.id, muted: c.id !== hit.clip.id }));
-            store.dispatch(
-              { type: 'patchClips', patches },
-              { label: `Elegir toma ${(hit.clip.lane ?? 0) + 1}` },
-            );
+            const patches = chooseTakePatches(list, hit.clip.id) ?? [];
+            if (patches.length > 0) {
+              store.dispatch(
+                { type: 'patchClips', patches },
+                { label: `Elegir toma ${(hit.clip.lane ?? 0) + 1}` },
+              );
+            }
           } else {
             store.dispatch(
               { type: 'patchClips', patches: [{ id: hit.clip.id, muted: !hit.clip.muted }] },
@@ -1254,6 +1258,8 @@ export function Playlist() {
           break;
         }
         case 'loop': {
+          // Un temblor de 1 px no define una región: hace falta mover 3 px.
+          if (!d.moved && Math.abs(x - d.x0) < 3) break;
           d.moved = true;
           const beat = quant(xToBeat(x), snapOf(e), true);
           const start = Math.min(d.anchor, beat);
@@ -1354,15 +1360,40 @@ export function Playlist() {
             tracks.length,
           );
 
-          const patches: { id: Id; start: number; playlistTrackId: Id }[] = [];
+          const patches: { id: Id; start: number; playlistTrackId: Id; lane?: number }[] = [];
           for (const [id, a] of d.orig) {
             const clip = project.clips[id];
             if (!clip) continue;
             const start = a.start + delta.beats;
             const trackId = tracks[a.trackIndex + delta.tracks]?.id ?? clip.playlistTrackId;
-            if (start !== clip.start || trackId !== clip.playlistTrackId) {
-              patches.push({ id, start, playlistTrackId: trackId });
+            const moved = start !== clip.start || trackId !== clip.playlistTrackId;
+            if (!moved) continue;
+            /*
+             * `lane` es el carril de toma DENTRO de su pista de origen: al
+             * cambiar de pista no puede viajar. Una toma del carril 2 movida a
+             * una pista normal convertía esa pista en tres carriles y encogía
+             * todos sus clips. En la pista nueva entra en el primer carril
+             * libre que no pise una toma; en la misma pista conserva el suyo.
+             */
+            let lane: number | undefined;
+            if (clip.kind === 'audio' && trackId !== clip.playlistTrackId) {
+              const occupied = (clipsByTrack.get(trackId) ?? []).filter(
+                (c) =>
+                  c.kind === 'audio' &&
+                  c.id !== clip.id &&
+                  c.start < start + clip.length &&
+                  c.start + c.length > start,
+              );
+              lane = occupied.length
+                ? Math.max(...occupied.map((c) => c.lane ?? 0)) + 1
+                : 0;
             }
+            patches.push({
+              id,
+              start,
+              playlistTrackId: trackId,
+              ...(lane === undefined ? null : { lane }),
+            });
           }
           if (patches.length > 0) {
             store.dispatch(
@@ -1438,7 +1469,7 @@ export function Playlist() {
         }
       }
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw, selection, selectedIds, trackIndexOf, tracks, zoom, scrollX, fadeHandleAt, setLoopRegion],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, freeAt, project, draw, selection, selectedIds, trackIndexOf, tracks, clipsByTrack, zoom, scrollX, fadeHandleAt, setLoopRegion],
   );
 
   // Doble clic: en la regla crea/renombra marcadores; en un clip de
@@ -1609,6 +1640,11 @@ export function Playlist() {
         return;
       }
       if (selection.size === 0) return;
+      // Supr/Esc son del editor ACTIVO, no de cualquiera con selección: con la
+      // Playlist y el Piano Roll abiertos, un Supr borraba los clips Y las
+      // notas a la vez (los dos listeners de window). El árbitro ya existe para
+      // Ctrl+C/V; esto usa el mismo.
+      if (activeEditTarget() !== 'playlist') return;
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         deleteSelection();
@@ -2024,6 +2060,64 @@ function TrackHeader({ track }: TrackHeaderProps) {
 
   const clipCount = bounceableClipsOfTrack(track.id).length;
   const frozen = frozenClipOfTrack(track.id) !== undefined;
+  const trackClips = useMemo(
+    () => Object.values(project.clips).filter((c) => c.playlistTrackId === track.id),
+    [project, track.id],
+  );
+  const takes = useMemo(() => takeRows(trackClips), [trackClips]);
+  const lanes = takes.reduce((max, row) => Math.max(max, row.number), 1);
+  const [takeMenu, setTakeMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
+  const barLen = beatsInBar(project.timeSig);
+
+  const activateTake = (clipId: Id) => {
+    const patches = chooseTakePatches(trackClips, clipId) ?? [];
+    if (patches.length > 0) {
+      store.dispatch(
+        { type: 'patchClips', patches },
+        { label: `Elegir toma ${(project.clips[clipId]?.lane ?? 0) + 1}` },
+      );
+    }
+    setTakeMenu(null);
+  };
+
+  const removeTake = (clip: Clip) => {
+    const remaining = trackClips.filter((item) => item.id !== clip.id);
+    const beforeLanes = takeLaneCount(trackClips);
+    const afterLanes = takeLaneCount(remaining);
+    // Si la altura la puso el crecimiento automático (o el usuario la dejó
+    // justo en lo que hacía falta), vuelve con las tomas que quedan; si la
+    // agrandó a mano, se respeta. Sin esto borrar tomas deja una pista vacía
+    // de 120 px para siempre.
+    const autoHeight = beforeLanes * TAKE_LANE_MIN_H;
+    const nextHeight =
+      track.height <= autoHeight
+        ? Math.max(TRACK_H_MIN, afterLanes * TAKE_LANE_MIN_H)
+        : track.height;
+    const commands: Command[] = [
+      { type: 'removeClips', clipIds: [clip.id] },
+    ];
+    const lanePatches = compactTakeLanePatches(remaining);
+    if (lanePatches.length > 0) commands.push({ type: 'patchClips', patches: lanePatches });
+    if (nextHeight !== track.height) {
+      commands.push({ type: 'patchPlaylistTrack', trackId: track.id, patch: { height: nextHeight } });
+    }
+    store.dispatch(
+      { type: 'batch', label: `Borrar toma ${(clip.lane ?? 0) + 1} de "${track.name}"`, commands },
+      { label: `Borrar toma ${(clip.lane ?? 0) + 1} de "${track.name}"` },
+    );
+    setTakeMenu(null);
+  };
+
+  const fitHeight = () => {
+    const height = heightForTakeLanes(track.height, lanes);
+    if (height !== track.height) {
+      store.dispatch(
+        { type: 'patchPlaylistTrack', trackId: track.id, patch: { height } },
+        { label: `Altura de "${track.name}"` },
+      );
+    }
+    setTakeMenu(null);
+  };
 
   return (
     <div
@@ -2073,6 +2167,19 @@ function TrackHeader({ track }: TrackHeaderProps) {
           {track.name}
         </button>
       )}
+      {lanes > 1 && track.height >= 52 && (
+        <button
+          className="pl-take-badge"
+          title={`${lanes} tomas apiladas — clic para elegir cuál suena`}
+          onClick={(e) => {
+            e.stopPropagation();
+            const r = e.currentTarget.getBoundingClientRect();
+            setTakeMenu({ x: r.left, y: r.bottom + 4, anchor: e.currentTarget });
+          }}
+        >
+          {lanes} tomas
+        </button>
+      )}
       <div
         className="pl-track-resize"
         title="Arrastra para cambiar la altura de la pista"
@@ -2110,6 +2217,41 @@ function TrackHeader({ track }: TrackHeaderProps) {
           )
         }
       />
+      {takeMenu && (
+        <TrackMenu
+          x={takeMenu.x}
+          y={takeMenu.y}
+          anchor={takeMenu.anchor}
+          onClose={() => setTakeMenu(null)}
+        >
+          <div className="pl-take-title">Tomas de «{track.name}»</div>
+          {takes.map((row) => (
+            <div key={row.clip.id} className={`pl-take-row${row.active ? ' on' : ''}`}>
+              <button
+                className="pl-take-pick"
+                title={row.active ? 'Esta toma es la que suena' : 'Hacer que suene esta toma'}
+                onClick={() => activateTake(row.clip.id)}
+              >
+                <b>T{row.number}</b>
+                <span>Compás {Math.floor(row.clip.start / barLen) + 1}</span>
+                <span>{row.clip.length.toFixed(1)} beats</span>
+                <em>{row.active ? 'Sonando' : 'Muteada'}</em>
+              </button>
+              <button
+                className="pl-take-del"
+                title={`Borrar la toma ${row.number}`}
+                aria-label={`Borrar la toma ${row.number}`}
+                onClick={() => removeTake(row.clip)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <button className="param-menu-item" onClick={fitHeight}>
+            Ajustar altura a las tomas
+          </button>
+        </TrackMenu>
+      )}
       {menu && (
         <TrackMenu x={menu.x} y={menu.y} anchor={menu.anchor} onClose={() => setMenu(null)}>
           <div className="pl-menu-icons" title="Icono de la pista">
