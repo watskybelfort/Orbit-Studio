@@ -39,6 +39,9 @@ interface Channels {
   duration: number;
 }
 
+/** Distancia al asa de recorte que cuenta como "quiero estirar", en px. */
+const TRIM_EDGE_PX = 8;
+
 /**
  * Caché de PCM decodificado por id:hash (decodificar es caro).
  *
@@ -298,13 +301,26 @@ export function AudioEditor() {
     (e: React.PointerEvent) => {
       const canvas = canvasRef.current;
       if (!canvas || !channels || !clip) return;
-      capturePointer(canvas, e.pointerId);
+      // Solo el botón izquierdo recorta: el derecho abre menús/gestos del
+      // sistema y antes bastaba un clic derecho sobre la onda para trimearla.
+      if (e.button !== 0) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const dur = channels.duration;
       const x0 = (offsetSec / dur) * rect.width;
       const x1 = (Math.min(dur, offsetSec + clipSec) / dur) * rect.width;
-      drag.current = Math.abs(x - x0) <= Math.abs(x - x1) ? 'start' : 'end';
+      /*
+       * El recorte tiene ASAS, no "la mitad más cercana": antes cualquier clic
+       * sobre la onda elegía un borde y el primer move ya recortaba, así que un
+       * clic con un píxel de temblor se comía el clip hasta el cursor. Ahora
+       * hay que caer a 8 px del borde; fuera de ahí el clic no hace nada.
+       */
+      const nearStart = Math.abs(x - x0) <= TRIM_EDGE_PX;
+      const nearEnd = Math.abs(x - x1) <= TRIM_EDGE_PX;
+      if (!nearStart && !nearEnd) return;
+      drag.current =
+        nearStart && (!nearEnd || Math.abs(x - x0) <= Math.abs(x - x1)) ? 'start' : 'end';
+      capturePointer(canvas, e.pointerId);
     },
     [channels, clip, offsetSec, clipSec],
   );

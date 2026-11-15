@@ -106,7 +106,15 @@ function isDrawMessage(m: unknown): m is DrawMessage {
     o['type'] === 'draw' &&
     o['in'] instanceof Float32Array &&
     o['out'] instanceof Float32Array &&
-    typeof o['len'] === 'number'
+    // Tamaños EXACTOS: el worker legítimo devuelve los mismos buffers que el
+    // host le transfirió. Un `out` de otro tamaño (un plugin que se coló al
+    // handler real) haría que el host retuviera memoria arbitraria.
+    o['in'].length === IN_LEN &&
+    o['out'].length === VIEW_LIST_CAP &&
+    typeof o['len'] === 'number' &&
+    Number.isFinite(o['len']) &&
+    o['len'] >= 0 &&
+    o['len'] <= VIEW_LIST_CAP
   );
 }
 

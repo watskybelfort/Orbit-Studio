@@ -207,6 +207,15 @@
   margin: 4px 6px;
 }
 
+/* Un destino que no admite automatización: se dice, no se esconde. */
+.param-menu-note {
+  max-width: 240px;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 /* Esperando a que muevas el mando del controlador. */
 .param-menu-item.learning {
   color: var(--accent);

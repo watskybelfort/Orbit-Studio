@@ -242,9 +242,12 @@ export function SectionLane({
 
   // ── Mutaciones ────────────────────────────────────────────────────────────
 
-  const run = useCallback((commands: Command[], label: string) => {
+  const run = useCallback((commands: Command[], label: string, mergeKey?: string) => {
     if (commands.length === 0) return;
-    store.dispatch({ type: 'batch', label, commands }, { label });
+    store.dispatch(
+      { type: 'batch', label, commands },
+      { label, ...(mergeKey === undefined ? null : { mergeKey }) },
+    );
   }, []);
 
   const rename = useCallback(
@@ -368,6 +371,7 @@ export function SectionLane({
               : []),
           ],
           'Mover sección',
+          `sec:move:${d.sectionId}`,
         );
         return;
       }
@@ -404,6 +408,7 @@ export function SectionLane({
           })),
         ],
         'Estirar sección',
+        `sec:resize:${d.sectionId}`,
       );
     },
     [sectionAt, xToBeat, quantize, draw, run, project],

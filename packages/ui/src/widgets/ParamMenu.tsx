@@ -13,6 +13,7 @@
  */
 
 import type { ParamRef } from '@orbit/core';
+import { isAutomatableParamRef } from '@orbit/core';
 import {
   cancelMidiLearn,
   isLearning,
@@ -46,6 +47,7 @@ export function ParamMenu({ target, x, y, anchor, onClose }: ParamMenuProps) {
   const learning = useMidiLearnStore((s) => s.learning);
   const mapping = midiMappingFor(target, mappings);
   const waiting = isLearning(target, learning);
+  const automatable = isAutomatableParamRef(target, project);
 
 
   const run = (fn: () => void) => () => {
@@ -56,25 +58,33 @@ export function ParamMenu({ target, x, y, anchor, onClose }: ParamMenuProps) {
 
   return (
     <MenuPortal anchor={anchor} x={x} y={y} onClose={onClose} className="param-menu">
-      <button className="param-menu-item" onClick={run(() => createAutomationClipFor(target))}>
-        Crear clip de automatización
-      </button>
-      {lfo ? (
+      {automatable ? (
         <>
-          <button className="param-menu-item" onClick={run(() => removeLfo(lfo.id))}>
-            Quitar LFO
+          <button className="param-menu-item" onClick={run(() => createAutomationClipFor(target))}>
+            Crear clip de automatización
           </button>
-          <button
-            className="param-menu-item"
-            onClick={run(() => useUiStore.getState().openWindow('lfo'))}
-          >
-            Ajustar LFO…
-          </button>
+          {lfo ? (
+            <>
+              <button className="param-menu-item" onClick={run(() => removeLfo(lfo.id))}>
+                Quitar LFO
+              </button>
+              <button
+                className="param-menu-item"
+                onClick={run(() => useUiStore.getState().openWindow('lfo'))}
+              >
+                Ajustar LFO…
+              </button>
+            </>
+          ) : (
+            <button className="param-menu-item" onClick={run(() => addLfoFor(target))}>
+              Añadir LFO
+            </button>
+          )}
         </>
       ) : (
-        <button className="param-menu-item" onClick={run(() => addLfoFor(target))}>
-          Añadir LFO
-        </button>
+        <div className="param-menu-note">
+          Este parámetro no se automatiza: cambiaría la reverb entera dentro del hilo de audio.
+        </div>
       )}
       <div className="param-menu-sep" />
       {mapping ? (

@@ -34,20 +34,68 @@ type Req =
 // worker con lo justo que se usa aquí, sin tocar las libs globales.
 interface WorkerScope {
   onmessage: ((e: MessageEvent<Req>) => void) | null;
+  addEventListener(type: 'message', listener: (e: MessageEvent<Req>) => void): void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 const ctx = self as unknown as WorkerScope;
+
+/**
+ * El único canal de vuelta, capturado antes de desarmar el global.
+ *
+ * Este worker ejecuta el código de los plugins del usuario (el kernel lo compila
+ * con `new Function`), así que tiene que valer por sí mismo: el documento puede
+ * tener CSP, pero en desarrollo no se instala y la CSP empaquetada permite
+ * `connect-src ws:` por la colaboración. Un plugin que abriera un `WebSocket`
+ * aquí tendría una salida de red. Se desarman los mismos globales que en
+ * `plugin-view-worker.ts`, y se captura `postMessage` para que el host siga
+ * recibiendo los renders.
+ */
+const post = ctx.postMessage.bind(ctx);
+const BLOCKED = [
+  'fetch',
+  'XMLHttpRequest',
+  'WebSocket',
+  'EventSource',
+  'WebTransport',
+  'RTCPeerConnection',
+  'navigator',
+  'importScripts',
+  'indexedDB',
+  'caches',
+  'localStorage',
+  'sessionStorage',
+  'Worker',
+  'SharedWorker',
+  'BroadcastChannel',
+  'MessageChannel',
+  'postMessage',
+  'close',
+  'location',
+];
+for (const key of BLOCKED) {
+  try {
+    Object.defineProperty(self, key, {
+      value: undefined,
+      writable: false,
+      configurable: false,
+      enumerable: false,
+    });
+  } catch {
+    // Este motor no deja redefinirla: quedan las demás capas.
+  }
+}
+ctx.onmessage = null;
 
 function transferOf(r: RenderResult): Transferable[] {
   return [r.left.buffer, r.right.buffer];
 }
 
-ctx.onmessage = (e: MessageEvent<Req>) => {
+ctx.addEventListener('message', (e: MessageEvent<Req>) => {
   const msg = e.data;
   try {
     if (msg.kind === 'project') {
       const result = renderProject(msg.compiled, msg.opts);
-      ctx.postMessage({ id: msg.id, ok: true, result }, transferOf(result));
+      post({ id: msg.id, ok: true, result }, transferOf(result));
       return;
     }
     // stems: un RenderResult por pista; se transfieren todos los buffers.
@@ -65,18 +113,18 @@ ctx.onmessage = (e: MessageEvent<Req>) => {
     // pista sino del propio worker).
     const total = msg.trackIndices.length;
     const onProgress = trackStemProgress(total, (index) => {
-      ctx.postMessage({ id: msg.id, progress: { index, total } });
+      post({ id: msg.id, progress: { index, total } });
     });
     const { results, errors } = renderStems(msg.compiled, msg.trackIndices, { ...msg.opts, onProgress });
     const stems = [...results.entries()].map(([idx, result]) => ({ idx, result }));
     const failed = [...errors.entries()].map(([idx, error]) => ({ idx, error }));
     const transfer = stems.flatMap((s) => transferOf(s.result));
-    ctx.postMessage({ id: msg.id, ok: true, stems, failed }, transfer);
+    post({ id: msg.id, ok: true, stems, failed }, transfer);
   } catch (err) {
-    ctx.postMessage({
+    post({
       id: msg.id,
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     });
   }
-};
+});

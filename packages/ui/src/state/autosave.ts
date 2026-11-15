@@ -10,6 +10,7 @@ import { parseProject, serializeProject, type Project } from '@orbit/core';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { store } from './app';
+import { useRecorderStore } from './recorder';
 // A nivel de FUNCIÓN (en `applyRecovery`), no de módulo: `project-file` importa
 // este archivo y un uso de módulo aquí reventaría el ciclo.
 import { useProjectFile } from './project-file';
@@ -148,6 +149,12 @@ export const useAutosave = create<{ error: string | null; dirty: boolean }>(() =
 
 /** ¿Hay trabajo que se perdería ahora mismo? */
 export function isDirty(): boolean {
+  // Una toma EN CURSO no está en el proyecto todavía (el clip nace al parar):
+  // si el guardián de cierre solo mira `store.version`, cerrar con el micro
+  // abierto se lleva la toma sin preguntar. `saving` también cuenta: el WAV
+  // está en vuelo.
+  const phase = useRecorderStore.getState().phase;
+  if (phase === 'recording' || phase === 'countin' || phase === 'saving') return true;
   return store.version !== savedVersion;
 }
 
@@ -212,6 +219,9 @@ export function initAutosave(): void {
   // ProjectStore solo emite cuando el proyecto cambia de verdad (dispatch,
   // undo/redo, replaceProject), no con los medidores del kernel.
   store.subscribe(refreshDirty);
+  // La fase de grabación no cambia el proyecto hasta que se coloca la toma,
+  // pero sí es trabajo sin guardar: el aviso de cierre tiene que verla.
+  useRecorderStore.subscribe(refreshDirty);
   store.subscribeBeforeReplace(() => {
     autosaveGeneration++;
     useAutosave.setState({ error: null });

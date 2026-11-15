@@ -272,6 +272,39 @@ export const LAYOUT_PRESETS: LayoutPreset[] = [
 ];
 
 /** Aplica un predefinido por su id. false si ese id no existe. */
+/**
+ * Disposición de primer arranque, adaptada al ancho real.
+ *
+ * Los predefinidos de la bienvenida («Componer», «Mezclar», «Arreglar») son
+ * para elegir; esto es lo que hay antes de elegir nada. En pantalla ancha,
+ * Rack y Playlist lado a lado; en una de 1280 (o al 150 %) se apilan, porque
+ * las cajas por defecto se solapaban: la Playlist tapaba 260 px del Rack y al
+ * 150 % lo tapaba entero.
+ */
+export function applyStartupLayout(): void {
+  const area = workspaceArea();
+  const wide = area.w >= 1180;
+  const w = Math.max(320, area.w - GAP * 2);
+  const h = Math.max(200, area.h - GAP * 2);
+  if (wide) {
+    const rackW = clamp(Math.round(area.w * 0.38), 320, Math.max(320, area.w - 480 - GAP * 3));
+    applyLayoutWindows({
+      channelRack: box(GAP, GAP, rackW, h),
+      playlist: box(GAP * 2 + rackW, GAP, Math.max(480, area.w - rackW - GAP * 3), h),
+      [BROWSER_KEY]: panelFlag(true),
+      [CLAUDE_KEY]: panelFlag(false),
+    });
+    return;
+  }
+  const rackH = clamp(Math.round(h * 0.45), 200, Math.max(200, h - 200 - GAP));
+  applyLayoutWindows({
+    channelRack: box(GAP, GAP, w, rackH),
+    playlist: box(GAP, GAP * 2 + rackH, w, Math.max(200, h - rackH - GAP)),
+    [BROWSER_KEY]: panelFlag(true),
+    [CLAUDE_KEY]: panelFlag(false),
+  });
+}
+
 export function applyPreset(id: string): boolean {
   const preset = LAYOUT_PRESETS.find((p) => p.id === id);
   if (!preset) return false;

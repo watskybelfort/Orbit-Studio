@@ -15,6 +15,7 @@
 import type { LayoutWindow } from '@orbit/core';
 import {
   applyLayoutWindows,
+  applyStartupLayout,
   captureLayout,
   fitToArea,
   workspaceArea,
@@ -86,6 +87,9 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let lastSeen = '';
 /** Última disposición ESCRITA a settings.json. */
 let lastSaved = '';
+/** Referencia de `windows` ya medida: evita serializar 18 cajas por medidor. */
+let lastWindows: unknown = null;
+let lastPanels = '';
 let enabled = false;
 let unsubscribe: (() => void) | null = null;
 
@@ -101,6 +105,14 @@ let unsubscribe: (() => void) | null = null;
  */
 function onStoreChange(): void {
   if (!enabled) return;
+  const ui = useUiStore.getState();
+  // Los medidores del motor cambian el store ~20 veces por segundo con la
+  // MISMA referencia de `windows`. Sin esta guarda se serializaban las 18
+  // ventanas en cada tick para descubrir que nada se había movido.
+  const panels = `${ui.browserOpen ? 1 : 0}${ui.claudePanelOpen ? 1 : 0}${ui.compact ? 1 : 0}`;
+  if (ui.windows === lastWindows && panels === lastPanels) return;
+  lastWindows = ui.windows;
+  lastPanels = panels;
   const key = JSON.stringify(captureLayout());
   if (key === lastSeen) return;
   lastSeen = key;
@@ -130,6 +142,9 @@ export async function initWorkspaceMemory(): Promise<boolean> {
     }
     setWorkspaceMemory(true);
   }
+  // Sin memoria (o sin nada guardado) no se dejan las cajas de fábrica
+  // solapadas: el arranque se coloca según el espacio que hay de verdad.
+  if (!restored) applyStartupLayout();
   return restored;
 }
 
@@ -149,6 +164,8 @@ export function setWorkspaceMemory(on: boolean, persist = false): void {
   // pisar el settings.json antes de que el usuario mueva nada.
   lastSaved = JSON.stringify(captureLayout());
   lastSeen = lastSaved;
+  lastWindows = null;
+  lastPanels = '';
   unsubscribe = useUiStore.subscribe(onStoreChange);
 }
 

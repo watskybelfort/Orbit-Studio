@@ -26,7 +26,7 @@ import { reportActivity } from '../../collab/presence';
 import { canRemovePattern, patternClipsHint, removePattern } from '../../palette/default-commands';
 import { setActivePattern, store } from '../../state/app';
 import { packNotes, readClipboard, setClipboard, unpackNotes } from '../../state/clipboard';
-import { claimEditFocus, registerEditActions } from '../../state/edit-focus';
+import { activeEditTarget, claimEditFocus, registerEditActions } from '../../state/edit-focus';
 import { previewNote, useActiveKeys } from '../../state/active-notes';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -612,16 +612,9 @@ export function PianoRoll() {
       const y = e.clientY - rect.top;
       const gridH = rect.height - VEL_LANE_H;
 
-      // Velocity lane
-      if (y >= gridH) {
-        const orig = new Map(notes.map((n) => [n.id, { ...n }]));
-        drag.current = { mode: 'velocity', startX: x, startY: y, orig, moved: false };
-        ghost.current = new Map(orig);
-        applyVelocityAt(x, y, rect.height);
-        return;
-      }
-
-      // Botón derecho: borrar. Con el pincel, arrastrando (todo en un undo).
+      // Botón derecho: borrar. Va ANTES del carril de velocity porque el clic
+      // derecho dentro de ese carril cambiaba la velocity de la nota en vez de
+      // borrarla. Con el pincel, arrastrando (todo en un undo).
       if (e.button === 2) {
         if (tool === 'brush') {
           drag.current = {
@@ -644,6 +637,16 @@ export function PianoRoll() {
           );
           setSelection(new Set());
         }
+        return;
+      }
+      if (e.button !== 0) return;
+
+      // Velocity lane (solo botón izquierdo: ver arriba).
+      if (y >= gridH) {
+        const orig = new Map(notes.map((n) => [n.id, { ...n }]));
+        drag.current = { mode: 'velocity', startX: x, startY: y, orig, moved: false };
+        ghost.current = new Map(orig);
+        applyVelocityAt(x, y, rect.height);
         return;
       }
 
@@ -1085,9 +1088,14 @@ export function PianoRoll() {
         target.isContentEditable
       )
         return;
+      // El Piano Roll tiene los mismos atajos que la Playlist y los dos están
+      // abiertos casi siempre: solo responde el editor ACTIVO. Sin esto, un
+      // Supr con selección en los dos borraba clips y notas a la vez.
+      if (activeEditTarget() !== 'pianoRoll') return;
       // Supr A SECAS borra las notas; con Ctrl+Shift es el atajo global de
       // borrar el patrón (useShortcuts) y aquí no se toca la selección.
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey && selection.size > 0) {
+        e.preventDefault();
         deleteSelection();
       }
       if (e.ctrlKey && e.code === 'KeyB' && selection.size > 0) {

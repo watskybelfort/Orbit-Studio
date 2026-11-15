@@ -29,10 +29,14 @@ interface Posted {
 }
 
 const posted: Posted[] = [];
+let messageHandler: ((e: { data: unknown }) => void) | null = null;
 
 /** `self` del worker: un objeto plano, que es lo que `harden()` va a desarmar. */
 const fakeSelf: Record<string, unknown> = {
   onmessage: null,
+  addEventListener: (type: string, listener: (e: { data: unknown }) => void) => {
+    if (type === 'message') messageHandler = listener;
+  },
   postMessage: (message: Record<string, unknown>, transfer?: unknown[]) => {
     posted.push({ message, transfer });
   },
@@ -44,9 +48,8 @@ const fakeSelf: Record<string, unknown> = {
 };
 
 function send(msg: unknown): void {
-  const handler = fakeSelf['onmessage'] as ((e: { data: unknown }) => void) | null;
-  if (!handler) throw new Error('el worker no instaló su onmessage');
-  handler({ data: msg });
+  if (!messageHandler) throw new Error('el worker no instaló su listener');
+  messageHandler({ data: msg });
 }
 
 function last(): Posted {
@@ -136,6 +139,9 @@ describe('el worker de la vista, de verdad', () => {
     expect(fakeSelf['indexedDB']).toBeUndefined();
     expect(fakeSelf['importScripts']).toBeUndefined();
     expect(fakeSelf['postMessage']).toBeUndefined();
+    // El canal de ENTRADA también: el plugin no puede llamar al manejador real
+    // con un frame falso y hacer que el worker devuelva buffers arbitrarios.
+    expect(fakeSelf['onmessage']).toBeUndefined();
     // Y no se puede volver a poner: la propiedad queda no reconfigurable.
     expect(() => {
       Object.defineProperty(fakeSelf, 'fetch', { value: () => 'red' });

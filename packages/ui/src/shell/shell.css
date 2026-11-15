@@ -47,6 +47,16 @@
   z-index: 1000;
   display: flex;
   flex-direction: column;
+  /*
+   * El menú Ver tiene 19 entradas y 5 cabeceras: 676 px. A 720p el fondo útil
+   * son 720-86=634 y a 150 % solo 514, así que «Ajustes» quedaba fuera de la
+   * pantalla y `body{overflow:hidden}` impedía llegar a él. Se desplaza.
+   * 96 px deja sitio a la barra de título y al borde inferior; se recalcula
+   * solo con el viewport, sin constantes de tema.
+   */
+  max-height: calc(100vh - 96px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 /* Cada entrada vive en su fila para que el submenú se ancle a ELLA, y para que
@@ -83,7 +93,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-check {
-  color: var(--on-accent);
+  color: var(--accent);
 }
 
 .menu-arrow {
@@ -93,7 +103,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-arrow {
-  color: var(--on-accent-dim);
+  color: var(--text);
 }
 
 /* Submenú: pegado al borde derecho de su fila y alineado con ella. */
@@ -112,8 +122,11 @@
 }
 
 .menu-item:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--on-accent);
+  /* Tinte del acento en vez de fondo pleno: blanco sobre #5aa9e6 da 2,54:1
+     (AA pide 4,5) y sobre el acento verde 1,58:1. El texto normal sobre el
+     tinte conserva el contraste de la superficie. */
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--text);
 }
 
 .menu-item:disabled {
@@ -127,7 +140,7 @@
 }
 
 .menu-item:hover:not(:disabled) .menu-shortcut {
-  color: var(--on-accent-dim);
+  color: var(--text-dim);
 }
 
 .menu-sep {
@@ -301,6 +314,25 @@
    que el rec de micro para que se distinga de un simple "armado". */
 .tbtn.rec-live {
   border-color: var(--meter-clip);
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+
+/* Grabar VOZ: prepara la pista «Voz» y arranca la toma en un clic. */
+.tbtn.voz {
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.tbtn.voz .voz-label {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.tbtn.voz.active,
+.tbtn.voz.active:hover:not(:disabled) {
+  color: var(--meter-clip);
+  border-color: var(--meter-clip);
+  background: color-mix(in srgb, var(--meter-clip) 12%, var(--surface-2));
   animation: rec-pulse 1s ease-in-out infinite;
 }
 
@@ -512,11 +544,13 @@ html[data-theme='acrylic'] .claude-panel {
   pointer-events: none;
 }
 
-/* Banner de recuperación de autosave (arriba, con botones) */
+/* Banner de recuperación de autosave (arriba, con botones).
+   Debajo de la barra de navegación del estudio (titlebar 38 + toolbar 44 +
+   nav 44): a titlebar+46 caía encima de Sonidos/Ajustes/Buscar. */
 .app-recovery {
   position: fixed;
   left: 50%;
-  top: calc(var(--titlebar-h) + 46px);
+  top: calc(var(--titlebar-h) + 98px);
   transform: translateX(-50%);
   display: flex;
   align-items: center;
@@ -605,15 +639,16 @@ html[data-theme='acrylic'] .claude-panel {
    foco tiene que ser el mismo que el del ratón: si no, con las flechas no se
    ve dónde estás. */
 .menu-item:focus:not(:disabled) {
-  background: var(--accent);
-  color: var(--on-accent);
-  outline: none;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  color: var(--text);
+  outline: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -1px;
 }
 
 .menu-item:focus:not(:disabled) .menu-shortcut,
 .menu-item:focus:not(:disabled) .menu-arrow,
 .menu-item:focus:not(:disabled) .menu-check {
-  color: var(--on-accent-dim);
+  color: var(--text-dim);
 }
 
 .menu-btn:focus-visible {

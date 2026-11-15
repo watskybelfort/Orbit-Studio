@@ -147,7 +147,7 @@ function NewClipForm({ project }: NewClipFormProps) {
   const channel = channelId ? project.channels[channelId] : undefined;
   const chanOptions = channel
     ? [
-        ...INSTRUMENT_PARAMS[channel.kind].map((s) => ({ value: `p:${s.key}`, label: s.label })),
+        ...INSTRUMENT_PARAMS[channel.kind].filter((s) => !s.static).map((s) => ({ value: `p:${s.key}`, label: s.label })),
         { value: 'm:volume', label: 'Volumen (mezcla)' },
         { value: 'm:pan', label: 'Pan (mezcla)' },
         { value: 'm:bend', label: 'Rueda de tono' },
@@ -175,7 +175,7 @@ function NewClipForm({ project }: NewClipFormProps) {
   const fxSlotSel = fxSlots.some((x) => x.index === fxSlot) ? fxSlot : fxSlots[0]?.index ?? -1;
   const fxSlotObj =
     fxSlotSel >= 0 ? project.mixer[fxTrackSel]?.slots[fxSlotSel] ?? null : null;
-  const fxSpecs = fxSlotObj ? EFFECT_PARAMS[fxSlotObj.kind] : [];
+  const fxSpecs = fxSlotObj ? EFFECT_PARAMS[fxSlotObj.kind].filter((s) => !s.static) : [];
   const fxParamSel = fxSpecs.some((s) => s.key === fxParam) ? fxParam : fxSpecs[0]?.key ?? '';
 
   // Pistas de playlist del arrangement activo.

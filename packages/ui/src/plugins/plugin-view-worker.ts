@@ -27,6 +27,7 @@ import {
   IN_ASPECT,
   IN_DT,
   IN_FLAGS,
+  IN_LEN,
   IN_LEVEL,
   IN_NBINS,
   IN_NPARAMS,
@@ -35,6 +36,7 @@ import {
   IN_SPECTRUM,
   IN_T,
   VIEW_MAX_PARAMS,
+  VIEW_LIST_CAP,
   VIEW_SPECTRUM_BINS,
 } from './view-protocol';
 
@@ -43,6 +45,7 @@ import {
 // `export/render-worker.ts`).
 interface WorkerScope {
   onmessage: ((e: MessageEvent<unknown>) => void) | null;
+  addEventListener(type: 'message', listener: (e: MessageEvent<unknown>) => void): void;
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 const scope = self as unknown as WorkerScope;
@@ -93,6 +96,7 @@ const BLOCKED_GLOBALS = [
   'MessageChannel',
   // Canal con el host y con el propio worker
   'postMessage',
+  'onmessage',
   'close',
   'location',
 ];
@@ -237,7 +241,19 @@ interface FrameMsg {
 type Incoming = Partial<Omit<InitMsg, 'type'>> &
   Partial<Omit<FrameMsg, 'type'>> & { type?: string };
 
-scope.onmessage = (e: MessageEvent<unknown>) => {
+scope.onmessage = null;
+/*
+ * El listener va por `addEventListener`, NO por `self.onmessage`.
+ *
+ * `onmessage` es una propiedad del global, y el plugin llega al global con
+ * `Function('return self')()` aunque `harden()` haya borrado los demás. Si el
+ * manejador real viviera ahí, el plugin podría llamarlo con un frame falso y
+ * hacer que el worker devolviera al host buffers arbitrarios (el host adoptaba
+ * `out` sin mirar su longitud: retener memoria del renderer o dejarlo mudo).
+ * Con el listener fuera de la propiedad, `self.onmessage` sigue a null y no hay
+ * nada que el plugin pueda invocar.
+ */
+scope.addEventListener('message', (e: MessageEvent<unknown>) => {
   const msg = e.data as Incoming | null;
   if (!msg || typeof msg !== 'object') return;
 
@@ -261,7 +277,10 @@ scope.onmessage = (e: MessageEvent<unknown>) => {
   if (msg.type !== 'frame') return;
   const input = msg.in;
   const out = msg.out;
-  if (!(input instanceof Float32Array) || !(out instanceof Float32Array)) return;
+  // Longitudes exactas: el host manda SIEMPRE estos tamaños. Un buffer de otro
+  // tamaño no es un frame de esta vista.
+  if (!(input instanceof Float32Array) || input.length !== IN_LEN) return;
+  if (!(out instanceof Float32Array) || out.length !== VIEW_LIST_CAP) return;
 
   // Sin vista viva se devuelven los buffers igual: el host los necesita de
   // vuelta para no quedarse sin con qué mandar el siguiente frame.
@@ -308,4 +327,4 @@ scope.onmessage = (e: MessageEvent<unknown>) => {
   const cost = performance.now() - t0;
   const len = error === undefined ? recorder.length : 0;
   post({ type: 'draw', in: input, out, len, cost, error }, [input.buffer, out.buffer]);
-};
+});

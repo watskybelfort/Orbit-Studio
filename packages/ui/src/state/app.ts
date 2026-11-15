@@ -8,7 +8,7 @@ import { ProjectStore } from '@orbit/core';
 import { AudioEngine } from '@orbit/engine';
 import { setKernelNotes } from './active-notes';
 import { setInputPeak } from './input-monitor';
-import { pushInputChunk } from './recorder';
+import { pushInputChunk, stopRecordingForTransport } from './recorder';
 import { installRecordingSweepHook, pinnedSamples, uiAudioCacheStats } from './sample-gc';
 import { peaksCacheStats, peaksListenerCount } from './sample-peaks';
 import { pushCaptureChunk } from './track-capture';
@@ -244,6 +244,10 @@ export async function play(isCurrent: () => boolean = () => true): Promise<void>
 }
 
 export function stopPlayback(): void {
+  // La toma se cierra ANTES de parar el motor: si el kernel deja de mandar
+  // frames primero, la cola que queda en vuelo ya no se recoge y la toma
+  // termina unos milisegundos antes de lo que el usuario oyó.
+  stopRecordingForTransport();
   transportRevision++;
   engine.stop();
   // También se lleva el cursor del KERNEL a 0: si no, el siguiente frame de
@@ -259,6 +263,7 @@ export function stopPlayback(): void {
 
 /** Pausa: para el motor pero conserva el caret (play reanuda desde ahí). */
 export function pausePlayback(): void {
+  stopRecordingForTransport();
   transportRevision++;
   engine.stop();
   useUiStore.setState({ playing: false });

@@ -89,6 +89,8 @@ export function SettingsPanel() {
   const [customThemes, setCustomThemes] = useState<CustomThemes>({});
   const [savingName, setSavingName] = useState<string | null>(null);
   const [acrylicOk, setAcrylicOk] = useState(true);
+  const [settingsReady, setSettingsReady] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   const [fileNotice, setFileNotice] = useState<FileNotice>(null);
   const trafficLights = useUiStore((s) => s.trafficLights);
   const compact = useUiStore((s) => s.compact);
@@ -103,25 +105,40 @@ export function SettingsPanel() {
 
   useEffect(() => {
     void (async () => {
-      const settings = (await window.orbit?.settings.get()) ?? {};
-      const saved = settings['theme'];
-      if (isThemeId(saved)) setTheme(saved);
-      setOverrides({
-        accent: typeof settings['accent'] === 'string' ? settings['accent'] : undefined,
-        glassAlpha: typeof settings['glassAlpha'] === 'number' ? settings['glassAlpha'] : undefined,
-        glassTint: typeof settings['glassTint'] === 'string' ? settings['glassTint'] : undefined,
-      });
-      setAppearance(appearanceFromSettings(settings));
-      setCustomThemes(parseCustomThemes(settings['customThemes']));
+      try {
+        const settings = (await window.orbit?.settings.get()) ?? {};
+        const saved = settings['theme'];
+        if (isThemeId(saved)) setTheme(saved);
+        setOverrides({
+          accent: typeof settings['accent'] === 'string' ? settings['accent'] : undefined,
+          glassAlpha: typeof settings['glassAlpha'] === 'number' ? settings['glassAlpha'] : undefined,
+          glassTint: typeof settings['glassTint'] === 'string' ? settings['glassTint'] : undefined,
+        });
+        setAppearance(appearanceFromSettings(settings));
+        setCustomThemes(parseCustomThemes(settings['customThemes']));
+        setSettingsReady(true);
+        setSettingsError(null);
+      } catch {
+        // Sin settings no se puede distinguir "tema por defecto" de "tema del
+        // usuario": tocar un swatch escribiría oscuro sobre una configuración
+        // que nunca llegó a leerse. Se avisa y se bloquea la escritura.
+        setSettingsReady(false);
+        setSettingsError('No se pudieron leer los ajustes guardados. Reabre Ajustes o reinicia la app.');
+      }
     })();
   }, []);
 
   const commit = (nextTheme: ThemeId, nextOverrides: ThemeOverrides) => {
+    if (!settingsReady) return;
     setTheme(nextTheme);
     setOverrides(nextOverrides);
-    void applyTheme(nextTheme, nextOverrides).then((ok) => {
-      if (nextTheme === 'acrylic') setAcrylicOk(ok);
-    });
+    void applyTheme(nextTheme, nextOverrides)
+      .then((ok) => {
+        if (nextTheme === 'acrylic') setAcrylicOk(ok);
+      })
+      .catch(() => {
+        setSettingsError('No se pudo aplicar el tema en este equipo.');
+      });
     void saveThemeToSettings(nextTheme, { ...nextOverrides, trafficLights });
   };
 
@@ -211,6 +228,7 @@ export function SettingsPanel() {
         <p className="settings-description" aria-live="polite">{currentSection?.description ?? 'No encontramos una categoría con esas palabras.'}</p>
       </header>
       <div className="settings-body" ref={bodyRef}>
+      {settingsError && <p className="set-error" role="alert">{settingsError}</p>}
       {!currentSection && (
         <div className="settings-empty">
           <p>Prueba con «tema», «micro», «ventanas» o «MIDI».</p>

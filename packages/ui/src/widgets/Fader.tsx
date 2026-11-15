@@ -65,6 +65,10 @@ export function Fader({ value, height = 160, onChange, onCommit, paramRef }: Fad
       ref={track}
       title={`${db <= -96 ? '-∞' : db.toFixed(1)} dB`}
       onPointerDown={(e) => {
+        // El clic derecho abre el menú de automatización (M9); antes este
+        // gesto empezaba a mover el fader y el menú se abría con el volumen ya
+        // cambiado. Solo el botón izquierdo arrastra.
+        if (e.button !== 0) return;
         // currentTarget (el carril entero), no e.target: el pulgar y la pista
         // son hijos que React redibuja al mover, y capturar sobre ellos deja
         // el gesto colgado en cuanto se reemplaza el nodo.

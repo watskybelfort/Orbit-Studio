@@ -174,7 +174,9 @@ export function App() {
           className="popup"
           style={{
             position: 'fixed',
-            top: 'calc(var(--titlebar-h) + 10px)',
+            // Debajo de la toolbar (titlebar 38 + toolbar 44 + 10): a
+            // titlebar+10 tapaba el medidor, la CPU y «Enfoque».
+            top: 'calc(var(--titlebar-h) + 54px)',
             right: 14,
             zIndex: 1001,
             display: 'flex',

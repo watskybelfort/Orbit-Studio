@@ -57,6 +57,17 @@ export function CommandPalette() {
 function PaletteBox() {
   const closePalette = usePaletteStore((s) => s.closePalette);
   const listRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  // El foco vuelve a donde estaba al cerrar: abrir Ctrl+K y cerrar con Escape
+  // no puede dejar el teclado perdido en el body.
+  useEffect(() => {
+    previousFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    return () => previousFocus.current?.focus();
+  }, []);
 
   // Proveedores evaluados UNA vez por apertura (el componente se remonta al abrir).
   const [commands] = useState<PaletteCommand[]>(getPaletteCommands);
@@ -86,6 +97,19 @@ function PaletteBox() {
   }, [selected, results]);
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Tab') {
+      // El foco no puede escapar al estudio de atrás: es un diálogo modal.
+      const nodes = dialogRef.current?.querySelectorAll<HTMLElement>('input, button');
+      if (!nodes || nodes.length === 0) return;
+      const list = Array.from(nodes).filter((el) => !el.hasAttribute('disabled'));
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      const next = e.shiftKey
+        ? (at <= 0 ? list.length - 1 : at - 1)
+        : (at + 1) % list.length;
+      e.preventDefault();
+      list[next]?.focus();
+      return;
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       if (results.length === 0) return;
@@ -111,12 +135,19 @@ function PaletteBox() {
         if (e.target === e.currentTarget) closePalette();
       }}
     >
-      <div className="palette popup">
+      <div
+        className="palette popup"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Paleta de comandos"
+        ref={dialogRef}
+      >
         <input
           className="palette-input"
           type="text"
           autoFocus
           spellCheck={false}
+          aria-label="Buscar un comando"
           placeholder="Escribe un comando…"
           value={query}
           onChange={(e) => {
