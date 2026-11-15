@@ -297,7 +297,7 @@ describe('018 · cada tipo de comando con su comando mínimo', () => {
         const motivo = (error as Error).message;
         // Que no exista la entidad sobre la que se opera es lo NORMAL en un
         // proyecto vacío; lo que no vale es leer un campo inexistente.
-        if (!/No existe|fuera de rango|no es un volumen|ya existe|debe ser|inválido/.test(motivo)) {
+        if (!/No existe|fuera de rango|no es un volumen|ya existe|debe ser|inválido/i.test(motivo)) {
           rotos.push(`${tipo}: ${motivo}`);
         }
       }

@@ -19,6 +19,15 @@ export interface ParamSpec {
   unit?: string;
   /** Valores discretos con etiqueta (selector en vez de perilla). */
   options?: string[];
+  /**
+   * El parámetro existe y se puede mover, pero NO se automatiza ni se le pone
+   * un LFO. El caso que obligó a distinguirlo: `size`/`decay`/`damp` del
+   * convolver reconstruyen la IR entera (FFT de toda la cola, ~11 ms y cientos
+   * de KB) y hacerlo una vez por bloque en el hilo de audio es un glitch
+   * garantizado. No es una limitación de la UI: es que el motor no puede
+   * permitirse ese cambio con el transporte rodando.
+   */
+  static?: boolean;
 }
 
 const p = (
@@ -243,9 +252,9 @@ export const EFFECT_PARAMS: Record<EffectKind, ParamSpec[]> = {
   // Reverb por convolución: la IR es sintética y se regenera al cambiar
   // size/decay/damp (predelay y width no la tocan).
   convolver: [
-    p('size', 'Size', 0.05, 1, 0.6),
-    p('decay', 'Decay', 0.2, 8, 1.8, { unit: 's', curve: 'exp' }),
-    p('damp', 'Damp', 0, 1, 0.45),
+    p('size', 'Size', 0.05, 1, 0.6, { static: true }),
+    p('decay', 'Decay', 0.2, 8, 1.8, { unit: 's', curve: 'exp', static: true }),
+    p('damp', 'Damp', 0, 1, 0.45, { static: true }),
     p('predelay', 'PreDelay', 0, 0.25, 0.02, { unit: 's' }),
     p('width', 'Width', 0, 1, 1),
   ],

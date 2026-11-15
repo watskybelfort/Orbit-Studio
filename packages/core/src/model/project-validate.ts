@@ -142,10 +142,56 @@ export function findProjectProblems(project: Record<string, unknown>): ParseProb
     const problema = checkForma(project[field], 'num', field);
     if (problema && project[field] !== undefined) problemas.push(problema);
   }
+  // El transporte no es solo "un número": tempo, swing y compás acaban en el
+  // reloj y en la rejilla, y un -40 o un 9 se guardaban tal cual. Sin rango, el
+  // proyecto imposible viajaba y sonaba mal para siempre.
+  if (typeof project.tempo === 'number' && Number.isFinite(project.tempo)) {
+    if (project.tempo < 20 || project.tempo > 999) {
+      problemas.push({ field: 'tempo', expected: 'un tempo entre 20 y 999 BPM' });
+    }
+  }
+  if (typeof project.swing === 'number' && Number.isFinite(project.swing)) {
+    if (project.swing < 0 || project.swing > 1) {
+      problemas.push({ field: 'swing', expected: 'un swing entre 0 y 1' });
+    }
+  }
   // `timeSig` es obligatorio y sus dos números van a la compilación.
   if (project.timeSig !== undefined) {
     const problema = entityProblem(project.timeSig, 'timeSig', 'timeSig');
     if (problema) problemas.push(problema);
+    else {
+      const { num, den } = project.timeSig as { num: number; den: number };
+      if (!Number.isInteger(num) || num < 1 || num > 32) {
+        problemas.push({ field: 'timeSig.num', expected: 'un entero entre 1 y 32' });
+      }
+      if (!Number.isInteger(den) || den < 1 || den > 32) {
+        problemas.push({ field: 'timeSig.den', expected: 'un entero entre 1 y 32' });
+      }
+    }
+  }
+  // `layouts` es el único contenedor opcional que no se miraba: un `layouts: 42`
+  // pasaba y el primer «guardar layout» reventaba con un TypeError sin nombre.
+  if (project.layouts !== undefined && project.layouts !== null) {
+    const layouts = project.layouts;
+    if (typeof layouts !== 'object' || Array.isArray(layouts)) {
+      problemas.push({ field: 'layouts', expected: 'un mapa de ventanas' });
+    } else {
+      for (const [name, win] of Object.entries(layouts as Record<string, unknown>)) {
+        if (typeof win !== 'object' || win === null || Array.isArray(win)) {
+          problemas.push({ field: `layouts.${name}`, expected: 'una ventana (objeto)' });
+          continue;
+        }
+        const w = win as Record<string, unknown>;
+        if (typeof w['open'] !== 'boolean') {
+          problemas.push({ field: `layouts.${name}.open`, expected: 'un booleano' });
+        }
+        for (const key of ['x', 'y', 'w', 'h'] as const) {
+          if (typeof w[key] !== 'number' || !Number.isFinite(w[key])) {
+            problemas.push({ field: `layouts.${name}.${key}`, expected: 'un número' });
+          }
+        }
+      }
+    }
   }
 
   // 4. La mesa de mezcla: lista de tamaño fijo que el motor indexa por posición, y

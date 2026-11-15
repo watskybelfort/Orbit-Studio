@@ -82,6 +82,25 @@ export function paramSpecOf(ref: ParamRef, project: Project): ParamSpec | undefi
   return undefined;
 }
 
+/**
+ * ¿Este destino se puede automatizar / llevar un LFO?
+ *
+ * Es la única respuesta, y la consultan los tres sitios que pueden crear una
+ * automatización (el menú de la perilla, el editor de automatización y el
+ * compilador del motor). Si se dejara a cada uno su lista, un proyecto viejo
+ * con un LFO sobre `convolver.size` seguiría reconstruyendo la IR en el hilo
+ * de audio aunque la UI ya no ofreciera el destino; el `false` del compilador
+ * es el que cierra ese camino.
+ *
+ * `transport.swing` tampoco: el swing se hornea al compilar el proyecto y el
+ * kernel no lo lee en runtime (el tempo sí).
+ */
+export function isAutomatableParamRef(ref: ParamRef, project: Project): boolean {
+  if (ref.kind === 'transport') return ref.param === 'tempo';
+  const spec = paramSpecOf(ref, project);
+  return spec ? spec.static !== true : true;
+}
+
 /** Descripción legible ("Insert 3 · volume", "Canal 808 · glide"…). */
 export function describeParamRef(ref: ParamRef, project: Project): string {
   switch (ref.kind) {

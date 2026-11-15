@@ -69,11 +69,13 @@ describe('006 · cambiar a una rama solo si el ancla se alcanza de verdad', () =
     const archivada = s.historyTree().branches[0]!;
     expect(archivada.size).toBe(1);
   });
-  it('su sonda: rechazo SIN mutar nada (proyecto, historial y versión intactos)', () => {
-    // Outro caso reproduced con el código real: local pone el tempo (ancla), el swing,
-    // deshace, sigue por el 6/8 (que archiva el swing) y CLAUDE vuelve a poner el tempo
-    // (160). El ancla ya no es la misma entrada y el salto no tiene pasos de este
-    // origen, así que no hay a dónde ir.
+  it('su sonda: con el ancla presente y una entrada ajena encima, la rama SÍ entra', () => {
+    // local pone el tempo (ancla), el swing, deshace, sigue por el 6/8 (que archiva
+    // el swing) y CLAUDE vuelve a poner el tempo (160). La entrada ajena está ENCIMA
+    // del ancla, pero el ancla sigue en el presente: el salto por origen llega a ella
+    // y la rama se aplica. Antes se exigía que el ancla fuera la última entrada del
+    // undoStack, así que esta rama quedaba irrecuperable y el panel la pintaba
+    // alcanzable.
     const s = new ProjectStore();
     s.dispatch({ type: 'setTempo', tempo: 100 }, { origin: 'local' });
     s.dispatch({ type: 'setSwing', swing: 0.3 }, { origin: 'local' });
@@ -82,19 +84,14 @@ describe('006 · cambiar a una rama solo si el ancla se alcanza de verdad', () =
     const rama = primeraRama(s)!;
     s.dispatch({ type: 'setTempo', tempo: 160 }, { origin: CLAUDE });
 
-    // Estado completo antes del intento: proyecto, historial y versión.
-    const proyectoAntes = JSON.stringify(s.project);
-    const historiaAntes = s.historyView();
-    const versionAntes = s.version;
-
-    expect(s.switchToBranch(rama)).toBe(0);
-
-    // Un rechazo es «no ha pasado nada»: ni el proyecto, ni el historial, ni la versión.
-    expect(JSON.stringify(s.project)).toBe(proyectoAntes);
-    expect(s.project.timeSig).toEqual({ num: 6, den: 8 });
-    expect(s.version).toBe(versionAntes);
-    expect(s.historyView()).toEqual(historiaAntes);
-    // Y la rama sigue ahí, sin consumir.
+    expect(s.switchToBranch(rama)).toBe(1);
+    // El cambio AJENO se respeta (tempo 160); el local que estaba por encima del
+    // ancla (6/8) se deshace para volver a la rama, y el swing archivado entra.
+    expect(s.project.tempo).toBe(160);
+    expect(s.project.timeSig).toEqual({ num: 4, den: 4 });
+    expect(s.project.swing).toBeCloseTo(0.3);
+    // La rama de la que veníamos se consume; el camino que se abandona (el 6/8)
+    // queda ARCHIVADO, que es la simetría del historial en árbol.
     expect(s.branchCount).toBe(1);
   });
 

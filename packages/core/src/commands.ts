@@ -30,9 +30,10 @@ import { CHANNEL_SLOTS, MIXER_SLOTS } from './model/types';
 import type { InputRoute } from './model/input-routing';
 import { MAX_INPUT_ROUTES } from './model/input-routing';
 import { wouldLoop } from './model/routing';
-import { assertNoReservedIds } from './model/entity-id';
+import { assertEntityId, assertNoReservedIds } from './model/entity-id';
 import { commandProblem } from './model/command-schema';
 import { UNSET, esUnset } from './model/unset';
+import { TEMPO_MAX, TEMPO_MIN } from './model/paramref';
 
 // ── Tipos de comando ─────────────────────────────────────────────────────────
 
@@ -240,6 +241,14 @@ function must<T>(value: T | undefined, what: string): T {
   return value;
 }
 
+/** Rango numérico finito, con nombre. Para lo que llega por MCP o por disco. */
+function assertRange(value: number, min: number, max: number, what: string): number {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new Error(`${what} fuera de rango: ${String(value)} (${min}..${max})`);
+  }
+  return value;
+}
+
 /**
  * Valida un índice de slot de efecto. Sin esto, un slotIndex fuera de rango o
  * fraccionario (p. ej. vía MCP) rompía la invariante de longitud fija del array
@@ -428,16 +437,25 @@ export function applyCommand(project: Project, cmd: Command): Command {
   switch (cmd.type) {
     // Transport / proyecto
     case 'setTempo': {
+      const tempo = assertRange(cmd.tempo, TEMPO_MIN, TEMPO_MAX, 'Tempo');
       const inverse: Command = { type: 'setTempo', tempo: project.tempo };
-      project.tempo = cmd.tempo;
+      project.tempo = tempo;
       return inverse;
     }
     case 'setSwing': {
+      const swing = assertRange(cmd.swing, 0, 1, 'Swing');
       const inverse: Command = { type: 'setSwing', swing: project.swing };
-      project.swing = cmd.swing;
+      project.swing = swing;
       return inverse;
     }
     case 'setTimeSig': {
+      const { num, den } = cmd.timeSig;
+      if (!Number.isInteger(num) || num < 1 || num > 32) {
+        throw new Error(`Compás fuera de rango: ${String(num)} (1..32)`);
+      }
+      if (!Number.isInteger(den) || den < 1 || den > 32) {
+        throw new Error(`Figura del compás fuera de rango: ${String(den)} (1..32)`);
+      }
       const inverse: Command = { type: 'setTimeSig', timeSig: { ...project.timeSig } };
       project.timeSig = { ...cmd.timeSig };
       return inverse;
@@ -482,6 +500,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restoreChannel', channel, index, notesByPattern };
     }
     case 'restoreChannel': {
+      assertIdNuevo(project.channels[cmd.channel.id] !== undefined, 'canal', cmd.channel.id);
       project.channels[cmd.channel.id] = cmd.channel;
       // index < 0 = el canal no estaba en el orden al borrarlo: se reengancha al
       // final en vez de en una posición negativa (que insertaría antes del último).
@@ -499,7 +518,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       if (project.channelGroups[cmd.group.id]) {
         throw new Error(`Ya existe: carpeta ${cmd.group.id}`);
       }
-      const at = cmd.index ?? project.channelGroupOrder.length;
+      const at = cmd.index !== undefined && cmd.index >= 0 ? Math.min(cmd.index, project.channelGroupOrder.length) : project.channelGroupOrder.length;
       project.channelGroups[cmd.group.id] = { ...cmd.group };
       project.channelGroupOrder.splice(at, 0, cmd.group.id);
       // Al deshacer un borrado, los canales vuelven a su carpeta.
@@ -519,7 +538,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       for (const id of members) delete project.channels[id]!.groupId;
       delete project.channelGroups[cmd.groupId];
       if (index >= 0) project.channelGroupOrder.splice(index, 1);
-      return { type: 'addChannelGroup', group, index: Math.max(0, index), members };
+      return { type: 'addChannelGroup', group, index, members };
     }
     case 'patchChannelGroup': {
       const group = must(project.channelGroups[cmd.groupId], `carpeta ${cmd.groupId}`);
@@ -533,6 +552,11 @@ export function applyCommand(project: Project, cmd: Command): Command {
     }
     case 'patchChannel': {
       const channel = must(project.channels[cmd.channelId], `canal ${cmd.channelId}`);
+      if (cmd.patch.fx !== undefined && cmd.patch.fx.length !== CHANNEL_SLOTS) {
+        throw new Error(
+          `La cadena de inserts de un canal tiene ${CHANNEL_SLOTS} huecos, no ${cmd.patch.fx.length}`,
+        );
+      }
       const inverse: Command = {
         type: 'patchChannel',
         channelId: cmd.channelId,
@@ -660,6 +684,8 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restorePattern', pattern, index, clips };
     }
     case 'restorePattern': {
+      assertIdNuevo(project.patterns[cmd.pattern.id] !== undefined, 'patrón', cmd.pattern.id);
+      assertIdsNuevos(project.clips, cmd.clips, 'clip');
       project.patterns[cmd.pattern.id] = cmd.pattern;
       // index < 0 = no estaba en el orden al borrarlo: se reengancha al final.
       if (cmd.index >= 0) project.patternOrder.splice(cmd.index, 0, cmd.pattern.id);
@@ -759,7 +785,14 @@ export function applyCommand(project: Project, cmd: Command): Command {
       const byId = new Map(list.map((n) => [n.id, n]));
       const inversePatches: NotePatch[] = [];
       const vistos = new Map<string, Set<string>>();
+      const NOTE_FIELDS = new Set(['id', 'start', 'duration', 'key', 'velocity', 'pan', 'slide']);
       for (const patch of cmd.patches) {
+        // Un campo que la nota no tiene (`bend` era el fantasma que se colaba)
+        // se escribiría en el modelo y viajaría en el .orbit sin que nadie lo
+        // leyera. Se rechaza con su nombre en vez de aceptar basura.
+        for (const key of Object.keys(patch)) {
+          if (!NOTE_FIELDS.has(key)) throw new Error(`Nota sin campo "${key}"`);
+        }
         const note = byId.get(patch.id);
         if (!note) continue;
         anotarInverso<NotePatch>(inversePatches, vistos, patch.id, patch, note);
@@ -789,6 +822,8 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restorePlaylistTrack', track, clips };
     }
     case 'restorePlaylistTrack': {
+      assertIdNuevo(project.playlistTracks[cmd.track.id] !== undefined, 'pista', cmd.track.id);
+      assertIdsNuevos(project.clips, cmd.clips, 'clip');
       project.playlistTracks[cmd.track.id] = cmd.track;
       for (const c of cmd.clips) project.clips[c.id] = c;
       return { type: 'removePlaylistTrack', trackId: cmd.track.id };
@@ -820,6 +855,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return { type: 'restoreClips', clips: removed };
     }
     case 'restoreClips': {
+      assertIdsNuevos(project.clips, cmd.clips, 'clip');
       for (const clip of cmd.clips) project.clips[clip.id] = clip;
       return { type: 'removeClips', clipIds: cmd.clips.map((c) => c.id) };
     }
@@ -894,6 +930,10 @@ export function applyCommand(project: Project, cmd: Command): Command {
       };
     }
     case 'restoreArrangement': {
+      assertIdNuevo(project.arrangements[cmd.arrangement.id] !== undefined, 'arrangement', cmd.arrangement.id);
+      assertIdsNuevos(project.playlistTracks, cmd.tracks, 'pista');
+      assertIdsNuevos(project.clips, cmd.clips, 'clip');
+      assertIdsNuevos(project.sections, cmd.sections, 'sección');
       project.arrangements[cmd.arrangement.id] = cmd.arrangement;
       // Mismo criterio que `restorePattern`: si el arrangement no estaba en el orden al
       // borrarlo (el caso de la tarjeta 010), `index` es -1 y lo reengancha al final; si
@@ -919,6 +959,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       return inverse;
     }
     case 'setActiveArrangement': {
+      must(project.arrangements[cmd.arrangementId], `arrangement ${cmd.arrangementId}`);
       const inverse: Command = {
         type: 'setActiveArrangement',
         arrangementId: project.activeArrangementId,
@@ -929,6 +970,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
 
     // Layouts de ventanas
     case 'setLayout': {
+      assertEntityId(cmd.name, 'layout');
       const hadContainer = project.layouts !== undefined;
       const layouts = project.layouts;
       const old = layouts?.[cmd.name] ?? null;
@@ -1169,7 +1211,9 @@ export function applyCommand(project: Project, cmd: Command): Command {
       }
       assertIdNuevo(project.inputRoutes[cmd.route.id] !== undefined, 'entrada', cmd.route.id);
       project.inputRoutes[cmd.route.id] = cmd.route;
-      const at = cmd.index ?? project.inputRouteOrder.length;
+      const at = cmd.index !== undefined && cmd.index >= 0
+        ? Math.min(cmd.index, project.inputRouteOrder.length)
+        : project.inputRouteOrder.length;
       project.inputRouteOrder.splice(at, 0, cmd.route.id);
       return { type: 'removeInputRoute', routeId: cmd.route.id };
     }
@@ -1183,7 +1227,7 @@ export function applyCommand(project: Project, cmd: Command): Command {
       // El inverso recuerda su SITIO: el índice de una ruta es lo que enlaza
       // la UI, el motor y las tomas capturadas, así que deshacer tiene que
       // devolverla a la misma posición, no al final.
-      return { type: 'addInputRoute', route, index: Math.max(0, index) };
+      return { type: 'addInputRoute', route, index };
     }
     case 'patchInputRoute': {
       const route = must(project.inputRoutes[cmd.routeId], `entrada ${cmd.routeId}`);

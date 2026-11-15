@@ -102,6 +102,14 @@ export class ProjectStore {
   private beforeReplaceListeners = new Set<() => void>();
   private undoStack: HistoryEntry[] = [];
   private redoStack: HistoryEntry[] = [];
+  /**
+   * Entradas cuyo inverso ya falló desde el último cambio del mundo. No se
+   * borran: se saltan en el siguiente intento para que un paso que ya no aplica
+   * no deje muerto todo el undo de su origen. Cualquier `dispatch` limpia los
+   * dos conjuntos (el mundo cambió; el paso puede volver a aplicar).
+   */
+  private undoBlocked = new Set<string>();
+  private redoBlocked = new Set<string>();
   /** Ramas abandonadas, colgadas del punto del tronco donde se bifurcaron. */
   private branches: HistoryBranch[] = [];
 
@@ -162,6 +170,11 @@ export class ProjectStore {
     const origin = opts.origin ?? 'local';
     const label = opts.label ?? describeCommand(cmd);
     const inverse = applyCommand(this.project, cmd);
+    // El mundo cambió: un paso que ayer no podía aplicarse puede aplicar hoy
+    // (Claude repuso la entidad) y uno bloqueado no puede quedarse bloqueado
+    // por una decisión vieja.
+    this.undoBlocked.clear();
+    this.redoBlocked.clear();
     const now = Date.now();
 
     const top = this.undoStack[this.undoStack.length - 1];
@@ -219,14 +232,21 @@ export class ProjectStore {
     for (let i = this.undoStack.length - 1; i >= 0; i--) {
       if (this.undoStack[i]!.origin !== origin) continue;
       const entry = this.undoStack[i]!;
+      // Ya se intentó y falló desde el último cambio del mundo: se salta para
+      // que un paso muerto no bloquee los de debajo. La entrada NO se borra.
+      if (this.undoBlocked.has(entry.id)) continue;
       let redoInverse: Command;
       try {
         redoInverse = applyCommand(this.project, entry.inverse);
       } catch {
+        this.undoBlocked.add(entry.id);
         return false;
       }
       this.undoStack.splice(i, 1);
       this.redoStack.push({ ...entry, command: entry.inverse, inverse: redoInverse });
+      // El mundo cambió: los bloqueos de la otra dirección ya no valen.
+      this.redoBlocked.clear();
+      this.undoBlocked.clear();
       this.emit(entry.inverse, origin, `Deshacer: ${entry.label}`);
       return true;
     }
@@ -238,14 +258,18 @@ export class ProjectStore {
     for (let i = this.redoStack.length - 1; i >= 0; i--) {
       if (this.redoStack[i]!.origin !== origin) continue;
       const entry = this.redoStack[i]!;
+      if (this.redoBlocked.has(entry.id)) continue;
       let undoInverse: Command;
       try {
         undoInverse = applyCommand(this.project, entry.inverse);
       } catch {
+        this.redoBlocked.add(entry.id);
         return false;
       }
       this.redoStack.splice(i, 1);
       this.undoStack.push({ ...entry, command: entry.inverse, inverse: undoInverse });
+      this.redoBlocked.clear();
+      this.undoBlocked.clear();
       this.emit(entry.inverse, origin, `Rehacer: ${entry.label}`);
       return true;
     }
@@ -521,7 +545,15 @@ export class ProjectStore {
    * aplica, se para donde pueda y se devuelve lo que sí entró.
    */
   private restoreBranch(branch: HistoryBranch): number {
-    if (branch.anchorId !== null && !this.inTrunk(branch.anchorId)) return 0;
+    if (branch.anchorId !== null) {
+      const present = this.undoStack.some((e) => e.id === branch.anchorId);
+      const future = this.redoStack.find((e) => e.id === branch.anchorId);
+      // Un ancla que se fue al FUTURO por un undo ajeno no se puede alcanzar:
+      // saltar solo los pasos de este origen no la trae de vuelta (BUG 006). Si
+      // está en el futuro pero es de este mismo origen, el salto sí puede
+      // rehacerla y se deja pasar.
+      if (!present && !(future && future.origin === branch.origin)) return 0;
+    }
     const { origin } = branch;
 
     // ¿Se puede siquiera intentar? La respuesta es SIN MOVER NADA: si el ancla no está
@@ -544,8 +576,16 @@ export class ProjectStore {
     const redoCopia = [...this.redoStack];
     this.silencioso = [];
     const salto = this.saltarHasta(destino, origin);
-    const encima = this.undoStack.at(-1)?.id ?? null;
-    const ok = salto.applied === salto.esperado && encima === branch.anchorId;
+    /*
+     * `applied === esperado` es la garantía que importa: se dieron TODOS los
+     * pasos de ESTE origen que había que dar. Antes además se exigía que la
+     * última entrada del undoStack fuera el ancla, y eso convertía en
+     * irrecuperable cualquier rama que tuviera una entrada de otro origen
+     * (Claude, un peer) por encima: el salto por origen la dejaba ahí y el
+     * ancla —más abajo— nunca era `at(-1)`. El panel la pintaba alcanzable y
+     * «Volver aquí» no hacía nada.
+     */
+    const ok = salto.applied === salto.esperado;
     if (!ok) {
       // Se deshace lo aplicado y, con ello, se restituye el historial entero.
       for (let i = 0; i < salto.applied; i++) {

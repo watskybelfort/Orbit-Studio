@@ -139,7 +139,6 @@ export const ENTIDADES: Record<Entidad, Tabla> = {
       id: 'id', start: 'num', duration: 'num', key: 'num', velocity: 'num',
       pan: 'num', slide: 'bool',
     },
-    opcional: { bend: 'num' },
   },
   mixerTrack: {
     obligatorio: {
