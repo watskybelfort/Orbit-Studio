@@ -6,6 +6,25 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 15-11-2026: auditoría de siete lanes y grabación de voz
+
+Ronda de auditoría extensiva (core, motor, estado/shell, editores,
+colaboración/servidor/escritorio, puente/librería y el flujo vocal) con
+correcciones en el sitio y un tablero de restos. El detalle completo está en
+[REVISION-2026-11-15.md](REVISION-2026-11-15.md): **identidad de sesión firmada
+(S7/S10) cerrada**, tomas de voz con carriles legibles y comping, stop del
+transporte que cierra la toma, loop que parte la toma por vuelta, latencia que
+no se pierde en el compás 1, y un lote de puertas del bus (transporte, layouts,
+altas repetidas, `patchNotes`, `fx`). La red queda en **312 archivos / 3707
+tests**, lint y typecheck limpios, build en verde y golden sin tocar.
+
+Lo que sigue abierto está en el documento de la revisión, con el porqué escrito:
+oído/hardware, el Sub808 a fondo, la latencia del master en export, el volcado
+incremental de una toma en curso, la cancelación real de las tools de Claude y
+la compilación perezosa de plugins.
+
+---
+
 ## Estado — 21-09-2026: revisión de bugs sobre la v3.10.0
 
 Sesión de auditoría con seis lanes en paralelo: **56 hallazgos, 50 corregidos y

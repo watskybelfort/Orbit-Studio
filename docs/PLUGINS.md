@@ -50,19 +50,23 @@ los proyectos que lo usan (mostrarán «Plugin no encontrado»).
 > **Un plugin es código que tú ejecutas.** Instala solo `.js` de fuentes en las
 > que confíes, igual que cualquier script.
 
-- **Al arrancar**, la app lee `name`/`params` con un **parseo estático**: NO
-  ejecuta el código del plugin, así que dejar un `.js` en la carpeta ya no corre
-  nada por sí solo. (Por eso `params` tiene que ser un array literal en línea; si
-  lo declaras con una variable o una expresión, las perillas no se leen, pero el
-  plugin funciona igual.)
+- **Al arrancar**, la app lee `name`/`params` con un **parseo estático**: el
+  parseo en sí NO ejecuta el código. Lo que sí ocurre es que el motor **registra
+  la fábrica en ese momento** (compila el top-level en el worklet), así que un
+  `while(true)` en el nivel superior cuelga el hilo de audio al arrancar; el
+  registro perezoso —compilar al insertar el plugin— es la pieza pendiente. El
+  resto del archivo no se ejecuta hasta que suena. (Por eso `params` tiene que
+  ser un array literal en línea; si lo declaras con una variable o una
+  expresión, las perillas no se leen, pero el plugin funciona igual.)
 - **Durante la reproducción en vivo**, el DSP corre dentro del worklet de audio:
   sin DOM, sin red, sin filesystem — solo números.
 - **Al exportar** (y al consolidar/congelar), el render offline —donde se
   ejecutan los plugins— corre en un **worker aislado**: sin `window`, sin DOM,
-  sin acceso al puente de la app, y con la CSP del documento cortando la salida a
-  red. El renderer solo recoge las entradas (bytes de samples, fuentes) y le pasa
-  el cómputo. Así un plugin no puede tocar nada fuera del audio ni siquiera al
-  exportar.
+  sin acceso al puente de la app. Antes de compilar el plugin ese worker se
+  desarma igual que el de la vista (sin `fetch`, `WebSocket`, `navigator`,
+  `importScripts` ni `postMessage`), así que la CSP no es la única capa. El
+  renderer solo recoge las entradas (bytes de samples, fuentes) y le pasa el
+  cómputo.
 - **Al dibujar su vista** (v3.5), el código del plugin corre en un **worker
   aparte** que además se desarma a sí mismo antes de compilarlo (sin `fetch`,
   sin `WebSocket`, sin `indexedDB`, sin `postMessage`, sin `navigator`). Lo que

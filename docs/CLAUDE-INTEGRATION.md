@@ -10,7 +10,7 @@ La app expone un **servidor MCP** (Model Context Protocol) desde el main process
 Code en la carpeta del proyecto ya lo conecta.
 
 ```
-Claude Code ── MCP (WebSocket) ──> claude-bridge ──> bus de comandos (core) ──> UI + Yjs
+Claude Code ──(MCP stdio)──> mcp-stdio (relay) ──(WS 7855)──> main ──(IPC)──> UI / bus de comandos (core)
 ```
 
 Consecuencias de diseño (por qué es elegante):
@@ -36,7 +36,7 @@ Consecuencias de diseño (por qué es elegante):
 | `add_effect` / `set_effect` | Insertar efecto en un slot y ajustar sus parámetros |
 | `set_automation` | Crear/editar clips de automatización |
 | `set_tempo` / `set_swing` | Transport |
-| `render` | Exportar WAV (master o stems) y devolver la ruta |
+| `render` | Exportar el master a WAV y devolver la ruta (los stems se exportan desde el panel de Exportar) |
 | `analyze_mix` | Medidas reales del render: LUFS, peak, balance espectral por bandas, correlación estéreo |
 | `advise_mix` | Diagnóstico accionable de la mezcla (tilts entre bandas, fase, loudness contra -14 LUFS) y cadena propuesta con valores reales; con `apply` la monta en un solo undo |
 | `list_library` | Qué hay en el browser: pack de fábrica + packs generados, con BPM y nota de cada loop |
