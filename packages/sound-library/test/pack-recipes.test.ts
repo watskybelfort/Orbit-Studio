@@ -14,11 +14,13 @@ import { describe, expect, it } from 'vitest';
 import { EFFECT_PARAMS, INSTRUMENT_PARAMS, type EffectKind, type InstrumentKind } from '@orbit/core';
 import {
   MAX_PACK_SOUNDS,
+  PACK_BYTE_BUDGET,
   PACK_FAMILIES,
   PACK_STYLES,
   isPackFamily,
   isPackStyle,
   planPack,
+  plannedBytes,
   slugifyName,
 } from '../src/pack-recipes';
 
@@ -109,8 +111,7 @@ describe('los sonidos', () => {
     }
   });
 
-  it('las variaciones no son doce veces el mismo golpe', () => {
-    const plan = planPack({ family: 'hats', count: 12 });
+  it('las variaciones no son doce veces el mismo golpe', () => {    const plan = planPack({ family: 'hats', count: 12 });
     const params = plan.sounds.map((s) => JSON.stringify(s.project.channels[0]!.params));
     expect(new Set(params).size).toBe(12);
     // Y el recorrido llega a los dos extremos del carácter de la familia.
@@ -201,6 +202,13 @@ describe('slugifyName', () => {
     expect(slugifyName('  ')).toBe('pack');
     expect(slugifyName('../../etc/passwd')).toBe('etc-passwd');
   });
+
+  it('cabe en el límite de 64 del guardado del pack', () => {
+    const long = slugifyName('Hats de trap '.repeat(20));
+    expect(long.length).toBeLessThanOrEqual(64);
+    expect(long).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+    expect(long.endsWith('-')).toBe(false);
+  });
 });
 
 describe('guardas de tipo', () => {
@@ -209,6 +217,25 @@ describe('guardas de tipo', () => {
     expect(isPackFamily('guitarras')).toBe(false);
     expect(isPackStyle('drill')).toBe(true);
     expect(isPackStyle('cumbia')).toBe(false);
+  });
+});
+
+describe('presupuesto de bytes', () => {
+  it('cuatro beats de lofi no llegan al guardado de 64 MB', () => {
+    const plan = planPack({ family: 'beats', style: 'lofi', count: 4 });
+    expect(plannedBytes(plan.sounds)).toBeLessThanOrEqual(PACK_BYTE_BUDGET);
+    // Caben tres, no cuatro: el cuarto se recorta ANTES de renderizar.
+    expect(plan.sounds).toHaveLength(3);
+  });
+
+  it('el presupuesto no se come packs normales', () => {
+    for (const family of PACK_FAMILIES) {
+      // 12 y no MAX_PACK_SOUNDS: construir 9 familias × el tope entero de
+      // proyectos es trabajo de sobra para comprobar el presupuesto.
+      const plan = planPack({ family, count: 12 });
+      expect(plannedBytes(plan.sounds)).toBeLessThanOrEqual(PACK_BYTE_BUDGET);
+      expect(plan.sounds.length).toBeGreaterThan(0);
+    }
   });
 });
 

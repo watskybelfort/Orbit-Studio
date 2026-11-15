@@ -63,6 +63,24 @@ const DEFAULT_COUNT = 8;
  * tiene su propio tope y su propio valor por defecto.
  */
 export const MAX_STRUCTURED_BEATS = 4;
+
+/**
+ * Presupuesto de bytes del pack ANTES de renderizar: el guardado corta en
+ * 64 MB, y un pack de `beats` a 82 BPM con cuatro loops se iba a 68 MB. Se
+ * renderizaba entero (minutos de CPU) y fallaba al final sin escribir nada.
+ * 56 MB deja margen para el manifest y los nombres.
+ */
+export const PACK_BYTE_BUDGET = 56 * 1024 * 1024;
+
+/** Bytes de un WAV 16-bit estéreo a 44,1 kHz (lo que escribe el generador). */
+const WAV_BYTES_PER_SEC = 44100 * 2 * 2;
+
+/** Bytes estimados de un plan (tope de duración × formato del WAV). */
+export function plannedBytes(sounds: readonly Pick<PackSoundSpec, 'maxSec'>[]): number {
+  let bytes = 0;
+  for (const sound of sounds) bytes += Math.ceil(sound.maxSec * WAV_BYTES_PER_SEC);
+  return bytes;
+}
 const DEFAULT_BEAT_COUNT = 2;
 
 export interface PackRequest {
@@ -977,7 +995,11 @@ export function slugifyName(text: string): string {
   // \p{Diacritic} en vez de un rango de combinantes: el rango se escribe con
   // caracteres invisibles y en el código fuente no hay quien lo lea.
   const plain = text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-  return plain.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'pack';
+  const slug = plain.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  // El guardado del pack exige `^[a-z0-9][a-z0-9-]{0,63}$`. Sin el tope aquí,
+  // un nombre largo renderizaba el pack ENTERO y fallaba al final, cuando ya no
+  // servía de nada.
+  return (slug.slice(0, 64).replace(/-+$/g, '') || 'pack');
 }
 
 const STYLE_LABELS: Record<PackStyle, string> = {
@@ -1237,5 +1259,13 @@ export function planPack(request: PackRequest): PackPlan {
     }
   }
 
+  // El tope de cantidad no basta: cuatro beats a 82 BPM pesan más de 64 MB. Se
+  // recortan los ÚLTIMOS (los del final del pack) hasta que quepa. Nunca se
+  // queda sin sonidos: un pack de uno sigue siendo un pack.
+  let bytes = plannedBytes(sounds);
+  while (sounds.length > 1 && bytes > PACK_BYTE_BUDGET) {
+    const dropped = sounds.pop()!;
+    bytes -= Math.ceil(dropped.maxSec * WAV_BYTES_PER_SEC);
+  }
   return { name, slug: slugifyName(name), family, style, sounds };
 }
