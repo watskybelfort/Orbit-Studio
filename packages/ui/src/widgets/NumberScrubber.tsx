@@ -67,6 +67,9 @@ export function NumberScrubber({
     <span
       className="scrubber"
       onPointerDown={(e) => {
+        // El botón derecho abre el menú contextual del campo; no es un gesto
+        // para cambiar el valor (misma regla que faders y lienzos).
+        if (e.button !== 0) return;
         // currentTarget: e.target puede ser el <span> del sufijo, y capturar
         // sobre un hijo que se repinta deja el arrastre a medias.
         capturePointer(e.currentTarget, e.pointerId);

@@ -38,7 +38,10 @@
 .ae-wave {
   display: block;
   touch-action: none;
-  cursor: ew-resize;
+  /* `ew-resize` solo en las asas (8 px de cada borde): el cursor de arrastre
+     se pone desde el JSX al pasar por encima de ellas. Antes lo anunciaba toda
+     la onda y arrastrar por el centro no hacía nada. */
+  cursor: default;
 }
 
 .ae-hint {

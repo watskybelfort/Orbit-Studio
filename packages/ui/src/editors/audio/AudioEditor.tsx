@@ -28,7 +28,7 @@ import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { Knob } from '../../widgets/Knob';
-import { naturalRatePieces, trimAudioWindow } from '../clip-slice';
+import { naturalRatePieces, trimAudioWindow, trimStartShift } from '../clip-slice';
 import { createAudioEditActions } from './audio-edit-actions';
 import './audio-editor.css';
 
@@ -327,6 +327,19 @@ export function AudioEditor() {
 
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
+      const canvas0 = canvasRef.current;
+      if (canvas0 && channels && clip) {
+        // El cursor solo se anuncia sobre las asas; fuera de ellas no hay gesto.
+        const r = canvas0.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        const dur = channels.duration;
+        const x0 = (offsetSec / dur) * r.width;
+        const x1 = (Math.min(dur, offsetSec + clipSec) / dur) * r.width;
+        canvas0.style.cursor =
+          Math.abs(x - x0) <= TRIM_EDGE_PX || Math.abs(x - x1) <= TRIM_EDGE_PX
+            ? 'ew-resize'
+            : 'default';
+      }
       const d = drag.current;
       const canvas = canvasRef.current;
       if (!d || !canvas || !channels || !clip) return;
@@ -337,6 +350,8 @@ export function AudioEditor() {
       );
       if (d === 'start') {
         const newOffset = Math.min(sec, offsetSec + clipSec - 0.02);
+        // Recortar por la IZQUIERDA también mueve el clip en el timeline: el
+        // material que queda sonaba después, no donde estaba el borde viejo.
         store.dispatch(
           {
             type: 'patchClips',
@@ -344,6 +359,7 @@ export function AudioEditor() {
               {
                 id: clip.id,
                 ...trimAudioWindow(clip, newOffset, offsetSec + clipSec, clipSec),
+                start: Math.max(0, clip.start + trimStartShift(clip, newOffset, clipSec)),
               },
             ],
           },
@@ -407,7 +423,7 @@ export function AudioEditor() {
     const to = Math.min(dur, offsetSec + clipSec);
     const pieces = naturalRatePieces(from, to, slices);
     if (pieces.length === 0) return;
-    const clips: Clip[] = pieces.map((p) => ({
+    const clips: Clip[] = pieces.map((p, i) => ({
       ...clip,
       id: newId(),
       start: clip.start + p.at / secPerBeat,
@@ -416,6 +432,12 @@ export function AudioEditor() {
       audioSourceLength: p.seconds,
       audioGrainOffset: (clip.audioGrainOffset ?? 0) + p.offset - offsetSec,
       audioStretch: false,
+      // Los fundidos son del clip ENTERO: repartirlos a todas las piezas hacía
+      // que cada trozo entrara y saliera de cero (cuatro blips en vez del audio
+      // continuo). La cabeza se queda el de entrada y la cola el de salida,
+      // igual que al cortar en la Playlist.
+      fadeIn: i === 0 ? (clip.fadeIn ?? 0) : 0,
+      fadeOut: i === pieces.length - 1 ? (clip.fadeOut ?? 0) : 0,
     }));
     const label = `Trocear "${sample?.name ?? 'audio'}" en ${clips.length}`;
     store.dispatch(

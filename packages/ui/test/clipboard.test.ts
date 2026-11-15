@@ -125,10 +125,17 @@ describe('portapapeles de clips', () => {
     });
   });
 
-  it('el carril de toma sobrevive (Clip.lane no es la fila)', () => {
+  it('el carril de toma sobrevive al pegar en SU pista (Clip.lane no es la fila)', () => {
     const source: Clip = { ...clip('a', 0), lane: 2 };
     const [pasted] = unpackClips(packClips([{ clip: source, row: 5 }])!, 0, 0, ['t0']);
     expect(pasted!.lane).toBe(2);
+  });
+
+  it('el carril de toma NO viaja a otra pista', () => {
+    // Pegar una toma de 3 carriles en una pista normal la partía en tres.
+    const source: Clip = { ...clip('a', 0), lane: 2 };
+    const [pasted] = unpackClips(packClips([{ clip: source, row: 5 }])!, 0, 0, ['t1']);
+    expect(pasted!.lane).toBeUndefined();
   });
 
   it('los puntos de automatización se clonan, no se comparten', () => {

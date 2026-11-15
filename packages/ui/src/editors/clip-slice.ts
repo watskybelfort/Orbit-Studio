@@ -140,6 +140,20 @@ export function trimAudioWindow(clip: Clip, from: number, to: number, oldSourceS
   };
 }
 
+/**
+ * Cuánto se mueve el clip al recortar por la IZQUIERDA.
+ *
+ * La ventana de fuente y la longitud ya las da `trimAudioWindow`, pero el
+ * `start` no: sin esto, el material que quedaba después del borde nuevo sonaba
+ * donde estaba el borde viejo (el audio se adelantaba en el timeline). El
+ * desplazamiento es proporcional: `span` de fuente equivale a `clip.length` de
+ * timeline, así que el delta de fuente se convierte con esa misma regla.
+ */
+export function trimStartShift(clip: Clip, from: number, oldSourceSpan: number): number {
+  const delta = from - (clip.audioOffset ?? 0);
+  return delta * (clip.length / Math.max(0.001, oldSourceSpan));
+}
+
 /** Una pieza de un troceado, en coordenadas de fuente y de timeline natural. */
 export interface SourcePiece {
   /** Offset de fuente, en segundos desde el inicio del sample. */

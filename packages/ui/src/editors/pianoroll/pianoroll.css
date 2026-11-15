@@ -5,6 +5,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Un arrastre que empieza en una tecla del lateral seleccionaba sus
+     etiquetas como texto; Playlist y automatización ya lo desactivan. */
+  user-select: none;
 
   --pr-row: #1a1c20;
   --pr-row-black: #16181c;

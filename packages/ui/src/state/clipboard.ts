@@ -68,7 +68,15 @@ export function unpackNotes(payload: NotesPayload, atBeat: number): Note[] {
  * dentro de una misma pista (comping)—. Llamarlos igual hacía que empaquetar
  * pisara el carril de toma y que al pegar se perdiera.
  */
-export type PackedClip = Omit<Clip, 'id' | 'playlistTrackId'> & { row: number };
+export type PackedClip = Omit<Clip, 'id' | 'playlistTrackId'> & {
+  row: number;
+  /**
+   * Pista de la que salió. `lane` solo tiene sentido DENTRO de su pista: al
+   * pegar en otra, conservarlo convertía una toma con 3 carriles en 3 carriles
+   * de la pista destino (y encogía todos sus clips a un tercio).
+   */
+  sourceTrackId: string;
+};
 
 export interface ClipsPayload {
   kind: 'clips';
@@ -104,7 +112,7 @@ export function packClips(items: readonly ClipWithRow[]): ClipsPayload | null {
     rows: maxRow - minRow + 1,
     homeRow: minRow,
     clips: items.map(({ clip, row }) => {
-      const { id: _id, playlistTrackId: _t, frozenFrom: _f, ...rest } = clip;
+      const { id: _id, playlistTrackId, frozenFrom: _f, ...rest } = clip;
       return {
         ...rest,
         // Los puntos de automatización se clonan de verdad: compartir el array
@@ -112,6 +120,7 @@ export function packClips(items: readonly ClipWithRow[]): ClipsPayload | null {
         ...(rest.points ? { points: rest.points.map((p) => ({ ...p })) } : null),
         start: rest.start - minBeat,
         row: row - minRow,
+        sourceTrackId: playlistTrackId,
       };
     }),
   };
@@ -145,9 +154,11 @@ export function unpackClips(
   for (const c of payload.clips) {
     const trackId = trackIds[row0 + c.row];
     if (trackId === undefined) continue; // no cabe: se queda fuera
-    const { row: _row, ...rest } = c;
+    const { row: _row, sourceTrackId, lane, ...rest } = c;
     out.push({
       ...rest,
+      // El carril de toma solo viaja si se pega en SU pista.
+      ...(sourceTrackId === trackId && lane !== undefined ? { lane } : null),
       ...(rest.points ? { points: rest.points.map((p) => ({ ...p })) } : null),
       id: newId(),
       playlistTrackId: trackId,

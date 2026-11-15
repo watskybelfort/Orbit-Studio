@@ -6,6 +6,7 @@ import {
   clipsOverlap,
   compactTakeLanePatches,
   heightForTakeLanes,
+  laneBand,
   recordedTakeSegments,
   takeLaneCount,
   takeRows,
@@ -28,6 +29,18 @@ describe('carriles de toma', () => {
     expect(takeLaneCount([])).toBe(1);
     expect(takeLaneCount([clip('a', 0, 4)])).toBe(1);
     expect(takeLaneCount([clip('a', 0, 4, 0)])).toBe(1);
+  });
+
+  it('cada carril ocupa su franja exacta de la pista', () => {
+    expect(laneBand(90, 3, 0)).toEqual({ top: 0, height: 30 });
+    expect(laneBand(90, 3, 1)).toEqual({ top: 30, height: 30 });
+    expect(laneBand(90, 3, 2)).toEqual({ top: 60, height: 30 });
+  });
+
+  it('un carril fuera de rango no se sale de la pista', () => {
+    expect(laneBand(60, 2, 9)).toEqual({ top: 30, height: 30 });
+    expect(laneBand(60, 2, -1)).toEqual({ top: 0, height: 30 });
+    expect(laneBand(0, 0, 0)).toEqual({ top: 0, height: 0 });
   });
 
   it('el carril más alto manda, aunque falte el del medio', () => {

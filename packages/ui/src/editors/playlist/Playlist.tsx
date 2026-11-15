@@ -52,7 +52,7 @@ import {
 import { packClips, readClipboard, setClipboard, unpackClips } from '../../state/clipboard';
 import { claimEditFocus, registerEditActions, activeEditTarget } from '../../state/edit-focus';
 import { PEAK_COLS, onPeaksReady, requestPeaks } from '../../state/sample-peaks';
-import { chooseTakePatches, compactTakeLanePatches, heightForTakeLanes, TAKE_LANE_MIN_H, takeLaneCount, takeRows } from '../../state/take-stack';
+import { chooseTakePatches, clipsOverlap, compactTakeLanePatches, heightForTakeLanes, laneBand, TAKE_LANE_MIN_H, takeLaneCount, takeLaneCountCompact, takeRows } from '../../state/take-stack';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
 import { useThemeVersion } from '../../theme/useThemeVersion';
@@ -267,6 +267,23 @@ export function Playlist() {
     const last = rows[rows.length - 1];
     return last ? last.top + last.track.height : 0;
   }, [rows]);
+
+  /**
+   * El scroll vertical nunca puede quedar más abajo que el contenido.
+   *
+   * El único clamp vivía en `onWheel`, así que al borrar pistas (o reducir la
+   * altura de una, o cambiar de arreglo) el `scrollY` viejo dejaba todas las
+   * filas fuera de la vista: rejilla y cabeceras en blanco hasta girar la
+   * rueda. Un scroll que apunta a la nada no es un estado válido.
+   */
+  const clampScrollY = useCallback(() => {
+    const viewH = (wrapRef.current?.clientHeight ?? 0) - RULER_H;
+    setScrollY((s) => Math.max(0, Math.min(s, Math.max(0, totalH - viewH))));
+  }, [totalH]);
+
+  useEffect(() => {
+    clampScrollY();
+  }, [clampScrollY]);
 
   const clipsByTrack = useMemo(() => {
     const m = new Map<Id, Clip[]>();
@@ -979,10 +996,13 @@ export function Playlist() {
   useEffect(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const ro = new ResizeObserver(() => draw());
+    const ro = new ResizeObserver(() => {
+      clampScrollY();
+      draw();
+    });
     ro.observe(wrap);
     return () => ro.disconnect();
-  }, [draw]);
+  }, [draw, clampScrollY]);
 
   // ── Transporte: seek y loop desde la regla ────────────────────────────────
 
@@ -1461,7 +1481,10 @@ export function Playlist() {
             if (c.start + c.length > maxEnd) maxEnd = c.start + c.length;
           }
           let changed = false;
-          const lane = g[0]?.lane;
+          // `lane: undefined` en el primer clip significa carril 0 (se omite al
+          // construirlo); pasarlo como undefined a `freeAt` desactivaba la
+          // comprobación por carril y el pintado se paraba con el 0 libre.
+          const lane = g[0]?.lane ?? 0;
           for (let i = 0; i < 128 && beat > maxEnd; i++) {
             if (freeAt(d.trackId, maxEnd, d.length, lane)) {
               g.push({
@@ -1473,7 +1496,7 @@ export function Playlist() {
                 muted: false,
                 patternId: d.patternId,
                 patternOffset: 0,
-                ...(lane === undefined ? null : { lane }),
+                ...(lane === 0 ? null : { lane }),
               });
               changed = true;
             }
@@ -1491,7 +1514,7 @@ export function Playlist() {
                 muted: false,
                 patternId: d.patternId,
                 patternOffset: 0,
-                ...(lane === undefined ? null : { lane }),
+                ...(lane === 0 ? null : { lane }),
               });
               changed = true;
             }
@@ -1594,8 +1617,14 @@ export function Playlist() {
       const gy1 = Math.max(d.y0, d.y1) - RULER_H + scrollY;
       const touched: SelectableClip[] = [];
       rows.forEach((r, i) => {
-        if (r.top + r.track.height < gy0 || r.top > gy1) return;
+        const lanes = laneCount(r.track.id);
         for (const c of clipsByTrack.get(r.track.id) ?? []) {
+          // La marquesina selecciona por CARRIL, no por fila: un rectángulo
+          // sobre la toma 2 de tres no puede llevarse las otras dos. Antes se
+          // comprobaba solo la fila entera y tres tomas apiladas caían todas.
+          const band = laneBand(r.track.height, lanes, c.lane ?? 0);
+          const top = r.top + band.top;
+          if (top + band.height < gy0 || top > gy1) continue;
           touched.push({ id: c.id, start: c.start, length: c.length, trackIndex: i });
         }
       });
@@ -1612,7 +1641,7 @@ export function Playlist() {
       });
       draw();
     }
-  }, [project, clearLoop, draw, xToBeat, scrollY, rows, clipsByTrack]);
+  }, [project, clearLoop, draw, xToBeat, scrollY, rows, clipsByTrack, laneCount]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -1642,10 +1671,11 @@ export function Playlist() {
    * Teclado de la selección: Ctrl+A todo, Supr borrar, Ctrl+B duplicar, M
    * mutear, Esc soltar.
    *
-   * Ctrl+A y Ctrl+B piden el ratón encima (o el foco dentro): el Piano Roll
-   * tiene los mismos atajos para SUS notas y los dos editores suelen estar
-   * abiertos a la vez. Supr y Esc solo hacen algo si aquí hay selección, así
-   * que no le quitan nada a nadie.
+   * Ctrl+A y Ctrl+B piden además ser el editor ACTIVO: el Piano Roll tiene los
+   * mismos atajos para SUS notas y los dos editores suelen estar abiertos a la
+   * vez. Antes bastaba el ratón encima aquí y el claim allá, así que un solo
+   * Ctrl+B duplicaba clips Y notas (dos entradas de undo). Supr y Esc solo
+   * hacen algo si aquí hay selección, así que no le quitan nada a nadie.
    */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1661,12 +1691,12 @@ export function Playlist() {
       const root = rootRef.current;
       const here = hovering.current || (root !== null && root.contains(document.activeElement));
 
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyA' && here) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyA' && here && activeEditTarget() === 'playlist') {
         e.preventDefault();
         selectAll();
         return;
       }
-      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyB' && here) {
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.code === 'KeyB' && here && activeEditTarget() === 'playlist') {
         e.preventDefault();
         duplicateSelection();
         return;
@@ -2099,6 +2129,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
   const takes = useMemo(() => takeRows(trackClips), [trackClips]);
   const lanes = takes.reduce((max, row) => Math.max(max, row.number), 1);
   const [takeMenu, setTakeMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
+  const [takeRename, setTakeRename] = useState<{ clipId: Id; value: string } | null>(null);
   const barLen = beatsInBar(project.timeSig);
 
   const activateTake = (clipId: Id) => {
@@ -2112,12 +2143,28 @@ function TrackHeader({ track }: TrackHeaderProps) {
     setTakeMenu(null);
   };
 
-  const renameTake = (clip: Clip) => {
+  /**
+   * Renombrar una toma, EN LÍNEA.
+   *
+   * `window.prompt` no existe en Electron 43 (lanza «prompt() is not
+   * supported»): el handler moría antes de despachar y el menú se quedaba
+   * abierto sin renombrar nada. El nombre es del SAMPLE, así que renombrar una
+   * pasada renombra todas las de esa grabación (el menú lo dice).
+   */
+  const beginRenameTake = (clip: Clip) => {
     const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
     if (!sample) return;
-    const raw = window.prompt('Nombre de la toma', sample.name);
-    if (raw === null) return;
-    const name = raw.trim();
+    setTakeRename({ clipId: clip.id, value: sample.name });
+  };
+
+  const commitRenameTake = () => {
+    const rename = takeRename;
+    if (!rename) return;
+    setTakeRename(null);
+    const clip = project.clips[rename.clipId];
+    const sample = clip?.sampleId ? project.samples[clip.sampleId] : undefined;
+    if (!sample) return;
+    const name = rename.value.trim();
     if (!name || name === sample.name) return;
     store.dispatch(
       { type: 'patchSample', sampleId: sample.id, patch: { name } },
@@ -2126,9 +2173,18 @@ function TrackHeader({ track }: TrackHeaderProps) {
     setTakeMenu(null);
   };
 
-  const removeTake = (clip: Clip) => {    const remaining = trackClips.filter((item) => item.id !== clip.id);
+  const removeTake = (clip: Clip) => {
+    const remaining = trackClips.filter((item) => item.id !== clip.id);
     const beforeLanes = takeLaneCount(trackClips);
-    const afterLanes = takeLaneCount(remaining);
+    // Después de compactar, no antes: {0,2} son 2 carriles, no 3.
+    const afterLanes = takeLaneCountCompact(remaining);
+    // Si se borra la toma que SUENA, las demás siguen muteadas y la región se
+    // queda en silencio. Se elige la más cercana que pise el mismo tramo.
+    const replacement = !clip.muted
+      ? remaining
+          .filter((item) => item.kind === 'audio' && clipsOverlap(item, clip))
+          .sort((a, b) => Math.abs(a.start - clip.start) - Math.abs(b.start - clip.start))[0]
+      : undefined;
     // Si la altura la puso el crecimiento automático (o el usuario la dejó
     // justo en lo que hacía falta), vuelve con las tomas que quedan; si la
     // agrandó a mano, se respeta. Sin esto borrar tomas deja una pista vacía
@@ -2141,6 +2197,10 @@ function TrackHeader({ track }: TrackHeaderProps) {
     const commands: Command[] = [
       { type: 'removeClips', clipIds: [clip.id] },
     ];
+    if (replacement) {
+      const patches = chooseTakePatches(remaining, replacement.id) ?? [];
+      if (patches.length > 0) commands.push({ type: 'patchClips', patches });
+    }
     const lanePatches = compactTakeLanePatches(remaining);
     if (lanePatches.length > 0) commands.push({ type: 'patchClips', patches: lanePatches });
     if (nextHeight !== track.height) {
@@ -2229,6 +2289,9 @@ function TrackHeader({ track }: TrackHeaderProps) {
         className="pl-track-resize"
         title="Arrastra para cambiar la altura de la pista"
         onPointerDown={(e) => {
+          // Clic derecho = menú de pista, no redimensionar. Antes se armaba el
+          // gesto y la altura cambiaba con el menú ya abierto.
+          if (e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
           capturePointer(e.currentTarget, e.pointerId);
@@ -2270,23 +2333,49 @@ function TrackHeader({ track }: TrackHeaderProps) {
           onClose={() => setTakeMenu(null)}
         >
           <div className="pl-take-title">Tomas de «{track.name}»</div>
-          {takes.map((row) => (
+          {takes.map((row) => {
+            const sampleName = row.clip.sampleId
+              ? project.samples[row.clip.sampleId]?.name
+              : undefined;
+            const renaming = takeRename?.clipId === row.clip.id;
+            return (
             <div key={row.clip.id} className={`pl-take-row${row.active ? ' on' : ''}`}>
-              <button
-                className="pl-take-pick"
-                title={row.active ? 'Esta toma es la que suena' : 'Hacer que suene esta toma'}
-                onClick={() => activateTake(row.clip.id)}
-              >
-                <b>T{row.number}</b>
-                <span>Compás {Math.floor(row.clip.start / barLen) + 1}</span>
-                <span>{row.clip.length.toFixed(1)} beats</span>
-                <em>{row.active ? 'Sonando' : 'Muteada'}</em>
-              </button>
+              {renaming ? (
+                <input
+                  className="pl-take-name-input"
+                  autoFocus
+                  value={takeRename.value}
+                  aria-label={`Nombre de la toma ${row.number}`}
+                  onChange={(e) => setTakeRename({ clipId: row.clip.id, value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitRenameTake();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setTakeRename(null);
+                    }
+                  }}
+                  onBlur={commitRenameTake}
+                />
+              ) : (
+                <button
+                  className="pl-take-pick"
+                  title={row.active ? 'Esta toma es la que suena' : 'Hacer que suene esta toma'}
+                  onClick={() => activateTake(row.clip.id)}
+                >
+                  <b>T{row.number}</b>
+                  {sampleName && <span className="pl-take-name" title={sampleName}>{sampleName}</span>}
+                  <span>Compás {Math.floor(row.clip.start / barLen) + 1}</span>
+                  <span>{row.clip.length.toFixed(1)} beats</span>
+                  <em>{row.active ? 'Sonando' : 'Muteada'}</em>
+                </button>
+              )}
               <button
                 className="pl-take-rename"
-                title={`Renombrar la toma ${row.number}`}
+                title={`Renombrar la grabación de la toma ${row.number}`}
                 aria-label={`Renombrar la toma ${row.number}`}
-                onClick={() => renameTake(row.clip)}
+                onClick={() => beginRenameTake(row.clip)}
               >
                 ✎
               </button>
@@ -2299,7 +2388,8 @@ function TrackHeader({ track }: TrackHeaderProps) {
                 ×
               </button>
             </div>
-          ))}
+            );
+          })}
           <button className="param-menu-item" onClick={fitHeight}>
             Ajustar altura a las tomas
           </button>

@@ -212,23 +212,28 @@ export function PianoRoll() {
 
   const noteAt = useCallback(
     (x: number, y: number): { note: Note; edge: boolean } | null => {
-      const beat = xToBeat(x);
       const key = yToKey(y);
       const current = ghost.current;
       for (let i = notes.length - 1; i >= 0; i--) {
         const n = current?.get(notes[i]!.id) ?? notes[i]!;
-        if (n.key === key && beat >= n.start && beat < n.start + n.duration) {
-          const endX = beatToX(n.start + n.duration);
+        // El hit-test usa el MISMO rectángulo que el dibujo. Antes comparaba
+        // en beats y el cuerpo pintado tiene un mínimo de 3 px: en una nota de
+        // 1/32 con zoom bajo, 1,5 px del cuerpo visible caían fuera del rango
+        // y un clic ahí CREABA una nota nueva encima de la que se ve.
+        const bodyStart = beatToX(n.start) + 1;
+        const bodyW = Math.max(3, n.duration * zoomX - 1);
+        if (n.key === key && x >= bodyStart && x < bodyStart + bodyW) {
+          const endX = bodyStart + bodyW;
           // Tirador del borde derecho, proporcional al ancho de la nota pero
           // acotado: con 7 px fijos, una nota corta era casi todo tirador y en
           // una larga con el zoom bajo había que acertar en una rendija.
-          const grip = Math.max(4, Math.min(12, (endX - beatToX(n.start)) * 0.3));
+          const grip = Math.max(4, Math.min(12, bodyW * 0.3));
           return { note: notes[i]!, edge: endX - x <= grip };
         }
       }
       return null;
     },
-    [notes, xToBeat, yToKey, beatToX],
+    [notes, yToKey, zoomX, beatToX],
   );
 
   // ── Dibujo ────────────────────────────────────────────────────────────────
@@ -469,7 +474,18 @@ export function PianoRoll() {
   useEffect(() => {
     const onResize = () => draw();
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    // Las ventanas internas se redimensionan sin un `resize` de window: sin
+    // observar el wrap, el bitmap se quedaba con el tamaño viejo y la franja
+    // nueva era zona muerta hasta la siguiente edición.
+    const wrap = wrapRef.current;
+    const observer = typeof ResizeObserver !== 'undefined' && wrap
+      ? new ResizeObserver(onResize)
+      : null;
+    if (wrap) observer?.observe(wrap);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      observer?.disconnect();
+    };
   }, [draw]);
 
   // ── Interacción ───────────────────────────────────────────────────────────
@@ -1116,10 +1132,23 @@ export function PianoRoll() {
         e.preventDefault();
         selectAllNotes();
       }
+      if (e.code === 'Escape') {
+        // Soltar la selección vuelve a dejar el carril de velocity y las
+        // herramientas en «todo el patrón», que es su estado sin selección.
+        setSelection(new Set());
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selection, activePatternId, channelId, deleteSelection, duplicateSelection, selectAllNotes]);
+
+  // Cambiar de patrón o de canal invalida la selección: eran ids de OTRO sitio.
+  // Sin esto, `affectedNoteIds` no encontraba ninguna viva y devolvía todas las
+  // del patrón nuevo, así que «Cuantizar»/«8va» actuaban sobre el patrón entero
+  // mientras el menú decía «lo seleccionado».
+  useEffect(() => {
+    setSelection(new Set());
+  }, [activePatternId, channelId]);
 
   // ── Herramientas de la toolbar ────────────────────────────────────────────
 
@@ -1356,9 +1385,9 @@ export function PianoRoll() {
         cancelArp();
         return;
       }
+      const root = rootRef.current;
+      const here = hovering.current || (root !== null && root.contains(document.activeElement));
       if (!e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey) {
-        const root = rootRef.current;
-        const here = hovering.current || (root !== null && root.contains(document.activeElement));
         const picked = TOOLS.find((t) => t.key === e.code);
         if (here && picked) {
           e.preventDefault();
@@ -1366,6 +1395,11 @@ export function PianoRoll() {
           return;
         }
       }
+      // Alt+letra y Ctrl+Q/Ctrl+Shift+flechas son destructivos (humanizar,
+      // cuantizar, transportar): solo con el Piano Roll en uso. Antes actuaban
+      // sobre el patrón activo estuviera donde estuviera el foco, así que un
+      // Alt+R en el Rack humanizaba todas las notas sin avisar.
+      if (!here) return;
       if (e.altKey && !e.ctrlKey && !e.shiftKey) {
         if (e.code === 'KeyA') {
           e.preventDefault();
@@ -1448,10 +1482,12 @@ export function PianoRoll() {
       ctx.fillRect(x, y, nw, 2);
     }
 
-    // Viewport actual
+    // Viewport actual, acotado a la caja: con un viewport más ancho que el
+    // patrón el rectángulo se salía por la derecha y parecía que la vista
+    // acababa justo en el borde.
     const viewW = wrapRef.current?.clientWidth ?? 0;
-    const v0 = (scrollX / patLen) * w;
-    const v1 = ((scrollX + viewW / zoomX) / patLen) * w;
+    const v0 = Math.min(w, Math.max(0, (scrollX / patLen) * w));
+    const v1 = Math.min(w, Math.max(v0, ((scrollX + viewW / zoomX) / patLen) * w));
     ctx.strokeStyle = col('--pr-playhead');
     ctx.globalAlpha = 0.8;
     ctx.strokeRect(v0 + 0.5, 0.5, Math.max(6, v1 - v0) - 1, h - 1);
@@ -1461,6 +1497,15 @@ export function PianoRoll() {
   useEffect(() => {
     drawMini();
   }, [drawMini, themeVersion]);
+
+  // El minimapa es un canvas: su bitmap no sigue el tamaño CSS de la caja.
+  useEffect(() => {
+    const canvas = miniRef.current;
+    if (!canvas || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => drawMini());
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [drawMini]);
 
   const onMiniPointer = useCallback(
     (e: React.PointerEvent) => {

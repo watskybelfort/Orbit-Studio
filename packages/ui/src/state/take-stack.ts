@@ -41,11 +41,49 @@ export function takeLaneCount(clips: Iterable<Clip>): number {
   return max + 1;
 }
 
+/**
+ * Carriles que quedan DESPUÉS de compactar (huecos cerrados).
+ *
+ * `takeLaneCount` devuelve max+1, que tras borrar un carril intermedio miente:
+ * carriles {0,2} dan 3 cuando la compactación los deja en {0,1}. La altura se
+ * calculaba con el número viejo y la pista se quedaba con un carril de más.
+ */
+export function takeLaneCountCompact(clips: Iterable<Clip>): number {
+  const lanes = new Set<number>();
+  for (const clip of clips) {
+    if (clip.kind !== 'audio') continue;
+    lanes.add(Math.max(0, Math.floor(clip.lane ?? 0)));
+  }
+  return Math.max(1, lanes.size);
+}
+
 /** Alto que necesita una pista para que `lanes` carriles sean legibles. */
 export function heightForTakeLanes(height: number, lanes: number): number {
   if (!Number.isFinite(lanes)) return height;
   const safeLanes = Math.max(1, Math.ceil(lanes));
   return Math.max(height, safeLanes * TAKE_LANE_MIN_H);
+}
+
+/**
+ * Franja vertical de un carril dentro de su pista, en píxeles relativos al
+ * `top` de la fila.
+ *
+ * Existe porque el dibujo, el hit-test y la marquesina tienen que coincidir
+ * EXACTAMENTE: si la marquesina siguiera seleccionando por fila entera, un
+ * rectángulo dibujado sobre la toma 2 se llevaría también las tomas 1 y 3, que
+ * el usuario no tocó. `lanes` se acota a 1 y `lane` a [0, lanes-1] para que un
+ * `lane` viejo (una toma movida de una pista con menos carriles) no salga de
+ * su pista.
+ */
+export function laneBand(
+  trackHeight: number,
+  lanes: number,
+  lane: number,
+): { top: number; height: number } {
+  const count = Math.max(1, Math.ceil(Number.isFinite(lanes) ? lanes : 1));
+  const h = Math.max(0, Number.isFinite(trackHeight) ? trackHeight : 0) / count;
+  const index = Math.min(count - 1, Math.max(0, Math.floor(Number.isFinite(lane) ? lane : 0)));
+  return { top: index * h, height: h };
 }
 
 /** ¿Los dos intervalos [start, start+length) se pisan? */
