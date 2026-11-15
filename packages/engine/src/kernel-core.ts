@@ -2181,7 +2181,13 @@ export class KernelCore {
     // Metrónomo: dispara cuando un pulso del compás cae dentro de la ventana de un
     // sample [b, b+spb). (La versión anterior exigía nearest > round(startBeat),
     // que con bloques de 128 samples nunca se cumplía: no sonaba jamás.)
-    if (this.metronome && this.playing) {
+    //
+    // El `|| clickEnv > 0` deja que el clic que estaba sonando TERMINE de
+    // decaer con el transporte ya parado. Antes la envolvente se congelaba a
+    // mitad y al reanudar entraba por la mitad de su ciclo: un escalón medido
+    // de 0,12 (-18 dBFS) en el primer sample del play, con metrónomo y sin
+    // ninguna otra fuente. Dejar que decaiga es lo que hace un mute de mesa.
+    if (this.metronome && (this.playing || this.clickEnv > 0.001)) {
       const beatsPerBar = Math.max(1, this.timeSigNum);
       const unit = this.meterBeatUnit;
       for (let i = 0; i < n; i++) {

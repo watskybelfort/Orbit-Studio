@@ -16,6 +16,7 @@ import {
   clampFades,
   findNovaPreset,
   findPrismaPreset,
+  isAutomatableParamRef,
   paramRefKey,
   resolveGroupBuses,
   resolveSend,
@@ -84,6 +85,10 @@ function sampleAutomation(
   project: Project,
   channelIndexOf: Map<string, number>,
 ): CompiledAutomationEvent | null {
+  // Un destino estático (la IR del convolver, el swing) no se automatiza: si
+  // un proyecto viejo trae la curva, se ignora aquí en vez de reconstruir la
+  // reverb dentro del hilo de audio o de fingir que hace algo.
+  if (!isAutomatableParamRef(target, project)) return null;
   const compiledTarget = compileParamTarget(target, channelIndexOf);
   if (!compiledTarget) return null;
 
@@ -160,6 +165,9 @@ function compileLfo(
   project: Project,
   channelIndexOf: Map<string, number>,
 ): CompiledLfo | null {
+  // Mismo motivo que en `sampleAutomation`: un LFO sobre un parámetro estático
+  // reconstruiría la IR del convolver por bloque o no haría nada (swing).
+  if (!isAutomatableParamRef(lfo.target, project)) return null;
   const target = compileParamTarget(lfo.target, channelIndexOf);
   if (!target) return null;
   const baseNorm = paramRefNorm(lfo.target, project);

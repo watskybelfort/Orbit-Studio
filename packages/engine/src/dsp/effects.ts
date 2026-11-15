@@ -297,8 +297,14 @@ class DelayUnit implements EffectUnit {
   private timeIndex = 4;
 
   constructor(private sr: number) {
-    this.dl = new DelayLine(sr * 4);
-    this.dr = new DelayLine(sr * 4);
+    /*
+     * 6 s y no 4: el tempo mínimo son 20 BPM, y "1/2" son dos pulsos = 6 s.
+     * Con 4 s el delay recortaba el valor en SILENCIO y el eco de 1/2 a 20 BPM
+     * llegaba a los 4 s (medido: muestra 176 398 en vez de 264 600). Son 64 KB
+     * más por unidad estéreo; el bug costaba la mitad de la cola.
+     */
+    this.dl = new DelayLine(sr * 6);
+    this.dr = new DelayLine(sr * 6);
   }
 
   setTempo(bpm: number): void {
@@ -308,7 +314,7 @@ class DelayUnit implements EffectUnit {
 
   private recalc(): void {
     const beats = DELAY_BEATS[Math.round(this.timeIndex)] ?? 0.75;
-    this.delaySamples = Math.min(this.sr * 4 - 2, beats * (60 / this.bpm) * this.sr);
+    this.delaySamples = Math.min(this.sr * 6 - 2, beats * (60 / this.bpm) * this.sr);
   }
 
   setParams(p: Record<string, number>): void {
