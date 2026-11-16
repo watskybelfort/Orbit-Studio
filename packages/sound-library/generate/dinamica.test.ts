@@ -16,9 +16,23 @@
  * síntesis, así que la diferencia no puede venir del nivel.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getFft, hannWindow } from '../src/fft';
 import { DYNAMICS, INSTRUMENTS, rootsFor, type StereoRender } from './instruments';
+
+/**
+ * Margen de reloj para TODO el archivo, y es una medida, no una precaución.
+ *
+ * Cada prueba de aquí sintetiza instrumentos enteros y luego los mide; el
+ * archivo encadena varias medidas sobre las mismas tomas. En reposo entero
+ * tarda ~6 s y su prueba más cara ~1 s, pero con la suite completa corriendo en
+ * paralelo (20 CPU repartidas en workers) esa misma prueba se midió en 5,3 s,
+ * por encima del límite de fábrica de 5 s y fallando por TIMEOUT, nunca por la
+ * aserción. Es el mismo tropiezo que el render de cuatro minutos de la v3.4
+ * (ver `packages/engine/test/render-integrity-v1.test.ts`): un test que falla a
+ * veces enseña a ignorar la CI. 20 s es 3,8x el peor medido y 20x el de reposo.
+ */
+vi.setConfig({ testTimeout: 20_000 });
 
 const SR = 44100;
 /** Ventana de análisis: 0,74 s, la misma que usa el test de alturas. */

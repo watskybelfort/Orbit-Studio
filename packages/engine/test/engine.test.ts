@@ -855,6 +855,12 @@ describe('Orbit Nova: instrumento de presets', () => {
     expect(NOVA_PRESETS.length).toBeGreaterThanOrEqual(20);
   });
 
+  // 20 s, no los 5 por defecto, y la cifra es una medida: este test renderiza
+  // el catálogo entero de presets de una vez. En reposo tarda ~0,8 s; con la
+  // suite completa corriendo en paralelo se midió 5,8 s — por encima del límite
+  // de fábrica, fallando siempre por timeout y nunca por la aserción. Es el
+  // mismo tropiezo que el render de cuatro minutos de la v3.4: un test que falla
+  // a veces enseña a que se deje de mirar la CI.
   it('un canal Nova suena, y cada preset del catálogo da señal', () => {
     for (const preset of NOVA_PRESETS) {
       const res = renderProject(novaProject(preset.id), { tailSeconds: 0.2 });
@@ -862,7 +868,7 @@ describe('Orbit Nova: instrumento de presets', () => {
       expect(peak, `preset ${preset.id}`).toBeGreaterThan(0.001);
       expect(Number.isNaN(peak), `preset ${preset.id}`).toBe(false);
     }
-  });
+  }, 20_000);
 
   it('la macro del preset cambia el sonido y el filtro del canal manda encima', () => {
     const bajo = renderProject(novaProject('leads/saw-ancho', { macro2: 0 }), { tailSeconds: 0 });

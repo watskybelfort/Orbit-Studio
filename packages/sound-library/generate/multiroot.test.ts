@@ -17,9 +17,23 @@
  * sobre una parcial de la nota declarada.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { getFft, hannWindow } from '../src/fft';
 import { DYNAMICS, INSTRUMENTS, midiDeHz, rootsFor, type InstrumentSpec } from './instruments';
+
+/**
+ * Margen de reloj para TODO el archivo, y es una medida, no una precaución.
+ *
+ * Es el archivo más caro de la suite: sintetiza cada instrumento a cada una de
+ * sus alturas y pulsaciones, y en reposo tarda ~17 s (su prueba más cara ~1,4 s).
+ * Con la suite completa corriendo en paralelo (20 CPU repartidas en workers) una
+ * prueba suelta se midió en 4,7 s — pegada al límite de fábrica de 5 s — y ya
+ * falló por timeout alguna vez, siempre sin que la aserción tuviera nada que
+ * decir. Es el mismo tropiezo que el render de cuatro minutos de la v3.4 (ver
+ * `packages/engine/test/render-integrity-v1.test.ts`): un test que falla a veces
+ * enseña a ignorar la CI. 20 s es 4,2x el peor medido y 14x el de reposo.
+ */
+vi.setConfig({ testTimeout: 20_000 });
 
 const SR = 44100;
 /** Ventana de análisis: 0,74 s. Larga para que el bin salga fino (1,3 Hz). */
