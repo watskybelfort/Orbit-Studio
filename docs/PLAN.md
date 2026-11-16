@@ -6,6 +6,31 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 15-11-2026 (segunda pasada): los abiertos de la revisión y el diario de toma
+
+Segunda vuelta sobre las mismas siete lanes, arrancando por los catorce abiertos
+de la primera. El detalle está en
+[REVISION-2026-11-15-B.md](REVISION-2026-11-15-B.md): **el bug crítico de
+reapertura** (`parseProject` rechazaba cualquier proyecto con un layout
+guardado), la marquesina que ya selecciona por carril de toma, el **diario de
+toma** que sobrevive a un crash (PCM a disco cada ~0,5 s + recuperación en una
+pista), el aviso de clipping al guardar, y un lote de motor (robo de voces sin
+alocación, `safeTempo`, `process()` acotado) y de shell (arranque a 1280×720 al
+150 %, `<dialog>` nativo en «Acerca de», Espacio que ya no alterna al mantenerlo).
+Los tres archivos de tests que fallaban por reloj —nunca por la aserción— llevan
+ahora margen medido y el porqué escrito al lado. La red queda en **314 archivos /
+3772 tests**, typecheck y lint limpios, build en verde y golden bit a bit sin
+tocar.
+
+Lo que sigue abierto está en el documento, con su causa raíz: oído/hardware, la
+automatización de `channelParam` en las voces internas, la latencia del master
+en export/stems, las rampas de mute/bypass, punch-in, el monitor de latencia
+cero, el cliente de colaboración que se cree lo que le dice el servidor, los
+`window.prompt` que en Electron 43 lanzan, y el código muerto —que esta vez se
+midió y se deja listado en vez de darlo por limpiado.
+
+---
+
 ## Estado — 15-11-2026: auditoría de siete lanes y grabación de voz
 
 Ronda de auditoría extensiva (core, motor, estado/shell, editores,
