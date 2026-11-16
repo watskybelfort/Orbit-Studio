@@ -297,6 +297,33 @@ describe('sin enrutado declarado: una toma, un micro', () => {
     ]);
     ui.useUiStore.setState({ loopRegion: null });
   });
+  it('parar corta la captura en el acto, no 120 ms después', async () => {
+    const { recorder, setInputCapture } = await rig(2);
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    setInputCapture.mockClear();
+    const stopping = recorder.toggleRecording();
+    // El kernel deja de capturar YA: los 120 ms de espera son para el último
+    // frame en vuelo, no para grabar silencio después del stop.
+    expect(setInputCapture).toHaveBeenCalledWith(false);
+    await stopping;
+  });
+
+  it('con loop y el caret fuera, la toma empieza en la región', async () => {
+    const { app, recorder } = await rig(2);
+    const ui = await import('../src/state/ui');
+    ui.useUiStore.setState({ loopRegion: { start: 8, end: 16 }, positionBeats: 32 });
+
+    await recorder.toggleRecording();
+    recorder.pushInputChunk(block(0.5), block(0.5));
+    await recorder.toggleRecording();
+
+    const clip = Object.values(app.store.project.clips)[0]!;
+    expect(clip.start).toBeCloseTo(8, 5);
+    expect(recorder.useRecorderStore.getState().notice).toContain('loop');
+    ui.useUiStore.setState({ loopRegion: null });
+  });
+
   it('la toma nace en el beat donde empezó (sin latencia calibrada, tal cual)', async () => {
     const { app, recorder } = await rig(2);
     await recorder.toggleRecording();

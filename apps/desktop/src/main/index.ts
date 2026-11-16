@@ -25,6 +25,7 @@ import { childWindowId, usableBounds, type Area } from './window-bounds';
 import { isBlockedIp, isRealPathWithin, pathWithin, realpathOrNearest } from './path-guard';
 import { writeFileAtomic, writeFileAtomicSync } from './atomic-write';
 import { createRecordingStore } from './recording-store';
+import { createRecordingJournal } from './recording-journal';
 import { SETTINGS_LOCKED, isAllowedServerHost, requiresNetworkConfirmation } from './settings-guard';
 import { fetchLatestRelease } from './update-check';
 import { cleanServerUrl, isLanAddress, type Peer } from './discovery-protocol';
@@ -1462,6 +1463,7 @@ function registerIpc(): void {
   // La lógica de disco (guarda de ruta, papelera reversible, purga) vive en
   // `recording-store.ts`, testeable contra una carpeta temporal sin Electron.
   const recordings = createRecordingStore(recordingsDir);
+  const journal = createRecordingJournal(recordingsDir);
 
   ipcMain.handle('recording:save', async (_event, name: unknown, data: unknown) => {
     if (typeof name !== 'string' || name.length === 0) {
@@ -1501,6 +1503,46 @@ function registerIpc(): void {
   // otro nombre (umbrales medidos en `recording-store.ts`). Mejor esfuerzo:
   // un fallo aquí no debe frenar el arranque.
   void recordings.purgeTrash().catch(() => {});
+  // Diarios de tomas que la app no llegó a cerrar: se ofrecen al arrancar (la
+  // UI llama a `recording:journal-list`) y los viejos se tiran.
+  void journal.purge().catch(() => {});
+
+  ipcMain.handle('recording:journal-start', async (_event, meta: unknown) => {
+    if (typeof meta !== 'object' || meta === null) {
+      throw new Error('recording:journal-start requiere metadatos');
+    }
+    await journal.start(meta as Parameters<typeof journal.start>[0]);
+  });
+
+  ipcMain.handle(
+    'recording:journal-append',
+    async (_event, id: unknown, routeIndex: unknown, left: unknown, right: unknown) => {
+      if (typeof id !== 'string' || id.length === 0) throw new Error('journal: id requerido');
+      if (typeof routeIndex !== 'number' || !Number.isInteger(routeIndex)) {
+        throw new Error('journal: ruta requerida');
+      }
+      const toBytes = (value: unknown): Uint8Array => {
+        if (value instanceof Uint8Array) return value;
+        if (value instanceof ArrayBuffer) return new Uint8Array(value);
+        throw new Error('journal: se esperaba Uint8Array o ArrayBuffer');
+      };
+      await journal.append(id, routeIndex, toBytes(left), toBytes(right));
+    },
+  );
+
+  ipcMain.handle('recording:journal-finish', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) throw new Error('journal: id requerido');
+    await journal.finish(id);
+  });
+  ipcMain.handle('recording:journal-list', async () => journal.list());
+  ipcMain.handle('recording:journal-read', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) throw new Error('journal: id requerido');
+    return journal.read(id);
+  });
+  ipcMain.handle('recording:journal-discard', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) throw new Error('journal: id requerido');
+    await journal.discard(id);
+  });
 
   // ── Plugins JS de usuario (SDK de efectos) ─────────────────────────────────
   // Los .js viven en userData/plugins (no recursivo). El main solo lista y

@@ -16,6 +16,7 @@ import { beatsInBar } from '@orbit/core';
 
 import { useEffect, useMemo, useState } from 'react';
 import { type WavDepth } from '@orbit/engine';
+import { useRecorderStore } from '../state/recorder';
 import {
   cancelExport,
   DEFAULT_EXPORT_OPTIONS,
@@ -88,6 +89,9 @@ export function ExportPanel() {
 
   const isDesktop = typeof window !== 'undefined' && !!window.orbit;
   const busy = status.kind === 'busy';
+  // Mientras la toma se está guardando todavía no está en el proyecto: un
+  // export ahora saldría sin la voz recién grabada y sin avisar.
+  const recording = useRecorderStore((s) => s.phase !== 'idle');
 
   const patternOptions = useMemo(
     () => project.patternOrder.filter((id) => project.patterns[id]),
@@ -115,6 +119,7 @@ export function ExportPanel() {
   const canExport =
     isDesktop &&
     !busy &&
+    !recording &&
     (opts.source === 'song' ||
       (opts.source === 'pattern' && selectedPattern !== null) ||
       (opts.source === 'selection' && loopRegion !== null));

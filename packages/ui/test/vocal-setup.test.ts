@@ -55,15 +55,29 @@ describe('preparar pista de voz', () => {
     expect(plan.commands.some((c) => c.type === 'addPlaylistTrack')).toBe(false);
   });
 
-  it('reutiliza la entrada armada y no renombra una guitarra a Voz', () => {
+  it('con una guitarra armada crea su propia entrada de voz, no secuestra la guitarra', () => {
     const project = createEmptyProject('Voz');
     const route = createInputRoute(4, undefined, 'Guitarra DI');
     applyCommand(project, { type: 'addInputRoute', route });
 
     const plan = planVocalSetup(project);
+    expect(plan.routeCreated).toBe(true);
+    expect(plan.routeId).not.toBe(route.id);
+    apply(project, plan);
+    expect(route.name).toBe('Guitarra DI');
+    expect(route.playlistTrackId).toBeUndefined();
+    expect(project.inputRoutes[plan.routeId]!.name).toBe(VOCAL_TRACK_NAME);
+    expect(project.inputRoutes[plan.routeId]!.playlistTrackId).toBe(plan.trackId);
+  });
+
+  it('reutiliza la entrada genérica del aparato (canal 0, «Entrada 1»)', () => {
+    const project = createEmptyProject('Voz');
+    const route = createInputRoute(0, undefined, 'Entrada 1');
+    applyCommand(project, { type: 'addInputRoute', route });
+
+    const plan = planVocalSetup(project);
     expect(plan.routeId).toBe(route.id);
     expect(plan.routeCreated).toBe(false);
-    expect(route.name).toBe('Guitarra DI');
     expect(plan.commands.some((c) => c.type === 'addInputRoute')).toBe(false);
   });
 

@@ -195,7 +195,12 @@ export function Transport() {
           onClick={() => {
             // Con una toma en marcha esto es el botón de parar; preparar la
             // pista a mitad de grabación sería un cambio de proyecto en vivo.
-            if (recPhase === 'idle') prepareVocalSetup();
+            if (recPhase === 'idle') {
+              // Voz graba SOBRE LA CANCIÓN: en modo PAT la toma se capturaría
+              // sobre el loop del patrón y luego no se oiría al dar Play.
+              setPlayMode('song');
+              prepareVocalSetup();
+            }
             void toggleRecording();
           }}
         >

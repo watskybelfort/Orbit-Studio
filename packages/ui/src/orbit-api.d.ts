@@ -68,6 +68,32 @@ interface OrbitNetState {
   peers: OrbitPeer[];
 }
 
+interface JournalMeta {
+  id: string;
+  title: string;
+  projectId: string;
+  arrangementId: string;
+  tempo: number;
+  sampleRate: number;
+  start: number;
+  latency: number;
+  loop: { start: number; end: number } | null;
+  routes: { index: number; name: string }[];
+  startedAt: number;
+}
+
+interface JournalInfo extends JournalMeta {
+  frames: number;
+  bytes: number;
+  modifiedAt: number;
+}
+
+interface JournalRead {
+  meta: JournalMeta;
+  frames: number;
+  routes: { index: number; name: string; left: ArrayBuffer; right: ArrayBuffer }[];
+}
+
 interface OrbitApi {
   /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
   readonly app: {
@@ -231,6 +257,19 @@ interface OrbitApi {
      * los archivos que de verdad movió. `read` sigue sirviéndolos desde ahí.
      */
     discard(files: readonly string[]): Promise<string[]>;
+    /**
+     * Diario de la toma EN CURSO: PCM float32 en crudo, para que un crash no se
+     * lleve lo cantado. Al guardar la toma se borra; si queda uno al arrancar,
+     * `list` lo ofrece.
+     */
+    journal: {
+      start(meta: JournalMeta): Promise<void>;
+      append(id: string, routeIndex: number, left: Uint8Array, right: Uint8Array): Promise<void>;
+      finish(id: string): Promise<void>;
+      list(): Promise<JournalInfo[]>;
+      read(id: string): Promise<JournalRead>;
+      discard(id: string): Promise<void>;
+    };
   };
   readonly plugins: {
     /** Lista los .js de userData/plugins (crea la carpeta si no existe). */

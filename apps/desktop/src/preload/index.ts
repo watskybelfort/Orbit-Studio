@@ -67,6 +67,32 @@ interface OrbitNetState {
   peers: OrbitPeer[];
 }
 
+interface OrbitJournalMeta {
+  id: string;
+  title: string;
+  projectId: string;
+  arrangementId: string;
+  tempo: number;
+  sampleRate: number;
+  start: number;
+  latency: number;
+  loop: { start: number; end: number } | null;
+  routes: { index: number; name: string }[];
+  startedAt: number;
+}
+
+interface OrbitJournalInfo extends OrbitJournalMeta {
+  frames: number;
+  bytes: number;
+  modifiedAt: number;
+}
+
+interface OrbitJournalRead {
+  meta: OrbitJournalMeta;
+  frames: number;
+  routes: { index: number; name: string; left: ArrayBuffer; right: ArrayBuffer }[];
+}
+
 export interface OrbitApi {
   /** Ficha de la app (version real, Electron/Chrome/Node) para el "Acerca de". */
   readonly app: {
@@ -231,6 +257,15 @@ export interface OrbitApi {
     read(file: string): Promise<ArrayBuffer>;
     /** Baja REVERSIBLE a la papelera (no borra); devuelve los que movió. */
     discard(files: readonly string[]): Promise<string[]>;
+    /** Diario de la toma en curso (ver `recording-journal.ts`). */
+    journal: {
+      start(meta: OrbitJournalMeta): Promise<void>;
+      append(id: string, routeIndex: number, left: Uint8Array, right: Uint8Array): Promise<void>;
+      finish(id: string): Promise<void>;
+      list(): Promise<OrbitJournalInfo[]>;
+      read(id: string): Promise<OrbitJournalRead>;
+      discard(id: string): Promise<void>;
+    };
   };
   readonly plugins: {
     /** Lista los .js de userData/plugins (crea la carpeta si no existe). */
@@ -394,6 +429,15 @@ const api: OrbitApi = {
     save: (name, data) => ipcRenderer.invoke('recording:save', name, data),
     read: (file) => ipcRenderer.invoke('recording:read', file),
     discard: (files) => ipcRenderer.invoke('recording:discard', files),
+    journal: {
+      start: (meta) => ipcRenderer.invoke('recording:journal-start', meta),
+      append: (id, routeIndex, left, right) =>
+        ipcRenderer.invoke('recording:journal-append', id, routeIndex, left, right),
+      finish: (id) => ipcRenderer.invoke('recording:journal-finish', id),
+      list: () => ipcRenderer.invoke('recording:journal-list'),
+      read: (id) => ipcRenderer.invoke('recording:journal-read', id),
+      discard: (id) => ipcRenderer.invoke('recording:journal-discard', id),
+    },
   },
   plugins: {
     scan: () => ipcRenderer.invoke('plugins:scan'),

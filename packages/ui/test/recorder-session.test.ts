@@ -396,7 +396,7 @@ describe('BUG031: las tomas del grabador conservan su sesión de origen', () => 
     expect(capture.useTrackCapture.getState().recoveryNotice).toBe('Toma de pista');
     const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
     expect(source).toContain('onClick={dismissRecorderRecovery}');
-    expect(source).toContain('!fileNotice && !captureRecovery && recorderRecovery');
+    expect(source).toContain('!fileNotice && !captureRecovery && !recorderError && !recorderNotice && recorderRecovery');
   });
 
   it.each(['success', 'failure', 'replace'] as const)('libera su listener una sola vez al terminar por %s', async (outcome) => {

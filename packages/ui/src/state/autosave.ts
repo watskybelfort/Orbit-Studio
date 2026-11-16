@@ -6,7 +6,7 @@
  * cambios sin guardar y se ofrece recuperarlo.
  */
 
-import { parseProject, serializeProject, type Project } from '@orbit/core';
+import { parseProject, serializeProject, type Command, type Project } from '@orbit/core';
 import { create } from 'zustand';
 import { rehydrateSamples } from '../browser/sound-actions';
 import { store } from './app';
@@ -222,38 +222,62 @@ export function initAutosave(): void {
   // La fase de grabación no cambia el proyecto hasta que se coloca la toma,
   // pero sí es trabajo sin guardar: el aviso de cierre tiene que verla.
   useRecorderStore.subscribe(refreshDirty);
+  /**
+   * Una toma recién inserida se guarda YA, sin esperar al minuto del ciclo.
+   *
+   * El WAV está en disco y el proyecto todavía no lo nombra: un crash en esa
+   * ventana dejaba el audio huérfano (sin `recording:list` que lo ofreciera).
+   * Se detecta por el comando, sin importar `recorder` desde aquí (ese import
+   * sería circular).
+   */
+  const flushAfterSample = (cmd: Command): void => {
+    const touchesTake = (c: Command): boolean => {
+      if (c.type === 'registerSample') return c.sample.path.startsWith('recording:');
+      return c.type === 'batch' && c.commands.some(touchesTake);
+    };
+    if (touchesTake(cmd)) queueAutosave();
+  };
+  store.subscribeCommands(flushAfterSample);
   store.subscribeBeforeReplace(() => {
     autosaveGeneration++;
     useAutosave.setState({ error: null });
   });
-  timer = setInterval(() => {
-    // Con un cartel de recuperación sin resolver, `pending.orbit` no se toca:
-    // es la oferta que el usuario todavía puede aceptar (ver `recoveryPending`).
-    if (recoveryPending || pendingIo) return;
-    if (store.version === autosavedVersion) return;
-    const version = store.version;
-    const epoch = store.historyEpoch;
-    const generation = autosaveGeneration;
-    const isCurrent = () => epoch === store.historyEpoch && generation === autosaveGeneration;
-    queueAutosaveIo(async () => {
-      try {
-        // La foto y su versión se toman juntas, antes de cruzar el IPC.
-        const json = serializeProject(store.project);
-        await api.autosave.write(json);
-        if (!isCurrent()) return;
-        autosavedVersion = version;
-        useAutosave.setState({ error: null });
-      } catch (err) {
-        if (!isCurrent()) return;
-        const detail = err instanceof Error ? `: ${err.message}` : '';
-        useAutosave.setState({
-          error: `No se pudo guardar la recuperación automática${detail}. Se reintentará en un minuto; puedes guardar el proyecto con Ctrl+S.`,
-        });
-        // No se adelanta el checkpoint ni se reintenta en caliente: el próximo
-        // tick vuelve a escribir aunque nadie haya editado nada más.
-      }
-    });
-  }, INTERVAL_MS);
+  timer = setInterval(queueAutosave, INTERVAL_MS);
+}
+
+/**
+ * Escribe la recuperación automática ahora si hay cambios pendientes.
+ * Idempotente: dos llamadas seguidas no escriben dos veces.
+ */
+function queueAutosave(): void {
+  const api = window.orbit;
+  if (!api?.autosave) return;
+  // Con un cartel de recuperación sin resolver, `pending.orbit` no se toca:
+  // es la oferta que el usuario todavía puede aceptar (ver `recoveryPending`).
+  if (recoveryPending || pendingIo) return;
+  if (store.version === autosavedVersion) return;
+  const version = store.version;
+  const epoch = store.historyEpoch;
+  const generation = autosaveGeneration;
+  const isCurrent = () => epoch === store.historyEpoch && generation === autosaveGeneration;
+  queueAutosaveIo(async () => {
+    try {
+      // La foto y su versión se toman juntas, antes de cruzar el IPC.
+      const json = serializeProject(store.project);
+      await api.autosave.write(json);
+      if (!isCurrent()) return;
+      autosavedVersion = version;
+      useAutosave.setState({ error: null });
+    } catch (err) {
+      if (!isCurrent()) return;
+      const detail = err instanceof Error ? `: ${err.message}` : '';
+      useAutosave.setState({
+        error: `No se pudo guardar la recuperación automática${detail}. Se reintentará en un minuto; puedes guardar el proyecto con Ctrl+S.`,
+      });
+      // No se adelanta el checkpoint ni se reintenta en caliente: el próximo
+      // tick vuelve a escribir aunque nadie haya editado nada más.
+    }
+  });
 }
 
 /**

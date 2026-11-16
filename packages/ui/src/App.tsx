@@ -33,7 +33,8 @@ import { registerDefaultCommands } from './palette/default-commands';
 import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
 import { dismissBounceRecovery, useBounceStore } from './state/bounce';
 import { dismissCaptureRecovery, useTrackCapture } from './state/track-capture';
-import { dismissRecorderRecovery, useRecorderStore } from './state/recorder';
+import { dismissRecorderError, dismissRecorderNotice, dismissRecorderRecovery, useRecorderStore } from './state/recorder';
+import { checkRecordingRecovery, discardInterruptedTake, recoverInterruptedTake, useTakeRecovery } from './state/recording-recovery';
 import { dismissAudioEditRecovery, useAudioEditStore } from './editors/audio/audio-edit-actions';
 import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
@@ -61,6 +62,11 @@ export function App() {
   const autosaveNotice = recovery ? null : recoveryError;
   const captureRecovery = useTrackCapture((s) => s.recoveryNotice);
   const recorderRecovery = useRecorderStore((s) => s.recoveryNotice);
+  const recorderNotice = useRecorderStore((s) => s.notice);
+  const recorderError = useRecorderStore((s) => s.error);
+  const takeOffer = useTakeRecovery((s) => s.offer);
+  const takeBusy = useTakeRecovery((s) => s.busy);
+  const takeError = useTakeRecovery((s) => s.error);
   const audioEditRecovery = useAudioEditStore((s) => s.recoveryNotice);
   const fileNotice = bounceBusy ?? bounceNotice ?? autosaveNotice ?? notice;
   const updateAvailable = useUpdateCheck((s) => s.available);
@@ -90,6 +96,8 @@ export function App() {
       if (alive && offer) setRecovery(offer);
       initAutosave();
     });
+    // Diario de una toma que la app no cerró: si queda uno, se ofrece.
+    void checkRecordingRecovery();
     // Aviso de versión nueva: sin red desde aquí (CSP), la consulta la hace
     // el main y esto solo decide si toca preguntarle y si toca enseñar el
     // cartel. Silencioso si no hay nada nuevo, si está apagado en Ajustes, o
@@ -209,25 +217,35 @@ export function App() {
         </div>
       )}
       {/* Consolidar bloquea el hilo mientras renderiza: el aviso manda. */}
-      {(fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery) && (
+      {(fileNotice ?? captureRecovery ?? recorderError ?? recorderNotice ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery) && (
         <div className="app-notice popup" role="status" style={{ maxWidth: 'min(680px, calc(100vw / var(--ui-scale, 1) - 32px))', width: 'max-content', overflowWrap: 'anywhere' }}>
-          {fileNotice ?? captureRecovery ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery}
+          {fileNotice ?? captureRecovery ?? recorderError ?? recorderNotice ?? recorderRecovery ?? bounceRecovery ?? audioEditRecovery}
           {!fileNotice && captureRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissCaptureRecovery} aria-label="Cerrar aviso de captura">
               Entendido
             </button>
           )}
-          {!fileNotice && !captureRecovery && recorderRecovery && (
+          {!fileNotice && !captureRecovery && recorderError && (
+            <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissRecorderError} aria-label="Cerrar error de grabación">
+              Entendido
+            </button>
+          )}
+          {!fileNotice && !captureRecovery && !recorderError && recorderNotice && (
+            <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissRecorderNotice} aria-label="Cerrar aviso de la toma">
+              Entendido
+            </button>
+          )}
+          {!fileNotice && !captureRecovery && !recorderError && !recorderNotice && recorderRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissRecorderRecovery} aria-label="Cerrar aviso de grabación">
               Entendido
             </button>
           )}
-          {!fileNotice && !captureRecovery && !recorderRecovery && bounceRecovery && (
+          {!fileNotice && !captureRecovery && !recorderError && !recorderNotice && !recorderRecovery && bounceRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissBounceRecovery} aria-label="Cerrar aviso de consolidación">
               Entendido
             </button>
           )}
-          {!fileNotice && !captureRecovery && !recorderRecovery && !bounceRecovery && audioEditRecovery && (
+          {!fileNotice && !captureRecovery && !recorderError && !recorderNotice && !recorderRecovery && !bounceRecovery && audioEditRecovery && (
             <button className="tbtn" style={{ marginLeft: 8, pointerEvents: 'auto' }} onClick={dismissAudioEditRecovery} aria-label="Cerrar aviso de edición de audio">
               Entendido
             </button>
@@ -264,6 +282,32 @@ export function App() {
           </button>
         </div>
       )}
+      {takeOffer && (() => {
+        const seconds = Math.max(0, takeOffer.frames / Math.max(1, takeOffer.sampleRate));
+        const duration = `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
+        return (
+          <div className="app-recovery popup">
+            <span className="recovery-text">
+              {takeError ??
+                `Se cerró la app durante una toma de «${takeOffer.title}» (${duration}).`}
+            </span>
+            <button
+              className="recovery-btn primary"
+              disabled={takeBusy}
+              onClick={() => void recoverInterruptedTake()}
+            >
+              {takeBusy ? 'Recuperando…' : 'Recuperar'}
+            </button>
+            <button
+              className="recovery-btn"
+              disabled={takeBusy}
+              onClick={() => void discardInterruptedTake()}
+            >
+              Descartar
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -72,14 +72,24 @@ function freeMixerTrack(project: Project, trackId: Id | null, routeId: Id | null
   return 1;
 }
 
-/** La ruta que va a recibir la voz: la que ya se llama Voz, o la primera armada. */
+/**
+ * La ruta que va a recibir la voz.
+ *
+ * No vale «la primera armada»: con una guitarra armada, el botón Voz enlazaba
+ * la pista Voz a la GUITARRA y las tomas acababan en la pista equivocada. Se
+ * reutiliza la que se llama Voz (o mic/vocal), la entrada genérica del aparato
+ * (canal 0, «Entrada 1») o se crea una propia.
+ */
 function vocalRoute(project: Project): { route: InputRoute; created: boolean } {
   const routes = projectInputRoutes(project);
   const named = routes.find((route) => norm(route.name) === 'voz');
   if (named) return { route: named, created: false };
-  const armed = routes.find((route) => route.armed);
-  if (armed) return { route: armed, created: false };
-  if (routes[0]) return { route: routes[0], created: false };
+  const mic = routes.find((route) => /voz|mic|vocal/.test(norm(route.name)));
+  if (mic) return { route: mic, created: false };
+  const generic = routes.find(
+    (route) => route.channel === 0 && /^(entrada|input)\s*\d*$/.test(norm(route.name)),
+  );
+  if (generic) return { route: generic, created: false };
   return { route: createInputRoute(0, undefined, VOCAL_TRACK_NAME), created: true };
 }
 
