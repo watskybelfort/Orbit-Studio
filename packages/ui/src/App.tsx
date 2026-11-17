@@ -10,6 +10,7 @@ import { Workspace } from './shell/Workspace';
 import { StudioNavigation } from './shell/StudioNavigation';
 import { Browser } from './browser';
 import { ClaudePanel } from './claude/ClaudePanel';
+import { IconClose } from './icons';
 import { applyTheme, loadThemeFromSettings } from './theme/theme';
 import { useShortcuts } from './hooks/useShortcuts';
 import { ensureAudioReady } from './state/app';
@@ -163,7 +164,17 @@ export function App() {
         <Workspace />
         {claudePanelOpen && !compact && (
           <aside className="claude-panel">
-            <div className="sidebar-header">Claude</div>
+            <div className="sidebar-header sidebar-header--with-action">
+              <span>Claude</span>
+              <button
+                className="sidebar-header__close"
+                title="Ocultar el panel de Claude (se vuelve a abrir con el botón Claude de la barra)"
+                aria-label="Ocultar el panel de Claude"
+                onClick={() => useUiStore.setState({ claudePanelOpen: false })}
+              >
+                <IconClose size={12} />
+              </button>
+            </div>
             <ClaudePanel />
           </aside>
         )}

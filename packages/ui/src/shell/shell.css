@@ -430,6 +430,33 @@ html[data-theme='acrylic'] .sidebar {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-header--with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sidebar-header__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.sidebar-header__close:hover,
+.sidebar-header__close:focus-visible {
+  background: var(--titlebar-hover);
+  color: var(--text);
+}
+
 .claude-panel {
   width: var(--assistant-width);
   border-left: 1px solid var(--border);

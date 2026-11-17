@@ -1,7 +1,7 @@
 /** Navegación estable por el flujo de producción; el transporte queda aparte. */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconBrowser, IconChannelRack, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
+import { IconBrowser, IconChannelRack, IconClaude, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
 import { usePaletteStore } from '../palette';
 import { isWindowId, useUiStore } from '../state/ui';
 import { useProject } from '../state/useProject';
@@ -26,6 +26,7 @@ export function StudioNavigation() {
   const windows = useUiStore((s) => s.windows);
   const openWindow = useUiStore((s) => s.openWindow);
   const browserOpen = useUiStore((s) => s.browserOpen);
+  const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
   const front = Object.entries(windows).filter(([, w]) => w.open).sort((a, b) => b[1].z - a[1].z)[0]?.[0];
 
@@ -105,6 +106,12 @@ export function StudioNavigation() {
           title="Mostrar u ocultar la biblioteca de sonidos"
           onClick={() => useUiStore.setState({ browserOpen: !browserOpen || compact, compact: false })}
         ><IconBrowser size={15} /><span>Sonidos</span></button>
+        <button
+          className="studio-nav__utility"
+          aria-pressed={claudePanelOpen && !compact}
+          title="Mostrar u ocultar el panel de Claude (a la derecha)"
+          onClick={() => useUiStore.setState({ claudePanelOpen: !claudePanelOpen || compact, compact: false })}
+        ><IconClaude size={15} /><span>Claude</span></button>
         <button className="studio-nav__utility" title="Personalizar el estudio y configurar dispositivos" onClick={() => openWindow('settings')}>
           <IconSettings size={15} /><span>Ajustes</span>
         </button>
