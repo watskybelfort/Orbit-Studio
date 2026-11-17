@@ -13,14 +13,21 @@ function apply(project: Project, plan: ReturnType<typeof planVocalSetup>): void 
 }
 
 describe('preparar pista de voz', () => {
-  it('en un proyecto vacío crea pista, ruta armada y les da un canal de mixer libre', () => {
+  it('en un proyecto vacío usa la primera pista (a la vista), con ruta armada y canal de mixer libre', () => {
     const project = createEmptyProject('Voz');
+    const first = Object.values(project.playlistTracks).sort((a, b) => a.order - b.order)[0]!;
+    const tracksBefore = Object.keys(project.playlistTracks).length;
     const plan = planVocalSetup(project);
-    expect(plan.trackCreated).toBe(true);
+    // Antes creaba una pista nueva AL FINAL (la novena, fuera de la vista) y se
+    // grababa sin ver dónde caía la toma. Ahora es la «Pista 1» vacía.
+    expect(plan.trackCreated).toBe(false);
+    expect(plan.trackRenamed).toBe(true);
+    expect(plan.trackId).toBe(first.id);
     expect(plan.routeCreated).toBe(true);
     expect(plan.commands[0]?.type).toBe('addInputRoute');
 
     apply(project, plan);
+    expect(Object.keys(project.playlistTracks)).toHaveLength(tracksBefore);
     const track = project.playlistTracks[plan.trackId]!;
     const route = project.inputRoutes[plan.routeId]!;
     expect(track.name).toBe(VOCAL_TRACK_NAME);
@@ -41,6 +48,21 @@ describe('preparar pista de voz', () => {
     expect(again.commands).toEqual([]);
     expect(again.trackCreated).toBe(false);
     expect(again.routeCreated).toBe(false);
+  });
+
+  it('salta las pistas con algo o con nombre propio, y si no queda ninguna de fábrica vacía crea una al final', () => {
+    const project = createEmptyProject('Voz');
+    const ordered = Object.values(project.playlistTracks).sort((a, b) => a.order - b.order);
+    // La 1 tiene un clip, la 2 la nombró el usuario: la voz va a la 3.
+    project.clips['c1'] = { id: 'c1', kind: 'pattern', playlistTrackId: ordered[0]!.id, start: 0, length: 4, muted: false };
+    ordered[1]!.name = 'Beat';
+    expect(planVocalSetup(project).trackId).toBe(ordered[2]!.id);
+
+    // Todas ocupadas o con nombre propio: se crea al final, como antes.
+    for (const t of ordered) t.name = `Mía ${t.order}`;
+    const plan = planVocalSetup(project);
+    expect(plan.trackCreated).toBe(true);
+    expect(plan.trackRenamed).toBe(false);
   });
 
   it('reutiliza una pista «Voz» que ya existe y no crea otra', () => {

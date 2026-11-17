@@ -4,8 +4,12 @@
  *
  * Lo que hace, y por qué cada paso:
  *
- * 1. **Una pista de playlist llamada «Voz»**, creada si no existe. Es donde
- *    caen las tomas, y el nombre es el que el usuario va a buscar mañana.
+ * 1. **Una pista de playlist llamada «Voz»**. Es donde caen las tomas, y el
+ *    nombre es el que el usuario va a buscar mañana. Si no existe, se toma la
+ *    PRIMERA pista vacía que conserve su nombre de fábrica («Pista N») y se
+ *    renombra; solo si no queda ninguna se crea una al final. Antes se creaba
+ *    siempre al final —la novena de un proyecto nuevo, debajo de lo visible— y
+ *    se grababa sin ver dónde caía la toma.
  * 2. **Una ruta de entrada armada y enlazada a esa pista** (`playlistTrackId`).
  *    `placeTake` del grabador ya respeta ese enlace: cada toma cae ahí, no en
  *    la primera pista libre. Sin enrutado declarado se crea una ruta mono por
@@ -43,6 +47,8 @@ export interface VocalSetupPlan {
   trackId: Id;
   routeId: Id;
   trackCreated: boolean;
+  /** Se reutilizó una pista vacía de fábrica, renombrada a «Voz». */
+  trackRenamed: boolean;
   routeCreated: boolean;
   commands: Command[];
 }
@@ -101,6 +107,19 @@ export function planVocalSetup(project: Project): VocalSetupPlan {
   const commands: Command[] = [];
 
   let track = tracks.find((item) => norm(item.name) === norm(VOCAL_TRACK_NAME));
+  let trackRenamed = false;
+  if (!track) {
+    // Una pista que el usuario nombró, o que ya tiene algo, no se toca.
+    const clips = Object.values(project.clips);
+    const spare = tracks.find(
+      (item) => /^pista \d+$/.test(norm(item.name)) && !clips.some((clip) => clip.playlistTrackId === item.id),
+    );
+    if (spare) {
+      track = spare;
+      trackRenamed = true;
+      commands.push({ type: 'patchPlaylistTrack', trackId: spare.id, patch: { name: VOCAL_TRACK_NAME } });
+    }
+  }
   const trackCreated = track === undefined;
   if (!track) {
     track = createPlaylistTrack(arrangementId, tracks.length, VOCAL_TRACK_NAME);
@@ -144,6 +163,7 @@ export function planVocalSetup(project: Project): VocalSetupPlan {
     trackId: track.id,
     routeId: route.id,
     trackCreated,
+    trackRenamed,
     routeCreated,
     commands,
   };
@@ -158,7 +178,7 @@ export function prepareVocalSetup(): VocalSetupPlan | null {
   if (!project) return null;
   const plan = planVocalSetup(project);
   if (plan.commands.length > 0) {
-    const label = plan.trackCreated ? 'Preparar pista de voz' : 'Enlazar entrada de voz';
+    const label = plan.trackCreated || plan.trackRenamed ? 'Preparar pista de voz' : 'Enlazar entrada de voz';
     store.dispatch({ type: 'batch', label, commands: plan.commands }, { label });
   }
   return plan;
