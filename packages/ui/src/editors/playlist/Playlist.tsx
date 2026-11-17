@@ -140,7 +140,15 @@ type DragState =
    */
   | { mode: 'ctrlpick'; clipId: Id; x: number; y: number }
   /** Arrastre de un tirador de fundido (entrada o salida) de un clip de audio. */
-  | { mode: 'fade'; clipId: Id; which: 'in' | 'out' };
+  | { mode: 'fade'; clipId: Id; which: 'in' | 'out' }
+  /**
+   * Clic derecho MANTENIDO: borra todo lo que toca el cursor sin soltar. Los
+   * clips desaparecen de la vista al momento pero se borran todos juntos al
+   * soltar, en UN comando: fundir borrados sueltos con `mergeKey` dejaría un
+   * Ctrl+Z que solo devuelve el primero (el historial guarda el inverso del
+   * primer comando de la ráfaga).
+   */
+  | { mode: 'erase'; ids: Set<Id>; x: number; y: number };
 
 /** Píxeles que hay que mover para que un Ctrl+clic pase a ser Ctrl+arrastre. */
 const CTRL_DRAG_PX = 4;
@@ -910,6 +918,8 @@ export function Playlist() {
     // La toma que se está grabando, colocada donde va a caer al parar. Si
     // estrena un carril, la pista se reparte ya entre todos: es lo mismo que
     // hará al guardarse (la pista crece), así nada salta al parar.
+    // Lo que el clic derecho mantenido ya se llevó: no se pinta (se borra al soltar).
+    const erasing = drag.current?.mode === 'erase' ? drag.current.ids : null;
     const live = liveRecordingView();
     const liveLanes = new Map<Id, number>();
     for (const v of live) {
@@ -924,6 +934,7 @@ export function Playlist() {
       const lanes = lanesOf(r.track.id);
       const laneH = r.track.height / lanes;
       for (const c of clipsByTrack.get(r.track.id) ?? []) {
+        if (erasing?.has(c.id)) continue;
         const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
         drawClip(c, y + lane * laneH, laneH, false, selection.has(c.id), lanes > 1 ? lane + 1 : undefined);
       }
@@ -1310,18 +1321,17 @@ export function Playlist() {
         return;
       }
 
-      // Clic derecho: borrar. Si el clip está seleccionado, se va el grupo
+      // Clic derecho: borrar, y manteniéndolo, borrar todo lo que se toque
+      // (ver el modo 'erase'). Si el clip está seleccionado, se va el grupo
       // entero — es lo que uno espera después de haber marcado ocho clips.
       if (e.button === 2) {
+        const ids = new Set<Id>();
         if (hit) {
-          if (selection.has(hit.clip.id) && selectedIds.length > 1) deleteSelection();
-          else {
-            store.dispatch(
-              { type: 'removeClips', clipIds: [hit.clip.id] },
-              { label: `Borrar clip "${clipLabel(hit.clip, project)}"` },
-            );
-          }
+          if (selection.has(hit.clip.id) && selectedIds.length > 1) for (const id of selectedIds) ids.add(id);
+          else ids.add(hit.clip.id);
         }
+        drag.current = { mode: 'erase', ids, x, y };
+        draw();
         return;
       }
       if (e.button !== 0) return;
@@ -1398,7 +1408,7 @@ export function Playlist() {
       drag.current = { mode: 'paint', trackId: row.track.id, length, patternId };
       draw();
     },
-    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, project, draw, laneCount, clipsByTrack, selection, selectedIds, deleteSelection, startMove, fadeHandleAt, scrollY],
+    [clipAt, rowAtY, xToBeat, snapOf, doSeek, clearLoop, markerAt, sliceClip, activePattern, patternId, draw, laneCount, clipsByTrack, selection, selectedIds, startMove, fadeHandleAt, scrollY],
   );
 
   const onPointerMove = useCallback(
@@ -1409,6 +1419,26 @@ export function Playlist() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const d = drag.current;
+
+      // Borrado en ráfaga: se recorre el tramo desde el último evento cada
+      // pocos píxeles, o un movimiento rápido saltaría clips cortos.
+      if (d?.mode === 'erase') {
+        const steps = Math.max(1, Math.ceil(Math.hypot(x - d.x, y - d.y) / 4));
+        let grew = false;
+        for (let i = 1; i <= steps; i++) {
+          const px = d.x + ((x - d.x) * i) / steps;
+          const py = d.y + ((y - d.y) * i) / steps;
+          const h = py >= RULER_H ? clipAt(px, py) : null;
+          if (h && !d.ids.has(h.clip.id)) {
+            d.ids.add(h.clip.id);
+            grew = true;
+          }
+        }
+        d.x = x;
+        d.y = y;
+        if (grew) draw();
+        return;
+      }
 
       // Presencia: dónde está nuestro cursor (throttled; no-op sin sesión).
       reportActivity('Playlist', { beat: xToBeat(x) });
@@ -1719,7 +1749,22 @@ export function Playlist() {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
-    if (d.mode === 'paint') {
+    if (d.mode === 'erase') {
+      const ids = [...d.ids].filter((id) => store.project.clips[id] !== undefined);
+      if (ids.length > 0) {
+        const only = ids.length === 1 ? store.project.clips[ids[0]!] : undefined;
+        const label = only ? `Borrar clip "${clipLabel(only, store.project)}"` : `Borrar ${ids.length} clips`;
+        store.dispatch({ type: 'removeClips', clipIds: ids }, { label });
+        setSelection((sel) => {
+          if (!ids.some((id) => sel.has(id))) return sel;
+          const next = new Set(sel);
+          for (const id of ids) next.delete(id);
+          return next;
+        });
+      } else {
+        draw();
+      }
+    } else if (d.mode === 'paint') {
       const g = paintGhost.current;
       paintGhost.current = null;
       if (g && g.length > 0) {
