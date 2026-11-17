@@ -68,6 +68,7 @@ import {
   type MoveAnchor,
   type SelectableClip,
 } from './selection';
+import { msToBeats, NUDGE_FINE_MS, NUDGE_MS, nudgePatches } from './nudge';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -91,7 +92,7 @@ const SNAPS: { label: string; value: SnapValue }[] = [
   { label: 'Compás', value: 'bar' },
   { label: '1/2', value: 0.5 },
   { label: '1/4', value: 0.25 },
-  { label: 'Nada', value: null },
+  { label: 'Libre', value: null },
 ];
 
 /** Cuantiza un beat a la rejilla (floor al pintar, round al mover/seek). */
@@ -437,6 +438,34 @@ export function Playlist() {
       { label: muted ? `Mutear ${selectedIds.length} clip(s)` : `Activar ${selectedIds.length} clip(s)` },
     );
   }, [selectedIds, project]);
+
+  /**
+   * Corre la selección `ms` milisegundos (Alt+←/→, fino con Shift): cuadrar
+   * una voz con el beat pide pasos más finos que un píxel. Las pulsaciones
+   * seguidas sobre la misma selección se funden en un solo undo.
+   */
+  // Total corrido sobre la MISMA selección: es la cifra que hay que llevar a
+  // Ajustes → Retardo para que las tomas siguientes caigan ya cuadradas.
+  const nudgeTotal = useRef({ key: '', ms: 0 });
+  const nudgeSelection = useCallback((ms: number) => {
+    if (selectedIds.length === 0) return;
+    const p = store.project;
+    const clips = selectedIds.map((id) => p.clips[id]).filter((c): c is Clip => c !== undefined);
+    const patches = nudgePatches(clips, msToBeats(ms, p.tempo), p.tempo);
+    if (patches.length === 0) return;
+    store.dispatch(
+      { type: 'patchClips', patches },
+      {
+        label: clips.length > 1 ? `Ajustar ${clips.length} clips` : 'Ajustar clip',
+        mergeKey: `pl:nudge:${[...selectedIds].sort().join(',')}`,
+      },
+    );
+    const key = [...selectedIds].sort().join(',');
+    if (nudgeTotal.current.key !== key) nudgeTotal.current = { key, ms: 0 };
+    nudgeTotal.current.ms += ms;
+    const total = nudgeTotal.current.ms;
+    notifyBanner(`${clips.length > 1 ? 'Clips corridos' : 'Clip corrido'} ${total > 0 ? '+' : ''}${total} ms en total`);
+  }, [selectedIds]);
 
   // El menú Editar y los atajos globales preguntan por aquí; se registra un
   // PROVEEDOR para que siempre lean la selección de ahora, no la del montaje.
@@ -1804,6 +1833,9 @@ export function Playlist() {
       if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         deleteSelection();
+      } else if (e.altKey && !e.ctrlKey && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+        e.preventDefault();
+        nudgeSelection((e.code === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? NUDGE_FINE_MS : NUDGE_MS));
       } else if (e.code === 'Escape') {
         clearSelection();
       } else if (e.code === 'KeyM' && !e.ctrlKey && !e.shiftKey && !e.altKey && here) {
@@ -1813,7 +1845,7 @@ export function Playlist() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectAll, duplicateSelection, deleteSelection, clearSelection, toggleSelectionMuted, selection]);
+  }, [selectAll, duplicateSelection, deleteSelection, clearSelection, toggleSelectionMuted, nudgeSelection, selection]);
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
 
@@ -1934,7 +1966,10 @@ export function Playlist() {
         >
           ✎
         </button>
-        <label className="pl-field">
+        <label
+          className="pl-field"
+          title="Rejilla al mover clips. «Libre» la quita. Para cuadrar una voz al milímetro: Alt al arrastrar ignora la rejilla, y con el clip seleccionado Alt+←/→ lo corre 10 ms (Alt+Shift+←/→, 1 ms)."
+        >
           Snap
           <select value={snapIdx} onChange={(e) => setSnapIdx(Number(e.target.value))}>
             {SNAPS.map((s, i) => (
