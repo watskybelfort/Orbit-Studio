@@ -190,6 +190,15 @@ export function setLatencySamplesManually(samples: number): void {
   persist({ [SETTINGS_SAMPLES]: value, [SETTINGS_SOURCE]: 'manual', [SETTINGS_CONFIDENCE]: null });
 }
 
+/**
+ * Lo mismo en milisegundos, que es como se piensa la latencia de unos
+ * audífonos inalámbricos (150–250 ms son normales en Bluetooth). Se guarda en
+ * muestras a la frecuencia del motor, como siempre.
+ */
+export function setLatencyMsManually(ms: number): void {
+  setLatencySamplesManually((Math.max(0, ms) * engine.sampleRate) / 1000);
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

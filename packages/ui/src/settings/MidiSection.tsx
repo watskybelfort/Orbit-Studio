@@ -48,6 +48,7 @@ import {
   latencyMs,
   refreshStaleness,
   runLatencyCalibration,
+  setLatencyMsManually,
   setLatencySamplesManually,
   useLatencyCalibrationStore,
 } from '../state/latency-calibration';
@@ -522,17 +523,17 @@ export function MidiSection() {
       <div className="set-row">
         <span className="set-label">Retardo</span>
         <NumberScrubber
-          value={latSamples}
+          value={Math.round(latencyMs())}
           min={0}
-          max={48000}
+          max={1000}
           step={1}
-          suffix=" smp"
-          onChange={setLatencySamplesManually}
+          suffix=" ms"
+          onChange={setLatencyMsManually}
         />
         <span className="set-value">
           {latSamples === 0
             ? 'Sin compensar: el clip cae donde se grabó, tal cual'
-            : `≈ ${latencyMs().toFixed(1)} ms · cada toma nueva nace corrida esto hacia atrás`}
+            : `${latSamples} muestras · cada toma nueva nace corrida esto hacia atrás`}
         </span>
         <button
           className="set-reset"
@@ -545,7 +546,10 @@ export function MidiSection() {
       </div>
       <p className="set-note">
         El número es editable a mano: quien conoce su interfaz sabe su cifra. Medirlo de nuevo
-        sobrescribe lo que haya, a mano o medido.
+        sobrescribe lo que haya, a mano o medido. <strong>Con audífonos inalámbricos</strong> el
+        bucle no se puede medir y el retardo es grande (en Bluetooth, 150–250 ms): graba una toma,
+        cuádrala a oído en la Playlist con Alt+←/→ (10 ms; con Shift, 1 ms), y pon aquí lo que la
+        moviste. Desde entonces cada toma nueva cae ya en su sitio.
       </p>
 
       {latStale && (
