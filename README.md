@@ -1,6 +1,6 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.13.0-5aa9e6)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.14.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
@@ -106,6 +106,15 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.14.0 — "a mano".** Menos atajos escondidos y más cosas que se agarran.
+**Cable al Mixer**: el LED verde de cada pista de la Playlist —y una etiqueta
+nueva «→ M / → 3» que dice por dónde suena— se arrastran hasta un canal del
+Mixer, que se abre al frente y se ilumina bajo la punta; al soltar, el audio de
+esa pista (tus tomas de voz) suena por ese canal, y el canal muestra «← Pista».
+**Barras de scroll** reales en la Playlist, vertical y horizontal. Y **borrar en
+ráfaga**: con el clic derecho mantenido se va todo lo que tocas, en un solo
+Ctrl+Z.
 
 **v3.13.0 — "al milímetro".** Pensado para grabar con audífonos inalámbricos,
 donde el Bluetooth retrasa lo que oyes y la toma cae corrida. **Alt+←/→ corre

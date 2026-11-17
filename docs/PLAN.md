@@ -6,6 +6,19 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 17-11-2026: v3.14.0
+
+**"A mano".** Encargo directo de experiencia de uso: cable de enrutado
+Playlist → Mixer (`state/route-cable.ts`, `editors/playlist/route-jack.ts`,
+`shell/RouteCableOverlay.tsx`) sobre `PlaylistTrack.mixerTrack`, barras de
+scroll arrastrables en la Playlist (`scrollbar.ts`, puro) y borrado en ráfaga
+con el clic derecho mantenido (un solo `removeClips`). Los tres probados con
+ratón real por CDP; la prueba del cable cazó que con el Mixer abierto detrás de
+la Playlist no había dónde soltar, y ahora se trae al frente. Red: **324
+archivos / 3817 tests**, typecheck, lint y build limpios, golden sin tocar.
+
+---
+
 ## Estado — 17-11-2026: v3.13.0
 
 **"Al milímetro".** Encargo directo: con audífonos inalámbricos la toma cae
