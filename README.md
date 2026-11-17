@@ -1,6 +1,6 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.10.0-5aa9e6)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.11.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
@@ -106,6 +106,38 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.11.0 — "la voz en su pista".** Dos meses y medio de trabajo desde la v3.10:
+una revisión de bugs de seis lanes en septiembre y dos pasadas de siete lanes en
+noviembre, que juntas dejan **más de cien hallazgos corregidos, cada uno con su
+test**, y lo que queda abierto escrito con su causa raíz en
+[REVISION-2026-11-15-B.md](docs/REVISION-2026-11-15-B.md).
+
+**Grabar voz ya es grabar voz.** La toma cae en su propia pista, cada vuelta del
+loop es una toma en su carril (no tres clips superpuestos), la latencia se
+compensa en todas las piezas y no solo en la primera, y el comping deja elegir
+cuál suena, renombrarla y borrarla. Espacio durante la toma la cierra sin
+arrancar el transporte detrás, y la captura se corta en el acto al parar.
+
+**Y una toma ya no se pierde si la app se cae.** Mientras se graba, el audio se
+escribe a disco cada medio segundo; si Orbit muere a mitad de toma, al volver la
+convierte a WAV y la inserta como «Toma recuperada», en un solo undo. Al guardar
+avisa si la toma clipeó.
+
+**La colaboración sabe quién es quién.** La identidad de sesión va firmada: rol,
+autoría y clientID sobreviven a un corte de red, y una credencial no se puede
+manipular, cruzar de sala ni usar caducada. El servidor pone sus topes antes de
+decodificar y guarda con debounce.
+
+**Un bug crítico que conviene saber:** guardar un layout de ventanas dejaba el
+proyecto imposible de reabrir. Está cerrado, con un test de ida y vuelta.
+
+**Además:** el pack **Warehouse** de techno y rave (134/156 BPM), `list_library`
+y `load_sample` para Claude (el MCP pasa a 24 tools), un motor que ya no se
+congela con un tempo inválido y roba voces sin alocar, export que alinea MIDI y
+WAV en una selección y mete el audio de la playlist en los stems, y la CI que
+avisa de los tests que se acercan a su timeout. La red: **318 archivos / 3772
+tests**, golden bit a bit sin tocar — esta versión no cambia el sonido.
 
 **v3.10.0 — "lo que se perdía en silencio".** La ronda empezó por el paso 0 del
 ciclo —comprobar que lo que la v3.9 prometió es real— y esta vez lo que encontró

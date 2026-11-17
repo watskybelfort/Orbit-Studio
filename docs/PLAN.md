@@ -6,6 +6,20 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 17-11-2026: v3.11.0
+
+**"La voz en su pista".** Release que recoge todo lo trabajado desde la v3.10.0
+(31-08): la revisión de bugs del 21-09 y las dos pasadas del 15-11, con la
+grabación de voz por tomas, el diario de toma que sobrevive a un crash, la
+identidad de sesión firmada (S7/S10) y el pack Warehouse. Antes de cortarla se
+trajo `main` de GitHub y se repitió la red completa sobre el árbol del tag:
+typecheck y lint limpios, **318 archivos / 3772 tests** en verde (la segunda
+pasada anotó 314 archivos con los mismos 3772 tests; hoy Vitest cuenta 318), build en verde, golden bit a bit sin tocar y la
+CI de `main` en verde. Los 18 abiertos de la segunda pasada siguen abiertos y
+escritos; la tercera pasada está preparada en [AUDIT-PROMPT.md](AUDIT-PROMPT.md).
+
+---
+
 ## Estado — 15-11-2026 (segunda pasada): los abiertos de la revisión y el diario de toma
 
 Segunda vuelta sobre las mismas siete lanes, arrancando por los catorce abiertos
