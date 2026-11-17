@@ -445,24 +445,35 @@ export function Playlist() {
    * seguidas sobre la misma selección se funden en un solo undo.
    */
   // Total corrido sobre la MISMA selección: es la cifra que hay que llevar a
-  // Ajustes → Retardo para que las tomas siguientes caigan ya cuadradas.
-  const nudgeTotal = useRef({ key: '', ms: 0 });
+  // Ajustes → Retardo para que las tomas siguientes caigan ya cuadradas. Se
+  // reinicia si los clips ya no están donde los dejó el último toque (un
+  // Ctrl+Z, o moverlos con el ratón): si no, sumaría ajustes que ya no están.
+  const nudgeTotal = useRef({ key: '', ms: 0, at: '' });
   const nudgeSelection = useCallback((ms: number) => {
     if (selectedIds.length === 0) return;
     const p = store.project;
     const clips = selectedIds.map((id) => p.clips[id]).filter((c): c is Clip => c !== undefined);
     const patches = nudgePatches(clips, msToBeats(ms, p.tempo), p.tempo);
     if (patches.length === 0) return;
+    // ANTES de despachar: el store cambia los clips en el sitio, así que
+    // después `clips` ya diría dónde quedan y no dónde estaban.
+    const key = [...selectedIds].sort().join(',');
+    const where = (list: readonly { start: number; audioOffset?: number }[]) =>
+      list.map((c) => `${c.start}:${c.audioOffset ?? 0}`).join('|');
+    if (nudgeTotal.current.key !== key || nudgeTotal.current.at !== where(clips)) {
+      nudgeTotal.current = { key, ms: 0, at: '' };
+    }
+    const byId = new Map(patches.map((patch) => [patch.id, patch]));
+    const landed = where(clips.map((c) => ({ ...c, ...byId.get(c.id) })));
     store.dispatch(
       { type: 'patchClips', patches },
       {
         label: clips.length > 1 ? `Ajustar ${clips.length} clips` : 'Ajustar clip',
-        mergeKey: `pl:nudge:${[...selectedIds].sort().join(',')}`,
+        mergeKey: `pl:nudge:${key}`,
       },
     );
-    const key = [...selectedIds].sort().join(',');
-    if (nudgeTotal.current.key !== key) nudgeTotal.current = { key, ms: 0 };
     nudgeTotal.current.ms += ms;
+    nudgeTotal.current.at = landed;
     const total = nudgeTotal.current.ms;
     notifyBanner(`${clips.length > 1 ? 'Clips corridos' : 'Clip corrido'} ${total > 0 ? '+' : ''}${total} ms en total`);
   }, [selectedIds]);

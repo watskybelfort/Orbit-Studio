@@ -15,6 +15,12 @@
  *   la toma llega tarde y hay que traerla hacia atrás.
  * - Un clip estirado (`audioStretch`) o de patrón/automatización no tiene
  *   «audio antes» que destapar: se acota en 0.
+ * - Un clip de audio recortable lleva SIEMPRE `start`, `length` y
+ *   `audioOffset` en su parche, aunque solo cambie `start`. Las pulsaciones
+ *   seguidas se funden en un undo y el historial conserva el inverso del
+ *   PRIMER comando de la ráfaga: si ese solo traía `start`, el Ctrl+Z no sabía
+ *   devolver el arranque recortado por las pulsaciones de después (medido en la
+ *   app: el clip volvía a su sitio con 53 ms de voz menos).
  */
 
 /** Paso normal (Alt+flecha). */
@@ -55,13 +61,18 @@ export function nudgePatches(clips: readonly NudgeClip[], deltaBeats: number, te
   const out: NudgePatch[] = [];
   for (const clip of clips) {
     const wanted = clip.start + deltaBeats;
+    const trimmable = clip.kind === 'audio' && !clip.audioStretch;
     if (wanted >= 0) {
-      out.push({ id: clip.id, start: wanted });
+      out.push(
+        trimmable
+          ? { id: clip.id, start: wanted, length: clip.length, audioOffset: clip.audioOffset ?? 0 }
+          : { id: clip.id, start: wanted },
+      );
       continue;
     }
     const overflow = -wanted;
     // Recortar el arranque: no puede comerse el clip entero.
-    if (clip.kind === 'audio' && !clip.audioStretch && overflow < clip.length - 1e-6) {
+    if (trimmable && overflow < clip.length - 1e-6) {
       out.push({
         id: clip.id,
         start: 0,

@@ -23,8 +23,8 @@ describe('nudgePatches', () => {
   });
 
   it('corre el clip hacia atrás y hacia delante', () => {
-    expect(nudgePatches([audio()], -0.5, 120)).toEqual([{ id: 'a', start: 3.5 }]);
-    expect(nudgePatches([audio()], 0.25, 120)).toEqual([{ id: 'a', start: 4.25 }]);
+    expect(nudgePatches([audio()], -0.5, 120)).toEqual([{ id: 'a', start: 3.5, length: 8, audioOffset: 0 }]);
+    expect(nudgePatches([audio()], 0.25, 120)).toEqual([{ id: 'a', start: 4.25, length: 8, audioOffset: 0 }]);
   });
 
   it('una toma en el compás 1 que hay que adelantar recorta su arranque en vez de quedarse clavada', () => {
@@ -45,6 +45,31 @@ describe('nudgePatches', () => {
     expect(nudgePatches([audio()], 0, 120)).toEqual([]);
     expect(nudgePatches([audio()], Number.NaN, 120)).toEqual([]);
     expect(nudgePatches([{ id: 'p', kind: 'pattern', start: 0, length: 4 }], -1, 120)).toEqual([]);
+  });
+});
+
+describe('deshacer una ráfaga', () => {
+  it('un Ctrl+Z devuelve también el arranque recortado, aunque el primer toque solo moviera', async () => {
+    const core = await import('@orbit/core');
+    const store = new core.ProjectStore();
+    const track = Object.values(store.project.playlistTracks)[0]!;
+    const sample = { id: 's1', name: 'Toma', path: 'recording:t.wav', hash: 'h', duration: 10 };
+    store.dispatch({ type: 'registerSample', sample });
+    const clip = { id: 'c1', kind: 'audio' as const, playlistTrackId: track.id, start: 0.02, length: 8, muted: false, sampleId: 's1', audioOffset: 0, audioGain: 1 };
+    store.dispatch({ type: 'addClips', clips: [clip] });
+    const tempo = store.project.tempo;
+    // Primer toque: solo cabe moverlo (sigue >= 0). Los siguientes ya recortan.
+    for (const ms of [-1, -100, -100]) {
+      const now = store.project.clips['c1']!;
+      const patches = nudgePatches([now], msToBeats(ms, tempo), tempo);
+      store.dispatch({ type: 'patchClips', patches }, { label: 'Ajustar clip', mergeKey: 'pl:nudge:c1' });
+    }
+    expect(store.project.clips['c1']!.audioOffset).toBeGreaterThan(0);
+    store.undo();
+    const back = store.project.clips['c1']!;
+    expect(back.start).toBeCloseTo(0.02);
+    expect(back.length).toBe(8);
+    expect(back.audioOffset).toBe(0);
   });
 });
 
