@@ -1,6 +1,6 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.12.0-5aa9e6)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.13.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
@@ -106,6 +106,15 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.13.0 — "al milímetro".** Pensado para grabar con audífonos inalámbricos,
+donde el Bluetooth retrasa lo que oyes y la toma cae corrida. **Alt+←/→ corre
+los clips seleccionados 10 ms** (Alt+Shift, 1 ms), en un solo Ctrl+Z, y un
+aviso dice el total corrido; una toma en el compás 1 que hay que adelantar
+recorta su arranque en vez de quedarse clavada. El **Retardo de grabación** de
+Ajustes pasa a **milisegundos**: cuadras una toma a oído, pones ahí el total
+que dijo el aviso, y las tomas siguientes caen ya en su sitio. Y la rejilla
+sin snap se llama «Libre», con los atajos explicados en el propio control.
 
 **v3.12.0 — "grabar viendo".** Tres cosas pedidas en uso real. **La toma se ve
 mientras grabas**: se pinta en rojo de Rec en la pista y el carril donde va a

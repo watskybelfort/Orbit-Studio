@@ -6,6 +6,18 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 17-11-2026: v3.13.0
+
+**"Al milímetro".** Encargo directo: con audífonos inalámbricos la toma cae
+corrida y arrastrarla no daba la precisión (un píxel ~18 ms a 140 BPM). Ajuste
+fino con Alt+←/→ (10 ms; Shift, 1 ms) en `editors/playlist/nudge.ts`, retardo
+de grabación en ms en Ajustes, y «Libre» en el Snap. Probado en la app con
+teclas reales por CDP, que cazó dos fallos antes de publicar (el Ctrl+Z de una
+ráfaga perdía el recorte; el total del aviso se reiniciaba en cada toque). Red:
+**321 archivos / 3793 tests**, typecheck, lint y build limpios, golden sin tocar.
+
+---
+
 ## Estado — 17-11-2026: v3.12.0
 
 **"Grabar viendo".** Encargo directo tras instalar la v3.11: la toma de voz se

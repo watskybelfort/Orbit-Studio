@@ -13,7 +13,7 @@ body:
     attributes:
       label: Versión de Orbit
       description: Está en Ayuda → Acerca de, o en el nombre del instalador.
-      placeholder: "3.12.0"
+      placeholder: "3.13.0"
     validations:
       required: true
 
