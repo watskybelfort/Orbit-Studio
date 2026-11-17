@@ -1,6 +1,6 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.11.0-5aa9e6)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.12.0-5aa9e6)
 ![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
@@ -106,6 +106,16 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.12.0 — "grabar viendo".** Tres cosas pedidas en uso real. **La toma se ve
+mientras grabas**: se pinta en rojo de Rec en la pista y el carril donde va a
+caer, con su onda creciendo en vivo, y al parar el clip queda exactamente ahí
+(la vista en vivo decide la pista con la misma regla que el guardado). **El
+botón Voz graba a la vista**: antes creaba la pista «Voz» al final —la novena
+de un proyecto nuevo, debajo de lo visible—; ahora usa la primera pista vacía
+de fábrica y la renombra, y si la pista de la toma queda fuera de la vista la
+Playlist baja sola hasta ella. **Y el panel de Claude se oculta con un clic**:
+botón «Claude» en la barra, junto a «Sonidos», y una × en su cabecera.
 
 **v3.11.0 — "la voz en su pista".** Dos meses y medio de trabajo desde la v3.10:
 una revisión de bugs de seis lanes en septiembre y dos pasadas de siete lanes en

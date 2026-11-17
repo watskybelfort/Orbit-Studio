@@ -6,6 +6,20 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 17-11-2026: v3.12.0
+
+**"Grabar viendo".** Encargo directo tras instalar la v3.11: la toma de voz se
+pinta en la Playlist mientras se graba (`state/live-take.ts` + `liveRecordingView`
+en el grabador, que coloca con `placeTake` en seco), el botón Voz reutiliza la
+primera pista vacía de fábrica en vez de crear una al final, la Playlist baja
+sola a la pista que graba, y el panel de Claude tiene botón propio en la barra
+y una × en su cabecera. Verificado en la app de desarrollo con una fuente
+sintética por CDP (vista en vivo, desplazamiento, clip guardado en el mismo
+sitio) y con la red completa: **320 archivos / 3785 tests**, typecheck, lint y
+build limpios, golden sin tocar.
+
+---
+
 ## Estado — 17-11-2026: v3.11.0
 
 **"La voz en su pista".** Release que recoge todo lo trabajado desde la v3.10.0
