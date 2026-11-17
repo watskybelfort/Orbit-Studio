@@ -70,6 +70,8 @@ import {
 } from './selection';
 import { msToBeats, NUDGE_FINE_MS, NUDGE_MS, nudgePatches } from './nudge';
 import { PlaylistScrollbar } from './PlaylistScrollbar';
+import { useJack } from './route-jack';
+import { mixerTargetLabel } from '../../state/route-cable';
 import { playlistContentBeats } from './scrollbar';
 import './playlist.css';
 
@@ -2310,6 +2312,13 @@ function TrackHeader({ track }: TrackHeaderProps) {
       { label: track.muted ? `Activar pista "${track.name}"` : `Silenciar pista "${track.name}"` },
     );
   };
+  // Conectores: el LED (clic = silenciar) y la etiqueta de destino (clic =
+  // abrir el Mixer). Arrastrar cualquiera de los dos saca el cable.
+  const jackTrack = { id: track.id, name: track.name, color: track.color };
+  const ledJack = useJack(jackTrack, toggleMute);
+  const routeJack = useJack(jackTrack, () => useUiStore.getState().openWindow('mixer'));
+  const routeIndex = Math.min(project.mixer.length - 1, Math.max(0, track.mixerTrack ?? 0));
+  const routeName = mixerTargetLabel(routeIndex, project.mixer[routeIndex]?.name);
 
   const commitName = (raw: string) => {
     setEditing(false);
@@ -2450,8 +2459,8 @@ function TrackHeader({ track }: TrackHeaderProps) {
     >
       <button
         className={`pl-led${track.muted ? '' : ' on'}`}
-        title="Silenciar pista"
-        onClick={toggleMute}
+        title={`Clic: silenciar pista · Arrastra para conectar su audio a un canal del Mixer (ahora: ${routeName})`}
+        {...ledJack}
       />
       <label className="pl-swatch" title="Color de pista" style={{ background: track.color }}>
         <input type="color" value={track.color} onChange={(e) => setColor(e.target.value)} />
@@ -2485,6 +2494,14 @@ function TrackHeader({ track }: TrackHeaderProps) {
           {track.name}
         </button>
       )}
+      <button
+        className={`pl-route${routeIndex === 0 ? ' is-master' : ''}`}
+        title={`El audio de esta pista suena por ${routeName}. Arrastra hasta un canal del Mixer para cambiarlo · clic: abrir el Mixer`}
+        aria-label={`Salida de audio: ${routeName}`}
+        {...routeJack}
+      >
+        → {routeIndex === 0 ? 'M' : routeIndex}
+      </button>
       {lanes > 1 && track.height >= 52 && (
         <button
           className="pl-take-badge"

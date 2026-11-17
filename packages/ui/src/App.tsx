@@ -8,6 +8,7 @@ import { ShortcutsDialog } from './shell/ShortcutsDialog';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
 import { StudioNavigation } from './shell/StudioNavigation';
+import { RouteCableOverlay } from './shell/RouteCableOverlay';
 import { Browser } from './browser';
 import { ClaudePanel } from './claude/ClaudePanel';
 import { IconClose } from './icons';
@@ -180,6 +181,7 @@ export function App() {
         )}
       </div>
       <CommandPalette />
+      <RouteCableOverlay />
       {aboutOpen && <AboutDialog />}
       {shortcutsOpen && <ShortcutsDialog />}
       {/*

@@ -382,6 +382,45 @@ html[data-theme='acrylic'] .playlist {
   box-shadow: 0 0 6px color-mix(in srgb, var(--meter) 60%, transparent);
 }
 
+/* El LED y la etiqueta de destino son también conectores: se arrastran para
+   sacar el cable hasta el Mixer (state/route-cable.ts). */
+.pl-led {
+  cursor: grab;
+  touch-action: none;
+}
+
+.pl-route {
+  flex: none;
+  margin-left: auto;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: nowrap;
+  cursor: grab;
+  touch-action: none;
+}
+
+.pl-route.is-master {
+  color: var(--text-dim);
+}
+
+.pl-route:hover,
+.pl-route:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pl-led:active,
+.pl-route:active {
+  cursor: grabbing;
+}
+
 /* Swatch de color de la pista (el input nativo va invisible encima) */
 
 .pl-swatch {

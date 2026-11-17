@@ -709,3 +709,55 @@ html[data-theme='acrylic'] .claude-panel {
 .tbtn.mon.hot .mon-level {
   background: var(--meter-clip);
 }
+
+/* ── Cable de enrutado (Playlist → Mixer) ──
+   Capa a pantalla completa que no recibe eventos: el gesto lo lleva el
+   conector de la pista y `elementFromPoint` encuentra el canal de debajo. El
+   color del cable es el de la pista (dato del proyecto, va en línea). */
+.route-cable {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+}
+
+.route-cable__svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+
+.route-cable__shadow {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+
+.route-cable__wire {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.route-cable__plug {
+  fill: var(--surface);
+  stroke-width: 3;
+  transition: r 100ms ease;
+}
+
+.route-cable__plug.is-over {
+  r: 9;
+  fill: var(--accent);
+}
+
+.route-cable__label {
+  position: absolute;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  color: var(--text);
+  box-shadow: var(--shadow-popup);
+}

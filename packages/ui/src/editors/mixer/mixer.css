@@ -669,3 +669,17 @@
   font-size: 10px;
   color: var(--accent);
 }
+
+/* Destino del cable de enrutado (Playlist → Mixer): mientras se arrastra, los
+   canales se ofrecen; el que está bajo la punta se ilumina. */
+.strip.cable-armed {
+  outline: 1px dashed var(--border);
+  outline-offset: -2px;
+}
+
+.strip.cable-over {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--surface-2);
+}
+

@@ -17,6 +17,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { MIXER_INSERT_ATTR, playlistSourcesByInsert, useRouteCable } from '../../state/route-cable';
 import { notifyBanner } from '../../state/bounce';
 import {
   EQ_MAX,
@@ -233,6 +234,8 @@ interface StripProps {
    * dónde le llega la señal: los canales no la declaran, la declara la carpeta.
    */
   busOf?: { name: string; color: string };
+  /** Pistas de la Playlist cuyo audio entra por aquí (el cable de enrutado). */
+  sources?: { name: string; color: string }[];
   onSelect: (index: number) => void;
   onToggleSend: (index: number) => void;
   onContextMenu: (e: React.MouseEvent<HTMLDivElement>, index: number) => void;
@@ -246,6 +249,7 @@ function Strip({
   sendActive,
   isRouteTarget,
   busOf,
+  sources,
   onSelect,
   onToggleSend,
   onContextMenu,
@@ -271,10 +275,15 @@ function Strip({
   );
 
   const db = gainToDb(track.volume);
+  // Destino del cable de enrutado que viene de la Playlist: todos los canales
+  // se marcan mientras se arrastra, y el que está bajo la punta se ilumina.
+  const cableArmed = useRouteCable((s) => s.drag !== null);
+  const cableOver = useRouteCable((s) => s.drag?.hover === index);
 
   return (
     <div
-      className={`strip${selected ? ' selected' : ''}${index === 0 ? ' master' : ''}`}
+      className={`strip${selected ? ' selected' : ''}${index === 0 ? ' master' : ''}${cableArmed ? ' cable-armed' : ''}${cableOver ? ' cable-over' : ''}`}
+      {...{ [MIXER_INSERT_ATTR]: index }}
       onClick={(e) => {
         if ((e.ctrlKey || e.metaKey) && showDot) onToggleSend(index);
         else onSelect(index);
@@ -309,6 +318,15 @@ function Strip({
           title={`Bus de la carpeta "${busOf.name}" del Channel Rack`}
         >
           {busOf.name}
+        </div>
+      )}
+      {sources && sources.length > 0 && (
+        <div
+          className="strip-bus strip-source"
+          style={{ borderColor: sources[0]!.color }}
+          title={`Entra el audio de: ${sources.map((s) => s.name).join(', ')} (Playlist)`}
+        >
+          ← {sources[0]!.name}{sources.length > 1 ? ` +${sources.length - 1}` : ''}
         </div>
       )}
       <Knob
@@ -1300,6 +1318,7 @@ export function Mixer() {
   const mixer = project.mixer;
   /** Pista → carpeta del rack que suma en ella (ver model/groups.ts en core). */
   const buses = busTracks(project);
+  const sources = playlistSourcesByInsert(project);
   const selIndex = selectedRaw >= 0 && selectedRaw < mixer.length ? selectedRaw : 0;
   const selTrack = mixer[selIndex];
 
@@ -1370,6 +1389,7 @@ export function Mixer() {
             sendActive={i !== selIndex && selTrack.sends.some((s) => s.target === i)}
             isRouteTarget={i !== selIndex && selTrack.routeTo === i}
             busOf={buses.get(i)}
+            sources={sources.get(i)}
             onSelect={onSelect}
             onToggleSend={onToggleSend}
             onContextMenu={onStripContext}
