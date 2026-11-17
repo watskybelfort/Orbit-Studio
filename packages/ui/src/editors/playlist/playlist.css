@@ -21,6 +21,8 @@
   --pl-clip-text: #101114;
   --pl-ghost: rgba(232, 233, 236, 0.45);
   --pl-fade: #e6c95a;
+  /* La toma que se está grabando: el rojo de Rec (--danger), en literal. */
+  --pl-rec: #e65a5a;
 }
 
 html[data-theme='light'] .playlist {
@@ -35,6 +37,7 @@ html[data-theme='light'] .playlist {
   --pl-clip-text: #14161a;
   --pl-ghost: rgba(23, 24, 28, 0.4);
   --pl-fade: #b8891a;
+  --pl-rec: #e65a5a;
 }
 
 html[data-theme='acrylic'] .playlist {
@@ -49,6 +52,7 @@ html[data-theme='acrylic'] .playlist {
   --pl-clip-text: #101114;
   --pl-ghost: rgba(232, 233, 236, 0.45);
   --pl-fade: #e6c95a;
+  --pl-rec: #e65a5a;
 }
 
 /* ── Toolbar ── */

@@ -58,6 +58,7 @@ import {
 } from './recording-journal';
 import { collectWorkletSamples, noteRecordingWritten, withPinnedSamples } from './sample-gc';
 import { heightForTakeLanes, recordedTakeSegments } from './take-stack';
+import { framesToBeats, LivePeaks, liveTakeClips, type LiveTakeClip } from './live-take';
 import { useUiStore } from './ui';
 
 export type RecorderPhase = 'idle' | 'countin' | 'recording' | 'saving';
@@ -157,6 +158,8 @@ interface TakeBuffer {
   peak: number;
   /** Carril de comping que le tocó al colocarla (lo pone `placeTake`). */
   lane?: number;
+  /** Forma de onda resumida para pintar la toma en la Playlist mientras se graba. */
+  live: LivePeaks;
 }
 
 /**
@@ -164,6 +167,12 @@ interface TakeBuffer {
  * Vacío = no se está grabando.
  */
 let takes: TakeBuffer[] = [];
+/**
+ * Las tomas recién paradas, mientras se guardan: `releaseInput` vacía `takes`
+ * antes de codificar el WAV, y sin esto la toma desaparecería de la Playlist
+ * un momento hasta que entra el clip de verdad. Se suelta al terminar.
+ */
+let savingTakes: TakeBuffer[] = [];
 
 /**
  * Índice de la ruta cuyo audio llega por el camino de SIEMPRE —el
@@ -221,6 +230,7 @@ function pushTakeChunk(routeIndex: number, left: Float32Array, right: Float32Arr
   take.total += left.length;
   const peak = peakOf(left, right);
   if (peak > take.peak) take.peak = peak;
+  take.live.push(left, right);
   // Copia de seguridad en disco: si la app muere, esto es lo único que queda.
   journalChunk(routeIndex, left, right);
 }
@@ -547,7 +557,7 @@ async function startRecording(): Promise<void> {
         'Ninguna entrada armada con canales disponibles: revisa Ajustes → Entradas.',
       );
     }
-    takes = armed.map(({ index, route }) => ({ index, route, left: [], right: [], total: 0, peak: 0 }));
+    takes = armed.map(({ index, route }) => ({ index, route, left: [], right: [], total: 0, peak: 0, live: new LivePeaks() }));
     primaryRoute = takes[0]!.index;
     // Rodando, la posición buena es la extrapolada: la del store viene del
     // último frame de medidores y puede ir hasta 46 ms por detrás.
@@ -672,6 +682,7 @@ function placeTake(
   claimed: Set<Id>,
   commands: Command[],
   arrangementId = project.activeArrangementId,
+  memory: Map<string, Id> = lastTakeTrackByRoute,
 ): Id {
   const clips = Object.values(project.clips);
   const overlaps = (c: Clip) =>
@@ -681,7 +692,7 @@ function placeTake(
   const declared = take.route.playlistTrackId
     ? project.playlistTracks[take.route.playlistTrackId]
     : undefined;
-  const previousId = declared ? declared.id : lastTakeTrackByRoute.get(routeKey);
+  const previousId = declared ? declared.id : memory.get(routeKey);
   let previous = previousId ? project.playlistTracks[previousId] : undefined;
   /*
    * Sin memoria de sesión (la app se acaba de abrir, o el proyecto viene de
@@ -732,7 +743,7 @@ function placeTake(
       });
     }
     claimed.add(previous.id);
-    lastTakeTrackByRoute.set(routeKey, previous.id);
+    memory.set(routeKey, previous.id);
     return previous.id;
   }
 
@@ -745,7 +756,7 @@ function placeTake(
   take.lane = 0;
   if (free) {
     claimed.add(free.id);
-    lastTakeTrackByRoute.set(routeKey, free.id);
+    memory.set(routeKey, free.id);
     return free.id;
   }
   const track = createPlaylistTrack(arrangementId, tracks.length + claimed.size);
@@ -754,11 +765,57 @@ function placeTake(
   track.name = take.route.routeId ? take.route.name : 'Grabaciones';
   commands.push({ type: 'addPlaylistTrack', track });
   claimed.add(track.id);
-  lastTakeTrackByRoute.set(routeKey, track.id);
+  memory.set(routeKey, track.id);
   return track.id;
 }
 
 interface RecordedTake { take: TakeBuffer; left: Float32Array; right: Float32Array }
+
+/** Lo que la Playlist necesita para pintar una entrada que está grabando. */
+export interface LiveTakeView {
+  trackId: Id;
+  clips: LiveTakeClip[];
+  peaks: LivePeaks;
+  sampleRate: number;
+  tempo: number;
+}
+
+/**
+ * Las tomas en curso, colocadas donde van a caer al parar. La Playlist lo
+ * llama en cada fotograma mientras suena, así que no guarda nada: decide la
+ * pista con `placeTake` EN SECO —una copia de la toma, una memoria de pistas
+ * copiada y comandos que se tiran—, que es la misma decisión que tomará el
+ * guardado sobre el mismo proyecto. Si la toma fuera a estrenar una pista
+ * nueva (todas ocupadas en ese tramo) esa pista aún no existe y no se pinta.
+ */
+export function liveRecordingView(): LiveTakeView[] {
+  const current = session;
+  const live = takes.length > 0 ? takes : savingTakes;
+  if (!current || current.cancelled || live.length === 0) return [];
+  const project = store.project;
+  if (project.id !== current.projectId || project.activeArrangementId !== current.arrangementId) return [];
+  const claimed = new Set<Id>();
+  const memory = new Map(lastTakeTrackByRoute);
+  const out: LiveTakeView[] = [];
+  for (const buffer of live) {
+    if (buffer.live.frames === 0) continue;
+    const totalBeats = framesToBeats(buffer.live.frames, current.rate, current.tempo);
+    const segments = recordedTakeSegments(current.start, totalBeats, current.loop);
+    const spanStart = Math.min(...segments.map((segment) => segment.start));
+    const spanEnd = Math.max(...segments.map((segment) => segment.start + segment.length));
+    const dry: TakeBuffer = { ...buffer };
+    const trackId = placeTake(project, dry, spanStart, spanEnd - spanStart, claimed, [], current.arrangementId, memory);
+    if (!project.playlistTracks[trackId]) continue;
+    out.push({
+      trackId,
+      clips: liveTakeClips(current.start, totalBeats, current.loop, dry.lane ?? 0),
+      peaks: buffer.live,
+      sampleRate: current.rate,
+      tempo: current.tempo,
+    });
+  }
+  return out;
+}
 
 function stopRecording(take: RecordingSession | null = session, immediate = false): Promise<void> {
   if (!take) return Promise.resolve();
@@ -787,6 +844,7 @@ function stopRecording(take: RecordingSession | null = session, immediate = fals
       const audio = takes.map((buffer) => ({
         take: buffer, left: concatChunks(buffer.left, buffer.total), right: concatChunks(buffer.right, buffer.total),
       })).filter((item) => item.left.length > 0);
+      savingTakes = takes;
       releaseInput(take);
       resolve(audio);
     };
@@ -795,6 +853,7 @@ function stopRecording(take: RecordingSession | null = session, immediate = fals
     try {
       await saveRecordedTakes(take, await recorded);
     } finally {
+      savingTakes = [];
       take.unsubscribe();
       if (ownsRecorder(take)) useRecorderStore.setState({ phase: 'idle' });
       if (session === take) session = null;

@@ -52,6 +52,7 @@ import {
 import { packClips, readClipboard, setClipboard, unpackClips } from '../../state/clipboard';
 import { claimEditFocus, registerEditActions, activeEditTarget } from '../../state/edit-focus';
 import { PEAK_COLS, onPeaksReady, requestPeaks } from '../../state/sample-peaks';
+import { liveRecordingView, useRecorderStore } from '../../state/recorder';
 import { chooseTakePatches, clipsOverlap, compactTakeLanePatches, heightForTakeLanes, laneBand, TAKE_LANE_MIN_H, takeLaneCount, takeLaneCountCompact, takeRows } from '../../state/take-stack';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
@@ -155,6 +156,9 @@ export function Playlist() {
   const playMode = useUiStore((s) => s.playMode);
   // Posición para el caret parado (durante reproducción redibuja el RAF).
   const idlePos = useUiStore((s) => (s.playing ? -1 : s.positionBeats));
+  // Señal de repintado para la toma en vivo: al terminar de guardar (o fallar)
+  // la vista en vivo se suelta y hay que borrarla aunque el transporte pare.
+  const recPhase = useRecorderStore((s) => s.phase);
   // Conectados de la sesión (para pintar sus cursores remotos).
   const peers = useCollabStore((s) => s.peers);
 
@@ -553,6 +557,8 @@ export function Playlist() {
   const draw = useCallback(() => {
     // themeVersion en deps: los tokens se leen con getComputedStyle por tema.
     void themeVersion;
+    // recPhase: invalida al terminar una toma (ver su declaración).
+    void recPhase;
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
     if (!canvas || !wrap) return;
@@ -837,11 +843,21 @@ export function Playlist() {
       ctx.globalAlpha = 1;
     }
 
+    // La toma que se está grabando, colocada donde va a caer al parar. Si
+    // estrena un carril, la pista se reparte ya entre todos: es lo mismo que
+    // hará al guardarse (la pista crece), así nada salta al parar.
+    const live = liveRecordingView();
+    const liveLanes = new Map<Id, number>();
+    for (const v of live) {
+      for (const c of v.clips) liveLanes.set(v.trackId, Math.max(liveLanes.get(v.trackId) ?? 0, c.lane + 1));
+    }
+    const lanesOf = (trackId: Id) => Math.max(laneCount(trackId), liveLanes.get(trackId) ?? 0);
+
     // Clips por pista + ghosts del gesto de pintado.
     for (const r of rows) {
       const y = RULER_H + r.top - scrollY;
       if (y + r.track.height < RULER_H || y > h) continue;
-      const lanes = laneCount(r.track.id);
+      const lanes = lanesOf(r.track.id);
       const laneH = r.track.height / lanes;
       for (const c of clipsByTrack.get(r.track.id) ?? []) {
         const lane = Math.min(lanes - 1, Math.max(0, c.lane ?? 0));
@@ -851,6 +867,60 @@ export function Playlist() {
       if (lanes > 1) {
         ctx.fillStyle = col('--pl-grid-beat');
         for (let l = 1; l < lanes; l++) ctx.fillRect(0, y + l * laneH, w, 1);
+      }
+    }
+    if (live.length > 0) {
+      const rec = col('--pl-rec');
+      for (const v of live) {
+        const r = rows.find((row) => row.track.id === v.trackId);
+        if (!r) continue;
+        const rowY = RULER_H + r.top - scrollY;
+        if (rowY + r.track.height < RULER_H || rowY > h) continue;
+        const laneH = r.track.height / lanesOf(v.trackId);
+        const framesPerBeat = v.sampleRate * 60 / v.tempo;
+        for (const c of v.clips) {
+          const x = beatToX(c.start);
+          const cw = Math.max(2, c.length * zoom - 1);
+          if (x + cw < 0 || x > w) continue;
+          const y = rowY + c.lane * laneH;
+          const base = c.muted ? 0.45 : 1;
+          ctx.beginPath();
+          ctx.roundRect(x + 0.5, y + 1.5, cw, laneH - 4, 3);
+          ctx.fillStyle = rec;
+          ctx.globalAlpha = base * 0.2;
+          ctx.fill();
+          ctx.globalAlpha = base * 0.9;
+          ctx.strokeStyle = rec;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.save();
+          ctx.clip();
+          const stripH = Math.max(0, Math.min(13, laneH - 6));
+          if (cw > 40 && laneH >= 18) {
+            ctx.globalAlpha = base;
+            ctx.fillStyle = rec;
+            ctx.font = `9px ${font}`;
+            ctx.fillText(c.muted ? 'Vuelta anterior' : '● Grabando', x + 4, y + stripH - 2);
+          }
+          const top = y + 1.5 + (laneH >= 18 ? stripH + 2 : 0);
+          const ah = y + laneH - 4 - top;
+          if (ah > 4) {
+            const mid = top + ah / 2;
+            const amp = ah / 2 - 0.5;
+            ctx.globalAlpha = base * 0.85;
+            const from = Math.max(0, Math.floor(-x));
+            const to = Math.min(cw, Math.ceil(w - x));
+            for (let px = from; px < to; px++) {
+              const column = v.peaks.columnAt((c.offsetBeats + px / zoom) * framesPerBeat);
+              if (column < 0) continue;
+              const yTop = mid - Math.min(1, v.peaks.max[column]!) * amp;
+              const yBot = mid - Math.max(-1, v.peaks.min[column]!) * amp;
+              ctx.fillRect(x + px, yTop, 1, Math.max(1, yBot - yTop));
+            }
+          }
+          ctx.restore();
+          ctx.globalAlpha = 1;
+        }
       }
     }
     if (paintGhost.current) {
@@ -970,7 +1040,7 @@ export function Playlist() {
     // el playhead está gateado a `playing`, así que en pausa esto es lo único
     // que dispara el repintado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection, recPhase]);
 
   useEffect(() => {
     draw();
