@@ -449,6 +449,51 @@ html[data-theme='acrylic'] .playlist {
   overflow: hidden;
 }
 
+/* Barras de scroll del lienzo: el canvas no tiene las nativas. Mismos colores
+   que los scrollbars de la app (theme/base.css), algo más gruesas para
+   agarrarlas sin apuntar. */
+.pl-scroll {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.pl-scroll--v {
+  top: 26px;
+  right: 0;
+  bottom: 12px;
+  width: 12px;
+}
+
+.pl-scroll--h {
+  left: 0;
+  right: 12px;
+  bottom: 0;
+  height: 12px;
+}
+
+.pl-scroll__thumb {
+  position: absolute;
+  border-radius: 5px;
+  background: var(--border);
+  transition: background 120ms ease;
+}
+
+.pl-scroll--v .pl-scroll__thumb {
+  left: 2px;
+  right: 2px;
+}
+
+.pl-scroll--h .pl-scroll__thumb {
+  top: 2px;
+  bottom: 2px;
+}
+
+.pl-scroll:hover .pl-scroll__thumb,
+.pl-scroll:active .pl-scroll__thumb {
+  background: var(--text-dim);
+}
+
 .pl-canvas {
   display: block;
   touch-action: none;

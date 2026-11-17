@@ -69,6 +69,8 @@ import {
   type SelectableClip,
 } from './selection';
 import { msToBeats, NUDGE_FINE_MS, NUDGE_MS, nudgePatches } from './nudge';
+import { PlaylistScrollbar } from './PlaylistScrollbar';
+import { playlistContentBeats } from './scrollbar';
 import './playlist.css';
 
 /** Altura de la regla en px; debe coincidir con .pl-corner del CSS. */
@@ -187,6 +189,8 @@ export function Playlist() {
   const [zoom, setZoom] = useState(24); // px por beat
   const [scrollX, setScrollX] = useState(0); // beats
   const [scrollY, setScrollY] = useState(0); // px
+  /** Tamaño del lienzo, para las barras de scroll (lo mide el ResizeObserver). */
+  const [viewSize, setViewSize] = useState({ w: 0, h: 0 });
   const [snapIdx, setSnapIdx] = useState(0);
   /**
    * Marcador en edición (caja flotante sobre la regla). NO guarda la x: la
@@ -329,6 +333,13 @@ export function Playlist() {
     for (const list of m.values()) list.sort((a, b) => a.start - b.start);
     return m;
   }, [project, tracks]);
+
+  /** Dónde acaba lo último que hay en el arreglo, para el largo de la barra horizontal. */
+  const songEnd = useMemo(() => {
+    let last = 0;
+    for (const list of clipsByTrack.values()) for (const c of list) last = Math.max(last, c.start + c.length);
+    return last;
+  }, [clipsByTrack]);
 
   /** Índice de fila de cada pista (el arrastre de grupo se mueve por índices). */
   const trackIndexOf = useMemo(() => {
@@ -1143,6 +1154,7 @@ export function Playlist() {
     if (!wrap) return;
     const ro = new ResizeObserver(() => {
       clampScrollY();
+      setViewSize((v) => (v.w === wrap.clientWidth && v.h === wrap.clientHeight ? v : { w: wrap.clientWidth, h: wrap.clientHeight }));
       draw();
     });
     ro.observe(wrap);
@@ -2254,6 +2266,22 @@ export function Playlist() {
           {rows.length === 0 && (
             <div className="pl-empty">Sin pistas — añade una con “+ Pista”.</div>
           )}
+          <PlaylistScrollbar
+            orientation="v"
+            label="Desplazar las pistas"
+            viewport={Math.max(0, viewSize.h - RULER_H)}
+            content={totalH}
+            scroll={scrollY}
+            onScroll={setScrollY}
+          />
+          <PlaylistScrollbar
+            orientation="h"
+            label="Desplazar en el tiempo"
+            viewport={zoom > 0 ? viewSize.w / zoom : 0}
+            content={playlistContentBeats(songEnd, scrollX, zoom > 0 ? viewSize.w / zoom : 0, barLen)}
+            scroll={scrollX}
+            onScroll={(beats) => setScrollX(Math.max(0, beats))}
+          />
         </div>
       </div>
     </div>
