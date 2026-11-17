@@ -289,6 +289,30 @@ export function Playlist() {
     clampScrollY();
   }, [clampScrollY]);
 
+  /*
+   * Al empezar una toma, la pista donde cae tiene que estar a la vista: grabar
+   * con la toma pintándose debajo de lo visible es grabar a ciegas otra vez.
+   * Se espera al primer trozo de audio (antes no hay toma que ubicar) y se
+   * baja UNA vez; después el scroll es del usuario.
+   */
+  useEffect(() => {
+    if (recPhase !== 'recording') return;
+    const timer = window.setInterval(() => {
+      const live = liveRecordingView()[0];
+      if (!live) return;
+      window.clearInterval(timer);
+      const row = rows.find((r) => r.track.id === live.trackId);
+      if (!row) return;
+      const viewH = (wrapRef.current?.clientHeight ?? 0) - RULER_H;
+      setScrollY((s) =>
+        row.top >= s && row.top + row.track.height <= s + viewH
+          ? s
+          : Math.max(0, Math.min(row.top, totalH - viewH)),
+      );
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [recPhase, rows, totalH]);
+
   const clipsByTrack = useMemo(() => {
     const m = new Map<Id, Clip[]>();
     for (const t of tracks) m.set(t.id, []);
