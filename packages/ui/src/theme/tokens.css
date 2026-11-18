@@ -16,6 +16,11 @@
      --font-ui      familia tipográfica de toda la interfaz (y de los canvas,
                     que leen getComputedStyle().fontFamily).
      --radius       radio de esquinas.
+
+   El carácter visual va por ATRIBUTOS en <html>, también desde appearance.ts:
+     data-style       'soft' (defecto) | 'classic'
+     data-motion      'on' | 'off'
+     data-glass-menus 'on' | 'off'
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
@@ -26,8 +31,19 @@
 
   /* Geometría */
   --radius: 8px;
+  /* Derivados del radio del usuario. En clásico `--radius-lg` ES el radio
+     normal; solo el bloque `data-style='soft'` lo agranda. `--radius-sm` es un
+     pelín más cerrado para filas de menú y pestañas. */
+  --radius-sm: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-pill: 999px;
   --blur-popup: 24px;
   --titlebar-h: 38px;
+  /* Ritmo de las transiciones del acabado suave. No se acortan cuando se
+     apagan: con data-motion='off' o prefers-reduced-motion se eliminan. */
+  --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
   /* Píxeles de layout: los presets leen estos anchos si el panel está cerrado. */
   --sidebar-width: 240px;
   --assistant-width: 280px;
@@ -76,6 +92,10 @@
   /* Popups (menús, modales, tooltips) */
   --popup-bg: #24262c;
   --shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* Única tinta de sombra del archivo. Las reglas nuevas componen con
+     color-mix() sobre este token en vez de escribir rgba() sueltos; el literal
+     vive acá, en el sitio donde viven todos los colores. */
+  --shadow-ink: #000000;
 
   /* Medidores de nivel */
   --meter: #46c46e;
@@ -191,6 +211,30 @@ html[data-theme='acrylic'] {
   --iw-title-bg: rgba(255, 255, 255, 0.05);
 }
 
+/* ── Estilo suave ───────────────────────────────────────────────────────────
+   Lo enciende `data-style='soft'` (defecto desde la v3.15). Solo toca radios,
+   sombras y transiciones: ni densidad, ni tamaños de fuente, ni la grilla de
+   la Playlist o del piano roll. Es una DAW densa, no una app de tarjetas. */
+html[data-style='soft'] {
+  /* Esquinas algo más generosas, sin llegar a la píldora en los paneles. */
+  --radius-lg: calc(var(--radius) * 1.75);
+  --radius-sm: calc(var(--radius) * 0.75);
+  --blur-popup: 28px;
+  /* Más ancha y con menos tinta que la clásica: se lee como aire, no como un
+     borde oscuro. La tinta sale de --shadow-ink (nada de rgba() suelto). */
+  --shadow-popup: 0 18px 46px color-mix(in srgb, var(--shadow-ink) 34%, transparent);
+}
+
+/* En claro hace falta menos tinta para la misma sensación de aire. */
+html[data-style='soft'][data-theme='light'] {
+  --shadow-popup: 0 18px 42px color-mix(in srgb, var(--shadow-ink) 14%, transparent);
+}
+
+/* El acrílico compone sobre vidrio oscuro: la sombra puede ser más profunda. */
+html[data-style='soft'][data-theme='acrylic'] {
+  --shadow-popup: 0 18px 48px color-mix(in srgb, var(--shadow-ink) 42%, transparent);
+}
+
 /* ── Popups ─────────────────────────────────────────────────────────────────
    Menús, modales y tooltips. En oscuro/claro: superficie con sombra. En
    acrílico: el ÚNICO sitio con backdrop-filter (difumina la UI de debajo). */
@@ -198,8 +242,20 @@ html[data-theme='acrylic'] {
   background: var(--popup-bg);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* El radio grande por defecto es el normal (clásico intacto); el acabado
+     suave lo agranda sin que ningún componente tenga que enterarse. */
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-popup);
+}
+
+/* La transición del popup es SOLO del acabado suave: en clásico (v3.14) el
+   popup aparecía sin animación y así se queda. Sin `transform`: ningún popup
+   se posiciona ni se mide con él (van por left/top) y animarlo podía retrasar
+   la colocación del menú. */
+html[data-style='soft'] .popup {
+  transition:
+    box-shadow var(--motion-base) var(--ease-soft),
+    border-color var(--motion-fast) var(--ease-soft);
 }
 
 /* El `:not(.iw)` no es cosmética, es la regla 2 de arriba: las ventanas
@@ -212,4 +268,113 @@ html[data-theme='acrylic'] {
 html[data-theme='acrylic'] .popup:not(.iw) {
   -webkit-backdrop-filter: blur(var(--blur-popup));
   backdrop-filter: blur(var(--blur-popup));
+}
+
+/* ── Acabado suave de los controles ─────────────────────────────────────────
+   Solo radio, color de hover y transición. Nada de padding, alto ni tamaño de
+   fuente: mover la caja rompería la densidad de la app. */
+html[data-style='soft'] .menu-item,
+html[data-style='soft'] .param-menu-item {
+  border-radius: var(--radius-sm);
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .menu-item:hover:not(:disabled),
+html[data-style='soft'] .param-menu-item:hover:not(:disabled):not(.learning) {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--text);
+}
+
+html[data-style='soft'] .tbtn {
+  border-radius: var(--radius);
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    border-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+/* Solo el hover de un botón normal: los estados (rec, voz, play, armed) y el
+   pressed tienen sus propios colores y no se pisan. */
+html[data-style='soft'] .tbtn:hover:not(:disabled):not(:active):not(.active):not(.armed) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+html[data-style='soft'] .set-reset {
+  border-radius: var(--radius-pill);
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    border-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .theme-card {
+  border-radius: var(--radius-lg);
+  transition:
+    border-color var(--motion-fast) var(--ease-soft),
+    background-color var(--motion-fast) var(--ease-soft),
+    box-shadow var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .theme-card:hover:not(.selected) {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+html[data-style='soft'] .settings-nav button {
+  border-radius: var(--radius-pill);
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .studio-nav__editor {
+  /* Solo arriba: abajo vive el subrayado de la pestaña activa. */
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .studio-nav__utility {
+  border-radius: var(--radius-pill);
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .studio-nav__editor:hover,
+html[data-style='soft'] .studio-nav__utility:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+html[data-style='soft'] .iw-title {
+  /* El .iw ya recorta con overflow:hidden; redondear el título evita que su
+     fondo asome recto cuando el popup estrena esquinas más generosas. */
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+/* ── Menús translúcidos en oscuro/claro ─────────────────────────────────────
+   Solo con data-glass-menus='on' y NUNCA en acrílico: ahí el popup ya es de
+   vidrio (bloque de tema de arriba) y duplicar el backdrop-filter solo suma
+   una capa de blur. `:not(.iw)` mantiene la arquitectura A — el blur vive en
+   menús flotantes, no en ventanas internas, que son paneles grandes. */
+html[data-glass-menus='on']:not([data-theme='acrylic']) .popup:not(.iw) {
+  background: color-mix(in srgb, var(--popup-bg) 82%, transparent);
+  -webkit-backdrop-filter: blur(var(--blur-popup));
+  backdrop-filter: blur(var(--blur-popup));
+  border-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+/* ── Apagar animaciones ─────────────────────────────────────────────────────
+   No se acortan: se ELIMINAN. Un `0.01ms` sigue ejecutando el keyframe (y con
+   él cualquier estado intermedio); `none` no. La misma regla vive en
+   base.css para prefers-reduced-motion, que también apaga de verdad. */
+html[data-motion='off'] *,
+html[data-motion='off'] *::before,
+html[data-motion='off'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }

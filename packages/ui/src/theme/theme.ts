@@ -3,9 +3,10 @@
 //   1. CSS: data-theme en <html> + overrides de variables (las perillas).
 //   2. Ventana: el main conmuta el backgroundMaterial DWM (via window.orbit).
 //
-// Los ajustes de apariencia que NO son de color (escala de UI, tipografía y
-// radio) viven en theme/appearance.ts; se cargan aquí, en el mismo arranque,
-// para que la primera pintada ya salga con el tamaño y la fuente del usuario.
+// Los ajustes de apariencia que NO son de color (escala de UI, tipografía,
+// radio, estilo suave/clásico, animaciones y menús translúcidos) viven en
+// theme/appearance.ts; se cargan aquí, en el mismo arranque, para que la
+// primera pintada ya salga con el tamaño y la fuente del usuario.
 
 import { appearanceFromSettings, applyAppearance, DEFAULT_APPEARANCE, type Appearance } from './appearance';
 
@@ -25,7 +26,7 @@ export interface ThemeOverrides {
 export interface ThemeState {
   theme: ThemeId;
   overrides: ThemeOverrides;
-  /** Escala, tipografía y radio (ver theme/appearance.ts). */
+  /** Escala, tipografía, radio y carácter visual (ver theme/appearance.ts). */
   appearance: Appearance;
 }
 

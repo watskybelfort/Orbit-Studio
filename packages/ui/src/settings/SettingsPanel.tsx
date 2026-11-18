@@ -21,6 +21,7 @@ import {
   UI_RADIUS_MIN,
   appearanceFromSettings,
   isUiFontId,
+  normalizeAppearance,
   type Appearance,
 } from '../theme/appearance';
 import {
@@ -69,7 +70,10 @@ function parseCustomThemes(raw: unknown): CustomThemes {
       out[name] = {
         theme: t.theme,
         overrides: t.overrides ?? {},
-        ...(t.appearance ? { appearance: t.appearance } : null),
+        // Los temas guardados antes de existir estilo/animaciones/vidrio no
+        // traen esos campos: se normalizan ya al leerlos para que aplicarlos
+        // no escriba `undefined` en los atributos de <html>.
+        ...(t.appearance ? { appearance: normalizeAppearance(t.appearance) } : null),
       };
     }
   }
@@ -381,7 +385,72 @@ export function SettingsPanel() {
       <p className="set-note">En Ver → Layouts puedes elegir un escritorio para componer, arreglar o mezclar. También puedes guardar tu distribución en el proyecto.</p>
       </section>
 
-      <section className="settings-section" aria-label="Lectura y temas personales" hidden={visibleSection !== 'appearance'}>
+      <section className="settings-section" aria-label="Acabado, lectura y temas personales" hidden={visibleSection !== 'appearance'}>
+      <h3 className="set-heading">Estilo y movimiento</h3>
+      <div className="set-row">
+        <span className="set-label">Estilo de la interfaz</span>
+        <div className="style-cards" role="group" aria-label="Estilo de la interfaz">
+          {(
+            [
+              ['soft', 'Suave (iOS)', 'Esquinas redondeadas y transiciones cortas'],
+              ['classic', 'Clásico', 'El aspecto original de Orbit'],
+            ] as const
+          ).map(([id, label, hint]) => (
+            <button
+              key={id}
+              className={`style-card${appearance.style === id ? ' selected' : ''}`}
+              aria-pressed={appearance.style === id}
+              onClick={() => commitLook({ ...appearance, style: id })}
+            >
+              <span className="style-card__name">{label}</span>
+              <span className="style-card__hint">{hint}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="set-note">
+        Suave redondea las esquinas, suaviza las sombras y añade transiciones cortas. Clásico
+        devuelve el aspecto de siempre. Ninguno de los dos cambia la densidad de los editores.
+      </p>
+
+      <div className="set-row">
+        <span className="set-label">Animaciones</span>
+        <button
+          className={`set-toggle${appearance.motion ? ' on' : ''}`}
+          role="switch"
+          aria-label="Animaciones y transiciones"
+          aria-checked={appearance.motion}
+          onClick={() => commitLook({ ...appearance, motion: !appearance.motion })}
+        >
+          <span className="set-toggle-knob" />
+        </button>
+        <span className="set-value">
+          {appearance.motion
+            ? 'Los menús y los cambios de vista se mueven en 150–200 ms'
+            : 'Todo aparece y cambia al instante'}
+        </span>
+      </div>
+
+      <div className="set-row">
+        <span className="set-label">Menús translúcidos</span>
+        <button
+          className={`set-toggle${appearance.glassMenus ? ' on' : ''}`}
+          role="switch"
+          aria-label="Menús translúcidos"
+          aria-checked={appearance.glassMenus}
+          onClick={() => commitLook({ ...appearance, glassMenus: !appearance.glassMenus })}
+        >
+          <span className="set-toggle-knob" />
+        </button>
+        <span className="set-value">
+          {theme === 'acrylic'
+            ? 'En acrílico los menús ya son de vidrio'
+            : appearance.glassMenus
+              ? 'Menús y popups con fondo translúcido y desenfoque'
+              : 'Menús y popups con fondo sólido'}
+        </span>
+      </div>
+
       <h3 className="set-heading">Lectura y tamaño</h3>
       <div className="settings-size-presets" role="group" aria-label="Tamaños de interfaz">
         {([{ label: 'Más espacio', scale: 0.9 }, { label: 'Equilibrado', scale: 1 }, { label: 'Lectura cómoda', scale: 1.15 }] as const).map((preset) => (

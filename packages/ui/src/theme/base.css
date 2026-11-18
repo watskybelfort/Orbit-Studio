@@ -53,11 +53,16 @@ button {
   outline-offset: 2px;
 }
 
+/* El sistema pide menos movimiento: se apaga de verdad (none, no 0.01ms),
+   igual que el interruptor de Ajustes. Es el único sitio del repo donde
+   `!important` está justificado: `*` tiene especificidad 0 y cualquier regla
+   de componente con transition/animation le ganaría. */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
     scroll-behavior: auto !important;
   }
 }

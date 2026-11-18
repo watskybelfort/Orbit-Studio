@@ -10,9 +10,21 @@
  *   "name": "Noche cerrada",
  *   "theme": "acrylic",
  *   "overrides": { "accent": "#5aa9e6", "glassAlpha": 0.55, "glassTint": "#101114" },
- *   "appearance": { "scale": 1.1, "font": "segoe", "radius": 10 }
+ *   "appearance": {
+ *     "scale": 1.1, "font": "segoe", "radius": 10,
+ *     "style": "soft", "motion": true, "glassMenus": false
+ *   }
  * }
  * ```
+ *
+ * ## Compatibilidad del bloque `appearance`
+ * Los tres últimos campos (`style`, `motion`, `glassMenus`) se añadieron
+ * después de la v1 del formato. Un `.orbittheme` viejo que no los traiga sigue
+ * siendo válido: `normalizeAppearance` los rellena con los defaults (`soft`,
+ * `true`, `false`). Un valor inválido (`"style": "neón"`, `"motion": "sí"`)
+ * tampoco rechaza el tema entero — es una preferencia de presentación, no un
+ * color — y cae al default. El formato sigue en `version: 1` justamente porque
+ * estos campos son opcionales y no rompen a los lectores anteriores.
  *
  * ## Por qué descarga/`<input type=file>` y no diálogos nativos
  * El puente de Electron (`window.orbit`) solo sabe abrir diálogos con filtros
@@ -58,7 +70,10 @@ export function buildThemeFile(
     name: name.trim() || 'Tema de Orbit',
     theme,
     overrides,
-    appearance,
+    // Se normaliza al construir para que el archivo exportado SIEMPRE lleve
+    // style/motion/glassMenus, incluso si el llamador arrastra un tema custom
+    // guardado antes de que existieran.
+    appearance: normalizeAppearance(appearance),
   };
 }
 
