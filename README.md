@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.14.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-2456%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.15.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-3928%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
@@ -106,6 +106,18 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.15.0 — "a tu manera".** El estudio se amolda a ti, no al revés.
+**Cualquier color de pista** desde el swatch de la cabecera —14 presets, el
+selector del sistema y hex de 3/4/6/8 dígitos con aviso si no vale—; el color
+propio del clip sigue ganando, y la barra de selección pinta todo lo marcado en
+un solo Ctrl+Z. **Escritorio manejable**: maximizar/restaurar con el botón, doble
+clic en la cabecera o Ctrl+Alt+←/→/↑/↓, acople a media pantalla al arrastrar
+contra un borde con previsualización, y asas para ensanchar la Biblioteca y el
+panel de Claude (el ancho se recuerda). **Acabado suave** por defecto —esquinas,
+sombras y transiciones sutiles, menús translúcidos— con «Clásico» para volver
+exacto a la v3.14. Y los cinco `window.prompt` que Electron 43 ya no soporta
+pasan a un diálogo propio.
 
 **v3.14.0 — "a mano".** Menos atajos escondidos y más cosas que se agarran.
 **Cable al Mixer**: el LED verde de cada pista de la Playlist —y una etiqueta
