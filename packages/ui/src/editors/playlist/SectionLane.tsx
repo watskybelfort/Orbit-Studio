@@ -35,6 +35,7 @@ import { SHAPE_COUNT, planSections } from '@orbit/sound-library';
 import { store } from '../../state/app';
 import { SECTION_COLOR_DEFAULT, SECTION_COLORS } from '../../theme/palette';
 import { useThemeVersion } from '../../theme/useThemeVersion';
+import { askName } from '../../shell/name-dialog';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
 
@@ -252,14 +253,18 @@ export function SectionLane({
 
   const rename = useCallback(
     (section: ArrangementSection) => {
-      const raw = window.prompt('Nombre de la sección', section.name);
-      if (raw === null) return;
-      const name = raw.trim();
-      if (!name || name === section.name) return;
-      store.dispatch(
-        { type: 'patchSections', patches: [{ id: section.id, name }] },
-        { label: `Renombrar sección a "${name}"` },
-      );
+      void askName({
+        title: `Renombrar «${section.name}»`,
+        label: 'Nombre de la sección',
+        initial: section.name,
+        confirmLabel: 'Renombrar',
+      }).then((name) => {
+        if (name === null || name === section.name) return;
+        store.dispatch(
+          { type: 'patchSections', patches: [{ id: section.id, name }] },
+          { label: `Renombrar sección a "${name}"` },
+        );
+      });
     },
     [],
   );

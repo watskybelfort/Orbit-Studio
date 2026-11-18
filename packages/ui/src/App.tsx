@@ -4,6 +4,8 @@ import './theme/tokens.css';
 import { TitleBar } from './shell/TitleBar';
 import { MenuBar } from './shell/MenuBar';
 import { AboutDialog } from './shell/AboutDialog';
+import { NameDialogHost } from './shell/NameDialog';
+import { PanelSplitter } from './shell/PanelSplitter';
 import { ShortcutsDialog } from './shell/ShortcutsDialog';
 import { Transport } from './shell/Transport';
 import { Workspace } from './shell/Workspace';
@@ -27,6 +29,7 @@ import {
 import { initPresence } from './collab/presence';
 import { restoreDetached } from './state/detached';
 import { initWorkspaceMemory } from './state/workspace-memory';
+import { loadPanelWidths } from './state/panel-widths';
 import { initClaudeBridge } from './state/claude';
 import { initLiveInput } from './state/live-input';
 import { initPlugins } from './state/plugins';
@@ -86,7 +89,13 @@ export function App() {
     // que vivían en su propia ventana salen otra vez fuera (y en el monitor
     // donde estaban: el sitio lo recuerda el main). En ese orden: los
     // desacoplados mandan sobre la disposición interna.
-    void initWorkspaceMemory().finally(() => restoreDetached());
+    // Los anchos de los paneles se aplican ANTES de restaurar el escritorio:
+    // `workspaceArea()` mide el panel vivo (o cae al token `--sidebar-width` /
+    // `--assistant-width`), así que con los valores de fábrica mediría un área
+    // que no es la que se va a ver y recortaría las ventanas de más.
+    void loadPanelWidths()
+      .then(() => initWorkspaceMemory())
+      .finally(() => restoreDetached());
     registerDefaultCommands();
     void loadRecentCommands();
     // Los recientes se piden una vez al arrancar; a partir de ahí los refresca
@@ -160,6 +169,7 @@ export function App() {
           <aside className="sidebar">
             <div className="sidebar-header">Biblioteca de sonidos</div>
             <Browser />
+            <PanelSplitter side="browser" />
           </aside>
         )}
         <Workspace />
@@ -177,11 +187,15 @@ export function App() {
               </button>
             </div>
             <ClaudePanel />
+            <PanelSplitter side="claude" />
           </aside>
         )}
       </div>
       <CommandPalette />
       <RouteCableOverlay />
+      {/* Único host de `askName()`: los módulos que no son React piden un
+          nombre por promesa y este diálogo lo pinta (top layer del <dialog>). */}
+      <NameDialogHost />
       {aboutOpen && <AboutDialog />}
       {shortcutsOpen && <ShortcutsDialog />}
       {/*

@@ -5,8 +5,9 @@ import { IconBrowser, IconChannelRack, IconClaude, IconExport, IconMixer, IconPi
 import { usePaletteStore } from '../palette';
 import { isWindowId, useUiStore } from '../state/ui';
 import { useProject } from '../state/useProject';
-import { applyLayout, applyPreset, LAYOUT_PRESETS, listLayouts, useLayoutNotice } from '../state/layouts';
+import { applyLayout, applyPreset, LAYOUT_PRESETS, listLayouts, saveLayout, useLayoutNotice } from '../state/layouts';
 import { StudioGuide } from './StudioGuide';
+import { askName } from './name-dialog';
 import './studio-navigation.css';
 
 const EDITORS = [
@@ -91,6 +92,22 @@ export function StudioNavigation() {
           value=""
           onChange={(event) => {
             const value = event.target.value;
+            // Guardar no cambia el escritorio antes de fotografiarlo: por eso
+            // esta rama va ANTES del `compact: false` que usan los presets.
+            if (value === 'save-desktop') {
+              void askName({
+                title: 'Guardar el escritorio actual',
+                label: 'Nombre del layout',
+                initial: 'Mi escritorio',
+                confirmLabel: 'Guardar layout',
+              }).then((name) => {
+                if (name === null) return;
+                if (saveLayout(name)) {
+                  useLayoutNotice.setState({ message: `Escritorio «${name}» guardado en el proyecto.` });
+                }
+              });
+              return;
+            }
             useUiStore.setState({ compact: false });
             if (value.startsWith('preset:')) applyPreset(value.slice(7));
             else if (value.startsWith('saved:')) applyLayout(value.slice(6));
@@ -99,6 +116,9 @@ export function StudioNavigation() {
           <option value="" disabled>Organizar…</option>
           <optgroup label="Según tu tarea">{LAYOUT_PRESETS.map((preset) => <option key={preset.id} value={`preset:${preset.id}`}>{preset.name}</option>)}</optgroup>
           {listLayouts(project).length > 0 && <optgroup label="Guardados en el proyecto">{listLayouts(project).map((name) => <option key={name} value={`saved:${name}`}>{name}</option>)}</optgroup>}
+          {/* Siempre la última y siempre presente, aunque no haya layouts
+              guardados: es la forma de crear el primero. */}
+          <option value="save-desktop">Guardar el escritorio actual…</option>
         </select>
         <button
           className="studio-nav__utility"

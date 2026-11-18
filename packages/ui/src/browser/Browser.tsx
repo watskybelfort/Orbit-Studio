@@ -42,6 +42,7 @@ import {
   useTemplates,
   type StoredTemplate,
 } from '../state/project-templates';
+import { askName } from '../shell/name-dialog';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, previewSound, runSoundLoadAction, setDragEntries } from './sound-actions';
 import { createPreviewSequence, type PreviewSequence } from './preview-sequence';
@@ -970,13 +971,18 @@ export function Browser() {
 
   const saveCurrentAsTemplate = () => {
     const suggested = store.project.meta.title || 'Mi plantilla';
-    const name = window.prompt('Nombre de la plantilla', suggested);
-    if (name === null) return; // cancelado
-    if (name.trim() === '') {
-      setStatus('La plantilla necesita un nombre.');
-      return;
-    }
-    saveProjectAsTemplate(name);
+    // El diálogo ya no deja confirmar vacío, así que la guarda de nombre
+    // vacío que había aquí (con su mensaje en la barra del Browser) la hace
+    // él: pedir el nombre no puede morir en un `prompt()` inexistente.
+    void askName({
+      title: 'Guardar como plantilla',
+      label: 'Nombre de la plantilla',
+      initial: suggested,
+      confirmLabel: 'Guardar plantilla',
+    }).then((name) => {
+      if (name === null) return; // cancelado
+      saveProjectAsTemplate(name);
+    });
   };
 
   const renderTemplate = (t: StoredTemplate) => {

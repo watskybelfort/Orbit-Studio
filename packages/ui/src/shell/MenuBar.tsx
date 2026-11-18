@@ -56,6 +56,7 @@ import {
 } from '../state/project-file';
 import { allTemplates, loadUserTemplates } from '../state/project-templates';
 import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
+import { askName } from './name-dialog';
 import { usePaletteStore } from '../palette';
 import { useUiStore } from '../state/ui';
 import './shell.css';
@@ -458,9 +459,17 @@ export function MenuBar() {
       {
         label: 'Guardar el proyecto actual como plantilla…',
         action: () => {
-          const name = window.prompt('Nombre de la plantilla', store.project.meta.title || 'Mi plantilla');
-          if (name === null) return; // cancelado
-          saveProjectAsTemplate(name);
+          // El prompt del navegador lanza en Electron 43; `askName` abre el
+          // diálogo propio y resuelve null al cancelar (no se guarda nada).
+          void askName({
+            title: 'Guardar como plantilla',
+            label: 'Nombre de la plantilla',
+            initial: store.project.meta.title || 'Mi plantilla',
+            confirmLabel: 'Guardar plantilla',
+          }).then((name) => {
+            if (name === null) return; // cancelado
+            saveProjectAsTemplate(name);
+          });
         },
       },
       { label: 'Abrir…', icon: <IconOpen />, shortcut: 'Ctrl+O', action: () => void openProject() },
@@ -640,8 +649,16 @@ export function MenuBar() {
           {
             label: 'Guardar el layout actual…',
             action: () => {
-              const name = window.prompt('Nombre del layout', 'Mi layout');
-              if (name) saveLayout(name.trim());
+              // Mismo diálogo propio que la plantilla: el prompt del navegador
+              // no existe en Electron 43. Cancelar = no hacer nada.
+              void askName({
+                title: 'Guardar el layout actual',
+                label: 'Nombre del layout',
+                initial: 'Mi layout',
+                confirmLabel: 'Guardar layout',
+              }).then((name) => {
+                if (name !== null) saveLayout(name);
+              });
             },
           },
         ],

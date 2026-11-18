@@ -14,6 +14,7 @@
 import { createPattern, describeParamRef, newId, type Id, type Note, type Pattern } from '@orbit/core';
 import { repeatLastExport } from '../export';
 import { engine, pausePlayback, setActivePattern, setPlayMode, stopPlayback, store, togglePlay } from '../state/app';
+import { askName } from '../shell/name-dialog';
 import { playDirect } from '../shell/Transport';
 import { useBounceStore } from '../state/bounce';
 import { toggleMidiArmed, useLiveInputStore } from '../state/live-input';
@@ -130,18 +131,22 @@ export function clonePattern(patternId?: Id): void {
   setActivePattern(clon.id);
 }
 
-/** Renombra pidiendo el nombre (mismo prompt que el resto del shell). */
+/** Renombra pidiendo el nombre (mismo diálogo que el resto del shell). */
 export function renamePattern(patternId?: Id): void {
   const pattern = patternId ? store.project.patterns[patternId] : activePattern();
   if (!pattern) return;
-  const raw = window.prompt('Nombre del patrón', pattern.name);
-  if (raw === null) return;
-  const name = raw.trim();
-  if (!name || name === pattern.name) return;
-  store.dispatch(
-    { type: 'patchPattern', patternId: pattern.id, patch: { name } },
-    { label: `Renombrar patrón a "${name}"` },
-  );
+  void askName({
+    title: `Renombrar «${pattern.name}»`,
+    label: 'Nombre del patrón',
+    initial: pattern.name,
+    confirmLabel: 'Renombrar',
+  }).then((name) => {
+    if (name === null || name === pattern.name) return;
+    store.dispatch(
+      { type: 'patchPattern', patternId: pattern.id, patch: { name } },
+      { label: `Renombrar patrón a "${name}"` },
+    );
+  });
 }
 
 /** Color del patrón (el de sus pads en Live y el de sus clips en la playlist). */

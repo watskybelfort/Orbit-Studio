@@ -407,6 +407,7 @@
 }
 
 .sidebar {
+  position: relative;
   width: var(--sidebar-width);
   border-right: 1px solid var(--border);
   background: var(--surface);
@@ -458,6 +459,7 @@ html[data-theme='acrylic'] .sidebar {
 }
 
 .claude-panel {
+  position: relative;
   width: var(--assistant-width);
   border-left: 1px solid var(--border);
   background: var(--surface);
@@ -468,6 +470,145 @@ html[data-theme='acrylic'] .sidebar {
 
 html[data-theme='acrylic'] .claude-panel {
   background: var(--bg);
+}
+
+/* ── Asa de los paneles laterales ──
+   Flota SOBRE el borde interior del panel (no ocupa ancho del workspace) y va
+   dentro del <aside> posicionado, por eso `right/left: -4px`. Los 8 px de
+   ancho son la zona de agarre; la línea visible son 2 px al centro. z-index 5
+   queda encima del contenido del panel y muy por debajo de menús (1000),
+   popups y modales. */
+.panel-splitter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  z-index: 5;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-splitter--browser {
+  right: -4px;
+}
+
+.panel-splitter--claude {
+  left: -4px;
+}
+
+.panel-splitter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: transparent;
+}
+
+/* La transición de la línea es del acabado suave: en clásico el asa es nueva,
+   pero su respuesta es instantánea como el resto de la v3.14. */
+html[data-style='soft'] .panel-splitter::after {
+  transition: background-color var(--motion-fast) var(--ease-soft);
+}
+
+.panel-splitter:hover::after,
+.panel-splitter:focus-visible::after,
+.panel-splitter.is-dragging::after {
+  background: var(--accent);
+}
+
+.panel-splitter:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ── Diálogo de nombre (`NameDialog`) ──
+   Modal nativo: el velo es `::backdrop` y el top layer lo pone el navegador.
+   Los colores salen todos de tokens del tema, como el resto del shell. */
+.name-dialog {
+  position: fixed;
+  width: min(420px, calc(100vw - 32px));
+  padding: 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: var(--shadow-modal);
+}
+
+.name-dialog::backdrop {
+  background: var(--modal-backdrop);
+}
+
+.name-dialog__form {
+  margin: 0;
+}
+
+.name-dialog__title {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.name-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text-dim);
+}
+
+.name-dialog__input {
+  height: 30px;
+  padding: 0 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font: inherit;
+}
+
+.name-dialog__input:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.name-dialog__error {
+  margin: 8px 0 0;
+  color: var(--danger);
+}
+
+.name-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.name-dialog__btn {
+  height: 28px;
+  padding: 0 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+}
+
+.name-dialog__btn:hover:not(:disabled),
+.name-dialog__btn.primary {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.name-dialog__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .panel-placeholder {
