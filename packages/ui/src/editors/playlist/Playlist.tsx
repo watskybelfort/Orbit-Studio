@@ -3,7 +3,10 @@ import { beatsInBar } from '@orbit/core';
  * Playlist — arreglo de canción estilo FL Studio (canvas).
  *
  * Columna izquierda: cabeceras de pista del arrangement activo (LED de mute,
- * nombre editable con doble clic). Regla superior: números de compás; clic o
+ * nombre editable con doble clic, swatch que abre la paleta o cualquier color).
+ * El color de una pista pinta sus clips que no tengan color propio, y la barra
+ * de selección pinta los clips marcados con un solo comando. Regla superior:
+ * números de compás; clic o
  * arrastre en la mitad inferior hace seek del transporte y arrastre en la
  * mitad superior define la región de loop (clic suelto la quita). Rejilla:
  * clic izquierdo pinta clips del patrón activo (arrastrando coloca varios
@@ -56,11 +59,18 @@ import { liveRecordingView, useRecorderStore } from '../../state/recorder';
 import { chooseTakePatches, clipsOverlap, compactTakeLanePatches, heightForTakeLanes, laneBand, TAKE_LANE_MIN_H, takeLaneCount, takeLaneCountCompact, takeRows } from '../../state/take-stack';
 import { useProject } from '../../state/useProject';
 import { useUiStore } from '../../state/ui';
+import { defaultTrackColor, TRACK_COLOR_PRESETS } from '../../theme/track-palette';
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
 import { projectTempoMap, sliceAudioWindow } from '../clip-slice';
 import { sliceAutomationCurve } from '../automation/slice-curve';
+import {
+  commonClipColor,
+  normalizeHexColor,
+  readableInk,
+  resolveClipColor,
+} from './color-tools';
 import { SectionLane } from './SectionLane';
 import {
   clampGroupMove,
@@ -186,6 +196,8 @@ export function Playlist() {
 
   /** Clips seleccionados. Vacío = se trabaja sobre el clip bajo el cursor. */
   const [selection, setSelection] = useState<Set<Id>>(new Set());
+  /** Menú «Color» de la barra de selección (coordenadas de viewport). */
+  const [clipColorMenu, setClipColorMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
 
   // Vista
   const [zoom, setZoom] = useState(24); // px por beat
@@ -365,6 +377,17 @@ export function Playlist() {
     return out;
   }, [selection, tracks, clipsByTrack]);
 
+  /**
+   * Color propio común de la selección, para marcar el preset activo del
+   * menú. Si los clips no comparten color (o ninguno tiene el suyo), no se
+   * marca ninguno: fingir que la selección es de un color que no es sería
+   * mentir en el menú.
+   */
+  const selectionColor = useMemo(
+    () => commonClipColor(selectedIds.map((id) => project.clips[id]?.color)),
+    [selectedIds, project],
+  );
+
   const selectAll = useCallback(() => {
     const all = new Set<Id>();
     for (const t of tracks) for (const c of clipsByTrack.get(t.id) ?? []) all.add(c.id);
@@ -459,6 +482,36 @@ export function Playlist() {
       { label: muted ? `Mutear ${selectedIds.length} clip(s)` : `Activar ${selectedIds.length} clip(s)` },
     );
   }, [selectedIds, project]);
+
+  /**
+   * Pinta la selección entera con UN solo comando.
+   *
+   * `undefined` (o ausente) borra el color propio del clip y lo deja ver el de
+   * su pista: es el "Usar el color de la pista" del menú. El `mergeKey` es
+   * estable por ids ORDENADOS porque el picker nativo dispara `change` en
+   * ráfaga mientras se arrastra el pulgar: sin la fusión, cada píxel del
+   * selector dejaba un Ctrl+Z que solo deshacía medio color.
+   */
+  const setSelectionColor = useCallback(
+    (color: string | undefined) => {
+      if (selectedIds.length === 0) return;
+      const ids = [...selectedIds].sort();
+      store.dispatch(
+        { type: 'patchClips', patches: ids.map((id) => ({ id, color })) },
+        {
+          label: `Color de ${ids.length} clip${ids.length === 1 ? '' : 's'}`,
+          mergeKey: `pl:clip-color:${ids.join(',')}`,
+        },
+      );
+    },
+    [selectedIds],
+  );
+
+  // Si la selección se vacía con el menú abierto (Supr, Esc, deshacer), el
+  // menú se quedaría pintando un "Color de 0 clips" que no puede aplicar nada.
+  useEffect(() => {
+    if (selectedIds.length === 0) setClipColorMenu(null);
+  }, [selectedIds.length]);
 
   /**
    * Corre la selección `ms` milisegundos (Alt+←/→, fino con Shift): cuadrar
@@ -696,11 +749,17 @@ export function Playlist() {
       const x = beatToX(c.start);
       const cw = Math.max(2, c.length * zoom - 1);
       if (x + cw < 0 || x > w) return;
-      const color =
-        c.color ??
-        (c.kind === 'pattern' && c.patternId
-          ? project.patterns[c.patternId]?.color ?? accent
-          : accent);
+      const patternColor =
+        c.kind === 'pattern' && c.patternId ? project.patterns[c.patternId]?.color : undefined;
+      // El color de la pista manda sobre el del patrón —personalizar una pista
+      // tiene que pintar lo que hay dentro— y el color propio del clip sigue
+      // ganando a los dos: un clip marcado en verde se queda verde.
+      const color = resolveClipColor(
+        c.color,
+        patternColor,
+        accent,
+        project.playlistTracks[c.playlistTrackId]?.color,
+      );
       const base = c.muted ? 0.45 : 1;
       const stripH = Math.max(0, Math.min(13, rowH - 6));
 
@@ -2090,6 +2149,18 @@ export function Playlist() {
               </button>
               <button
                 className="pl-add"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setClipColorMenu({ x: r.left, y: r.bottom + 4, anchor: e.currentTarget });
+                }}
+                title="Color de los clips seleccionados: paleta, cualquier color o el de su pista"
+                aria-haspopup="dialog"
+                aria-expanded={clipColorMenu !== null}
+              >
+                Color
+              </button>
+              <button
+                className="pl-add"
                 onClick={deleteSelection}
                 title="Borrar la selección (Supr)"
               >
@@ -2101,6 +2172,40 @@ export function Playlist() {
             </>
           )}
         </div>
+        {clipColorMenu && selectedIds.length > 0 && (
+          <MenuPortal
+            anchor={clipColorMenu.anchor}
+            x={clipColorMenu.x}
+            y={clipColorMenu.y}
+            onClose={() => setClipColorMenu(null)}
+            className="param-menu"
+          >
+            <div className="pl-take-title">
+              Color de {selectedIds.length} clip{selectedIds.length === 1 ? '' : 's'}
+            </div>
+            <ColorPicker
+              current={selectionColor}
+              onPick={(hex, source) => {
+                setSelectionColor(hex);
+                // El picker nativo y el campo hex tienen que dejar el menú
+                // abierto (se está ajustando el color); un preset lo cierra.
+                if (source === 'preset') setClipColorMenu(null);
+              }}
+            >
+              <div className="param-menu-sep" />
+              <button
+                className="param-menu-item"
+                onClick={() => {
+                  setSelectionColor(undefined);
+                  setClipColorMenu(null);
+                }}
+                title="Quita el color propio: los clips vuelven a verse como su pista"
+              >
+                Usar el color de la pista
+              </button>
+            </ColorPicker>
+          </MenuPortal>
+        )}
       </div>
 
       <SectionLane
@@ -2292,6 +2397,121 @@ export function Playlist() {
 
 // ── Cabecera de pista ────────────────────────────────────────────────────────
 
+/** De dónde salió el color elegido: un preset (se cierra el menú) o el picker/hex. */
+type ColorPickSource = 'preset' | 'custom';
+
+/**
+ * Cuerpo del selector de color: grilla de presets + cualquier color + hex.
+ *
+ * Lo comparten el swatch de la cabecera de pista y el botón «Color» de la
+ * selección de clips. El menú NO se cierra desde aquí —cada dueño decide,
+ * porque el picker nativo necesita seguir abierto mientras se arrastra— y el
+ * `mergeKey` del dispatch vive en cada dueño, no en este componente.
+ *
+ * El campo hex aplica en vivo SOLO cuando ya es válido (`#abc` cuenta): así el
+ * lienzo va enseñando el color sin esperar a Enter, y escribir `#a` no
+ * despacha un color a medias que el canvas descartaría. Enter vuelve a aplicar
+ * el valor completo y el borde se marca en `--danger` cuando no vale.
+ */
+function ColorPicker({
+  current,
+  onPick,
+  factory,
+  factoryLabel,
+  children,
+}: {
+  /** Color actual (el del clip/pista), si lo hay. */
+  current?: string;
+  onPick: (hex: string, source: ColorPickSource) => void;
+  /** Color de fábrica opcional: pinta la fila «Volver al…». */
+  factory?: string;
+  factoryLabel?: string;
+  /** Filas extra al final (p. ej. «Usar el color de la pista»). */
+  children?: ReactNode;
+}) {
+  const active = normalizeHexColor(current);
+  const [draft, setDraft] = useState(current ?? '');
+  const draftValid = normalizeHexColor(draft);
+  // `<input type="color">` no acepta `var()` ni un color inválido: si el
+  // proyecto trae un nombre CSS viejo, el picker abre en el primer preset.
+  const pickerValue = active ?? TRACK_COLOR_PRESETS[0]!.value;
+
+  const apply = (hex: string, source: ColorPickSource) => {
+    const normalized = normalizeHexColor(hex);
+    if (!normalized) return;
+    setDraft(normalized);
+    onPick(normalized, source);
+  };
+
+  return (
+    <>
+      <div className="pl-color-grid" role="group" aria-label="Colores de fábrica">
+        {TRACK_COLOR_PRESETS.map((preset) => {
+          const selected = active !== null && active === normalizeHexColor(preset.value);
+          return (
+            <button
+              key={preset.value}
+              type="button"
+              className={`pl-color-dot${selected ? ' on' : ''}`}
+              style={{ background: preset.value, color: readableInk(preset.value) }}
+              title={preset.name}
+              aria-label={`Color ${preset.name}`}
+              aria-pressed={selected}
+              onClick={() => apply(preset.value, 'preset')}
+            >
+              {selected ? '✓' : ''}
+            </button>
+          );
+        })}
+      </div>
+      <div className="pl-color-custom">
+        <span>Color personalizado</span>
+        <input
+          type="color"
+          value={pickerValue}
+          aria-label="Elegir cualquier color"
+          title="Cualquier color (abre el selector del sistema)"
+          onChange={(e) => apply(e.target.value, 'custom')}
+        />
+        <input
+          className="pl-color-hex"
+          value={draft}
+          placeholder="#rrggbb"
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Color en hexadecimal"
+          aria-invalid={draft.trim() !== '' && draftValid === null}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const normalized = normalizeHexColor(e.target.value);
+            if (normalized) onPick(normalized, 'custom');
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (draftValid) apply(draftValid, 'custom');
+            }
+          }}
+        />
+      </div>
+      {draft.trim() !== '' && draftValid === null && (
+        <div className="pl-color-warn" role="status">
+          Hex no válido: usa 3, 4, 6 u 8 dígitos (0–9, A–F)
+        </div>
+      )}
+      {factory !== undefined && factoryLabel !== undefined && (
+        <>
+          <div className="param-menu-sep" />
+          <button className="param-menu-item" onClick={() => apply(factory, 'custom')}>
+            {factoryLabel}
+          </button>
+        </>
+      )}
+      {children}
+    </>
+  );
+}
+
 interface TrackHeaderProps {
   track: PlaylistTrack;
 }
@@ -2300,6 +2520,8 @@ function TrackHeader({ track }: TrackHeaderProps) {
   const [editing, setEditing] = useState(false);
   // El ancla dice en qué documento se pinta el menú (ventana desacoplada).
   const [menu, setMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
+  /** Paleta de color de la pista, abierta desde el swatch o desde "Más colores…". */
+  const [colorMenu, setColorMenu] = useState<{ x: number; y: number; anchor: Element } | null>(null);
   const cancelName = useRef(false);
   /** Arrastre de la altura: alto y cursor al empezar. */
   const resize = useRef<{ y: number; height: number } | null>(null);
@@ -2338,7 +2560,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
   const setColor = (color: string) => {
     store.dispatch(
       { type: 'patchPlaylistTrack', trackId: track.id, patch: { color } },
-      { label: 'Color de pista', mergeKey: `pl:color:${track.id}` },
+      { label: `Color de pista "${track.name}"`, mergeKey: `pl:color:${track.id}` },
     );
   };
 
@@ -2462,9 +2684,25 @@ function TrackHeader({ track }: TrackHeaderProps) {
         title={`Clic: silenciar pista · Arrastra para conectar su audio a un canal del Mixer (ahora: ${routeName})`}
         {...ledJack}
       />
-      <label className="pl-swatch" title="Color de pista" style={{ background: track.color }}>
-        <input type="color" value={track.color} onChange={(e) => setColor(e.target.value)} />
-      </label>
+      {/* Swatch de color. Es un BOTÓN, no un <label> con un input invisible de
+          12 px: a ese tamaño no se veía que se pudiera pulsar. No corta el
+          pointerdown: el arrastre de la ventana solo empieza en su cabecera,
+          así que el único efecto de cortarlo era que pulsar el swatch no traía
+          la ventana al frente. */}
+      <button
+        type="button"
+        className="pl-swatch"
+        style={{ background: track.color }}
+        title="Color de pista: elige de la paleta o cualquier color"
+        aria-label={`Color de la pista "${track.name}" (${track.color})`}
+        aria-haspopup="dialog"
+        aria-expanded={colorMenu !== null}
+        draggable={false}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setColorMenu({ x: r.left, y: r.bottom + 4, anchor: e.currentTarget });
+        }}
+      />
       {track.icon && (
         <span className="pl-track-icon" title={track.icon}>
           <IconTrack kind={track.icon} size={14} />
@@ -2625,8 +2863,62 @@ function TrackHeader({ track }: TrackHeaderProps) {
           </button>
         </TrackMenu>
       )}
+      {colorMenu && (
+        <TrackMenu
+          x={colorMenu.x}
+          y={colorMenu.y}
+          anchor={colorMenu.anchor}
+          onClose={() => setColorMenu(null)}
+        >
+          <div className="pl-take-title">Color de «{track.name}»</div>
+          <ColorPicker
+            current={track.color}
+            onPick={(hex) => setColor(hex)}
+            factory={defaultTrackColor(track.order)}
+            factoryLabel="Volver al color de fábrica"
+          />
+        </TrackMenu>
+      )}
       {menu && (
         <TrackMenu x={menu.x} y={menu.y} anchor={menu.anchor} onClose={() => setMenu(null)}>
+          {/* Color → Icono → Salida → Acciones. El color va primero porque es
+              lo que más se toca desde la cabecera; "Más colores…" reabre el
+              mismo menú del swatch, con el picker nativo y el hex. */}
+          <div className="pl-menu-label">Color de pista</div>
+          <div className="pl-color-grid" role="group" aria-label="Color de pista">
+            {TRACK_COLOR_PRESETS.map((preset) => {
+              const selected =
+                normalizeHexColor(track.color) === normalizeHexColor(preset.value);
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  className={`pl-color-dot${selected ? ' on' : ''}`}
+                  style={{ background: preset.value, color: readableInk(preset.value) }}
+                  title={preset.name}
+                  aria-label={`Color ${preset.name}`}
+                  aria-pressed={selected}
+                  onClick={() => setColor(preset.value)}
+                >
+                  {selected ? '✓' : ''}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            className="param-menu-item"
+            onClick={() => {
+              // Se reabre sobre las mismas coordenadas y con la cabecera como
+              // ancla: el menú contextual ya se está cerrando y su botón
+              // desaparece con él.
+              if (!menu) return;
+              setMenu(null);
+              setColorMenu({ x: menu.x, y: menu.y, anchor: menu.anchor });
+            }}
+          >
+            Más colores…
+          </button>
+          <div className="param-menu-sep" />
           <div className="pl-menu-icons" title="Icono de la pista">
             {TRACK_ICONS.map((kind) => (
               <button
@@ -2675,6 +2967,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
               ))}
             </select>
           </label>
+          <div className="param-menu-sep" />
           <button
             className="param-menu-item"
             disabled={busy || clipCount === 0}
@@ -2706,6 +2999,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
           >
             {frozen ? 'Descongelar pista' : 'Congelar pista'}
           </button>
+          <div className="param-menu-sep" />
           <button
             className="param-menu-item"
             onClick={() => {
