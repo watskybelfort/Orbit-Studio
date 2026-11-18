@@ -9,6 +9,7 @@ import { setPlayMode, store, togglePlay } from '../state/app';
 import { activeEditActions } from '../state/edit-focus';
 import { newProject, openProject, saveProject } from '../state/project-file';
 import { useUiStore } from '../state/ui';
+import { restoreActiveWindow, tileActiveWindow } from '../state/window-actions';
 import { shouldHandleTransportSpace } from './shortcut-space';
 
 export function useShortcuts(): void {
@@ -40,6 +41,34 @@ export function useShortcuts(): void {
       if (typing) return;
 
       const ui = useUiStore.getState();
+      /*
+       * Ctrl+Alt+flechas: ordenan el escritorio sobre la ventana ACTIVA (la de
+       * mayor z), no sobre la que tenga el foco del teclado. Los editores no
+       * roban el foco —se dibujan con canvas y no son focusables—, así que «la
+       * enfocada» casi nunca es la que el usuario ve arriba y el atajo parecería
+       * moverse solo. Se ignoran con un diálogo a la vista: ahí las flechas son
+       * suyas (la paleta también navega con ellas). Ctrl+Alt+↑ maximiza porque
+       * la franja superior del escritorio es la zona de maximizar.
+       */
+      if (e.ctrlKey && e.altKey && !e.shiftKey) {
+        const zone = e.code === 'ArrowLeft'
+          ? 'left'
+          : e.code === 'ArrowRight'
+            ? 'right'
+            : e.code === 'ArrowUp'
+              ? 'top'
+              : null;
+        const restore = e.code === 'ArrowDown';
+        if (zone || restore) {
+          const dialogOpen = ui.shortcutsOpen || ui.aboutOpen || usePaletteStore.getState().open;
+          if (!dialogOpen) {
+            e.preventDefault();
+            if (restore) restoreActiveWindow();
+            else if (zone) tileActiveWindow(zone);
+          }
+          return;
+        }
+      }
       if (e.ctrlKey && !e.shiftKey && e.code === 'KeyZ') {
         e.preventDefault();
         store.undo();

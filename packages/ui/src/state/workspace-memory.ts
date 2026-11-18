@@ -13,6 +13,7 @@
  */
 
 import type { LayoutWindow } from '@orbit/core';
+import { isMaximizedBox } from '../shell/window-bounds';
 import {
   applyLayoutWindows,
   applyStartupLayout,
@@ -59,6 +60,33 @@ function parsePanel(raw: unknown): LayoutWindow | null {
 }
 
 /**
+ * Una caja guardada que llenaba el escritorio no era «maximizada»: la memoria no
+ * guarda marcas. Restaurarla tal cual deja una ventana del tamaño del área, que
+ * no puede moverse (no cabe ningún desplazamiento: `fitWindowToWorkspace` la
+ * devuelve a 0,0) y con «Maximizar» deshabilitado. Se restaura una caja de
+ * descanso grande y centrada; si el usuario la quería a pantalla completa, la
+ * maximiza otra vez con un clic (y esta vez la marca existe).
+ */
+function restingBox(box: LayoutWindow, area: { w: number; h: number }): LayoutWindow {
+  const fitted = fitToArea(box, area);
+  // El render termina de recortar x/y para que la caja quepa
+  // (`fitWindowToWorkspace`): una caja del tamaño del área guardada con y=120
+  // acababa pintada igual en 0,0, así que se juzga la caja que se va a VER.
+  const shown = {
+    ...fitted,
+    x: Math.max(0, Math.min(fitted.x, area.w - fitted.w)),
+    y: Math.max(0, Math.min(fitted.y, area.h - fitted.h)),
+  };
+  if (!isMaximizedBox(shown, area)) return fitted;
+  const w = Math.max(1, area.w - 120);
+  const h = Math.max(1, area.h - 120);
+  return fitToArea(
+    { ...box, w, h, x: Math.round((area.w - w) / 2), y: Math.round((area.h - h) / 2) },
+    area,
+  );
+}
+
+/**
  * Traduce lo guardado a un layout aplicable. Una entrada rota se ignora sin
  * tumbar las buenas, y si no queda ninguna válida devuelve null (mejor el
  * escritorio de fábrica que uno a medias).
@@ -76,7 +104,7 @@ export function parseWorkspace(raw: unknown, area: { w: number; h: number }): Re
     if (!isWindowId(key)) continue;
     const box = parseBox(value);
     if (!box) continue;
-    out[key] = fitToArea(box, area);
+    out[key] = restingBox(box, area);
     windows++;
   }
   return windows > 0 ? out : null;

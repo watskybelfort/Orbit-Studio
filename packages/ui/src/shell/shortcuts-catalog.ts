@@ -73,6 +73,11 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: 'F8', what: 'Vista Live' },
       { keys: 'F9', what: 'Mixer' },
       { keys: 'F10', what: 'Ajustes' },
+      { keys: 'Ctrl+Alt+←', what: 'Acoplar la ventana activa a la mitad izquierda' },
+      { keys: 'Ctrl+Alt+→', what: 'Acoplar la ventana activa a la mitad derecha' },
+      { keys: 'Ctrl+Alt+↑', what: 'Maximizar la ventana activa' },
+      { keys: 'Ctrl+Alt+↓', what: 'Restaurar la ventana activa a su tamaño anterior' },
+      { keys: 'Doble clic', what: 'Maximizar o restaurar la ventana', where: 'Cabecera de una ventana' },
     ],
   },
   {

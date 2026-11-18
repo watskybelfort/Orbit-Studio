@@ -1,0 +1,80 @@
+/*
+ * Ergonomía del escritorio interno: botón maximizar/restaurar, previsualización
+ * de acople y ventana maximizada.
+ *
+ * Solo tokens (regla dura 4). El acento es el mismo que el resto del shell usa
+ * para «esto va a pasar si sueltas»; nada de literales ni de fallbacks hex.
+ *
+ * La previsualización es `position: fixed` porque el rect de `.workspace` que
+ * la coloca viene de `getBoundingClientRect()`, en coordenadas de viewport, y
+ * se monta por portal en `document.body` para que el `overflow: hidden` de la
+ * ventana que se está arrastrando no la recorte. `pointer-events: none` es
+ * obligatorio: si interceptara el puntero, el arrastre terminaría en el primer
+ * píxel de la franja de acople.
+ */
+
+.iw-max {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex: none;
+}
+
+/* Mismo ritmo de 4 px que `.iw-help + .iw-detach` (studio-guide.css): al meter
+ * el botón nuevo entre los dos, aquel selector ya no aplica y el detach perdió
+ * su separación. */
+.iw-help + .iw-max,
+.iw-max + .iw-detach {
+  margin-left: 4px;
+}
+
+.iw-max:hover,
+.iw-max:focus-visible {
+  background: var(--titlebar-hover);
+  color: var(--text);
+}
+
+/* Ocupa el escritorio sin marca (geometría restaurada): no hay nada que
+ * maximizar. Se ve apagado y lo explica el title; el resto de la ventana sigue
+ * arrastrable, así que no es una puerta cerrada. */
+.iw-max:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.iw-max:disabled:hover {
+  background: none;
+  color: var(--text-dim);
+}
+
+.iw-max svg {
+  display: block;
+}
+
+/*
+ * Maximizada manda el escritorio: sin esquinas ni sombra de ventana flotante,
+ * para que se lea como el escritorio y no como una ventana más grande.
+ */
+.iw-is-max {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.iw-snap-preview {
+  position: fixed;
+  z-index: 400;
+  pointer-events: none;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: var(--shadow-node);
+  transition: left 90ms ease, top 90ms ease, width 90ms ease, height 90ms ease;
+}

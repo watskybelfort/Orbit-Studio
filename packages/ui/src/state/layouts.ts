@@ -25,6 +25,7 @@ import { create } from 'zustand';
 import { store } from './app';
 import { PRESET_EDITOR_MINIMUMS } from '../shell/window-bounds';
 import { useUiStore, type WindowId, type WindowState } from './ui';
+import { clearWindowRestore, isMarkedMaximized, peekWindowBox } from './window-restore';
 
 /** Paneles fijos del shell dentro del layout (no son ventanas internas). */
 export const BROWSER_KEY = 'browser';
@@ -74,12 +75,24 @@ export function fitToArea(box: LayoutWindow, area: LayoutArea): LayoutWindow {
 
 // ── Capturar / aplicar ───────────────────────────────────────────────────────
 
-/** Fotografía el escritorio actual (sin el z-order: se recalcula al aplicar). */
+/**
+ * Fotografía el escritorio actual (sin el z-order: se recalcula al aplicar).
+ *
+ * Una ventana maximizada se guarda con su caja de DESCANSO, no con la que ocupa:
+ * el modelo de layout no tiene un campo «maximizado», así que guardar la caja
+ * grande la haría volver, en el próximo arranque o al aplicar el layout, como una
+ * ventana del tamaño del escritorio sin marca — el botón «Maximizar» queda
+ * deshabilitado y no se puede mover, porque una caja que llena el área no tiene
+ * adónde desplazarse (`fitWindowToWorkspace` la devuelve a 0,0). La marca tampoco
+ * sobrevive al reinicio, así que la caja de descanso es la única que cuenta una
+ * historia cierta.
+ */
 export function captureLayout(): Record<string, LayoutWindow> {
   const ui = useUiStore.getState();
   const out: Record<string, LayoutWindow> = {};
-  for (const [id, w] of Object.entries(ui.windows)) {
-    out[id] = { open: w.open, x: w.x, y: w.y, w: w.w, h: w.h };
+  for (const [id, w] of Object.entries(ui.windows) as [WindowId, WindowState][]) {
+    const box = (isMarkedMaximized(id) ? peekWindowBox(id) : undefined) ?? w;
+    out[id] = { open: w.open, x: box.x, y: box.y, w: box.w, h: box.h };
   }
   out[BROWSER_KEY] = panelFlag(ui.browserOpen);
   out[CLAUDE_KEY] = panelFlag(ui.claudePanelOpen);
@@ -92,6 +105,9 @@ export function captureLayout(): Record<string, LayoutWindow> {
  */
 export function applyLayoutWindows(windows: Record<string, LayoutWindow>): void {
   useLayoutNotice.getState().dismiss();
+  // Un layout describe el escritorio entero: las cajas de restauración de la
+  // disposición anterior ya no apuntan a nada que el usuario reconozca.
+  clearWindowRestore();
   const ui = useUiStore.getState();
   const next: Record<WindowId, WindowState> = { ...ui.windows };
   const area = workspaceArea(panelsOf(windows));

@@ -62,6 +62,25 @@ describe('disposiciÃ³n guardada del escritorio', () => {
     // Solo paneles, sin una sola ventana: no merece pisar el escritorio.
     expect(parseWorkspace({ browser: { open: true } }, AREA)).toBeNull();
   });
+
+  it('una caja que llenaba el escritorio vuelve como ventana flotante', () => {
+    // La memoria de una versión anterior guardó la geometría de una ventana
+    // maximizada. Con la caja completa el botón «Maximizar» no tendría nada que
+    // hacer y la ventana no podría moverse (no cabe un desplazamiento), así que
+    // se restaura un tamaño de descanso centrado.
+    for (const y of [0, 120]) {
+      const got = parseWorkspace(
+        { playlist: { open: true, x: 0, y, w: AREA.w, h: AREA.h } },
+        AREA,
+      );
+      const box = got?.['playlist'];
+      expect(box?.open, `y=${y}`).toBe(true);
+      expect(box?.w, `y=${y}`).toBeLessThan(AREA.w);
+      expect(box?.h, `y=${y}`).toBeLessThan(AREA.h);
+      expect(box?.x, `y=${y}`).toBeGreaterThan(0);
+      expect(box?.y, `y=${y}`).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('olvidar la disposiciÃ³n', () => {
