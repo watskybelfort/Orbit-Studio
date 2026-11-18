@@ -6,6 +6,26 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 18-11-2026: v3.15.0
+
+**"A tu manera".** Encargo directo de experiencia: **cualquier color de pista**
+en la Playlist (14 presets, selector del sistema y hex 3/4/6/8 dígitos; el color
+propio del clip sigue ganando y el de la pista manda sobre el del patrón), color
+para la selección entera en **un solo undo** (`color-tools.ts`,
+`theme/track-palette.ts`), **escritorio manejable** —maximizar/restaurar con
+botón, doble clic en la cabecera y Ctrl+Alt+←/→/↑/↓; acople a media pantalla al
+arrastrar contra un borde con previsualización; asas en los paneles laterales
+con ancho persistido— y un **acabado suave** por defecto (estilo iOS sutil,
+animaciones y menús translúcidos en Ajustes) del que `Clásico` devuelve el look
+exacto de la v3.14. Los cinco `window.prompt` que Electron 43 ya no soporta
+pasan por un diálogo propio (`askName`, último pedido gana). La memoria del
+escritorio guarda la caja de descanso de una maximizada y migra las cajas
+viejas que llenaban el área, que no se podían mover. QA visual por CDP de los
+seis pares tema × estilo, asas, acople, doble clic, atajos y diálogos. Red: **331
+archivos / 3928 tests**, typecheck, lint y build limpios, golden 25/25 sin tocar.
+
+---
+
 ## Estado — 17-11-2026: v3.14.0
 
 **"A mano".** Encargo directo de experiencia de uso: cable de enrutado

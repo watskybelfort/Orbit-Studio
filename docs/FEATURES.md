@@ -121,7 +121,7 @@ esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
 | Export del loop de la playlist (fuente Loop en el ExportPanel) | v0.5 |
 | Cambiar entre **arrangements** | v0.1 |
 | Crear (+, con sus pistas base) y renombrar arrangements desde la toolbar | v0.5 |
-| Color editable por pista (swatch en la cabecera) | v0.6 |
+| **Color de pista libre** (swatch en la cabecera): 14 presets, selector del sistema y hex de 3/4/6/8 dígitos con aviso si no vale. El color propio del clip gana; si no lo tiene, manda el de la pista sobre el del patrón. La barra de selección pinta todos los clips marcados en **un solo undo**, con «Usar el color de la pista» para quitarlo | v3.15 |
 | Altura de pista arrastrable (doble clic en el tirador la resetea) e icono por familia de sonido | v0.9 |
 | Mini-preview de las notas dentro de cada clip | v0.1 |
 | **Consolidar a audio (bounce)**: los clips de la pista se renderizan CON sus efectos y quedan como un solo clip de audio, en un undo | v0.9 |
@@ -391,12 +391,19 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Iconografía SVG propia minimalista estilo Mac (26 iconos) | v0.1 |
 | **Escala de UI 80–150 %** (incluye el shim que devuelve las coordenadas de canvas a px de layout: sin él los clics caen desplazados) | v1.0 |
 | Fuente de interfaz (6 pilas del sistema) y radio de esquinas por token | v1.0 |
+| **Acabado Suave (iOS sutil) por defecto**: esquinas más generosas, sombras aireadas y transiciones de 150–200 ms en popups, menús y controles. «Clásico» devuelve el aspecto exacto de la v3.14 (sin transiciones y con el radio grande igual al normal) | v3.15 |
+| **Animaciones on/off**: apagarlas las elimina de verdad (`none`), también con `prefers-reduced-motion` | v3.15 |
+| **Menús translúcidos** en oscuro/claro (82 % + blur); en acrílico el vidrio ya es del tema y no se duplica | v3.15 |
 
 ## 15. Sistema de ventanas y atajos
 
 | Función | Versión |
 |---|---|
 | Ventanas internas movibles/redimensionables/cerrables con z-order (como FL) | v0.1 |
+| **Maximizar y restaurar** con botón en la cabecera, doble clic sobre ella o **Ctrl+Alt+←/→/↑/↓** (media pantalla / maximizar, ↓ devuelve). Arrastrar contra un borde acopla a media pantalla con previsualización; si el escritorio no da para dos mínimos, manda el área entera. Una ventana que ya llena el escritorio sin estar maximizada deshabilita el botón y lo explica | v3.15 |
+| **Asas en los paneles laterales** (Biblioteca y Claude): arrastrar, flechas (Shift = paso fino) y doble clic al ancho de fábrica. El ancho persiste en settings.json y `loadPanelWidths()` corre antes de restaurar el escritorio para medir el área real | v3.15 |
+| **Diálogo de nombre propio** (`askName`): sustituye los cinco `window.prompt` que Electron 43 ya no soporta (plantilla, layout, patrón, sección). Modal nativo, último pedido gana, cancelar devuelve null y el foco vuelve a quien lo abrió | v3.15 |
+| **La memoria del escritorio guarda la caja de descanso** de una ventana maximizada (el modelo de layout no tiene «maximizado») y migra las cajas viejas que llenaban el área, que no se podían mover | v3.15 |
 | **Menús flotantes por portal** (`MenuPortal`): van al `body` del documento del ancla y se colocan midiéndose contra ESA ventana. Antes eran `position: fixed` dentro del editor, y cualquier ancestro con `transform`, `will-change` o `backdrop-filter` los recortaba — por eso el menú de pista de la playlist no aparecía nunca y los demás fallaban solo en tema acrílico | v1.1 |
 | **Z-order acotado**: los z de las ventanas se renumeran en un rango pequeño. Antes crecían 1 por cada clic sin techo y acababan tapando los menús contextuales (1000) y la paleta de comandos (1200) | v1.1 |
 | **Ventanas desacoplables**: sacar cualquier editor a una ventana nativa del OS | v0.6 |

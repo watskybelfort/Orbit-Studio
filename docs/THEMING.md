@@ -62,7 +62,15 @@ tokens; el customizador solo escribe tokens.
 --glass-alpha /* perilla transparencia (solo acrílico) */
 --glass-tint  /* perilla tinte: color que vela el vidrio */
 --radius, --blur-popup
+--radius-sm, --radius-lg, --radius-pill /* derivados del radio del usuario */
+--shadow-ink  /* única tinta de sombra; las sombras nuevas componen con color-mix */
+--ease-soft, --motion-fast, --motion-base /* ritmo del acabado suave */
 ```
+
+Radios: `--radius-sm` es `calc(var(--radius) * 0.75)` y `--radius-lg` **es**
+`var(--radius)` por defecto. Solo el bloque `html[data-style='soft']` agranda
+`--radius-lg` a `calc(var(--radius) * 1.75)`: por eso `Clásico` reproduce la
+v3.14 sin un píxel de diferencia aunque el usuario haya cambiado su radio.
 
 ## Los tres temas
 
@@ -71,6 +79,24 @@ tokens; el customizador solo escribe tokens.
 | Fondo | `#141518` opaco | `#f4f5f7` opaco | tinte oscuro con alfa (DWM detrás) |
 | Superficies | grises fríos | blancos suaves | alfa bajo + borde 1px sutil |
 | Popups | sombra | sombra | `backdrop-filter: blur` real |
+
+## Acabado: suave, animaciones y vidrio
+
+El carácter visual va por **atributos en `<html>`** (`theme/appearance.ts`), no
+por variables: una custom property no puede condicionar un bloque entero de
+reglas CSS. Los tres se aplican en caliente y se guardan como claves planas en
+`settings.json` (`uiStyle`, `uiMotion`, `uiGlassMenus`).
+
+| Atributo | Valores | Qué hace |
+|---|---|---|
+| `data-style` | `soft` (defecto) · `classic` | `soft` agranda `--radius-lg`, compone sombras más aireadas y añade transiciones de 150–200 ms en popups, menús y controles. `classic` no enciende **ninguna** regla: es el look de la v3.14 |
+| `data-motion` | `on` (defecto) · `off` | `off` **elimina** transiciones y animaciones (`none`, no `0.01ms`), igual que `prefers-reduced-motion` en `base.css` |
+| `data-glass-menus` | `on` · `off` (defecto) | En oscuro/claro da a los popups fondo al 82 % + `backdrop-filter: blur(var(--blur-popup))`. En acrílico no se aplica: ahí el vidrio ya lo pone el tema |
+
+`soft` no toca densidad, tamaños de fuente ni la grilla de los editores: es un
+acabado, no un rediseño. Los temas custom guardados antes de la v3.15 no traen
+estos campos; `normalizeAppearance` los rellena (`soft`, `true`, `false`) al
+leerlos y `buildThemeFile` los escribe normalizados al exportar.
 
 ## Controles de ventana
 
@@ -91,8 +117,11 @@ Intuitivo: nada de editar archivos.
 1. **Tema**: tarjetas Oscuro / Claro / Acrílico con miniatura en vivo.
 2. **Tres perillas** (regla del skill): Transparencia (`--glass-alpha`),
    Tinte (`--glass-tint` con picker), Acento (`--accent` con picker + paleta).
-3. **Semáforo Mac**: interruptor on/off (persiste).
-4. **Temas custom**: "Guardar como…" con nombre; lista editable; exportar/
+3. **Estilo de la interfaz**: tarjetas Suave (iOS) / Clásico, más los
+   interruptores de Animaciones y Menús translúcidos (ver «Acabado» arriba).
+4. **Semáforo Mac**: interruptor on/off (persiste).
+5. **Lectura y tamaño**: escala 80–150 %, fuente y radio de esquinas.
+6. **Temas custom**: "Guardar como…" con nombre; lista editable; exportar/
    importar `.orbittheme` (JSON de tokens).
 
 Persistencia en `settings.json` del userData; el tema se aplica al instante
