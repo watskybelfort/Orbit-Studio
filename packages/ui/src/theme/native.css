@@ -161,7 +161,7 @@ html[data-style='soft'] .param-menu-item:disabled {
 /* Lo que borra se dice en rojo, como en una hoja nativa. Clásico no tiene
    `.danger`, así que ahí el texto sigue siendo el de siempre. */
 html[data-style='soft'] .param-menu-item.danger {
-  color: var(--danger);
+  color: var(--danger-ink);
 }
 
 html[data-style='soft'] .param-menu-item.danger:hover:not(:disabled) {
@@ -256,7 +256,7 @@ html[data-style='soft'] .tbtn.play.active,
 html[data-style='soft'] .tbtn.play.active:hover:not(:disabled) {
   border-color: transparent;
   background: color-mix(in srgb, var(--meter) 15%, transparent);
-  color: var(--meter);
+  color: var(--meter-ink);
 }
 
 html[data-style='soft'] .tbtn.play.armed {
@@ -275,7 +275,7 @@ html[data-style='soft'] .tbtn.voz.active,
 html[data-style='soft'] .tbtn.voz.active:hover:not(:disabled) {
   border-color: transparent;
   background: color-mix(in srgb, var(--meter-clip) 15%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
 }
 
 html[data-style='soft'] .tbtn:disabled {
@@ -1460,12 +1460,12 @@ html[data-style='soft'] .gal-tag {
 }
 
 html[data-style='soft'] .gal-tag.ok {
-  color: var(--meter);
+  color: var(--meter-ink);
   background: color-mix(in srgb, var(--meter) 12%, transparent);
 }
 
 html[data-style='soft'] .gal-tag.danger {
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
   background: color-mix(in srgb, var(--meter-clip) 12%, transparent);
 }
 
@@ -2203,12 +2203,12 @@ html[data-style='soft'] .strip-btn:hover {
 }
 
 html[data-style='soft'] .strip-btn.on-mute {
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
   background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
 }
 
 html[data-style='soft'] .strip-btn.on-solo {
-  color: var(--meter-hot);
+  color: var(--meter-hot-ink);
   background: color-mix(in srgb, var(--meter-hot) 16%, transparent);
 }
 
@@ -2328,6 +2328,9 @@ html[data-style='soft'] .send-del {
 
 html[data-style='soft'] .send-del:hover {
   background: var(--titlebar-close-hover);
+  /* Sobre el rojo de «cerrar» la tinta va en blanco: el clip rojo sobre rojo
+     era ilegible justo cuando el botón está apuntado. */
+  color: var(--titlebar-close-hover-text);
 }
 
 html[data-style='soft'] .mixer-chain-slots {
@@ -3538,7 +3541,7 @@ html[data-style='soft'] .exp-cancel {
   border: none;
   border-radius: 8px;
   background: color-mix(in srgb, var(--meter-clip) 14%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
   font-size: 12px;
 }
 
@@ -4018,7 +4021,7 @@ html[data-style='soft'] .collab-btn.primary:hover:not(:disabled) {
 
 html[data-style='soft'] .collab-btn.danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
 }
 
 html[data-style='soft'] .collab-btn.small {
@@ -4220,7 +4223,7 @@ html[data-style='soft'] .au-delete {
 html[data-style='soft'] .au-delete:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
 }
 
 html[data-style='soft'] .au-empty {
@@ -4389,7 +4392,7 @@ html[data-style='soft'] .lfo-del {
 html[data-style='soft'] .lfo-del:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
 }
 
 /* ── Enrutado ── */
@@ -4722,7 +4725,7 @@ html[data-style='soft'] .chan-fx-del {
 html[data-style='soft'] .chan-fx-del:hover {
   border-color: transparent;
   background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
-  color: var(--meter-clip);
+  color: var(--meter-clip-ink);
 }
 
 html[data-style='soft'] .chan-fx-editor {
@@ -5196,4 +5199,54 @@ html[data-style='soft'] .ae-hint {
   padding: 7px 12px;
   border-top-color: var(--hairline);
   font-size: 10.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   19. Tinta de los estados
+   El color de un medidor es la señal de una BARRA; como letra sobre superficies
+   claras no se lee (verde 2,2:1, amarillo 1,6:1). Estos son los mismos estados
+   cuando son texto: el token de tinta vale el color del medidor en oscuro y se
+   oscurece en claro. Solo suave — clásico conserva la v3.14.
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .scope-lufs-val,
+html[data-style='soft'] .strip-lufs-val,
+html[data-style='soft'] .hist-who.remote,
+html[data-style='soft'] .brs-who.remote,
+html[data-style='soft'] .chan-audible.on {
+  color: var(--meter-ink);
+}
+
+html[data-style='soft'] .scope-lufs-val.hot,
+html[data-style='soft'] .strip-lufs-val.hot,
+html[data-style='soft'] .hist-who.claude,
+html[data-style='soft'] .brs-who.claude,
+html[data-style='soft'] .cpu-display.warm,
+html[data-style='soft'] .fx-warn,
+html[data-style='soft'] .exp-warn {
+  color: var(--meter-hot-ink);
+}
+
+html[data-style='soft'] .scope-lufs-val.clip,
+html[data-style='soft'] .exp-cancelled,
+html[data-style='soft'] .exp-error,
+html[data-style='soft'] .collab-error,
+html[data-style='soft'] .collab-denied,
+html[data-style='soft'] .cpu-display.hot,
+html[data-style='soft'] .countin-num,
+html[data-style='soft'] .plugin-view-dead b,
+html[data-style='soft'] .set-error,
+html[data-style='soft'] .user-folder-del:hover,
+html[data-style='soft'] .collab-note-del:hover {
+  color: var(--meter-clip-ink);
+}
+
+html[data-style='soft'] .pl-take-del:hover,
+html[data-style='soft'] .pl-color-warn,
+html[data-style='soft'] .name-dialog__error {
+  color: var(--danger-ink);
+}
+
+html[data-style='soft'] .ver-diff-hint {
+  color: var(--warn-ink);
 }
