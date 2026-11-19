@@ -4618,9 +4618,21 @@ html[data-style='soft'] .chan-fx-slot {
   background: var(--fill-hover);
 }
 
+/* Igual que los slots del mixer: un hueco es una fila tenue, no una caja
+   punteada de 880 px. Sin borde se lee la lista; el hover y el «+ Efecto» en
+   acento dicen dónde se pulsa. */
 html[data-style='soft'] .chan-fx-slot.empty {
-  border: 1px dashed color-mix(in srgb, var(--text) 22%, transparent);
-  background: transparent;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  transition: background-color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-fx-slot.empty:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .chan-fx-slot.empty:hover .chan-fx-add {
+  color: var(--accent);
 }
 
 html[data-style='soft'] .chan-fx-row {
