@@ -42,6 +42,11 @@ describe('MixTab: "Sale por…" usa la pista EFECTIVA (trackOfChannel), no chann
     expect(file).not.toMatch(/mixerTrackLabel\(channel\.mixerTrack/);
   });
 
+  it('la nota pluraliza: «1 efecto» / «N efectos», nunca «efecto(s)»', () => {
+    expect(file).toContain("slotCount === 1 ? 'efecto' : 'efectos'");
+    expect(file).not.toContain('efecto(s)');
+  });
+
   it('el lookup de la pista (para "N efecto(s) en esa pista") usa la variable resuelta', () => {
     expect(file).toMatch(/const track = mixer\[effectiveTrack\];/);
   });

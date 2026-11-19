@@ -32,6 +32,7 @@ export function MixTab({ channel, mixer, anySolo }: MixTabProps) {
   // realidad sonaba por el bus.
   const effectiveTrack = trackOfChannel(project, channel.id);
   const track = mixer[effectiveTrack];
+  const slotCount = track ? track.slots.filter(Boolean).length : 0;
   const audible = !channel.mute && (!anySolo || channel.solo);
 
   const patch = (p: Partial<Channel>, label: string, mergeKey?: string) =>
@@ -125,8 +126,8 @@ export function MixTab({ channel, mixer, anySolo }: MixTabProps) {
         </label>
         <p className="chan-note">
           Sale por <b>{mixerTrackLabel(effectiveTrack, names)}</b>
-          {track && track.slots.filter(Boolean).length > 0
-            ? ` · ${track.slots.filter(Boolean).length} efecto(s) en esa pista`
+          {slotCount > 0
+            ? ` · ${slotCount} ${slotCount === 1 ? 'efecto' : 'efectos'} en esa pista`
             : ' · esa pista está limpia'}
           .
         </p>
