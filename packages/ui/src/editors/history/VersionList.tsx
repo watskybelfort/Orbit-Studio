@@ -53,7 +53,7 @@ export function VersionList() {
         <input
           className="ver-input"
           value={label}
-          placeholder="Nombre (p. ej. «antes del drop»)"
+          placeholder="Nombre (p. ej. antes del drop)"
           onChange={(e) => setLabel(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') save();
