@@ -1,7 +1,7 @@
 /** Navegación estable por el flujo de producción; el transporte queda aparte. */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { IconBrowser, IconChannelRack, IconClaude, IconExport, IconMixer, IconPianoRoll, IconPlaylist, IconSettings } from '../icons';
+import { IconBrowser, IconChannelRack, IconClaude, IconExport, IconHelp, IconMixer, IconPianoRoll, IconPlaylist, IconSearch, IconSettings } from '../icons';
 import { usePaletteStore } from '../palette';
 import { isWindowId, useUiStore } from '../state/ui';
 import { useProject } from '../state/useProject';
@@ -29,7 +29,12 @@ export function StudioNavigation() {
   const browserOpen = useUiStore((s) => s.browserOpen);
   const claudePanelOpen = useUiStore((s) => s.claudePanelOpen);
   const compact = useUiStore((s) => s.compact);
-  const front = Object.entries(windows).filter(([, w]) => w.open).sort((a, b) => b[1].z - a[1].z)[0]?.[0];
+  // «Al frente» se decide solo entre editores: si la ventana de arriba es
+  // Ajustes o el Historial, la barra no debe quedarse sin ninguna pestaña
+  // marcada — el editor que sigue abierto detrás es el contexto real.
+  const front = EDITORS.map(({ id }) => id)
+    .filter((id) => windows[id]?.open)
+    .sort((a, b) => windows[b]!.z - windows[a]!.z)[0];
 
   // El aviso de «espacio reducido» explica una decisión, no bloquea nada: a los
   // 8 s se va solo. Antes se quedaba fijo en la esquina tapando los controles
@@ -44,20 +49,22 @@ export function StudioNavigation() {
     <div className="studio-nav-container">
     <nav className="studio-nav" aria-label="Herramientas del estudio">
       <div className="studio-nav__editors">
-        {EDITORS.map(({ id, label, detail, key, Icon }) => (
-          <button
-            key={id}
-            className={`studio-nav__editor${front === id ? ' is-front' : ''}`}
-            aria-current={front === id ? 'true' : undefined}
-            title={`${detail}${key ? ` (${key})` : ''}. Abrir o traer al frente.`}
-            onClick={() => openWindow(id)}
-          >
-            <Icon size={16} />
-            <span>{label}</span>
-            {key && <kbd>{key}</kbd>}
-            <span className={`studio-nav__indicator${windows[id].open ? ' is-open' : ''}`} aria-label={windows[id].open ? 'Abierto' : undefined} />
-          </button>
-        ))}
+        <div className="studio-nav__tabs" role="group" aria-label="Editores">
+          {EDITORS.map(({ id, label, detail, key, Icon }) => (
+            <button
+              key={id}
+              className={`studio-nav__editor${front === id ? ' is-front' : ''}`}
+              aria-current={front === id ? 'true' : undefined}
+              title={`${detail}${key ? ` (${key})` : ''}. Abrir o traer al frente.`}
+              onClick={() => openWindow(id)}
+            >
+              <Icon size={16} />
+              <span>{label}</span>
+              {key && <kbd>{key}</kbd>}
+              <span className={`studio-nav__indicator${windows[id].open ? ' is-open' : ''}`} aria-label={windows[id].open ? 'Abierto' : undefined} />
+            </button>
+          ))}
+        </div>
         <select
           className="studio-nav__tools"
           aria-label="Abrir otra herramienta"
@@ -135,9 +142,11 @@ export function StudioNavigation() {
         <button className="studio-nav__utility" title="Personalizar el estudio y configurar dispositivos" onClick={() => openWindow('settings')}>
           <IconSettings size={15} /><span>Ajustes</span>
         </button>
-        <button ref={guideTrigger} className="studio-nav__utility" onClick={() => setGuideOpen(true)} aria-haspopup="dialog">Guía</button>
+        <button ref={guideTrigger} className="studio-nav__utility studio-nav__guide" onClick={() => setGuideOpen(true)} aria-haspopup="dialog"><IconHelp size={15} /><span>Guía</span></button>
         <button className="studio-nav__search" title="Buscar comandos, editores y acciones (Ctrl+K)" onClick={() => usePaletteStore.getState().openPalette()}>
-          Buscar acciones <kbd>Ctrl K</kbd>
+          <IconSearch size={14} />
+          <span className="studio-nav__search-label">Buscar acciones</span>
+          <kbd>Ctrl K</kbd>
         </button>
       </div>
       {guideOpen && <StudioGuide onClose={() => setGuideOpen(false)} returnFocusTo={guideTrigger.current} />}

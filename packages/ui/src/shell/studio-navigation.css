@@ -34,6 +34,13 @@
 
 .studio-nav__utilities { padding-block: 5px; }
 
+/* La pastilla de editores, la lupa, la etiqueta y la ayuda con icono son del
+   acabado suave. En clásico todo se disuelve o se oculta y queda la v3.14. */
+.studio-nav__tabs { display: contents; }
+.studio-nav__search-label { display: contents; }
+.studio-nav__search > svg,
+.studio-nav__guide > svg { display: none; }
+
 .studio-nav__editor,
 .studio-nav__utility,
 .studio-nav__search {
