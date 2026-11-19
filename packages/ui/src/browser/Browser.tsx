@@ -1126,7 +1126,8 @@ export function Browser() {
             <input
               type="search"
               className="browser-search"
-              placeholder="Buscar (nombre, tag, grupo)…"
+              aria-label="Buscar sonidos por nombre, tag, grupo o pack"
+              placeholder="Buscar sonido o tag"
               value={filters.query}
               onChange={(e) => patchFilters({ query: e.target.value })}
               spellCheck={false}
