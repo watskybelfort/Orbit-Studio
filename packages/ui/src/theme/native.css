@@ -2210,15 +2210,25 @@ html[data-style='soft'] .fx-slot {
   background: var(--fill-hover);
 }
 
+/* Un slot vacío no puede ser solo un «+» flotando en el vacío: sin caja no se
+   sabe dónde se hace clic ni cuántos huecos hay. Se le da el velo más tenue de
+   la escala —por debajo de --fill-hover— para que la columna se lea como una
+   lista de filas sin volver a las cajas de la v3.14. */
 html[data-style='soft'] .fx-slot.empty {
-  background: none;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+html[data-style='soft'] .fx-slot.empty:hover {
+  background: var(--fill-hover);
 }
 
 html[data-style='soft'] .fx-add {
-  height: 22px;
+  justify-content: flex-start;
+  height: 26px;
+  padding: 0 10px;
   border-radius: 6px;
   font-size: 12px;
-  opacity: 0.6;
+  opacity: 0.55;
   transition:
     background-color 100ms var(--ease-out),
     color 100ms var(--ease-out),
@@ -2226,7 +2236,7 @@ html[data-style='soft'] .fx-add {
 }
 
 html[data-style='soft'] .fx-slot.empty:hover .fx-add {
-  background: var(--fill-hover);
+  color: var(--accent);
   opacity: 1;
 }
 
