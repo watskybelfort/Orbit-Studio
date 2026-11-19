@@ -121,6 +121,55 @@ html[data-style='soft'] .menu-sub {
   top: -6px;
 }
 
+/* Menús de parámetro (clic derecho en un fader o una perilla): los pinta
+   MenuPortal con .param-menu, así que heredan el mismo idioma que la barra en
+   vez de quedarse con la caja de 5 px de la v3.14. */
+html[data-style='soft'] .param-menu {
+  min-width: 210px;
+  padding: 6px;
+  border-color: var(--hairline);
+  border-radius: var(--radius-panel);
+  font-size: 12.5px;
+}
+
+html[data-style='soft'] .param-menu-item {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  transition:
+    background-color 90ms var(--ease-out),
+    color 90ms var(--ease-out);
+}
+
+html[data-style='soft'] .param-menu-item:hover:not(:disabled),
+html[data-style='soft'] .param-menu-item:focus-visible {
+  background: var(--fill-selected);
+  outline: none;
+}
+
+html[data-style='soft'] .param-menu-item:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+html[data-style='soft'] .param-menu-item:disabled {
+  color: var(--text-dim);
+  opacity: 0.55;
+}
+
+html[data-style='soft'] .param-menu-sep {
+  margin: 4px;
+  background: var(--hairline);
+}
+
+html[data-style='soft'] .param-menu-note {
+  max-width: 260px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
    2. Transporte
    ───────────────────────────────────────────────────────────────────────── */
