@@ -39,6 +39,11 @@
   text-overflow: ellipsis;
 }
 
+/* La lupa es del acabado suave: en clásico el envoltorio se disuelve y el
+   icono no existe, así el buscador mide y se ve como en la v3.14. */
+.browser-search-box { display: contents; }
+.browser-search-box > svg { display: none; }
+
 .browser-search {
   width: 100%;
   padding: 5px 8px;

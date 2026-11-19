@@ -41,6 +41,7 @@ import { ACCENT_DEFAULT, ACCENT_PRESETS, GLASS_TINT_DEFAULT } from '../theme/pal
 import { UI_SCALE_MAX, UI_SCALE_MIN } from '../theme/ui-scale';
 import { useUiStore } from '../state/ui';
 import { forgetWorkspace, setWorkspaceMemory, workspaceMemoryOn } from '../state/workspace-memory';
+import { IconSearch } from '../icons';
 import './settings.css';
 
 /** Las ocho propuestas viven en theme/palette.ts (regla 4 de CLAUDE.md). */
@@ -212,17 +213,20 @@ export function SettingsPanel() {
       <header className="settings-header">
         <div className="settings-header__top">
           <h2>Preferencias del estudio</h2>
-          <input
-            className="settings-search"
-            type="search"
-            aria-label="Buscar una categoría de ajustes"
-            placeholder="Buscar: tema, micro, latencia…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && query) { event.stopPropagation(); setQuery(''); }
-            }}
-          />
+          <div className="settings-search-box" role="search">
+            <IconSearch size={14} />
+            <input
+              className="settings-search"
+              type="search"
+              aria-label="Buscar una categoría de ajustes"
+              placeholder="Buscar: tema, micro, latencia…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && query) { event.stopPropagation(); setQuery(''); }
+              }}
+            />
+          </div>
         </div>
         <nav className="settings-nav" aria-label="Categorías de ajustes">
           {sections.map((item) => (

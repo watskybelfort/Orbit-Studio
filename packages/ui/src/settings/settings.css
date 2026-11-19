@@ -31,6 +31,11 @@
   letter-spacing: -0.3px;
 }
 
+/* El buscador con lupa es del acabado suave: en clásico el envoltorio se
+   disuelve y el icono no existe (la v3.14 se queda igual). */
+.settings-search-box { display: contents; }
+.settings-search-box > svg { display: none; }
+
 .settings-search {
   min-width: 180px;
   flex: 1;

@@ -43,6 +43,7 @@ import {
   type StoredTemplate,
 } from '../state/project-templates';
 import { askName } from '../shell/name-dialog';
+import { IconSearch } from '../icons';
 import { Knob } from '../widgets/Knob';
 import { addSamplerChannel, previewSound, runSoundLoadAction, setDragEntries } from './sound-actions';
 import { createPreviewSequence, type PreviewSequence } from './preview-sequence';
@@ -1120,14 +1121,17 @@ export function Browser() {
         </div>
 
         <div className="browser-search-row">
-          <input
-            type="search"
-            className="browser-search"
-            placeholder="Buscar (nombre, tag, grupo)…"
-            value={filters.query}
-            onChange={(e) => patchFilters({ query: e.target.value })}
-            spellCheck={false}
-          />
+          <div className="browser-search-box">
+            <IconSearch size={13} />
+            <input
+              type="search"
+              className="browser-search"
+              placeholder="Buscar (nombre, tag, grupo)…"
+              value={filters.query}
+              onChange={(e) => patchFilters({ query: e.target.value })}
+              spellCheck={false}
+            />
+          </div>
           <Knob
             value={previewGain}
             min={0}
