@@ -11,7 +11,7 @@
 import { useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useDetachedStore } from '../state/detached';
-import { useUiStore, type WindowId } from '../state/ui';
+import { useUiStore, type WindowId, WINDOW_IDS } from '../state/ui';
 import { registerWindowMinimum } from '../state/window-minimums';
 import { isMarkedMaximized } from '../state/window-restore';
 import {
@@ -101,8 +101,25 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
   const moveWindow = useUiStore((s) => s.moveWindow);
   const resizeWindow = useUiStore((s) => s.resizeWindow);
   const isDetached = useDetachedStore((s) => s.detached[id] === true);
+  // El mapa entero, no solo esta ventana: al desacoplar otra, la de arriba del
+  // escritorio interno cambia y esta tiene que enterarse para apagarse.
+  const detachedMap = useDetachedStore((s) => s.detached);
   const detach = useDetachedStore((s) => s.detach);
   const attach = useDetachedStore((s) => s.attach);
+  // Ventana al frente del escritorio interno: la de mayor z entre las abiertas
+  // que viven aquí (una desacoplada está en su propia ventana nativa y no
+  // oscurece a las demás). El store renumera la z en un rango acotado, así que
+  // comparar por id evita depender de un valor concreto.
+  const topOpenId = useUiStore((s) => {
+    let top: WindowId | null = null;
+    for (const k of WINDOW_IDS) {
+      const w = s.windows[k];
+      if (!w.open || detachedMap[k]) continue;
+      if (top === null || w.z > s.windows[top].z) top = k;
+    }
+    return top;
+  });
+  const isActive = topOpenId === id;
   const area = useContext(WorkspaceAreaContext);
   const minimum = { w: minW, h: minH };
   // El mínimo real de este editor queda disponible para los atajos y el
@@ -383,7 +400,9 @@ export function InternalWindow({ id, title, children, minW = 320, minH = 200 }: 
 
   return (
     <section
-      className={`iw popup${maximized ? ' iw-is-max' : ''}`}
+      // `is-active` describe la ventana al frente del escritorio interno: sube
+      // su sombra y baja la tinta del título de las de atrás (capa native.css).
+      className={`iw popup${maximized ? ' iw-is-max' : ''}${isActive ? ' is-active' : ''}`}
       style={{ left: box.x, top: box.y, width: box.w, height: box.h, zIndex: win.z }}
       // En CADA pointerdown, y sale barato: si la ventana ya está arriba el
       // store devuelve el MISMO objeto de estado y zustand ni avisa a los
