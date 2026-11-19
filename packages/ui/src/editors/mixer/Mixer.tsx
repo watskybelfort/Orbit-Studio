@@ -1153,6 +1153,7 @@ function ChainPanel({
         </div>
       )}
       <div className="mixer-chain-slots">
+        <div className="fx-chain-label" title="Cadena de inserción: los efectos van antes del fader">Efectos</div>
         {Array.from({ length: MIXER_SLOTS }, (_, i) => {
           const slot = track.slots[i] ?? null;
           if (!slot) {

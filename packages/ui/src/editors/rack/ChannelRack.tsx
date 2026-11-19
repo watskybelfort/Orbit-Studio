@@ -74,6 +74,7 @@ import {
   SOUND_MIME,
 } from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
+import { IconSearch } from '../../icons';
 import { defaultPluginParams } from '../../state/plugin-parse';
 import { InstrumentPluginView } from '../../plugins/PluginView';
 import { reportActivity } from '../../collab/presence';
@@ -815,6 +816,7 @@ export function ChannelRack() {
           );
         })}
         <div className="rack-search">
+          <IconSearch size={12} />
           <input
             className="rack-search-input"
             type="search"

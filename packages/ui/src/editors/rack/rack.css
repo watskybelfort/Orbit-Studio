@@ -303,6 +303,9 @@
   margin-left: 6px;
 }
 
+/* Lupa solo en el acabado suave (ver native.css); el clásico no la dibuja. */
+.rack-search > svg { display: none; }
+
 .rack-search-input {
   width: 150px;
   height: 22px;

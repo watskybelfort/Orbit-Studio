@@ -348,6 +348,9 @@
   color: var(--meter-clip);
 }
 
+/* Rótulo de la cadena de efectos: lo dibuja el acabado suave, no el clásico. */
+.fx-chain-label { display: none; }
+
 .mixer-chain-slots {
   flex: 1;
   min-height: 0;
