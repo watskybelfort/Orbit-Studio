@@ -202,19 +202,19 @@ export function App() {
       {aboutOpen && <AboutDialog />}
       {shortcutsOpen && <ShortcutsDialog />}
       {/*
-        Cartel discreto de versión nueva. Esquina superior derecha para no
-        pisar el aviso de recuperación (arriba, centrado) ni el `app-notice`
-        (abajo, centrado). `.popup` da la superficie/blur del tema; el resto
-        son solo medidas — el color sale todo de variables del tema.
+        Cartel discreto de versión nueva. Esquina inferior derecha: arriba
+        tapaba Ajustes, Guía y Buscar de la barra de navegación (la cuenta de
+        antes dejaba fuera la fila del menú). Abajo convive con el
+        `app-notice`, que va centrado, y deja libre el asa de redimensionar.
+        `.popup` da la superficie/blur del tema; el resto son solo medidas —
+        el color sale todo de variables del tema.
       */}
       {updateAvailable && updateRelease && (
         <div
           className="popup"
           style={{
             position: 'fixed',
-            // Debajo de la toolbar (titlebar 38 + toolbar 44 + 10): a
-            // titlebar+10 tapaba el medidor, la CPU y «Enfoque».
-            top: 'calc(var(--titlebar-h) + 54px)',
+            bottom: 14,
             right: 14,
             zIndex: 1001,
             display: 'flex',
