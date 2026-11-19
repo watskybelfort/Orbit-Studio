@@ -70,7 +70,12 @@ tokens; el customizador solo escribe tokens.
 --hairline   /* borde de 1px para separar sin dibujar cajas */
 --focus-halo /* anillo de foco tipo macOS */
 --on-accent  /* texto sobre relleno de acento (siempre blanco) */
---danger, --warn /* estados semánticos, iguales en los tres temas */
+--meter, --meter-hot, --meter-clip /* verde/ámbar/rojo de las BARRAS de nivel */
+--danger, --warn /* estados semánticos de relleno/borde, iguales en los tres temas */
+--meter-ink, --meter-hot-ink, --meter-clip-ink, --danger-ink, --warn-ink
+              /* los mismos estados cuando son TEXTO: en oscuro valen el color
+                 del medidor; en claro se oscurecen hasta pasar 4,5:1. Solo los
+                 usa el acabado suave, igual que el resto de su capa. */
 --piano-key-black, --piano-key-white /* teclas del piano roll y Prisma */
 ```
 
