@@ -131,6 +131,16 @@ html[data-theme='acrylic'] .playlist {
   margin-left: 0;
 }
 
+/* Los botones de arrangement se dibujan con iconos en el acabado suave; en
+   clásico conservan los glifos de la v3.14 para no cambiar su aspecto. */
+html[data-style='classic'] .pl-add--new > svg,
+html[data-style='classic'] .pl-add--rename > svg {
+  display: none;
+}
+
+html[data-style='classic'] .pl-add--new::after { content: '+'; }
+html[data-style='classic'] .pl-add--rename::after { content: '✎'; }
+
 .pl-add {
   margin-left: auto;
   height: 24px;

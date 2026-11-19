@@ -40,7 +40,7 @@ import {
 import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
 import { addAudioClips, getDragEntries, runSoundLoadAction, SOUND_MIME } from '../../browser/sound-actions';
 import { notifyBanner } from '../../state/bounce';
-import { IconTrack } from '../../icons';
+import { IconPencil, IconPlus, IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
 import { reportActivity } from '../../collab/presence';
 import { engine, ensureAudioReady, store } from '../../state/app';
@@ -2085,15 +2085,16 @@ export function Playlist() {
             </select>
           )}
         </label>
-        <button className="pl-add" title="Nuevo arrangement" onClick={addArrangement}>
-          +
+        <button className="pl-add pl-add--new" title="Nuevo arrangement" aria-label="Nuevo arrangement" onClick={addArrangement}>
+          <IconPlus size={14} />
         </button>
         <button
-          className="pl-add"
+          className="pl-add pl-add--rename"
           title="Renombrar este arrangement"
+          aria-label="Renombrar este arrangement"
           onClick={() => setRenamingArr(true)}
         >
-          ✎
+          <IconPencil size={13} />
         </button>
         <label
           className="pl-field"
