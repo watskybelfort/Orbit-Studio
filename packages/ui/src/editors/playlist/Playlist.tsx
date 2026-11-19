@@ -3002,7 +3002,7 @@ function TrackHeader({ track }: TrackHeaderProps) {
           </button>
           <div className="param-menu-sep" />
           <button
-            className="param-menu-item"
+            className="param-menu-item danger"
             onClick={() => {
               setMenu(null);
               store.dispatch(

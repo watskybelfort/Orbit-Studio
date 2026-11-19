@@ -158,6 +158,39 @@ html[data-style='soft'] .param-menu-item:disabled {
   opacity: 0.55;
 }
 
+/* Lo que borra se dice en rojo, como en una hoja nativa. Clásico no tiene
+   `.danger`, así que ahí el texto sigue siendo el de siempre. */
+html[data-style='soft'] .param-menu-item.danger {
+  color: var(--danger);
+}
+
+html[data-style='soft'] .param-menu-item.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+/* Un select dentro de cualquiera de estos menús (la salida de una pista, la
+   toma de un envío) también es del acabado: sin la caja nativa blanca, que
+   aquí parecía de otro programa. */
+html[data-style='soft'] .param-menu select {
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background-color: var(--fill-hover);
+  color: var(--text);
+  font: inherit;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .param-menu select:hover {
+  background-color: var(--fill-pressed);
+}
+
+html[data-style='soft'] .param-menu select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo);
+}
+
 html[data-style='soft'] .param-menu-sep {
   margin: 4px;
   background: var(--hairline);
@@ -168,6 +201,12 @@ html[data-style='soft'] .param-menu-note {
   padding: 6px 10px;
   font-size: 11px;
   line-height: 1.4;
+}
+
+/* El panel de un envío no es una lista de acciones: lleva formulario dentro y
+   necesita el aire que ya tenía en la v3.14, no los 6 px de un menú. */
+html[data-style='soft'] .param-menu.send-menu {
+  padding: 10px 12px 12px;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
