@@ -64,7 +64,14 @@ tokens; el customizador solo escribe tokens.
 --radius, --blur-popup
 --radius-sm, --radius-lg, --radius-pill /* derivados del radio del usuario */
 --shadow-ink  /* única tinta de sombra; las sombras nuevas componen con color-mix */
---ease-soft, --motion-fast, --motion-base /* ritmo del acabado suave */
+--ease-soft, --ease-out, --ease-spring, --motion-fast, --motion-base /* ritmo del acabado suave */
+--control-h-sm/h/lg  /* escala de alturas de control: 22 / 26 / 30 */
+--fill-hover, --fill-pressed, --fill-selected /* velos de estado, del color del texto o del acento */
+--hairline   /* borde de 1px para separar sin dibujar cajas */
+--focus-halo /* anillo de foco tipo macOS */
+--on-accent  /* texto sobre relleno de acento (siempre blanco) */
+--danger, --warn /* estados semánticos, iguales en los tres temas */
+--piano-key-black, --piano-key-white /* teclas del piano roll y Prisma */
 ```
 
 Radios: `--radius-sm` es `calc(var(--radius) * 0.75)` y `--radius-lg` **es**
@@ -93,9 +100,46 @@ reglas CSS. Los tres se aplican en caliente y se guardan como claves planas en
 | `data-motion` | `on` (defecto) · `off` | `off` **elimina** transiciones y animaciones (`none`, no `0.01ms`), igual que `prefers-reduced-motion` en `base.css` |
 | `data-glass-menus` | `on` · `off` (defecto) | En oscuro/claro da a los popups fondo al 82 % + `backdrop-filter: blur(var(--blur-popup))`. En acrílico no se aplica: ahí el vidrio ya lo pone el tema |
 
-`soft` no toca densidad, tamaños de fuente ni la grilla de los editores: es un
-acabado, no un rediseño. Los temas custom guardados antes de la v3.15 no traen
-estos campos; `normalizeAppearance` los rellena (`soft`, `true`, `false`) al
+`soft` no toca la grilla de los editores ni el modelo: es presentación. Pero
+desde la v3.16 **sí redefine la densidad y el idioma visual de los controles**,
+en una sola capa: `packages/ui/src/theme/native.css`, importada última desde
+`App.tsx`. Toda regla va prefijada con `html[data-style='soft']`, sin excepción:
+`classic` no enciende ninguna y sigue siendo la v3.14 píxel a píxel.
+
+### Lenguaje visual del acabado suave
+
+`native.css` es el único sitio donde vive este idioma; los `.css` de cada editor
+siguen siendo la base estructural. Las reglas que lo definen:
+
+- **Controles sin caja hasta que hacen falta.** Los botones, selects y campos
+  usan fondos `--fill-hover` / `--fill-pressed` y el borde desaparece; solo
+  aparece (o se enciende el acento) al seleccionar, activar o enfocar.
+- **Alturas unificadas** con `--control-h-sm` (22), `--control-h` (26) y
+  `--control-h-lg` (30). Las barras de herramientas usan 26; las acciones
+  principales, 30. Radios de 6–10px en controles, 10–12px en tarjetas y grupos,
+  16px en modales y en la paleta de comandos.
+- **Separadores de 1px** (`--hairline`) en lugar de marcos: la jerarquía la da
+  el espacio, no una caja alrededor de cada bloque.
+- **El acento es estado, no decoración.** Relleno de selección, pestaña activa,
+  pad sonando, «el presente» del historial, acción principal. Nada más.
+- **Las entradas son solo opacidad** (`orbit-snap-in`), nunca `transform`, para
+  no pelear con el arrastre y el escalado de las ventanas internas.
+- **Los estados vacíos se centran** (`.panel-placeholder` y equivalentes) en vez
+  de quedar como una línea perdida en la esquina del lienzo.
+- **Los `<select>` siguen siendo nativos**: se visten por fuera, no se sustituyen
+  por un menú propio, así el teclado y el lector de pantalla no cambian.
+- **Nada de colores literales en componentes**: la única excepción sigue siendo
+  la paleta `--au-*`, `--pr-*` y `--pl-*` de los editores que pintan en canvas,
+  y `plugins/view-replay.ts` (ver la regla 4 del `AGENTS.md`).
+- **Acrílico**: las ventanas internas suben al 96 % de opacidad y las maximizadas
+  son opacas; los popups usan `--popup-bg`; los nodos del grafo llevan borde
+  `--hairline` para no desaparecer sobre la retícula del lienzo.
+- **Teclas de piano**: `--piano-key-white` es claro en los tres temas (en oscuro
+  y acrílico las superficies son casi transparentes) y `--piano-key-black`
+  oscuro; piano roll y Prisma comparten el criterio.
+
+Los temas custom guardados antes de la v3.15 no traen los campos de acabado;
+`normalizeAppearance` los rellena (`soft`, animaciones `on`, vidrio `off`) al
 leerlos y `buildThemeFile` los escribe normalizados al exportar.
 
 ## Controles de ventana
