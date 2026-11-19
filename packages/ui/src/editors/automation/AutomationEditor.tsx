@@ -122,6 +122,21 @@ const MIXER_PARAMS = ['volume', 'pan', 'stereoWidth'] as const;
  */
 const TRANSPORT_PARAMS = ['tempo'] as const;
 
+/**
+ * El valor es la clave que viaja al motor; la etiqueta es lo que se lee. Sin
+ * este mapa el desplegable enseñaba `stereoWidth` o `tempo` en crudo, que es
+ * vocabulario de código, no de mezcla.
+ */
+const MIXER_PARAM_LABELS: Record<(typeof MIXER_PARAMS)[number], string> = {
+  volume: 'Volumen',
+  pan: 'Paneo',
+  stereoWidth: 'Anchura estéreo',
+};
+
+const TRANSPORT_PARAM_LABELS: Record<(typeof TRANSPORT_PARAMS)[number], string> = {
+  tempo: 'Tempo',
+};
+
 interface NewClipFormProps {
   project: Project;
 }
@@ -276,7 +291,7 @@ function NewClipForm({ project }: NewClipFormProps) {
                   onChange={(e) => setMixerParam(e.target.value as (typeof MIXER_PARAMS)[number])}
                 >
                   {MIXER_PARAMS.map((p) => (
-                    <option key={p} value={p}>{p}</option>
+                    <option key={p} value={p}>{MIXER_PARAM_LABELS[p]}</option>
                   ))}
                 </select>
               </label>
@@ -357,7 +372,7 @@ function NewClipForm({ project }: NewClipFormProps) {
                 onChange={(e) => setTransParam(e.target.value as (typeof TRANSPORT_PARAMS)[number])}
               >
                 {TRANSPORT_PARAMS.map((p) => (
-                  <option key={p} value={p}>{p}</option>
+                  <option key={p} value={p}>{TRANSPORT_PARAM_LABELS[p]}</option>
                 ))}
               </select>
             </label>
