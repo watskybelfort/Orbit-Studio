@@ -17,7 +17,7 @@
 import { compileProject, encodeWav, renderProject } from '@orbit/engine';
 import { newId, type Clip, type Command, type SampleRef } from '@orbit/core';
 import { create } from 'zustand';
-import { sha1Hex } from '../browser/sound-actions';
+import { sha1Hex } from '../browser/sample-io';
 import { collectPluginSources, collectSamples } from '../export/render-inputs';
 import {
   canUseRenderWorker,

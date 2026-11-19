@@ -27,7 +27,7 @@ import { createEmptyProject, type Project, type SampleRef } from '@orbit/core';
 import type { CompiledChannel, CompiledProject } from '@orbit/engine';
 
 const readSampleBytesMock = vi.fn<(path: string) => Promise<ArrayBuffer | null>>();
-vi.mock('../src/browser/sound-actions', () => ({
+vi.mock('../src/browser/sample-io', () => ({
   readSampleBytes: (path: string) => readSampleBytesMock(path),
 }));
 

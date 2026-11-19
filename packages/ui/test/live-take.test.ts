@@ -173,7 +173,7 @@ describe('la Playlist la pinta', () => {
     expect(src).toContain('const live = liveRecordingView();');
     expect(src).toContain("const rec = col('--pl-rec');");
     // Se repinta al terminar la toma aunque el transporte esté parado.
-    expect(src).toMatch(/selection, recPhase\]\);/);
+    expect(src).toMatch(/selection, recPhase, analysisEntries\]\);/);
     // Al grabar, la Playlist baja hasta la pista de la toma si no se ve: una
     // vez, cuando llega el primer trozo, y se para el temporizador.
     expect(src).toMatch(/if \(recPhase !== 'recording'\) return;\s+const timer = window\.setInterval\(\(\) => \{\s+const live = liveRecordingView\(\)\[0\];\s+if \(!live\) return;\s+window\.clearInterval\(timer\);/);

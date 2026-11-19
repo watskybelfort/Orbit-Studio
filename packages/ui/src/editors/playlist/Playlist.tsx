@@ -38,7 +38,17 @@ import {
   type Project,
 } from '@orbit/core';
 import { hasSystemFiles, importTriaged, triageDrop } from '../../browser/dropped-audio';
-import { addAudioClips, getDragEntries, runSoundLoadAction, SOUND_MIME } from '../../browser/sound-actions';
+import {
+  addAudioClips,
+  getDragEntries,
+  runSoundLoadAction,
+  SOUND_MIME,
+} from '../../browser/sound-actions';
+import {
+  analysisBadge,
+  summaryForSample,
+  useAudioAnalysis,
+} from '../../state/audio-analysis';
 import { notifyBanner } from '../../state/bounce';
 import { IconPencil, IconPlus, IconTrack } from '../../icons';
 import { useCollabStore } from '../../collab/collab-state';
@@ -174,6 +184,9 @@ const FADE_BAND_H = 11;
 
 export function Playlist() {
   const project = useProject();
+  // El dibujo pinta el BPM/clave detectados en la tira del clip de audio; se
+  // suscribe para que el badge aparezca en cuanto termina el worker.
+  const analysisEntries = useAudioAnalysis((s) => s.entries);
   const activePatternId = useUiStore((s) => s.activePatternId);
   const playing = useUiStore((s) => s.playing);
   const playMode = useUiStore((s) => s.playMode);
@@ -809,7 +822,14 @@ export function Playlist() {
         const label = takeNumber === undefined
           ? clipLabel(c, project)
           : `T${takeNumber} · ${clipLabel(c, project)}`;
-        ctx.fillText(label, x + 4, rowY + stripH - 2);
+        // Solo los clips de audio: el BPM/clave del sample se pega al nombre,
+        // separado por el mismo punto medio que el número de toma. En una tira
+        // estrecha el canvas recorta lo que no cabe, que es lo esperado.
+        const analysis = c.kind === 'audio' && c.sampleId
+          ? summaryForSample(project.samples[c.sampleId], analysisEntries)
+          : undefined;
+        const badge = analysis ? analysisBadge(analysis) : '';
+        ctx.fillText(badge ? `${label} · ${badge}` : label, x + 4, rowY + stripH - 2);
       }
 
       const top = rowY + 1.5 + stripH + 2;
@@ -1187,7 +1207,7 @@ export function Playlist() {
     // el playhead está gateado a `playing`, así que en pausa esto es lo único
     // que dispara el repintado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection, recPhase]);
+  }, [rows, clipsByTrack, project, zoom, scrollX, scrollY, loopRegion, barLen, beatToX, idlePos, peers, themeVersion, laneCount, barsIn, selection, recPhase, analysisEntries]);
 
   useEffect(() => {
     draw();

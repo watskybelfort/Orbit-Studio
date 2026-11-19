@@ -47,8 +47,8 @@ async function rig(stage: Stage = 'render') {
   vi.spyOn(worker, 'canUseRenderWorker').mockReturnValue(true);
   const audio = { left: new Float32Array(960).fill(0.2), right: new Float32Array(960).fill(0.3), sampleRate: 48_000 };
   const render = vi.spyOn(worker, 'renderProjectInWorker').mockImplementation(async () => { await wait('render'); return audio; });
-  const sounds = await import('../src/browser/sound-actions');
-  const hash = vi.spyOn(sounds, 'sha1Hex').mockImplementation(async () => { await wait('hash'); return 'content-hash'; });
+  const io = await import('../src/browser/sample-io');
+  const hash = vi.spyOn(io, 'sha1Hex').mockImplementation(async () => { await wait('hash'); return 'content-hash'; });
   vi.spyOn(app.engine, 'init').mockResolvedValue(undefined);
   const loaded = (app.engine as unknown as { loadedSamples: Set<string> }).loadedSamples;
   const upload = vi.spyOn(app.engine, 'loadSample').mockImplementation(async (id) => {

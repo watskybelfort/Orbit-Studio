@@ -51,6 +51,59 @@
   border-top: 1px solid var(--border);
 }
 
+/* Análisis automático de tempo/tonalidad del clip abierto. */
+.ae-analysis {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.ae-analysis-status {
+  color: var(--text-dim);
+}
+
+.ae-fact {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ae-fact b {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.ae-conf,
+.ae-dim {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.ae-badge {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.ae-analysis-error {
+  color: var(--meter-hot);
+  font-size: 10px;
+}
+
+.ae-alt {
+  color: var(--text-dim);
+}
+
 /* Panel de afinación (corrección de tono de la toma) */
 
 .ae-tune {

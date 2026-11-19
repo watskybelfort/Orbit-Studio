@@ -35,7 +35,7 @@ import type { Project } from '@orbit/core';
 import type { CompiledProject, SampleData } from '@orbit/engine';
 import { neededSampleIds } from '@orbit/engine';
 export { neededSampleIds } from '@orbit/engine';
-import { readSampleBytes } from '../browser/sound-actions';
+import { readSampleBytes } from '../browser/sample-io';
 import { usePluginsStore } from '../state/plugins';
 import { createUiAudioCache, sampleCacheKey } from '../state/sample-gc';
 

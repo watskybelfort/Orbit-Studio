@@ -14,10 +14,21 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { newId, type Clip, type SampleRef } from '@orbit/core';
+import { newId, type Clip, type Command, type SampleRef } from '@orbit/core';
 import { correctPitch, detectTransients, scalePitchClasses } from '@orbit/engine';
 import { readSampleBytes } from '../../browser/sound-actions';
+import {
+  analyzeSampleRef,
+  confidenceLabel,
+  formatBpm,
+  retimedLengthBeats,
+  tempoToApply,
+  useAudioAnalysisError,
+  useAudioAnalysisFor,
+  useAudioAnalysisPending,
+} from '../../state/audio-analysis';
 import { engine, ensureAudioReady, store } from '../../state/app';
+import { notifyBanner } from '../../state/bounce';
 import {
   AUDIO_EDITOR_PCM_ENTRIES,
   createUiAudioCache,
@@ -131,6 +142,9 @@ export function AudioEditor() {
 
   const clip = audioClipId ? project.clips[audioClipId] : undefined;
   const sample = clip?.sampleId ? project.samples[clip.sampleId] : undefined;
+  const analysis = useAudioAnalysisFor(sample);
+  const analysisPending = useAudioAnalysisPending(sample);
+  const analysisError = useAudioAnalysisError(sample);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -166,6 +180,43 @@ export function AudioEditor() {
       alive = false;
     };
   }, [sample]);
+
+  // El análisis se pide al abrir el editor: cubre los audios que ya estaban en
+  // el proyecto (o que entraron antes de que existiera el disparo al colocar) y
+  // reutiliza el caché por hash si ya se midió. Nunca bloquea: va en worker.
+  useEffect(() => {
+    if (sample) void analyzeSampleRef(sample);
+  }, [sample]);
+
+  /**
+   * Aplica un BPM al proyecto. El clip abierto se reajusta para conservar sus
+   * segundos de audio: al cambiar el tempo, un largo fijo en beats acortaría el
+   * tema y se comería el final. Con time-stretch no se toca — ahí el audio se
+   * estira para llenar el clip por diseño.
+   */
+  const applyBpm = useCallback(
+    (bpm: number) => {
+      if (!clip) return;
+      const tempo = tempoToApply(bpm);
+      if (Math.abs(project.tempo - tempo) < 1e-6) return;
+      const commands: Command[] = [{ type: 'setTempo', tempo }];
+      if (!clip.audioStretch) {
+        commands.push({
+          type: 'patchClips',
+          patches: [
+            { id: clip.id, length: retimedLengthBeats(clip.length, project.tempo, tempo) },
+          ],
+        });
+      }
+      const label = `Tempo detectado: ${formatBpm(tempo)} BPM`;
+      store.dispatch(
+        commands.length === 1 ? commands[0]! : { type: 'batch', label, commands },
+        { label },
+      );
+      notifyBanner(`Tempo del proyecto: ${formatBpm(tempo)} BPM.`);
+    },
+    [clip, project.tempo],
+  );
 
   // Al cerrarse el editor, su caché PCM se queda sin lector: `loadChannels` es
   // el único que la lee y solo corre desde aquí. Hasta ahora esas dos entradas
@@ -490,6 +541,11 @@ export function AudioEditor() {
     );
   }
 
+  const bpmConf = confidenceLabel(analysis?.bpmConfidence);
+  const keyConf = confidenceLabel(analysis?.keyConfidence);
+  const bpmInUse =
+    analysis?.bpm !== undefined && Math.abs(project.tempo - tempoToApply(analysis.bpm)) < 0.05;
+
   return (
     <div className="audio-editor">
       <div className="ae-toolbar">
@@ -557,6 +613,73 @@ export function AudioEditor() {
             </button>
           ))}
         </div>
+      </div>
+      <div className="ae-analysis">
+        {analysisPending && (
+          <span className="ae-analysis-status">Buscando tempo y tonalidad…</span>
+        )}
+        {!analysisPending && analysis && (
+          <>
+            {analysis.bpm !== undefined && (
+              <span className="ae-fact">
+                <b>{formatBpm(analysis.bpm)}</b> BPM
+                {bpmConf && <span className="ae-conf">{bpmConf}</span>}
+              </span>
+            )}
+            {analysis.keyName && (
+              <span className="ae-fact">
+                {analysis.keyName}
+                {analysis.camelot && <span className="ae-badge">{analysis.camelot}</span>}
+                {keyConf && <span className="ae-conf">{keyConf}</span>}
+              </span>
+            )}
+            {analysis.tuningCents !== undefined && Math.abs(analysis.tuningCents) >= 3 && (
+              <span className="ae-dim">
+                afinación {analysis.tuningCents > 0 ? '+' : ''}
+                {analysis.tuningCents} ¢
+              </span>
+            )}
+            {analysis.bpm === undefined && !analysis.keyName && (
+              <span className="ae-dim">Sin pulso ni tonalidad claros</span>
+            )}
+            {analysis.bpm !== undefined && (
+              <button
+                className="tbtn"
+                disabled={bpmInUse}
+                onClick={() => applyBpm(analysis.bpm!)}
+                title="Cambia el tempo del proyecto y conserva los segundos de audio de este clip"
+              >
+                {bpmInUse
+                  ? `Ya está a ${formatBpm(analysis.bpm)} BPM`
+                  : `Usar ${formatBpm(analysis.bpm)} BPM`}
+              </button>
+            )}
+            {(analysis.bpmAlternatives ?? []).map((alt) => {
+              const detected = analysis.bpm!;
+              const altLabel =
+                alt < detected * 0.75
+                  ? `½ ${formatBpm(alt)}`
+                  : alt > detected * 1.5
+                    ? `2× ${formatBpm(alt)}`
+                    : formatBpm(alt);
+              return (
+                <button
+                  key={alt}
+                  className="tbtn ae-alt"
+                  onClick={() => applyBpm(alt)}
+                  title={`Aplicar ${formatBpm(alt)} BPM`}
+                >
+                  {altLabel}
+                </button>
+              );
+            })}
+          </>
+        )}
+        {!analysisPending && !analysis && analysisError && (
+          <span className="ae-analysis-error" title={analysisError}>
+            No se pudo analizar este audio.
+          </span>
+        )}
       </div>
       {tuneOpen && (
         <div className="ae-tune">

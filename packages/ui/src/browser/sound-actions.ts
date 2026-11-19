@@ -30,9 +30,22 @@ import {
   type SoundSample,
 } from '@orbit/sound-library';
 import { countSampleRefs, sampleIsUsed, SampleLoadCancelledError } from '@orbit/engine';
+import {
+  describeAnalysis,
+  formatBpm,
+  retimedLengthBeats,
+  shouldAutoApplyTempo,
+  tempoToApply,
+} from '../state/audio-analysis-summary';
+import { analyzeSampleRef } from '../state/audio-analysis';
 import { engine, ensureAudioReady, store } from '../state/app';
+import { notifyBanner } from '../state/bounce';
 import { collectWorkletSamples, withPinnedSamples } from '../state/sample-gc';
 import { useUiStore } from '../state/ui';
+import { readSampleBytes, sha1Hex } from './sample-io';
+
+// Compatibilidad: media UI sigue leyendo estas dos desde aquí.
+export { readSampleBytes, sha1Hex } from './sample-io';
 
 /** MIME propio para arrastrar sonidos del browser dentro de la app. */
 export const SOUND_MIME = 'application/x-orbit-sound';
@@ -162,20 +175,6 @@ export async function mapLimited<T, R>(
   );
   if (failed) throw failure;
   return out;
-}
-
-/** sha1 en hex del archivo (identidad del SampleRef); null si no hay WebCrypto. */
-export async function sha1Hex(data: ArrayBuffer): Promise<string | null> {
-  const subtle = globalThis.crypto?.subtle;
-  if (!subtle) return null;
-  try {
-    const digest = await subtle.digest('SHA-1', data);
-    let out = '';
-    for (const b of new Uint8Array(digest)) out += b.toString(16).padStart(2, '0');
-    return out;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -721,6 +720,87 @@ export async function addAudioClip(entry: SoundEntry, trackId: Id, startBeat: nu
   return addAudioClips([entry], trackId, startBeat);
 }
 
+/** Un clip de audio recién colocado, con lo necesario para analizarlo después. */
+interface PlacedAudio {
+  entryName: string;
+  sample: SampleRef;
+  clipId: Id;
+}
+
+/**
+ * Analiza lo que acaba de entrar a la playlist y, si el proyecto estaba vacío,
+ * ajusta el tempo solo.
+ *
+ * Va después del dispatch y sin `await` a propósito: el clip tiene que aparecer
+ * ya. El análisis es opcional, puede tardar segundos en un tema, y quien está
+ * mezclando no puede quedarse mirando cómo no pasa nada. Cuando termina, el
+ * resultado se ve en la tira del clip, en el editor de audio y —si el proyecto
+ * no tenía nada que descolocar— en el tempo del proyecto.
+ *
+ * El tempo solo se aplica sin preguntar cuando la playlist estaba VACÍA y el
+ * audio entró como único clip: ahí no hay nada que mover. Con trabajo encima,
+ * cambiar el tempo es una decisión del usuario y se le deja en el editor.
+ */
+async function analyzePlacedAudio(
+  item: PlacedAudio,
+  options: { wasEmptyPlaylist: boolean; isCurrent: () => boolean; announce: boolean },
+): Promise<void> {
+  const summary = await analyzeSampleRef(item.sample);
+  if (!summary || !options.isCurrent()) return;
+  const description = describeAnalysis(summary);
+  // Un one-shot sin pulso ni tonalidad no tiene nada que contar; el silencio
+  // aquí es mejor que un aviso que diga "no sé".
+  if (description === '') return;
+
+  const fresh = store.project.clips[item.clipId];
+  // El clip pudo desaparecer (Ctrl+Z, borrado) mientras el worker medía: el
+  // resumen queda en el caché para cuando se vuelva a colocar, pero no hay
+  // nada que anunciar ni que recolocar.
+  if (!fresh || fresh.kind !== 'audio') return;
+
+  const auto =
+    summary.bpm !== undefined &&
+    !fresh.audioStretch &&
+    shouldAutoApplyTempo({
+      wasEmptyPlaylist: options.wasEmptyPlaylist,
+      clipCount: Object.keys(store.project.clips).length,
+      bpm: summary.bpm,
+      bpmConfidence: summary.bpmConfidence,
+    });
+
+  if (!auto || summary.bpm === undefined) {
+    if (options.announce) {
+      const hint = summary.bpm !== undefined
+        ? ' Ábrelo en el editor de audio para aplicar el tempo.'
+        : '';
+      notifyBanner(`«${item.entryName}»: ${description}.${hint}`);
+    }
+    return;
+  }
+
+  const tempo = tempoToApply(summary.bpm);
+  const label = `Tempo detectado: ${formatBpm(tempo)} BPM`;
+  store.dispatch(
+    {
+      type: 'batch',
+      label,
+      commands: [
+        { type: 'setTempo', tempo },
+        {
+          type: 'patchClips',
+          // El clip se colocó con el tempo viejo: sin esto, al subir el BPM se
+          // acortaría en segundos y se comería el final del tema.
+          patches: [{ id: fresh.id, length: retimedLengthBeats(fresh.length, store.project.tempo, tempo) }],
+        },
+      ],
+    },
+    { label },
+  );
+  notifyBanner(
+    `«${item.entryName}»: ${description}. Tempo del proyecto → ${formatBpm(tempo)} BPM.`,
+  );
+}
+
 /**
  * Varios sonidos a la playlist: uno detrás de otro en la misma pista, desde
  * donde se soltaron, en un solo deshacer.
@@ -740,15 +820,21 @@ export async function addAudioClips(
   const target = store.project.playlistTracks[trackId];
   if (!target) throw new Error('La pista de destino ya no existe.');
   const arrangementId = target.arrangementId;
-  await withLoadedSounds(entries, async (loaded, session) => {
-    const commands: Command[] = await registerCommands(loaded, session);
-    session.check();
+  const session = soundLoadSession();
+  // "Vacía" para el tempo automático = sin clips ni marcadores. Un marcador es
+  // trabajo de arreglo encima del tiempo: cambiarlo solo ya no es inocuo.
+  const wasEmptyPlaylist =
+    Object.keys(store.project.clips).length === 0 &&
+    Object.keys(store.project.markers).length === 0;
+  const placed = await withLoadedSounds(entries, async (loaded, loadSession) => {
+    const commands: Command[] = await registerCommands(loaded, loadSession);
+    loadSession.check();
 
     const durations: number[] = [];
     for (const sound of loaded) {
       const part = mainPart(sound);
-      durations.push(await realDuration(part.sample.durationSec, part.id, part.bytes, session));
-      session.check();
+      durations.push(await realDuration(part.sample.durationSec, part.id, part.bytes, loadSession));
+      loadSession.check();
     }
     const current = store.project.playlistTracks[trackId];
     if (!current || current.arrangementId !== arrangementId || !store.project.arrangements[arrangementId]) {
@@ -787,18 +873,27 @@ export async function addAudioClips(
       currentCommands.length === 1 ? currentCommands[0]! : { type: 'batch', label, commands: currentCommands },
       { label },
     );
-  });
-}
 
-/** Bytes de un SampleRef según su esquema, o null si no es resoluble aquí. */
-export async function readSampleBytes(path: string): Promise<ArrayBuffer | null> {
-  const api = window.orbit;
-  if (!api) return null;
-  if (path.startsWith('factory:')) return api.library.read(path.slice('factory:'.length));
-  if (path.startsWith('pack:')) return api.pack.read(path.slice('pack:'.length));
-  if (path.startsWith('recording:')) return api.recording.read(path.slice('recording:'.length));
-  if (path.startsWith('user:')) return api.folder.read(path.slice('user:'.length));
-  return null;
+    // Ya registrados por el dispatch: se guardan las referencias para medirlos
+    // cuando el clip esté en pantalla.
+    const out: PlacedAudio[] = [];
+    for (const [index, sound] of loaded.entries()) {
+      const sample = store.project.samples[mainPart(sound).id];
+      if (sample) {
+        out.push({ entryName: sound.entry.name, sample, clipId: clips[index]!.id });
+      }
+    }
+    return out;
+  });
+
+  const announce = placed.length === 1;
+  for (const item of placed) {
+    void analyzePlacedAudio(item, {
+      wasEmptyPlaylist,
+      isCurrent: session.isCurrent,
+      announce,
+    });
+  }
 }
 
 /**
