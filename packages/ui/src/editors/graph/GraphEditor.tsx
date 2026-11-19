@@ -284,7 +284,11 @@ export function GraphEditor() {
   const fit = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || layout.width === 0 || layout.height === 0) return;
+    // Encajar nunca AMPLÍA: un grafo de dos nodos al 164% deja cajas enormes y
+    // medio lienzo vacío, y el zoom deja de significar «acercarse». Si sobra
+    // sitio, se centra al 100%.
     const scale = Math.min(
+      1,
       MAX_SCALE,
       Math.max(MIN_SCALE, Math.min(rect.width / layout.width, rect.height / layout.height)),
     );
