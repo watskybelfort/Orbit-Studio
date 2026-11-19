@@ -44,6 +44,9 @@ import { dismissAudioEditRecovery, useAudioEditStore } from './editors/audio/aud
 import { useProject } from './state/useProject';
 import { useUiStore } from './state/ui';
 import { dismissUpdate, initUpdateCheck, useUpdateCheck } from './state/update-check';
+// Capa de diseño nativo: se importa al final para que sus reglas ganen sobre
+// los CSS de cada componente (todas viven bajo data-style='soft').
+import './theme/native.css';
 
 // Shell raíz: tema persistido, barra de título, toolbar (menús + transporte),
 // browser lateral, workspace con ventanas internas y panel de Claude.

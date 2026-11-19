@@ -47,6 +47,20 @@ button {
   padding: 0;
 }
 
+/* Definir texto se siente parte del sistema, no del navegador: el mismo
+   acento de la app, con la tinta del tema. Solo en el acabado suave — el
+   clásico conserva hasta el color de la selección de la v3.14. */
+html[data-style='soft'] ::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
+/* El cursor de escritura también es del acento (como el caret nativo). */
+html[data-style='soft'] input,
+html[data-style='soft'] textarea {
+  caret-color: var(--accent);
+}
+
 /* Foco común para controles nativos y propios, también en ventanas separadas. */
 :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent);
@@ -100,6 +114,40 @@ button {
 }
 
 ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* En el acabado suave la barra se lee como la de macOS: un pomo fino, redondo
+   y flotante, no una canaleta de 8 px pegada al borde. El borde transparente
+   con `background-clip` es lo que deja aire alrededor sin mover el layout. */
+html[data-style='soft'] ::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+html[data-style='soft'] ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html[data-style='soft'] ::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  background: color-mix(in srgb, var(--text-dim) 42%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+
+html[data-style='soft'] ::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-dim) 62%, transparent);
+  background-clip: padding-box;
+}
+
+html[data-style='soft'] ::-webkit-scrollbar-thumb:active {
+  background: color-mix(in srgb, var(--text-dim) 78%, transparent);
+  background-clip: padding-box;
+}
+
+html[data-style='soft'] ::-webkit-scrollbar-corner {
   background: transparent;
 }
 

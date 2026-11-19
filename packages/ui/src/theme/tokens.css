@@ -42,8 +42,37 @@
   /* Ritmo de las transiciones del acabado suave. No se acortan cuando se
      apagan: con data-motion='off' o prefers-reduced-motion se eliminan. */
   --ease-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.2, 0.8, 0.3, 1);
+  /* Rebote corto para interruptores y pastillas: el gesto se siente físico sin
+     llegar al juguete. Solo lo usa el acabado suave. */
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
   --motion-fast: 150ms;
   --motion-base: 200ms;
+
+  /* Escala de controles (v3.16). Los valores son los de siempre: el acabado
+     suave los usa para unificar alturas; el clásico no los toca. */
+  --control-h-sm: 22px;
+  --control-h: 26px;
+  --control-h-lg: 30px;
+
+  /* Estados de superficie, comunes a los tres temas: el velo sale del color
+     del texto (aclara en oscuro, oscurece en claro) y nunca de un rgba fijo. */
+  --fill-hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --fill-pressed: color-mix(in srgb, var(--text) 11%, transparent);
+  --fill-selected: color-mix(in srgb, var(--accent) 15%, transparent);
+  --hairline: color-mix(in srgb, var(--border) 68%, transparent);
+  /* Halo de foco tipo macOS: un anillo suave alrededor del control. */
+  --focus-halo: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+
+  /* Tipografía: una sola escala para toda la app (el acabado suave la usa). */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+
+  /* Pomo de los sliders: blanco en los tres temas, como el control nativo. */
+  --slider-thumb: #ffffff;
+  --slider-thumb-border: rgba(0, 0, 0, 0.18);
   /* Píxeles de layout: los presets leen estos anchos si el panel está cerrado. */
   --sidebar-width: 240px;
   --assistant-width: 280px;
@@ -122,10 +151,13 @@
   --shadow-modal: 0 18px 48px rgba(0, 0, 0, 0.45);
   --modal-backdrop: rgba(0, 0, 0, 0.45);
 
-  /* Tecla negra de piano (piano roll y Prisma, override de tema claro):
-     siempre oscura aunque el tema sea claro — una tecla negra que se aclara
-     deja de leerse como tecla negra. Ver el comentario en cada editor. */
+  /* Teclas de piano (piano roll y Prisma). La negra es siempre oscura aunque
+     el tema sea claro — una tecla negra que se aclara deja de leerse como
+     tecla negra. La blanca es SIEMPRE clara: en el acabado suave las
+     superficies del tema oscuro/acrílico son casi transparentes y las dos
+     teclas terminaban pintándose igual. Ver el comentario en cada editor. */
   --piano-key-black: #2a2c32;
+  --piano-key-white: #c9cbd1;
 
   /* Vista previa de temas (Ajustes → Apariencia → tarjetas de tema): fijas a
      PROPÓSITO, no siguen el tema activo — cada tarjeta tiene que enseñar el
@@ -171,6 +203,8 @@ html[data-theme='light'] {
 
   --popup-bg: #ffffff;
   --shadow-popup: 0 8px 24px rgba(0, 0, 0, 0.16);
+
+  --piano-key-white: #ffffff;
 }
 
 /* ── Acrílico ───────────────────────────────────────────────────────────────
@@ -219,20 +253,28 @@ html[data-style='soft'] {
   /* Esquinas algo más generosas, sin llegar a la píldora en los paneles. */
   --radius-lg: calc(var(--radius) * 1.75);
   --radius-sm: calc(var(--radius) * 0.75);
+  --radius-panel: calc(var(--radius) * 1.5);
   --blur-popup: 28px;
   /* Más ancha y con menos tinta que la clásica: se lee como aire, no como un
      borde oscuro. La tinta sale de --shadow-ink (nada de rgba() suelto). */
   --shadow-popup: 0 18px 46px color-mix(in srgb, var(--shadow-ink) 34%, transparent);
+  /* Ventanas internas: una flotante y otra al frente no pesan igual. */
+  --shadow-window: 0 10px 28px color-mix(in srgb, var(--shadow-ink) 26%, transparent);
+  --shadow-window-active: 0 20px 52px color-mix(in srgb, var(--shadow-ink) 38%, transparent);
 }
 
 /* En claro hace falta menos tinta para la misma sensación de aire. */
 html[data-style='soft'][data-theme='light'] {
   --shadow-popup: 0 18px 42px color-mix(in srgb, var(--shadow-ink) 14%, transparent);
+  --shadow-window: 0 8px 22px color-mix(in srgb, var(--shadow-ink) 12%, transparent);
+  --shadow-window-active: 0 18px 44px color-mix(in srgb, var(--shadow-ink) 22%, transparent);
 }
 
 /* El acrílico compone sobre vidrio oscuro: la sombra puede ser más profunda. */
 html[data-style='soft'][data-theme='acrylic'] {
   --shadow-popup: 0 18px 48px color-mix(in srgb, var(--shadow-ink) 42%, transparent);
+  --shadow-window: 0 12px 30px color-mix(in srgb, var(--shadow-ink) 34%, transparent);
+  --shadow-window-active: 0 22px 56px color-mix(in srgb, var(--shadow-ink) 46%, transparent);
 }
 
 /* ── Popups ─────────────────────────────────────────────────────────────────

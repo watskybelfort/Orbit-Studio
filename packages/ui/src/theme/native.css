@@ -1,0 +1,4978 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Capa de diseño nativo — Orbit Studio v3.16
+   ═══════════════════════════════════════════════════════════════════════════
+   Todo lo de este archivo vive bajo `html[data-style='soft']`, el acabado por
+   defecto. `classic` no enciende NI UNA regla de aquí: sigue siendo el aspecto
+   de la v3.14, y ese contrato lo comprueba `appearance.test.ts` sobre los
+   atributos, no sobre este archivo.
+
+   ¿Por qué una capa aparte y no cada regla en su componente? Porque esto es un
+   LENGUAJE, no una excepción: la misma altura de control, el mismo velo de
+   hover, el mismo radio de fila y el mismo ritmo de transición se repiten en
+   menús, ajustes, browser, mixer y ventanas. Tenerlos en un solo sitio evita
+   que cinco archivos se desalineen a la primera revisión.
+
+   Reglas duras que respeta:
+   - Ningún color literal: todo sale de tokens o de color-mix() sobre ellos.
+   - `backdrop-filter` solo en popups y modales (arquitectura A del acrílico).
+   - Nada de `transform` en menús ni ventanas: se miden con getBoundingClientRect
+     y un transform desplazaría esa medida. Las animaciones son de opacidad.
+   - Se carga DESPUÉS de los CSS de componentes (import al final de App.tsx).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────────────────────────────────────────────────────────────
+   1. Barra de menús
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .menu-btn {
+  height: var(--control-h);
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  transition:
+    background-color var(--motion-fast) var(--ease-soft),
+    color var(--motion-fast) var(--ease-soft);
+}
+
+html[data-style='soft'] .menu-btn:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .menu-btn.open {
+  background: var(--fill-selected);
+  color: var(--text);
+}
+
+html[data-style='soft'] .menu-dropdown {
+  min-width: 224px;
+  padding: 6px;
+  border-color: var(--hairline);
+  border-radius: var(--radius-panel);
+  animation: orbit-menu-in 120ms var(--ease-out);
+}
+
+@keyframes orbit-menu-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+html[data-style='soft'] .menu-item {
+  min-height: 28px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  gap: 28px;
+  transition:
+    background-color 90ms var(--ease-out),
+    color 90ms var(--ease-out);
+}
+
+html[data-style='soft'] .menu-item:hover:not(:disabled),
+html[data-style='soft'] .menu-item:focus:not(:disabled) {
+  background: var(--fill-selected);
+  color: var(--text);
+  outline: none;
+}
+
+html[data-style='soft'] .menu-item:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+html[data-style='soft'] .menu-check {
+  width: 14px;
+  margin-right: 1px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+html[data-style='soft'] .menu-icon {
+  width: 17px;
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .menu-arrow {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+html[data-style='soft'] .menu-shortcut {
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--text-dim);
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .menu-heading {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .menu-sep {
+  margin: 5px 8px;
+  background: var(--hairline);
+}
+
+html[data-style='soft'] .menu-sub {
+  top: -6px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   2. Transporte
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .tbtn {
+  height: var(--control-h);
+  min-width: var(--control-h);
+  padding: 0 7px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .tbtn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .tbtn:active:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .tbtn.active {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .tbtn.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+/* Los estados con color propio (play, rec, voz) mandan sobre el acento. */
+html[data-style='soft'] .tbtn.play.active,
+html[data-style='soft'] .tbtn.play.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter) 15%, transparent);
+  color: var(--meter);
+}
+
+html[data-style='soft'] .tbtn.play.armed {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text);
+}
+
+html[data-style='soft'] .tbtn.rec.active,
+html[data-style='soft'] .tbtn.rec.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter-clip) 15%, transparent);
+}
+
+html[data-style='soft'] .tbtn.voz.active,
+html[data-style='soft'] .tbtn.voz.active:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter-clip) 15%, transparent);
+  color: var(--meter-clip);
+}
+
+html[data-style='soft'] .tbtn:disabled {
+  opacity: 0.38;
+}
+
+html[data-style='soft'] .tbtn:focus-visible,
+html[data-style='soft'] .menu-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+/* Campos numéricos del transporte: sin caja hasta que hacen falta. */
+html[data-style='soft'] .scrubber {
+  height: 24px;
+  padding: 2px 7px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 6px;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .scrubber:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .scrubber:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .scrubber-suffix {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .timesig .scrubber {
+  padding: 2px 4px;
+}
+
+html[data-style='soft'] .pos-display {
+  min-width: 54px;
+  padding: 4px 10px;
+  border-color: transparent;
+  background: var(--surface-2);
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+html[data-style='soft'] .cpu-display {
+  min-width: 58px;
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-hover);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+html[data-style='soft'] .clip-led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   3. Navegación del estudio
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* Los cinco editores, como un control segmentado de iOS: una pista hundida y
+   una pastilla elevada para el que está al frente. Sigue siendo una barra de
+   herramientas: 28 px de alto, no una tarjeta. */
+html[data-style='soft'] .studio-nav {
+  min-height: 44px;
+  padding: 0 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .studio-nav__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--fill-hover);
+  border-radius: 9px;
+}
+
+html[data-style='soft'] .studio-nav__editor {
+  height: 28px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-nav__editor:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .studio-nav__editor.is-front {
+  background: color-mix(in srgb, var(--text) 8%, var(--surface-2));
+  color: var(--accent);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--shadow-ink) 28%, transparent),
+    inset 0 0 0 0.5px var(--hairline);
+}
+
+html[data-style='soft'] .studio-nav__editor.is-front:hover {
+  background: color-mix(in srgb, var(--text) 11%, var(--surface-2));
+}
+
+/* Las teclas se leen como teclas, no como texto pequeño gris. */
+html[data-style='soft'] .studio-nav kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 9.5px;
+  line-height: 1;
+  opacity: 1;
+}
+
+html[data-style='soft'] .studio-nav__editor.is-front kbd {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .studio-nav__indicator {
+  width: 4px;
+  height: 4px;
+  margin-left: 1px;
+}
+
+/* Selects y utilidades: sin caja hasta que el puntero los toca. */
+html[data-style='soft'] .studio-nav__tools {
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-color: transparent;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-nav__tools:hover,
+html[data-style='soft'] .studio-nav__tools:focus-visible {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .studio-nav__tools:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .studio-nav__layout {
+  width: 112px;
+  margin-right: 2px;
+}
+
+html[data-style='soft'] .studio-nav__utility {
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  gap: 6px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-nav__utility:hover {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .studio-nav__utility[aria-pressed='true'] {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .studio-nav__utility:focus-visible,
+html[data-style='soft'] .studio-nav__search:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+/* Buscar: una cápsula de búsqueda de verdad, con lupa y atajo. */
+html[data-style='soft'] .studio-nav__search {
+  height: 28px;
+  margin-left: 6px;
+  padding: 0 8px 0 10px;
+  gap: 7px;
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-nav__search:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .studio-nav__search kbd {
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  background: none;
+  color: var(--text-dim);
+  opacity: 0.75;
+}
+
+html[data-style='soft'] .studio-nav__search svg,
+html[data-style='soft'] .studio-nav__guide > svg {
+  display: block;
+  flex: none;
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .studio-nav__search-label {
+  display: inline;
+}
+
+@container studio-navigation (max-width: 1080px) {
+  html[data-style='soft'] .studio-nav__search-label {
+    display: none;
+  }
+
+  html[data-style='soft'] .studio-nav__search {
+    padding-inline: 9px;
+  }
+}
+
+/* A partir de 1180 px el menú y el transporte no caben en la misma línea.
+   En vez de dejar que el transporte se parta solo (la CPU y «Enfoque» caían
+   en una segunda línea medio vacía), se apilan los dos como dos regiones:
+   menú arriba, transporte a todo el ancho debajo. */
+@media (max-width: 1180px) {
+  html[data-style='soft'] .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+    padding-block: 4px 5px;
+  }
+
+  html[data-style='soft'] .toolbar > .menubar {
+    align-self: flex-start;
+  }
+
+  html[data-style='soft'] .transport {
+    width: 100%;
+    gap: 6px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   4. Ventanas internas
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .iw {
+  border-color: var(--hairline);
+  box-shadow: var(--shadow-window);
+  animation: orbit-window-in 150ms var(--ease-out);
+  transition:
+    box-shadow var(--motion-base) var(--ease-soft),
+    border-color var(--motion-base) var(--ease-soft);
+}
+
+@keyframes orbit-window-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+html[data-style='soft'] .iw.is-active {
+  border-color: color-mix(in srgb, var(--text) 12%, var(--border));
+  box-shadow: var(--shadow-window-active);
+}
+
+/* En acrílico la ventana interna es de vidrio, pero 78 % dejaba leer el texto
+   de la ventana de ATRÁS a través de la de delante (una Playlist detrás de un
+   Mixer se transparentaba entera). 96 % conserva el vidrio y devuelve la
+   legibilidad sin blur (el blur está reservado a los popups); maximizada no
+   tiene nada que enseñar del escritorio y pasa a opaca, como una ventana
+   maximizada nativa. */
+html[data-style='soft'][data-theme='acrylic'] .iw {
+  background: color-mix(in srgb, var(--glass-tint) 96%, transparent);
+}
+
+html[data-style='soft'][data-theme='acrylic'] .iw.iw-is-max {
+  background: var(--glass-tint);
+}
+
+html[data-style='soft'] .iw-title {
+  height: 32px;
+  padding: 0 6px 0 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .iw-title-text {
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .iw:not(.is-active) .iw-title-text {
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .iw:not(.is-active) .iw-title {
+  background: color-mix(in srgb, var(--iw-title-bg) 82%, transparent);
+}
+
+html[data-style='soft'] .iw-title > button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .iw-title > button + button {
+  margin-left: 2px;
+}
+
+html[data-style='soft'] .iw-title > button:hover:not(:disabled),
+html[data-style='soft'] .iw-title > button:focus-visible {
+  background: var(--fill-hover);
+  color: var(--text);
+  outline: none;
+}
+
+html[data-style='soft'] .iw-title > .iw-close:hover,
+html[data-style='soft'] .iw-title > .iw-close:focus-visible {
+  background: var(--titlebar-close-hover);
+  color: var(--titlebar-close-hover-text);
+}
+
+html[data-style='soft'] .iw-help {
+  border-color: transparent;
+  font-size: 12.5px;
+}
+
+html[data-style='soft'] .iw-help[aria-expanded='true'] {
+  background: var(--fill-selected);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+html[data-style='soft'] .iw-max:disabled:hover {
+  background: none;
+}
+
+html[data-style='soft'] .iw-resize {
+  width: 16px;
+  height: 16px;
+}
+
+html[data-style='soft'] .iw-resize::after {
+  right: 3px;
+  bottom: 3px;
+  width: 11px;
+  height: 11px;
+  border: none;
+  border-radius: 0;
+  background-image: radial-gradient(circle, var(--text-dim) 1px, transparent 1.1px);
+  background-size: 5px 5px;
+  background-position: right bottom;
+  opacity: 0.5;
+}
+
+html[data-style='soft'] .iw-resize:hover::after {
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .iw-snap-preview {
+  border-width: 1.5px;
+  border-radius: var(--radius-panel);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--shadow-ink) 26%, transparent);
+  transition:
+    left 90ms var(--ease-out),
+    top 90ms var(--ease-out),
+    width 90ms var(--ease-out),
+    height 90ms var(--ease-out);
+  animation: orbit-snap-in 120ms var(--ease-out);
+}
+
+/* Estados vacíos de los editores: un mensaje centrado, no una línea perdida
+   en la esquina superior izquierda de un lienzo en blanco. */
+html[data-style='soft'] .panel-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+@keyframes orbit-snap-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   5. Ajustes
+   ─────────────────────────────────────────────────────────────────────────
+   Lista agrupada al estilo de iOS/macOS: una tarjeta por sección, filas de
+   42 px separadas por una línea interior y grupos con su rótulo pequeño. Los
+   controles (switch, slider, select, botones) son los nativos de la app, no
+   los del navegador. */
+
+html[data-style='soft'] .settings {
+  background: transparent;
+}
+
+html[data-style='soft'] .settings-header {
+  padding: 20px 20px 14px;
+  border-bottom: none;
+  box-shadow: 0 1px 0 var(--hairline);
+}
+
+html[data-style='soft'] .settings-header__top {
+  align-items: center;
+  gap: 12px;
+}
+
+html[data-style='soft'] .settings-header h2 {
+  font-size: 21px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -0.45px;
+}
+
+/* Buscador: cápsula con lupa, como el de una hoja de ajustes nativa. */
+html[data-style='soft'] .settings-search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 170px;
+  max-width: 306px;
+  height: 30px;
+  padding: 0 10px;
+  background: var(--fill-hover);
+  border-radius: 9px;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .settings-search-box > svg {
+  display: block;
+  flex: none;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .settings-search-box:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .settings-search {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+html[data-style='soft'] .settings-search::placeholder {
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+/* Categorías: control segmentado, no una fila de chips con borde. */
+html[data-style='soft'] .settings-nav {
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 3px;
+  background: var(--fill-hover);
+  border-radius: 9px;
+}
+
+html[data-style='soft'] .settings-nav button {
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .settings-nav button:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .settings-nav button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--text) 8%, var(--surface-2));
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--shadow-ink) 28%, transparent),
+    inset 0 0 0 0.5px var(--hairline);
+}
+
+html[data-style='soft'] .settings-nav button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .settings-description {
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+html[data-style='soft'] .settings-body {
+  padding: 18px 20px 28px;
+}
+
+/* Tarjetas de sección. */
+html[data-style='soft'] .settings-section {
+  gap: 0;
+  padding-bottom: 4px;
+  background: color-mix(in srgb, var(--surface-2) 62%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+html[data-style='soft'] .settings-section + .settings-section:not([hidden]) {
+  margin-top: 16px;
+}
+
+html[data-style='soft'] .set-heading {
+  margin: 0;
+  padding: 14px 16px 5px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .set-heading:not(:first-child) {
+  margin-top: 6px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* Filas: el aire de una lista agrupada, con la línea interior sangrada. */
+html[data-style='soft'] .settings-section .set-row {
+  min-height: 42px;
+  padding: 8px 16px;
+  gap: 10px;
+  background-image: linear-gradient(var(--hairline), var(--hairline));
+  background-size: calc(100% - 32px) 1px;
+  background-position: 16px 0;
+  background-repeat: no-repeat;
+}
+
+html[data-style='soft'] .settings-section .set-heading + .set-row,
+html[data-style='soft'] .settings-section .set-row:first-child {
+  background-image: none;
+}
+
+/* Las filas con slider son una rejilla de cuatro columnas: etiqueta, pista,
+   valor y botón de reset en la MISMA línea. Con flex, el «0» del reset caía
+   solo a la línea siguiente, debajo de la etiqueta. */
+html[data-style='soft'] .settings-section .set-row:has(> input[type='range']) {
+  display: grid;
+  grid-template-columns: 142px minmax(90px, 1fr) auto auto;
+  column-gap: 10px;
+  row-gap: 6px;
+}
+
+html[data-style='soft'] .settings-section .set-row:has(> input[type='range']) input[type='range'] {
+  width: 100%;
+  max-width: none;
+}
+
+html[data-style='soft'] .set-label {
+  width: 142px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+html[data-style='soft'] .set-value {
+  flex: 1 1 120px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .set-row.disabled {
+  opacity: 0.42;
+}
+
+html[data-style='soft'] .settings-section .set-note {
+  max-width: none;
+  padding: 2px 16px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+html[data-style='soft'] .set-note.learning {
+  color: var(--accent);
+}
+
+html[data-style='soft'] .settings-section .set-error {
+  padding: 2px 16px 10px;
+}
+
+/* Switch de iOS: carril sin borde, pomo blanco y rebote corto. */
+html[data-style='soft'] .set-toggle {
+  width: 42px;
+  height: 25px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text) 15%, transparent);
+  transition: background-color 180ms var(--ease-out);
+}
+
+html[data-style='soft'] .set-toggle.on {
+  background: var(--accent);
+}
+
+html[data-style='soft'] .set-toggle-knob {
+  top: 2px;
+  left: 2px;
+  width: 21px;
+  height: 21px;
+  background: var(--slider-thumb);
+  box-shadow:
+    0 1px 3px color-mix(in srgb, var(--shadow-ink) 35%, transparent),
+    0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 12%, transparent);
+  transition: transform 180ms var(--ease-spring);
+}
+
+html[data-style='soft'] .set-toggle.on .set-toggle-knob {
+  transform: translateX(17px);
+}
+
+html[data-style='soft'] .set-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo);
+}
+
+/* Controles de formulario: caja solo cuando importa (hover/foco). */
+html[data-style='soft'] .set-select {
+  height: 26px;
+  padding: 0 4px 0 8px;
+  max-width: 230px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .set-select:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .set-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .set-reset {
+  height: 24px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .set-reset:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .set-reset[aria-pressed='true'] {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+/* Un reset deshabilitado no se enseña: en una app nativa el botón de volver
+   al valor por defecto solo existe cuando hay algo que deshacer. Se oculta
+   (no se quita) para que la columna de la rejilla no baile al cambiar. */
+html[data-style='soft'] .set-reset:disabled {
+  visibility: hidden;
+}
+
+/* Acciones sueltas dentro de Ajustes (añadir galería, exportar tema, añadir
+   entrada MIDI): una pastilla secundaria, no una palabra que parece un enlace. */
+html[data-style='soft'] .settings .tbtn {
+  height: 28px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .settings .tbtn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .set-reset:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .settings input[type='range'] {
+  flex: 1 1 150px;
+  max-width: 220px;
+  height: 20px;
+  cursor: pointer;
+}
+
+/* Swatches: círculos sin borde; el elegido lleva anillo, no sombra dura. */
+html[data-style='soft'] .swatches {
+  gap: 8px;
+  padding: 2px;
+}
+
+html[data-style='soft'] .swatch {
+  width: 22px;
+  height: 22px;
+  border: none;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shadow-ink) 24%, transparent);
+  transition:
+    box-shadow 120ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .swatch:hover {
+  transform: scale(1.08);
+}
+
+html[data-style='soft'] .swatch.selected {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--shadow-ink) 24%, transparent),
+    0 0 0 3px var(--accent);
+}
+
+html[data-style='soft'] .color-input {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  overflow: hidden;
+  background: none;
+  /* Anillo discontinuo: distingue el selector libre de los ocho presets. */
+  outline: 1px dashed color-mix(in srgb, var(--text-dim) 70%, transparent);
+  outline-offset: 2px;
+}
+
+html[data-style='soft'] .color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+html[data-style='soft'] .color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+/* Tarjetas de tema: la elegida se marca con anillo y un check. */
+html[data-style='soft'] .theme-cards {
+  flex: 1;
+  gap: 8px;
+}
+
+html[data-style='soft'] .theme-card {
+  position: relative;
+  flex: 1 1 0;
+  gap: 6px;
+  min-width: 84px;
+  max-width: 132px;
+  padding: 7px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .theme-card:hover:not(.selected) {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border));
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .theme-card.selected {
+  border-color: transparent;
+  background: var(--fill-selected);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .theme-card.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+html[data-style='soft'] .theme-card-preview {
+  width: 82px;
+  height: 52px;
+  border-radius: 7px;
+  border-color: var(--hairline);
+}
+
+html[data-style='soft'] .theme-card.selected .theme-card-preview {
+  border-color: transparent;
+}
+
+/* Estilo de interfaz: filas seleccionables con el mismo check. */
+html[data-style='soft'] .style-cards {
+  gap: 8px;
+}
+
+html[data-style='soft'] .style-card {
+  position: relative;
+  min-width: 170px;
+  padding: 9px 12px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  transition:
+    background-color 120ms var(--ease-out),
+    border-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .style-card:hover:not(.selected) {
+  border-color: color-mix(in srgb, var(--text) 18%, var(--border));
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .style-card.selected {
+  border-color: transparent;
+  background: var(--fill-selected);
+  box-shadow: 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .style-card.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+html[data-style='soft'] .style-card__name {
+  padding-right: 18px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+html[data-style='soft'] .style-card__hint {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+html[data-style='soft'] .radius-preview {
+  width: 28px;
+  height: 22px;
+  border-color: var(--hairline);
+  background: var(--fill-hover);
+}
+
+/* Mis temas. */
+html[data-style='soft'] .custom-themes {
+  gap: 6px;
+  padding: 2px 16px 8px;
+}
+
+html[data-style='soft'] .custom-apply {
+  height: 28px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .custom-apply:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .custom-del {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .custom-del:hover {
+  color: var(--titlebar-close-hover-text);
+  background: var(--titlebar-close-hover);
+}
+
+html[data-style='soft'] .settings-size-presets {
+  gap: 6px;
+  padding: 2px 16px 8px;
+}
+
+html[data-style='soft'] .settings-size-presets button {
+  height: 26px;
+  padding: 0 10px;
+}
+
+/* MIDI, entrada de audio y galería: las sub-tarjetas también son nativas. */
+html[data-style='soft'] .midi-devices,
+html[data-style='soft'] .midi-maps,
+html[data-style='soft'] .input-routes {
+  gap: 2px;
+  margin: 2px 16px 10px;
+}
+
+html[data-style='soft'] .midi-device,
+html[data-style='soft'] .midi-map,
+html[data-style='soft'] .input-route {
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font-size: 12px;
+}
+
+html[data-style='soft'] .midi-device:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .midi-led {
+  width: 8px;
+  height: 8px;
+  border: none;
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+html[data-style='soft'] .midi-led.on {
+  background: var(--accent);
+  box-shadow: 0 0 7px var(--accent);
+}
+
+html[data-style='soft'] .in-meter {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .in-meter-fill {
+  border-radius: 3px;
+}
+
+html[data-style='soft'] .input-route-name {
+  height: 24px;
+  padding: 0 4px 0 7px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .gal-input {
+  height: 26px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+}
+
+html[data-style='soft'] .gal-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .gal-source {
+  margin: 6px 16px 10px;
+  padding: 8px 10px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .gal-plugin {
+  padding: 5px 0;
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .gal-tag {
+  padding: 1px 7px;
+  border-color: transparent;
+  background: var(--fill-pressed);
+  font-size: 10px;
+}
+
+html[data-style='soft'] .gal-tag.ok {
+  color: var(--meter);
+  background: color-mix(in srgb, var(--meter) 12%, transparent);
+}
+
+html[data-style='soft'] .gal-tag.danger {
+  color: var(--meter-clip);
+  background: color-mix(in srgb, var(--meter-clip) 12%, transparent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   6. Biblioteca de sonidos
+   ─────────────────────────────────────────────────────────────────────────
+   El árbol de una barra lateral nativa: buscador con lupa, filas de 26 px,
+   selección redondeada y acciones que solo aparecen al pasar por encima. */
+
+html[data-style='soft'] .browser-head {
+  gap: 8px;
+  padding: 10px 10px 9px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .browser-title {
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .browser-pack {
+  font-size: 10.5px;
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .browser-search-box {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+  height: 27px;
+  padding: 0 8px;
+  background: var(--fill-hover);
+  border-radius: 8px;
+  color: var(--text-dim);
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-search-box > svg {
+  display: block;
+  flex: none;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .browser-search-box:focus-within {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .browser-search {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+html[data-style='soft'] .browser-search::placeholder {
+  color: var(--text-dim);
+  opacity: 0.8;
+}
+
+html[data-style='soft'] .browser-filter-row {
+  gap: 6px;
+}
+
+html[data-style='soft'] .browser-fbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-fbtn:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .browser-fbtn.open {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .browser-fbadge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 9px;
+  line-height: 15px;
+  text-align: center;
+}
+
+html[data-style='soft'] .browser-view {
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .browser-view:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .browser-count {
+  min-width: 18px;
+  font-size: 10px;
+  text-align: right;
+}
+
+html[data-style='soft'] .browser-clear {
+  height: 24px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 11px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-clear:hover {
+  border-color: transparent;
+  background: var(--fill-selected);
+}
+
+/* Panel de filtros: una tarjeta, no una caja con borde de formulario. */
+html[data-style='soft'] .browser-filters {
+  gap: 8px;
+  padding: 8px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-2) 64%, transparent);
+}
+
+html[data-style='soft'] .browser-chip {
+  padding: 1px 8px;
+  border: none;
+  background: var(--fill-hover);
+  font-size: 10.5px;
+  line-height: 17px;
+}
+
+html[data-style='soft'] .browser-chip:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .browser-chip.on {
+  border: none;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .browser-bpm {
+  height: 24px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font-size: 11px;
+}
+
+/* Filas del árbol. */
+html[data-style='soft'] .browser-body {
+  padding: 6px 0 10px;
+}
+
+html[data-style='soft'] .browser-cat-head {
+  width: auto;
+  min-height: 28px;
+  margin: 1px 4px;
+  padding: 0 9px 0 7px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  transition: background-color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-cat-head:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .browser-caret {
+  width: 10px;
+  font-size: 8.5px;
+  opacity: 0.75;
+}
+
+html[data-style='soft'] .browser-cat-count {
+  font-size: 10px;
+}
+
+html[data-style='soft'] .browser-sub-name {
+  padding: 5px 10px 2px 27px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.015em;
+}
+
+html[data-style='soft'] .browser-entry {
+  width: calc(100% - 8px);
+  min-height: 26px;
+  margin: 0 4px;
+  padding: 3px 6px 3px 24px;
+  gap: 5px;
+  border-radius: 6px;
+  transition: background-color 90ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-entry:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .browser-entry:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .browser-entry.picked {
+  background: var(--fill-selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+html[data-style='soft'] .browser-entry.picked:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+html[data-style='soft'] .browser-entry-name {
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .browser-badge {
+  padding: 0 5px;
+  border: none;
+  background: var(--fill-pressed);
+  color: var(--text-dim);
+  font-size: 9.5px;
+  line-height: 15px;
+}
+
+html[data-style='soft'] .browser-badge.multi {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .browser-entry-dur {
+  min-width: 30px;
+  font-size: 10px;
+}
+
+html[data-style='soft'] .browser-star,
+html[data-style='soft'] .browser-collect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out),
+    opacity 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .browser-star:hover,
+html[data-style='soft'] .browser-collect:hover {
+  background: var(--fill-pressed);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .browser-empty {
+  padding: 24px 14px;
+  text-align: center;
+}
+
+html[data-style='soft'] .browser-empty-title {
+  font-size: 12.5px;
+}
+
+/* Menú de colecciones. */
+html[data-style='soft'] .browser-menu {
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  gap: 1px;
+  padding: 6px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+}
+
+html[data-style='soft'] .browser-menu-title {
+  padding: 4px 7px 6px;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+html[data-style='soft'] .browser-menu-item {
+  min-height: 26px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+html[data-style='soft'] .browser-menu-item:hover {
+  background: var(--fill-selected);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   7. Playlist
+   ─────────────────────────────────────────────────────────────────────────
+   La barra del arreglo y las cabeceras de pista. El lienzo NO se toca desde
+   aquí: sus colores son la paleta --pl-* que lee el canvas (ver playlist.css). */
+
+html[data-style='soft'] .pl-toolbar {
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .pl-field {
+  gap: 6px;
+  font-size: 11px;
+}
+
+html[data-style='soft'] .pl-field select {
+  height: 26px;
+  max-width: 160px;
+  padding: 0 4px 0 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .pl-field select:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .pl-field select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .pl-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .pl-add:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .pl-add:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .pl-chip {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .pl-dot {
+  width: 9px;
+  height: 9px;
+  border: none;
+}
+
+html[data-style='soft'] .pl-sel-group {
+  border-left-color: var(--hairline);
+}
+
+html[data-style='soft'] .pl-sel-chip {
+  color: var(--accent);
+}
+
+/* Cabeceras: una lista limpia, sin cajas por fila. */
+html[data-style='soft'] .pl-headers {
+  border-right-color: var(--hairline);
+}
+
+html[data-style='soft'] .pl-corner {
+  padding: 0 10px;
+  border-bottom-color: var(--hairline);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .pl-track {
+  gap: 5px;
+  padding: 0 7px;
+  background: transparent;
+  border-bottom-color: var(--hairline);
+  transition: background-color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .pl-track:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .pl-led {
+  width: 12px;
+  height: 12px;
+  border: none;
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+html[data-style='soft'] .pl-led.on {
+  background: var(--meter);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--meter) 55%, transparent);
+}
+
+html[data-style='soft'] .pl-swatch {
+  width: 13px;
+  height: 13px;
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--shadow-ink) 26%, transparent);
+}
+
+html[data-style='soft'] .pl-swatch:hover {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--shadow-ink) 26%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+html[data-style='soft'] .pl-track-name {
+  height: 26px;
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+html[data-style='soft'] .pl-route {
+  height: 18px;
+  padding: 0 7px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--fill-hover);
+  font-size: 9.5px;
+  line-height: 18px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .pl-route:hover,
+html[data-style='soft'] .pl-route:focus-visible {
+  border-color: transparent;
+  background: var(--fill-selected);
+}
+
+html[data-style='soft'] .pl-take-badge {
+  height: 16px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-pressed);
+  font-size: 9px;
+  line-height: 16px;
+}
+
+html[data-style='soft'] .pl-track-resize:hover {
+  background: var(--accent);
+  opacity: 0.4;
+}
+
+/* Scroll del lienzo: la misma pastilla hundida que el resto de la app. */
+html[data-style='soft'] .pl-scroll__thumb {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 20%, transparent);
+}
+
+html[data-style='soft'] .pl-scroll:hover .pl-scroll__thumb,
+html[data-style='soft'] .pl-scroll:active .pl-scroll__thumb {
+  background: color-mix(in srgb, var(--text) 36%, transparent);
+}
+
+html[data-style='soft'] .pl-empty {
+  font-size: 12px;
+}
+
+/* Popup del marcador y campos del menú de pista. */
+html[data-style='soft'] .pl-marker-edit {
+  border-color: var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popup);
+}
+
+html[data-style='soft'] .pl-marker-name,
+html[data-style='soft'] .pl-marker-field input,
+html[data-style='soft'] .pl-marker-field select {
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .pl-take-pick {
+  border-radius: 6px;
+}
+
+html[data-style='soft'] .pl-take-row.on .pl-take-pick {
+  border-color: transparent;
+  background: var(--fill-selected);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   8. Perillas, faders y medidores
+   ─────────────────────────────────────────────────────────────────────────
+   Los controles de todos los editores: cuerpo hundido, indicador nítido y un
+   pomo claro en los faders — el gesto se ve antes de tocarlo. */
+
+html[data-style='soft'] .knob-body {
+  fill: var(--fill-hover);
+  stroke: var(--hairline);
+  transition: fill 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .knob-svg:hover .knob-body {
+  fill: var(--fill-pressed);
+}
+
+html[data-style='soft'] .knob-pointer {
+  stroke-width: 1.8;
+}
+
+html[data-style='soft'] .knob-label {
+  font-size: 9.5px;
+  letter-spacing: 0.01em;
+}
+
+html[data-style='soft'] .fader-track {
+  width: 5px;
+  top: 5px;
+  bottom: 5px;
+  background: var(--fill-pressed);
+  border: none;
+  border-radius: 3px;
+}
+
+html[data-style='soft'] .fader-thumb {
+  width: 24px;
+  height: 16px;
+  background: var(--slider-thumb);
+  border: none;
+  border-radius: 5px;
+  box-shadow:
+    0 1px 3px color-mix(in srgb, var(--shadow-ink) 38%, transparent),
+    0 0 0 0.5px var(--slider-thumb-border);
+  transition: transform 90ms var(--ease-out);
+}
+
+html[data-style='soft'] .fader:hover .fader-thumb,
+html[data-style='soft'] .fader:active .fader-thumb {
+  transform: translateX(-50%) scaleY(1.06);
+}
+
+html[data-style='soft'] .fader-thumb::after {
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: color-mix(in srgb, var(--shadow-ink) 42%, transparent);
+}
+
+html[data-style='soft'] .meter {
+  width: 5px;
+  border: none;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .meter-rms {
+  height: 1px;
+  opacity: 0.6;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   9. Mezclador
+   ─────────────────────────────────────────────────────────────────────────
+   Tiras como tarjetas limpias: color inset arriba, perilla, fader y M/S. La
+   cadena de la derecha deja de ser una caja de formulario. */
+
+html[data-style='soft'] .mixer-strips {
+  gap: 4px;
+  padding: 9px;
+}
+
+html[data-style='soft'] .strip {
+  width: 70px;
+  gap: 4px;
+  padding-bottom: 6px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  border: none;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--hairline);
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .strip:hover {
+  background: color-mix(in srgb, var(--text) 6.5%, transparent);
+}
+
+html[data-style='soft'] .strip.selected {
+  background: var(--fill-selected);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .strip.master {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+html[data-style='soft'] .strip-color {
+  width: calc(100% - 14px);
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 2px;
+}
+
+html[data-style='soft'] .strip-num {
+  margin-top: 0;
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .strip-name {
+  max-width: 64px;
+  height: 13px;
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+html[data-style='soft'] .strip-bus {
+  max-width: 62px;
+  margin-top: 0;
+  border: none;
+  border-left: 3px solid;
+  border-radius: 4px;
+  background: var(--fill-hover);
+  font-size: 8.5px;
+  line-height: 14px;
+}
+
+html[data-style='soft'] .strip-fader-row {
+  gap: 6px;
+  margin-top: 2px;
+}
+
+html[data-style='soft'] .strip-db {
+  font-size: 9px;
+  opacity: 0.9;
+}
+
+html[data-style='soft'] .strip-ms {
+  gap: 3px;
+}
+
+html[data-style='soft'] .strip-btn {
+  width: 24px;
+  height: 18px;
+  border: none;
+  border-radius: 5px;
+  background: var(--fill-hover);
+  font-size: 9.5px;
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .strip-btn:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .strip-btn.on-mute {
+  color: var(--meter-clip);
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+}
+
+html[data-style='soft'] .strip-btn.on-solo {
+  color: var(--meter-hot);
+  background: color-mix(in srgb, var(--meter-hot) 16%, transparent);
+}
+
+html[data-style='soft'] .strip-route {
+  height: 12px;
+}
+
+html[data-style='soft'] .strip-route-dot {
+  width: 6px;
+  height: 6px;
+  border: none;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .strip-route-dot.active {
+  background: var(--accent);
+}
+
+html[data-style='soft'] .strip-eq {
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .strip-eq-label {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+}
+
+/* Cadena: cabecera con los dos botones en fila y slots sin cajas de más. */
+html[data-style='soft'] .mixer-chain {
+  border-left-color: var(--hairline);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+html[data-style='soft'] .mixer-chain-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px 8px;
+  padding: 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .mixer-chain-title,
+html[data-style='soft'] .mixer-chain-route {
+  grid-column: 1 / -1;
+}
+
+html[data-style='soft'] .mixer-chain-title {
+  font-size: 12px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .mixer-chain-route {
+  margin-top: -3px;
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .vocal-chain-btn,
+html[data-style='soft'] .track-rec-btn {
+  height: 27px;
+  margin: 0;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .vocal-chain-btn {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .vocal-chain-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+html[data-style='soft'] .track-rec-btn:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .track-rec-btn.on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+}
+
+html[data-style='soft'] .track-spectrum {
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .mixer-sends {
+  gap: 3px;
+  padding: 6px 12px 8px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .send-label {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .send-del {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+html[data-style='soft'] .send-del:hover {
+  background: var(--titlebar-close-hover);
+}
+
+html[data-style='soft'] .mixer-chain-slots {
+  gap: 2px;
+  padding: 8px;
+}
+
+html[data-style='soft'] .fx-chain-label {
+  display: block;
+  padding: 2px 6px 5px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .fx-slot {
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .fx-slot.empty {
+  background: none;
+}
+
+html[data-style='soft'] .fx-add {
+  height: 22px;
+  border-radius: 6px;
+  font-size: 12px;
+  opacity: 0.6;
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out),
+    opacity 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .fx-slot.empty:hover .fx-add {
+  background: var(--fill-hover);
+  opacity: 1;
+}
+
+html[data-style='soft'] .fx-row {
+  min-height: 28px;
+  padding: 3px 8px;
+}
+
+html[data-style='soft'] .fx-led {
+  width: 8px;
+  height: 8px;
+  border: none;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .fx-led.on {
+  background: var(--accent);
+}
+
+html[data-style='soft'] .fx-name {
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .fx-editor {
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .mixer-select {
+  height: 24px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .mixer-select:focus {
+  border-color: transparent;
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .mixer-menu {
+  gap: 1px;
+  padding: 6px;
+}
+
+html[data-style='soft'] .fx-menu-title {
+  padding: 6px 10px 3px;
+  font-size: 9.5px;
+}
+
+html[data-style='soft'] .strip.cable-armed {
+  outline: 1px dashed var(--hairline);
+  outline-offset: -2px;
+}
+
+html[data-style='soft'] .strip.cable-over {
+  outline: 1.5px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--fill-selected);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   10. Channel Rack
+   ─────────────────────────────────────────────────────────────────────────
+   Cabecera de patrón, filtros y filas de canal. Los pasos siguen leyéndose
+   como una rejilla, pero sin cajas de formulario. */
+
+html[data-style='soft'] .rack-head {
+  gap: 10px;
+  padding: 7px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .rack-pattern {
+  gap: 4px;
+}
+
+html[data-style='soft'] .rack-nav,
+html[data-style='soft'] .rack-play {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 10px;
+  transition: background-color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .rack-play {
+  margin-right: 0;
+}
+
+html[data-style='soft'] .rack-nav:hover:not(:disabled),
+html[data-style='soft'] .rack-play:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .rack-play {
+  color: var(--accent);
+}
+
+html[data-style='soft'] .rack-play.on {
+  border: none;
+  background: var(--fill-selected);
+}
+
+html[data-style='soft'] .rack-pattern-name {
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 12.5px;
+}
+
+html[data-style='soft'] .rack-pattern-name:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-pattern-count {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .rack-lengths {
+  gap: 2px;
+  padding: 3px;
+  background: var(--fill-hover);
+  border-radius: 8px;
+}
+
+html[data-style='soft'] .rack-len {
+  height: 22px;
+  min-width: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+
+html[data-style='soft'] .rack-len:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .rack-len.active {
+  border: none;
+  background: color-mix(in srgb, var(--text) 8%, var(--surface-2));
+  color: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 24%, transparent);
+}
+
+html[data-style='soft'] .rack-filters {
+  gap: 6px;
+  padding: 7px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .rack-filter {
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .rack-filter:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .rack-filter.active {
+  border: none;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .rack-filter-count {
+  font-size: 9.5px;
+}
+
+/* Buscador de canales: cápsula con lupa dentro. */
+html[data-style='soft'] .rack-search {
+  gap: 5px;
+  margin-left: 4px;
+  padding-left: 8px;
+  background: var(--fill-hover);
+  border-radius: 8px;
+  color: var(--text-dim);
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .rack-search > svg {
+  display: block;
+  flex: none;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .rack-search:focus-within {
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .rack-search-input {
+  width: 150px;
+  height: 24px;
+  padding: 0 20px 0 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .rack-search-input:focus {
+  border-color: transparent;
+}
+
+html[data-style='soft'] .rack-search-clear {
+  right: 4px;
+}
+
+html[data-style='soft'] .rack-rows {
+  gap: 2px;
+  padding: 8px 10px;
+}
+
+html[data-style='soft'] .rack-row {
+  gap: var(--rack-gap);
+  padding: 4px 7px;
+  border-radius: 8px;
+}
+
+html[data-style='soft'] .rack-row:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-row.sel {
+  background: var(--fill-selected);
+}
+
+html[data-style='soft'] .rack-led {
+  width: 12px;
+  height: 12px;
+  border: none;
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+html[data-style='soft'] .rack-led.on {
+  background: var(--meter);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--meter) 55%, transparent);
+}
+
+html[data-style='soft'] .rack-name {
+  height: 28px;
+  border: none;
+  border-left: 3px solid;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+}
+
+html[data-style='soft'] .rack-name:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .rack-name.sel {
+  color: var(--accent);
+}
+
+html[data-style='soft'] .rack-mix {
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-mix.via-bus {
+  border: none;
+  background: var(--fill-selected);
+}
+
+html[data-style='soft'] .rack-view-btn {
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-view-btn.on {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .step {
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+}
+
+html[data-style='soft'] .step.ga {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .step.gb {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .step:hover::after {
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+html[data-style='soft'] .step.ph {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .step-fill {
+  border-radius: 4px;
+}
+
+html[data-style='soft'] .rack-mini {
+  height: 28px;
+  border-color: var(--hairline);
+  border-radius: 6px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-graph {
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .rack-gcell {
+  border: none;
+  border-radius: 3px;
+}
+
+html[data-style='soft'] .rack-gcell.ga {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-gcell.gb {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .rack-hint {
+  margin: 6px;
+  padding: 22px 16px;
+  border: 1px dashed var(--hairline);
+  border-radius: 12px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+html[data-style='soft'] .rack-hint-link {
+  text-decoration: none;
+  font-weight: 600;
+}
+
+html[data-style='soft'] .rack-addrow {
+  padding: 6px 12px 12px;
+}
+
+html[data-style='soft'] .rack-add-btn {
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .rack-add-btn:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .rack-group-head {
+  border-bottom-color: var(--hairline);
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .rack-add-sep {
+  border-top-color: var(--hairline);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   11. Piano Roll
+   ─────────────────────────────────────────────────────────────────────────
+   La barra de herramientas deja de ser un formulario: grupos separados por
+   una línea fina, etiquetas de bloque y controles que solo se encienden al
+   pasar por encima. El teclado necesita tonos explícitos porque en oscuro y
+   acrílico --surface y --surface-2 son casi invisibles. */
+
+html[data-style='soft'] .pr-toolbar {
+  gap: 7px 0;
+  padding: 8px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .pr-group {
+  gap: 4px;
+  padding: 0 10px;
+  border-left-color: var(--hairline);
+}
+
+html[data-style='soft'] .pr-group-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  opacity: 0.65;
+}
+
+html[data-style='soft'] .pr-group-row {
+  gap: 4px;
+  min-height: 28px;
+}
+
+html[data-style='soft'] .pr-channel {
+  padding: 4px 8px 4px 9px;
+  border-left-width: 3px;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  line-height: 18px;
+}
+
+html[data-style='soft'] .pr-field {
+  gap: 4px;
+  font-size: 11px;
+}
+
+html[data-style='soft'] .pr-field select {
+  height: 26px;
+  padding: 0 4px 0 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .pr-field select:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .pr-field select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .pr-pattern-dot {
+  width: 8px;
+  height: 8px;
+  border: none;
+}
+
+html[data-style='soft'] .pr-pattern-del {
+  min-width: 26px;
+  height: 26px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .pr-minimap-wrap {
+  height: 26px;
+  border-bottom-color: var(--hairline);
+}
+
+/* Teclado: blanca clara y negra oscura de verdad, en los tres temas. */
+html[data-style='soft'] .pr-key {
+  background: var(--piano-key-white);
+  border-right-color: color-mix(in srgb, var(--shadow-ink) 20%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--shadow-ink) 26%, transparent);
+}
+
+html[data-style='soft'] .pr-key.black {
+  background: var(--piano-key-black);
+  border-right-color: color-mix(in srgb, var(--shadow-ink) 48%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--shadow-ink) 52%, transparent);
+}
+
+html[data-style='soft'] .pr-key:hover,
+html[data-style='soft'] .pr-key.black:hover {
+  background: var(--accent);
+}
+
+html[data-style='soft'] .pr-key-label {
+  right: 6px;
+  font-size: 9px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--shadow-ink) 62%, transparent);
+}
+
+html[data-style='soft'] .pr-key:hover .pr-key-label,
+html[data-style='soft'] .pr-key.active .pr-key-label {
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .pr-key.active,
+html[data-style='soft'] .pr-key.black.active {
+  background: var(--accent);
+  box-shadow: 0 0 7px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+/* Riff machine y arpegiador: paneles flotantes, no formularios. */
+html[data-style='soft'] .pr-riff,
+html[data-style='soft'] .pr-arp {
+  gap: 9px;
+  padding: 12px;
+  border-color: var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popup);
+  animation: orbit-window-in 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .pr-riff-title {
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .pr-riff-scale {
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+html[data-style='soft'] .pr-riff-grid {
+  gap: 7px 8px;
+}
+
+html[data-style='soft'] .pr-riff-grid .pr-field select,
+html[data-style='soft'] .pr-riff input[type='number'],
+html[data-style='soft'] .pr-arp-rows .pr-field select {
+  height: 24px;
+  padding: 0 4px 0 7px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-hover);
+  font-size: 11px;
+}
+
+html[data-style='soft'] .pr-riff-check {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .pr-riff-check input,
+html[data-style='soft'] .pr-arp input[type='checkbox'] {
+  accent-color: var(--accent);
+}
+
+html[data-style='soft'] .pr-arp-levels {
+  padding: 9px 8px 5px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   12. Diálogos y paleta
+   ─────────────────────────────────────────────────────────────────────────
+   Acerca de, atajos, guía del estudio, export y paleta de comandos: el mismo
+   velo, el mismo radio y botones sin caja que se encienden al pasar. */
+
+html[data-style='soft'] .about::backdrop,
+html[data-style='soft'] .sc::backdrop,
+html[data-style='soft'] .studio-guide::backdrop {
+  background: color-mix(in srgb, var(--shadow-ink) 34%, transparent);
+}
+
+/* ── Acerca de ── */
+
+html[data-style='soft'] .about {
+  padding: 24px;
+  border-color: var(--hairline);
+  border-radius: 16px;
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-modal);
+}
+
+html[data-style='soft'] .about-close {
+  top: 12px;
+  right: 12px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .about-close:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .about-head {
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+html[data-style='soft'] .about-mark {
+  width: 52px;
+  height: 52px;
+  border: none;
+  border-radius: 14px;
+  background: var(--fill-selected);
+  font-size: 26px;
+}
+
+html[data-style='soft'] .about-name {
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+
+html[data-style='soft'] .about-version {
+  margin-top: 3px;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .about-rows {
+  gap: 7px;
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .about-row {
+  gap: 14px;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .about-row dt {
+  width: 84px;
+}
+
+html[data-style='soft'] .about-actions {
+  gap: 8px;
+}
+
+html[data-style='soft'] .about-btn {
+  height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .about-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .about-btn.primary {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .about-btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+/* ── Atajos de teclado ── */
+
+html[data-style='soft'] .sc {
+  border-color: var(--hairline);
+  border-radius: 16px;
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-modal);
+}
+
+html[data-style='soft'] .sc-head {
+  gap: 10px;
+  padding: 16px 16px 14px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .sc-title {
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .sc-search-wrap {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .sc-search-wrap > svg {
+  display: block;
+  flex: none;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .sc-search-wrap:focus-within {
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .sc-search {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12.5px;
+}
+
+html[data-style='soft'] .sc-search:focus {
+  border-color: transparent;
+}
+
+html[data-style='soft'] .sc-close {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .sc-close:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .sc-body {
+  padding: 8px 16px 16px;
+  column-gap: 28px;
+}
+
+html[data-style='soft'] .sc-group-title {
+  margin: 12px 0 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  opacity: 0.7;
+}
+
+html[data-style='soft'] .sc-row {
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  transition: background-color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .sc-row:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .sc-keys {
+  width: 136px;
+  gap: 3px;
+}
+
+html[data-style='soft'] .sc-keys kbd {
+  padding: 1px 6px;
+  border: none;
+  border-radius: 5px;
+  background: var(--fill-pressed);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--shadow-ink) 22%, transparent);
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .sc-what {
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .sc-where {
+  margin-top: 1px;
+  font-size: 10px;
+}
+
+html[data-style='soft'] .sc-empty {
+  padding: 24px 0;
+  font-size: 12px;
+}
+
+/* ── Guía del estudio ── */
+
+html[data-style='soft'] .studio-guide {
+  border-color: var(--hairline);
+  border-radius: 16px;
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-modal);
+}
+
+html[data-style='soft'] .studio-guide__header {
+  padding: 24px 24px 0;
+}
+
+html[data-style='soft'] .studio-guide__eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+html[data-style='soft'] .studio-guide h2 {
+  margin-top: 5px;
+  font-size: 23px;
+  letter-spacing: -0.5px;
+}
+
+html[data-style='soft'] .studio-guide__close {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 18px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-guide__intro {
+  margin: 10px 24px 18px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+html[data-style='soft'] .studio-guide__steps {
+  margin: 0 16px;
+  padding: 0;
+  border-radius: 12px;
+  background: var(--fill-hover);
+  overflow: hidden;
+}
+
+html[data-style='soft'] .studio-guide__steps button {
+  gap: 13px;
+  padding: 13px 14px;
+  border-top-color: var(--hairline);
+  transition: background-color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .studio-guide__steps li:first-child button {
+  border-top-color: transparent;
+}
+
+html[data-style='soft'] .studio-guide__steps button:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .studio-guide__number {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--fill-selected);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+html[data-style='soft'] .studio-guide__copy strong {
+  font-size: 13.5px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .studio-guide__copy > span {
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .studio-guide__destination {
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  background: var(--fill-selected);
+  font-size: 10.5px;
+  font-weight: 500;
+}
+
+html[data-style='soft'] .studio-guide__footer {
+  padding: 16px 24px 24px;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+html[data-style='soft'] .studio-guide kbd {
+  padding: 1px 5px;
+  border: none;
+  border-radius: 5px;
+  background: var(--fill-pressed);
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .studio-guide__footer .tbtn {
+  height: 30px;
+  margin-top: 10px;
+  padding: 0 13px;
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .studio-guide__footer .tbtn:hover {
+  background: var(--fill-pressed);
+}
+
+/* ── Paleta de comandos ── */
+
+html[data-style='soft'] .palette-overlay {
+  padding-top: 12vh;
+  background: color-mix(in srgb, var(--shadow-ink) 30%, transparent);
+}
+
+html[data-style='soft'] .palette {
+  width: min(600px, calc(100vw - 32px));
+  padding: 10px;
+  border-color: var(--hairline);
+  border-radius: 14px;
+  box-shadow: var(--shadow-popup);
+}
+
+html[data-style='soft'] .palette-search {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .palette-search > svg {
+  display: block;
+  flex: none;
+  opacity: 0.85;
+}
+
+html[data-style='soft'] .palette-search:focus-within {
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .palette-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 14px;
+}
+
+html[data-style='soft'] .palette-input:focus {
+  border-color: transparent;
+}
+
+html[data-style='soft'] .palette-list {
+  margin-top: 7px;
+  padding: 0 2px;
+}
+
+html[data-style='soft'] .palette-group-label {
+  padding: 9px 10px 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  opacity: 0.7;
+}
+
+html[data-style='soft'] .palette-item {
+  padding: 7px 10px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+
+html[data-style='soft'] .palette-item.selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .palette-shortcut {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .palette-item.selected .palette-shortcut {
+  color: var(--on-accent-dim);
+}
+
+html[data-style='soft'] .palette-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* ── Exportar ── */
+
+html[data-style='soft'] .export-panel {
+  gap: 13px;
+  padding: 16px 18px 20px;
+}
+
+html[data-style='soft'] .exp-heading {
+  margin: 5px 0 0;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  opacity: 0.7;
+}
+
+html[data-style='soft'] .exp-heading:first-child {
+  margin-top: 0;
+}
+
+html[data-style='soft'] .exp-row {
+  gap: 12px;
+}
+
+html[data-style='soft'] .exp-label {
+  width: 104px;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .exp-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: none;
+  border-radius: 9px;
+  background: var(--fill-hover);
+  overflow: visible;
+}
+
+html[data-style='soft'] .exp-seg-btn {
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11.5px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .exp-seg-btn + .exp-seg-btn {
+  border-left: none;
+}
+
+html[data-style='soft'] .exp-seg-btn:hover:not(:disabled):not(.selected) {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .exp-seg-btn.selected {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 22%, transparent);
+}
+
+html[data-style='soft'] .exp-select {
+  height: 28px;
+  max-width: 280px;
+  padding: 0 6px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .exp-select:hover:not(:disabled) {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .exp-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .exp-check {
+  gap: 9px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+html[data-style='soft'] .exp-check input {
+  width: 15px;
+  height: 15px;
+}
+
+html[data-style='soft'] .exp-note {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+html[data-style='soft'] .exp-export {
+  height: 30px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .exp-export:hover:not(:disabled) {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+html[data-style='soft'] .exp-export:disabled {
+  background: var(--fill-hover);
+  color: var(--text-dim);
+}
+
+html[data-style='soft'] .exp-repeat {
+  height: 30px;
+  padding: 0 15px;
+  border: none;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .exp-repeat:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .exp-cancel {
+  height: 30px;
+  padding: 0 15px;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--meter-clip) 14%, transparent);
+  color: var(--meter-clip);
+  font-size: 12px;
+}
+
+html[data-style='soft'] .exp-cancel:hover:not(:disabled) {
+  box-shadow: none;
+  background: color-mix(in srgb, var(--meter-clip) 22%, transparent);
+}
+
+html[data-style='soft'] .exp-summary {
+  gap: 5px;
+  padding: 12px 14px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .exp-status {
+  font-size: 11.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   13. Avisos y recuperación
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .app-notice {
+  padding: 8px 14px;
+  border-color: var(--hairline);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  box-shadow: var(--shadow-popup);
+  font-size: 12.5px;
+  animation: orbit-toast-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes orbit-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+html[data-style='soft'] .app-recovery {
+  top: auto;
+  bottom: 64px;
+  max-width: calc(100vw / var(--ui-scale, 1) - 32px);
+  padding: 10px 14px;
+  border-color: var(--hairline);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-popup);
+  background: color-mix(in srgb, var(--popup-bg) 94%, transparent);
+  animation: orbit-recovery-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes orbit-recovery-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+html[data-style='soft'] .recovery-btn {
+  height: 26px;
+  padding: 0 12px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .recovery-btn:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .recovery-btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .recovery-btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   14. Diálogo de nombre
+   ───────────────────────────────────────────────────────────────────────── */
+
+html[data-style='soft'] .name-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 20px;
+  border-color: var(--hairline);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+}
+
+html[data-style='soft'] .name-dialog::backdrop {
+  background: color-mix(in srgb, var(--modal-backdrop) 82%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+html[data-style='soft'] .name-dialog__title {
+  margin-bottom: 16px;
+  font-size: 16px;
+  letter-spacing: -0.2px;
+}
+
+html[data-style='soft'] .name-dialog__field {
+  gap: 7px;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .name-dialog__input {
+  height: 32px;
+  padding: 0 11px;
+  border-color: var(--hairline);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+html[data-style='soft'] .name-dialog__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-halo);
+}
+
+html[data-style='soft'] .name-dialog__actions {
+  gap: 6px;
+  margin-top: 18px;
+}
+
+html[data-style='soft'] .name-dialog__btn {
+  height: 30px;
+  padding: 0 15px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .name-dialog__btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .name-dialog__btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .name-dialog__btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+  color: var(--on-accent);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   15. Vista Live, Historial, Colaboración y Automatización
+   ─────────────────────────────────────────────────────────────────────────
+   Los cuatro editores que faltaban. Comparten la misma gramática: cajas sin
+   borde que se encienden al pasar, una sola línea fina entre bloques y el
+   acento reservado para lo que está sonando, el presente o la acción
+   principal — nunca para decorar. */
+
+/* ── Vista Live ── */
+
+html[data-style='soft'] .live-grid {
+  gap: 10px;
+  padding: 12px;
+}
+
+html[data-style='soft'] .live-pad {
+  min-height: 84px;
+  padding: 11px 13px;
+  border-color: transparent;
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--fill-hover);
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .live-pad:hover {
+  border-color: transparent;
+  border-left-color: var(--pad-color, var(--accent));
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .live-pad-name {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .live-pad-meta {
+  font-size: 10px;
+}
+
+html[data-style='soft'] .live-pad.sounding {
+  border-color: transparent;
+  border-left-color: var(--pad-color, var(--accent));
+  background: color-mix(in srgb, var(--pad-color, var(--accent)) 14%, var(--fill-hover));
+}
+
+html[data-style='soft'] .live-pad.queued {
+  border-color: transparent;
+  border-left-color: var(--pad-color, var(--accent));
+}
+
+/* El «+» no es un pad más: es una invitación, y por eso va punteado. */
+html[data-style='soft'] .live-pad.add {
+  border: 1px dashed color-mix(in srgb, var(--text) 22%, transparent);
+  background: transparent;
+}
+
+html[data-style='soft'] .live-pad.add:hover {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .live-bar {
+  gap: 10px;
+  padding: 9px 12px;
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .live-stop {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 10.5px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .live-stop:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .live-queued-info {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .live-hint {
+  font-size: 10.5px;
+}
+
+/* ── Historial ── */
+
+html[data-style='soft'] .hist-head {
+  padding: 10px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .hist-count {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .hist-hint {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .hist-list {
+  gap: 2px;
+  padding: 8px;
+}
+
+html[data-style='soft'] .hist-row {
+  gap: 9px;
+  padding: 6px 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  transition: background-color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .hist-row:hover {
+  border-color: transparent;
+  background: var(--fill-hover);
+}
+
+/* El presente se marca con la barra de acento a la izquierda, como una fila
+   seleccionada del sistema — no con un borde alrededor. */
+html[data-style='soft'] .hist-row.now,
+html[data-style='soft'] .hist-row.now:hover {
+  border-color: transparent;
+  background: var(--fill-selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+html[data-style='soft'] .hist-dot {
+  width: 7px;
+  height: 7px;
+}
+
+html[data-style='soft'] .hist-who,
+html[data-style='soft'] .hist-time {
+  font-size: 10px;
+}
+
+/* Versiones del proyecto: la misma lista, con el formulario en una sola
+   línea de pastillas. */
+html[data-style='soft'] .ver {
+  padding: 10px 12px 12px;
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .ver-head {
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+html[data-style='soft'] .ver-title {
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .ver-input {
+  height: 28px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .ver-input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .ver-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .ver-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .ver-btn.small {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .ver-row {
+  padding: 3px 0;
+}
+
+html[data-style='soft'] .ver-main {
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+
+html[data-style='soft'] .ver-main:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .ver-diff {
+  margin: 2px 0 7px 18px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .ver-compare {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .ver-select {
+  height: 26px;
+  padding: 0 5px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-pressed);
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .ver-select:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+html[data-style='soft'] .ver-select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+/* ── Colaboración ── */
+
+html[data-style='soft'] .collab {
+  gap: 13px;
+  padding: 16px 18px 20px;
+}
+
+html[data-style='soft'] .collab-heading {
+  margin-top: 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  opacity: 0.7;
+}
+
+html[data-style='soft'] .collab-input {
+  height: 28px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .collab-input:focus {
+  border-color: transparent;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .collab-code-input {
+  width: 116px;
+  font-size: 12.5px;
+}
+
+/* Un <select> que ocupa 1100px de ancho deja de parecer un menú y parece un
+   campo de texto. En una fila de formulario, el desplegable se queda de su
+   tamaño natural. */
+html[data-style='soft'] .collab-row > select.collab-input {
+  flex: 0 1 auto;
+  width: 240px;
+}
+
+html[data-style='soft'] .collab-btn {
+  height: 30px;
+  padding: 0 14px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font-size: 12px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .collab-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .collab-btn.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+html[data-style='soft'] .collab-btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+html[data-style='soft'] .collab-btn.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+  color: var(--meter-clip);
+}
+
+html[data-style='soft'] .collab-btn.small {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
+html[data-style='soft'] .collab-code-big {
+  font-size: 28px;
+  letter-spacing: 6px;
+}
+
+html[data-style='soft'] .collab-note {
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+html[data-style='soft'] .collab-note code {
+  padding: 1px 6px;
+  border-color: transparent;
+  border-radius: 5px;
+  background: var(--fill-pressed);
+  font-size: 10px;
+}
+
+html[data-style='soft'] .collab-warn {
+  padding: 9px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--fill-selected);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+html[data-style='soft'] .collab-error {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .collab-divider {
+  gap: 12px;
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .collab-divider::before,
+html[data-style='soft'] .collab-divider::after {
+  background: var(--hairline);
+}
+
+html[data-style='soft'] .collab-role-chip {
+  padding: 2px 8px;
+  border-color: transparent;
+  background: var(--fill-pressed);
+  font-size: 9.5px;
+}
+
+html[data-style='soft'] .collab-check {
+  gap: 8px;
+  font-size: 11px;
+}
+
+html[data-style='soft'] .collab-check input {
+  accent-color: var(--accent);
+}
+
+html[data-style='soft'] .collab-chat {
+  gap: 7px;
+  padding: 10px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .collab-msg {
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+html[data-style='soft'] .collab-note-item {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .collab-chip {
+  font-size: 9.5px;
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .collab-role-select {
+  height: 22px;
+  padding: 0 7px;
+  border-color: transparent;
+  background: var(--fill-pressed);
+  font-size: 9.5px;
+}
+
+html[data-style='soft'] .collab-role-select:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+html[data-style='soft'] .collab-following,
+html[data-style='soft'] .collab-denied {
+  padding: 7px 13px;
+  border-color: var(--hairline);
+  font-size: 12px;
+}
+
+html[data-style='soft'] .collab-following {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+html[data-style='soft'] .collab-denied {
+  border-color: color-mix(in srgb, var(--meter-clip) 45%, transparent);
+}
+
+html[data-style='soft'] .net-list {
+  gap: 4px;
+  margin: 7px 0 11px;
+}
+
+html[data-style='soft'] .net-row {
+  padding: 6px 8px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .net-row.net-invite {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--fill-selected);
+}
+
+html[data-style='soft'] .net-addr {
+  font-size: 10px;
+}
+
+html[data-style='soft'] .net-notice {
+  font-size: 11px;
+}
+
+html[data-style='soft'] .invite-token {
+  font-size: 10px;
+}
+
+/* ── Automatización ──
+   El canvas conserva su paleta --au-* literal (la lee getComputedStyle);
+   aquí solo se viste el marco: toolbar, formulario de clip nuevo y panel de
+   formas. */
+
+html[data-style='soft'] .au-toolbar {
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .au-title {
+  padding-left: 9px;
+  font-size: 12px;
+}
+
+html[data-style='soft'] .au-field {
+  gap: 6px;
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .au-field select {
+  height: 26px;
+  padding: 0 5px 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .au-field select:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .au-field select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .au-delete {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .au-delete:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+  color: var(--meter-clip);
+}
+
+html[data-style='soft'] .au-empty {
+  padding: 20px;
+}
+
+html[data-style='soft'] .au-note {
+  max-width: 520px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html[data-style='soft'] .au-form {
+  gap: 12px;
+  max-width: 520px;
+}
+
+html[data-style='soft'] .au-create {
+  height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .au-create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .au-create:disabled {
+  background: var(--fill-hover);
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+html[data-style='soft'] .au-tools {
+  gap: 2px;
+  padding: 3px;
+  border-color: transparent;
+  border-radius: 9px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .au-tool {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .au-tool:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .au-tool.active {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .au-shape {
+  padding: 12px;
+  border-color: var(--hairline);
+  border-radius: 12px;
+  box-shadow: var(--shadow-popup);
+}
+
+html[data-style='soft'] .au-shape-title {
+  font-size: 12.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   16. LFOs, Enrutado, Editor de sonido y Orbit Scope
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── LFOs ── */
+
+html[data-style='soft'] .lfo-head {
+  padding: 10px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .lfo-count {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .lfo-hint {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .lfo-empty {
+  max-width: 560px;
+  padding: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html[data-style='soft'] .lfo-list {
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+html[data-style='soft'] .lfo-row {
+  padding: 8px 10px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .lfo-led {
+  width: 11px;
+  height: 11px;
+  border-color: transparent;
+  background: var(--fill-pressed);
+  transition:
+    background-color 120ms var(--ease-out),
+    box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .lfo-led.on {
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+html[data-style='soft'] .lfo-name {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .lfo-field select {
+  height: 26px;
+  padding: 0 5px 0 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-pressed);
+  font-size: 11px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .lfo-field select:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+html[data-style='soft'] .lfo-field select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .lfo-del {
+  width: 24px;
+  height: 24px;
+  margin-left: 4px;
+  border-color: transparent;
+  border-radius: 6px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .lfo-del:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+  color: var(--meter-clip);
+}
+
+/* ── Enrutado ── */
+
+html[data-style='soft'] .graph-bar {
+  gap: 6px 8px;
+  padding: 8px 12px;
+  border-bottom-color: var(--hairline);
+  background: transparent;
+}
+
+html[data-style='soft'] .graph-btn {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .graph-btn:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .graph-btn.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .graph-zoom {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .graph-hint {
+  font-size: 10.5px;
+}
+
+/* Los nodos flotan sobre la retícula: fondo opaco del popup (en acrílico ya
+   trae su alfa) y una sola línea de acento cuando están elegidos. */
+html[data-style='soft'] .graph-node {
+  padding-right: 16px;
+  border-color: var(--hairline);
+  border-radius: 10px;
+  background: var(--popup-bg);
+  box-shadow: var(--shadow-node);
+}
+
+html[data-style='soft'] .graph-node.track {
+  background: color-mix(in srgb, var(--text) 4%, var(--popup-bg));
+}
+
+html[data-style='soft'] .graph-node.sel {
+  border-color: transparent;
+  box-shadow:
+    0 0 0 1.5px var(--accent),
+    var(--shadow-node);
+}
+
+html[data-style='soft'] .graph-node.target {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--accent) 14%, var(--popup-bg));
+  box-shadow:
+    0 0 0 1.5px var(--accent),
+    var(--shadow-node);
+}
+
+html[data-style='soft'] .graph-node.bad-target {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--danger) 14%, var(--popup-bg));
+  box-shadow:
+    0 0 0 1.5px var(--danger),
+    var(--shadow-node);
+}
+
+html[data-style='soft'] .graph-node-color {
+  border-radius: 2px;
+}
+
+html[data-style='soft'] .graph-node-label {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .graph-port {
+  width: 16px;
+  height: 16px;
+  right: -8px;
+  color: var(--on-accent);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--shadow-ink) 35%, transparent);
+}
+
+html[data-style='soft'] .graph-port.out {
+  top: calc(50% - 8px);
+}
+
+html[data-style='soft'] .graph-port.send {
+  top: calc(100% - 20px);
+}
+
+html[data-style='soft'] .graph-send-level {
+  padding: 1px 7px;
+  border-color: transparent;
+  border-radius: var(--radius-pill);
+  background: var(--fill-pressed);
+  font-size: 10px;
+}
+
+/* ── Editor de sonido (canal) ── */
+
+html[data-style='soft'] .chan-head {
+  gap: 9px;
+  padding: 10px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .chan-dot {
+  border-color: transparent;
+}
+
+html[data-style='soft'] .chan-name {
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 14.5px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-name:hover {
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .chan-name-input {
+  height: 28px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 14.5px;
+}
+
+html[data-style='soft'] .chan-name-input:focus {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .chan-btn {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-btn:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+/* Pestañas como control segmentado, no como carpetas de pestaña. */
+html[data-style='soft'] .chan-tabs {
+  align-self: flex-start;
+  gap: 2px;
+  margin: 10px 12px 0;
+  padding: 3px;
+  border: none;
+  border-radius: 9px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .chan-tabbtn {
+  height: 26px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 11.5px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-tabbtn:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .chan-tabbtn.active {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--shadow-ink) 22%, transparent);
+}
+
+html[data-style='soft'] .chan-tab-count {
+  border-radius: var(--radius-pill);
+}
+
+html[data-style='soft'] .chan-tab {
+  gap: 12px;
+  padding: 14px;
+}
+
+html[data-style='soft'] .chan-group {
+  gap: 12px;
+  padding: 12px 14px 14px;
+  border-color: transparent;
+  border-radius: 12px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .chan-group-title {
+  font-size: 9.5px;
+  letter-spacing: 0.07em;
+  opacity: 0.7;
+}
+
+html[data-style='soft'] .chan-select {
+  height: 26px;
+  padding: 0 5px 0 8px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-pressed);
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-select:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+html[data-style='soft'] .chan-select:focus-visible {
+  outline: none;
+  border-color: transparent;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .chan-field {
+  gap: 9px;
+  font-size: 11.5px;
+}
+
+html[data-style='soft'] .chan-wave {
+  border-color: var(--hairline);
+  border-radius: 8px;
+}
+
+html[data-style='soft'] .chan-toggle {
+  height: 26px;
+  padding: 0 12px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-toggle:hover {
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .chan-toggle.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .chan-fx-list {
+  gap: 7px;
+}
+
+html[data-style='soft'] .chan-fx-slot {
+  border-color: transparent;
+  border-radius: 9px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .chan-fx-slot.empty {
+  border: 1px dashed color-mix(in srgb, var(--text) 22%, transparent);
+  background: transparent;
+}
+
+html[data-style='soft'] .chan-fx-row {
+  gap: 9px;
+  padding: 5px 10px;
+}
+
+html[data-style='soft'] .chan-fx-name {
+  border-radius: 6px;
+  transition: background-color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-fx-name:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .chan-fx-add {
+  font-size: 11px;
+  transition: color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-fx-del {
+  border-radius: 6px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .chan-fx-del:hover {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--meter-clip) 16%, transparent);
+  color: var(--meter-clip);
+}
+
+html[data-style='soft'] .chan-fx-editor {
+  border-top-color: var(--hairline);
+  background: color-mix(in srgb, var(--text) 2.5%, transparent);
+}
+
+html[data-style='soft'] .chan-side {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .chan-slice-btn {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+}
+
+html[data-style='soft'] .chan-slice-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .chan-slice-btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .km-strip {
+  border-color: var(--hairline);
+  border-radius: 8px;
+}
+
+html[data-style='soft'] .km-row {
+  padding: 5px 7px;
+  border-radius: 7px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .km-row.selected {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .km-field input {
+  height: 24px;
+  padding: 0 6px;
+  border-color: transparent;
+  border-radius: 6px;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .km-field input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+/* ── Orbit Scope ── */
+
+html[data-style='soft'] .scope {
+  gap: 8px;
+  padding: 12px;
+}
+
+html[data-style='soft'] .scope-lufs {
+  gap: 18px;
+  padding: 9px 12px;
+  border-color: transparent;
+  border-radius: 10px;
+  background: var(--fill-hover);
+}
+
+html[data-style='soft'] .scope-lufs-label {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  opacity: 0.75;
+}
+
+html[data-style='soft'] .scope-lufs-val {
+  font-size: 16px;
+}
+
+html[data-style='soft'] .scope-lufs-target {
+  font-size: 10.5px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   17. Orbit Nova, Orbit Prisma y Editor de audio
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Orbit Nova ── */
+
+html[data-style='soft'] .nova-empty {
+  max-width: 560px;
+  padding: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html[data-style='soft'] .nova-head {
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .nova-channel {
+  padding-left: 9px;
+  font-size: 12px;
+}
+
+html[data-style='soft'] .nova-preset {
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .nova-audition {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .nova-audition:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .nova-body {
+  grid-template-columns: 180px 1fr;
+}
+
+html[data-style='soft'] .nova-cats {
+  gap: 2px;
+  padding: 10px;
+  border-right-color: var(--hairline);
+}
+
+html[data-style='soft'] .nova-search {
+  height: 30px;
+  margin-bottom: 8px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .nova-search:focus {
+  border-color: transparent;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .nova-cat {
+  height: 28px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  font-size: 11px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .nova-cat:hover {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .nova-cat.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .nova-list {
+  gap: 7px;
+  padding: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+}
+
+html[data-style='soft'] .nova-item {
+  padding: 8px 10px;
+  border-color: transparent;
+  border-radius: 9px;
+  background: var(--fill-hover);
+  transition:
+    background-color 110ms var(--ease-out),
+    box-shadow 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .nova-item:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .nova-item.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .nova-knobs {
+  gap: 10px 14px;
+  padding: 10px 14px;
+  border-top-color: var(--hairline);
+}
+
+/* ── Orbit Prisma ── */
+
+html[data-style='soft'] .prisma-empty {
+  max-width: 580px;
+  padding: 20px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+html[data-style='soft'] .prisma-head {
+  gap: 11px;
+  padding: 10px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .prisma-channel {
+  padding-left: 9px;
+}
+
+html[data-style='soft'] .prisma-btn {
+  height: 26px;
+  padding: 0 11px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  color: var(--text);
+  font-size: 11px;
+  transition:
+    background-color 120ms var(--ease-out),
+    color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .prisma-btn.accent {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+html[data-style='soft'] .prisma-btn.accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+html[data-style='soft'] .prisma-main {
+  grid-template-columns: 164px minmax(0, 1fr) minmax(300px, 360px);
+}
+
+html[data-style='soft'] .prisma-rail {
+  gap: 7px;
+  padding: 10px;
+  border-right-color: var(--hairline);
+}
+
+html[data-style='soft'] .prisma-search {
+  height: 30px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: var(--fill-hover);
+  font-size: 11.5px;
+  transition: box-shadow 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-search:focus {
+  border-color: transparent;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .prisma-pack {
+  height: 26px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-pack:hover {
+  border-color: transparent;
+  background: var(--fill-pressed);
+  color: var(--text);
+}
+
+html[data-style='soft'] .prisma-cat {
+  height: 27px;
+  padding: 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  transition:
+    background-color 110ms var(--ease-out),
+    color 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-cat:hover:not(:disabled) {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .prisma-cat.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .prisma-toggle {
+  padding-top: 6px;
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .prisma-list {
+  padding: 10px;
+}
+
+html[data-style='soft'] .prisma-group + .prisma-group {
+  margin-top: 12px;
+}
+
+html[data-style='soft'] .prisma-group-title {
+  margin-bottom: 6px;
+  border-bottom-color: var(--hairline);
+  font-size: 9.5px;
+}
+
+html[data-style='soft'] .prisma-grid {
+  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+}
+
+html[data-style='soft'] .prisma-item {
+  padding: 7px 9px;
+  border-color: transparent;
+  border-radius: 9px;
+  background: var(--fill-hover);
+  transition:
+    background-color 110ms var(--ease-out),
+    box-shadow 110ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-item:hover,
+html[data-style='soft'] .prisma-item:focus-visible {
+  border-color: transparent;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .prisma-item.on {
+  border-color: transparent;
+  background: var(--fill-selected);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+html[data-style='soft'] .prisma-edit {
+  padding: 10px 12px 14px;
+  border-left-color: var(--hairline);
+}
+
+html[data-style='soft'] .prisma-block-title {
+  border-bottom-color: var(--hairline);
+  font-size: 9.5px;
+}
+
+html[data-style='soft'] .prisma-select {
+  height: 26px;
+  padding: 0 6px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-pressed);
+  font-size: 11px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .prisma-select:hover,
+html[data-style='soft'] .prisma-select:focus {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+html[data-style='soft'] .prisma-keys {
+  gap: 10px;
+  padding: 8px 12px;
+  border-top-color: var(--hairline);
+}
+
+html[data-style='soft'] .prisma-piano {
+  border-color: var(--hairline);
+  border-radius: 7px;
+}
+
+/* La blanca usa el token compartido: en oscuro/acrílico --surface-2 es casi
+   transparente y las dos teclas se pintaban igual. La negra ya era oscura. */
+html[data-style='soft'] .prisma-key {
+  background: var(--piano-key-white);
+  border-right-color: color-mix(in srgb, var(--shadow-ink) 20%, transparent);
+}
+
+html[data-style='soft'] .prisma-key.black {
+  background: var(--piano-key-black);
+  border-color: color-mix(in srgb, var(--shadow-ink) 48%, transparent);
+}
+
+html[data-style='soft'] .prisma-key:hover,
+html[data-style='soft'] .prisma-key:active {
+  background: var(--accent);
+}
+
+/* ── Editor de audio ── */
+
+html[data-style='soft'] .ae-toolbar {
+  gap: 9px;
+  padding: 9px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .ae-name {
+  font-size: 12px;
+}
+
+html[data-style='soft'] .ae-tune {
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .ae-field {
+  gap: 6px;
+  font-size: 10.5px;
+}
+
+html[data-style='soft'] .ae-field select {
+  height: 26px;
+  padding: 0 5px 0 9px;
+  border-color: transparent;
+  border-radius: 7px;
+  background: var(--fill-hover);
+  font-size: 11px;
+  transition: background-color 120ms var(--ease-out);
+}
+
+html[data-style='soft'] .ae-field select:hover {
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] .ae-field select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
+}
+
+html[data-style='soft'] .ae-hint {
+  padding: 7px 12px;
+  border-top-color: var(--hairline);
+  font-size: 10.5px;
+}
