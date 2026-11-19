@@ -6,6 +6,25 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 18-11-2026: v3.16.0
+
+**"Capa nativa".** El acabado suave gana su propia capa de diseño
+(`theme/native.css`, `theme/icons.tsx`): lupas en todos los buscadores —sonidos,
+ajustes, paleta de comandos, atajos y rack—, menús de parámetro con el idioma de
+la barra, selects y acciones destructivas dentro de los menús, ventanas internas
+con sombra propia y barra del acabado, pestañas de editores con buscador, y
+glifos nuevos (lupa, chevrons, check, ayuda, más y lápiz). El pase de uso corrió
+por Mixer (slots vacíos visibles como filas, «1 efecto» / «N efectos»),
+automatización en castellano, Historial sin cortar el nombre de versión, Acerca
+de sin desborde, cartel de versión nueva fuera de la navegación, avisos legibles
+sobre el tema claro (tinta semántica en `tokens.css`, documentada en
+`docs/THEMING.md`), sliders que ya no heredan la paleta oscura de Windows y
+«+ Pista» junto al patrón. `Clásico` sigue devolviendo el look exacto de la
+v3.14. Red: **336 archivos / 3957 tests**, typecheck, lint (35 CSS) y build
+limpios, golden 25/25 sin tocar.
+
+---
+
 ## Estado — 18-11-2026: v3.15.0
 
 **"A tu manera".** Encargo directo de experiencia: **cualquier color de pista**

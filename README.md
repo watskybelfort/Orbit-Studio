@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.15.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-3928%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.16.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-3957%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
@@ -106,6 +106,20 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.16.0 — "capa nativa".** El acabado suave deja de ser un tema y pasa a
+tener su propia capa de diseño: **lupas** en todos los buscadores (sonidos,
+ajustes, paleta de comandos, atajos y rack), menús de parámetro con el idioma
+de la barra, selects y acciones destructivas dentro de los menús, ventanas
+internas con sombra propia y barra del acabado, pestañas de editores con
+buscador, e iconos nuevos (lupa, chevrons, check, ayuda, más y lápiz). En el
+uso diario: el Mixer vuelve a mostrar los slots de efecto vacíos como filas y
+dice «1 efecto» / «N efectos», la automatización se lee en castellano, el
+nombre de versión del Historial ya no se corta, el Acerca de no desborda con
+la ruta de datos, el cartel de versión nueva no tapa la navegación y los
+avisos se leen sobre el tema claro. Los sliders dejan de heredar la paleta
+oscura de Windows y «+ Pista» vive junto al patrón. **Clásico sigue devolviendo
+el look exacto de la v3.14.**
 
 **v3.15.0 — "a tu manera".** El estudio se amolda a ti, no al revés.
 **Cualquier color de pista** desde el swatch de la cabecera —14 presets, el
