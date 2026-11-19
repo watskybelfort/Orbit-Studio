@@ -481,3 +481,73 @@ export function IconMic(props: IconProps) {
     </Icon>
   );
 }
+
+/* ── Interfaz ────────────────────────────────────────────────────────────── */
+
+/** Lupa de búsqueda: círculo y mango, el gesto universal de buscar. */
+export function IconSearch(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="10.8" cy="10.8" r="6.3" />
+      <path d="M15.4 15.4 L20 20" />
+    </Icon>
+  );
+}
+
+/** Chevron hacia la derecha: submenús y divulgación. */
+export function IconChevronRight(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M9.5 6.5 L15 12 L9.5 17.5" />
+    </Icon>
+  );
+}
+
+/** Chevron hacia abajo: selects y acordeones. */
+export function IconChevronDown(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M6.5 9.5 L12 15 L17.5 9.5" />
+    </Icon>
+  );
+}
+
+/** Check: marca de opción elegida. */
+export function IconCheck(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M5 12.5 L9.8 17.2 L19 6.8" />
+    </Icon>
+  );
+}
+
+/** Ayuda: interrogación dentro de un círculo, como el botón nativo. */
+export function IconHelp(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.6 9.3 A2.6 2.6 0 1 1 12.7 12 C12.2 12.3 12 12.7 12 13.3 V13.8" />
+      <path d="M12 17.1 V17.2" />
+    </Icon>
+  );
+}
+
+/** Más: cruz de 10 px, trazo fino (crear/añadir). */
+export function IconPlus(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M12 6.5 V17.5" />
+      <path d="M6.5 12 H17.5" />
+    </Icon>
+  );
+}
+
+/** Lápiz: renombrar/editar un nombre. */
+export function IconPencil(props: IconProps) {
+  return (
+    <Icon {...props}>
+      <path d="M15.8 4.9 L19.1 8.2 L9.2 18.1 L5.2 18.9 L6 14.9 Z" />
+      <path d="M14.1 6.6 L17.4 9.9" />
+    </Icon>
+  );
+}
