@@ -698,6 +698,50 @@ html[data-style='soft'] .iw-snap-preview {
   animation: orbit-snap-in 120ms var(--ease-out);
 }
 
+/* Barra de una ventana desacoplada: es la cabecera de ESA ventana, así que
+   toma el mismo alto, tipografía y hairline que la de una ventana interna.
+   Los dos botones dejan de ser cajitas de 4 px y pasan a cápsulas: el activo
+   se tiñe de acento sin borde, como el resto de estados del acabado. */
+html[data-style='soft'] .detached-bar {
+  height: 32px;
+  padding: 0 8px 0 12px;
+  gap: 4px;
+  background: var(--iw-title-bg);
+  border-bottom-color: var(--hairline);
+}
+
+html[data-style='soft'] .detached-bar-title {
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
+}
+
+html[data-style='soft'] .detached-bar-btn {
+  height: 22px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out);
+}
+
+html[data-style='soft'] .detached-bar-btn:hover {
+  background: var(--fill-hover);
+  color: var(--text);
+}
+
+html[data-style='soft'] .detached-bar-btn.on {
+  background: var(--fill-selected);
+  color: var(--accent);
+}
+
+html[data-style='soft'] .detached-bar-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-halo);
+}
+
 /* Estados vacíos de los editores: un mensaje centrado, no una línea perdida
    en la esquina superior izquierda de un lienzo en blanco. */
 html[data-style='soft'] .panel-placeholder {
