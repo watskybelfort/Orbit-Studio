@@ -82,6 +82,10 @@
   margin: 0 0 18px;
   display: grid;
   gap: 6px;
+  /* La ruta de datos no tiene espacios: sin esta columna el grid toma el
+     max-content de la fila y el dd con ellipsis no llega a encogerse, así que
+     el diálogo entero ganaba una barra horizontal. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .about-row {
