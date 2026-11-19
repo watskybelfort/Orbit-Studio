@@ -2115,7 +2115,7 @@ export function Playlist() {
             {activePattern.name}
           </span>
         )}
-        <button className="pl-add" onClick={addTrack} title="Añadir pista al arrangement">
+        <button className="pl-add pl-add--track" onClick={addTrack} title="Añadir pista al arrangement">
           + Pista
         </button>
 

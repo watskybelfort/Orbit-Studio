@@ -1858,10 +1858,17 @@ html[data-style='soft'] .pl-add {
 
 /* Los dos botones del arrangement viven pegados a su selector: con el
    `margin-left: auto` de serie cada uno se lleva su parte del aire y el lápiz
-   termina lejos, como si fuera de Snap. El «+ Pista» conserva el auto y sigue
-   empujando las acciones al extremo derecho. Solo suave: clásico no se toca. */
+   termina lejos, como si fuera de Snap. Solo suave: clásico no se toca. */
 html[data-style='soft'] .pl-toolbar .pl-add--new,
 html[data-style='soft'] .pl-toolbar .pl-add--rename {
+  margin-left: 0;
+}
+
+/* Y el «+ Pista» es del arrangement, no de la selección: con su auto y el
+   `margin-left: auto` del grupo de selección, los dos se repartían el aire a
+   medias y el botón quedaba flotando a media barra, lejos de todo. Va junto
+   al chip del patrón; las acciones de selección se quedan al borde derecho. */
+html[data-style='soft'] .pl-toolbar .pl-add--track {
   margin-left: 0;
 }
 
