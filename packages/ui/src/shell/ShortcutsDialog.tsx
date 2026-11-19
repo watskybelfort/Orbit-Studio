@@ -9,6 +9,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SHORTCUTS, type ShortcutRow } from './shortcuts-catalog';
+import { IconSearch } from '../icons';
 import { useUiStore } from '../state/ui';
 import './shortcuts.css';
 
@@ -79,16 +80,19 @@ export function ShortcutsDialog() {
     >
         <div className="sc-head">
           <span className="sc-title">Atajos de teclado</span>
-          <input
-            ref={searchRef}
-            className="sc-search"
-            type="text"
-            aria-label="Buscar atajos de teclado"
-            spellCheck={false}
-            placeholder="Buscar (pegar, ctrl+v, piano…)"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <label className="sc-search-wrap">
+            <IconSearch size={13} />
+            <input
+              ref={searchRef}
+              className="sc-search"
+              type="text"
+              aria-label="Buscar atajos de teclado"
+              spellCheck={false}
+              placeholder="Buscar (pegar, ctrl+v, piano…)"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
           <button className="sc-close" onClick={close} aria-label="Cerrar">
             ✕
           </button>

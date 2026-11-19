@@ -1,6 +1,11 @@
 /* Paleta de comandos (Ctrl+K). Solo tokens del tema; la caja usa .popup
    (fondo/borde/sombra, y el ÚNICO backdrop-filter permitido en acrílico). */
 
+/* El buscador con lupa es del acabado suave: en clásico el envoltorio se
+   disuelve y el icono no existe (la v3.14 se queda igual). */
+.palette-search { display: contents; }
+.palette-search > svg { display: none; }
+
 .palette-overlay {
   position: fixed;
   inset: 0;

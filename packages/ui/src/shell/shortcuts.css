@@ -1,5 +1,10 @@
 /* Diálogo de atajos nativo: el navegador confina el foco en la capa modal. */
 
+/* El buscador con lupa es del acabado suave: en clásico el envoltorio se
+   disuelve y el icono no existe (la v3.14 se queda igual). */
+.sc-search-wrap { display: contents; }
+.sc-search-wrap > svg { display: none; }
+
 .sc::backdrop {
   background: var(--modal-backdrop);
 }

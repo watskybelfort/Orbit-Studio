@@ -20,6 +20,7 @@ import {
   type PaletteCommand,
 } from './registry';
 import { searchCommands } from './search';
+import { IconSearch } from '../icons';
 import './palette.css';
 
 /** Máximo de resultados pintados (se recorta antes de agrupar). */
@@ -142,19 +143,22 @@ function PaletteBox() {
         aria-label="Paleta de comandos"
         ref={dialogRef}
       >
-        <input
-          className="palette-input"
-          type="text"
-          autoFocus
-          spellCheck={false}
-          aria-label="Buscar un comando"
-          placeholder="Escribe un comando…"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setSelected(0); // La selección vuelve arriba con cada búsqueda.
-          }}
-        />
+        <div className="palette-search">
+          <IconSearch size={14} />
+          <input
+            className="palette-input"
+            type="text"
+            autoFocus
+            spellCheck={false}
+            aria-label="Buscar un comando"
+            placeholder="Escribe un comando…"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSelected(0); // La selección vuelve arriba con cada búsqueda.
+            }}
+          />
+        </div>
         <div className="palette-list" ref={listRef}>
           {groups.map((g) => (
             <div key={g.group} className="palette-group">
