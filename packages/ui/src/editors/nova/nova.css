@@ -141,6 +141,11 @@
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 6px;
   align-content: start;
+  /* Sin esto el grid reparte la altura disponible entre las filas implícitas
+     y cada tarjeta se queda con ~27 px: el nombre y los tags (dos líneas)
+     se comprimen a tiras de 4 px. La altura de fila la manda el contenido; el
+     sobrante se ve como scroll, que es justo lo que se espera de un catálogo. */
+  grid-auto-rows: max-content;
 }
 
 .nova-none {
