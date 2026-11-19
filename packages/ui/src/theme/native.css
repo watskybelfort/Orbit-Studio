@@ -1673,6 +1673,15 @@ html[data-style='soft'] .pl-add {
     color 120ms var(--ease-out);
 }
 
+/* Los dos botones del arrangement viven pegados a su selector: con el
+   `margin-left: auto` de serie cada uno se lleva su parte del aire y el lápiz
+   termina lejos, como si fuera de Snap. El «+ Pista» conserva el auto y sigue
+   empujando las acciones al extremo derecho. Solo suave: clásico no se toca. */
+html[data-style='soft'] .pl-toolbar .pl-add--new,
+html[data-style='soft'] .pl-toolbar .pl-add--rename {
+  margin-left: 0;
+}
+
 html[data-style='soft'] .pl-add:hover {
   border-color: transparent;
   background: var(--fill-pressed);
