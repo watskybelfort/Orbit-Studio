@@ -1097,11 +1097,62 @@ html[data-style='soft'] .set-reset:focus-visible {
   box-shadow: var(--focus-halo), inset 0 0 0 1px var(--accent);
 }
 
+/* Sliders: en Windows con el sistema en modo oscuro, Chromium pinta la
+   canaleta del range con SU paleta oscura aunque `color-scheme: light` esté
+   puesto —`accent-color` solo alcanza al pomo—. En el tema claro eso dejaba una
+   barra casi negra sobre una fila blanca. Se dibuja con la misma gramática que
+   el fader del mixer: canaleta --fill-pressed, pomo --slider-thumb. Vale para
+   todos los sliders de la app, que arrastraban el mismo negro. Solo suave. */
+html[data-style='soft'] input[type='range'] {
+  appearance: none;
+  -webkit-appearance: none;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+
+html[data-style='soft'] input[type='range']::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--fill-pressed);
+}
+
+html[data-style='soft'] input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--slider-thumb);
+  box-shadow:
+    0 1px 3px color-mix(in srgb, var(--shadow-ink) 38%, transparent),
+    0 0 0 0.5px var(--slider-thumb-border);
+  transition: transform 120ms var(--ease-out);
+}
+
+html[data-style='soft'] input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+
+html[data-style='soft'] input[type='range']:focus-visible {
+  outline: none;
+}
+
+html[data-style='soft'] input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 1px 3px color-mix(in srgb, var(--shadow-ink) 38%, transparent),
+    0 0 0 0.5px var(--slider-thumb-border),
+    0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+html[data-style='soft'] input[type='range']:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 html[data-style='soft'] .settings input[type='range'] {
   flex: 1 1 150px;
   max-width: 220px;
-  height: 20px;
-  cursor: pointer;
 }
 
 /* Swatches: círculos sin borde; el elegido lleva anillo, no sombra dura. */
