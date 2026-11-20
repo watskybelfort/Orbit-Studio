@@ -37,13 +37,16 @@ it('el handler project:save real conserva el .orbit anterior ante ENOSPC parcial
   type Handler = (event: unknown, path: string, json: string, name: string) => Promise<unknown>;
   const handlers = new Map<string, Handler>();
   const rememberRecent = vi.fn();
+  const rememberProjectDir = vi.fn();
   runInNewContext(stripTypeScriptTypes(source.slice(start, end)), {
     ipcMain: { handle: (name: string, handler: Handler) => handlers.set(name, handler) },
     resolvePath: resolve, isWriteAllowed: async () => true, mkdir, dirname,
-    writeFile: failWrite, writeFileAtomic, rememberRecent, join,
+    writeFile: failWrite, writeFileAtomic, rememberRecent, rememberProjectDir, join,
+    projectSaveDefaultPath: () => join(sandbox!, 'new.orbit'),
   });
   await expect(handlers.get('project:save')!({}, target, 'new project contents', 'new.orbit')).rejects.toThrow('disk full');
   expect(await readFile(target, 'utf8')).toBe('original valid project');
   expect(await readdir(sandbox)).toEqual(['original.orbit']);
   expect(rememberRecent).not.toHaveBeenCalled();
+  expect(rememberProjectDir).not.toHaveBeenCalled();
 });

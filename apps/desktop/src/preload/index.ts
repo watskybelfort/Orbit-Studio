@@ -107,6 +107,11 @@ export interface OrbitApi {
      * El main pide "guardar y salir" desde ese diálogo. Devuelve el unsubscribe.
      */
     onSaveAndClose(cb: () => void): () => void;
+    /**
+     * «Guardar y salir» no dejó el proyecto limpio (se canceló el diálogo o
+     * falló la escritura): el próximo cierre vuelve a preguntar.
+     */
+    cancelSaveAndClose(): Promise<void>;
   };
   readonly window: {
     minimize(): Promise<void>;
@@ -325,6 +330,7 @@ const api: OrbitApi = {
       ipcRenderer.on('app:save-and-close', listener);
       return () => ipcRenderer.removeListener('app:save-and-close', listener);
     },
+    cancelSaveAndClose: () => ipcRenderer.invoke('app:save-and-close-cancelled'),
   },
   window: {
     minimize: () => ipcRenderer.invoke('window:minimize'),

@@ -23,6 +23,11 @@ import { startBridgeHost, type BridgeHost } from '@orbit/claude-bridge/node/ws-h
 import { generateBridgeToken } from '@orbit/claude-bridge/node/bridge-auth';
 import { childWindowId, usableBounds, type Area } from './window-bounds';
 import { isBlockedIp, isRealPathWithin, pathWithin, realpathOrNearest } from './path-guard';
+import {
+  projectOpenDefaultPath,
+  projectSaveDefaultPath,
+  withRememberedProjectDir,
+} from './project-dirs';
 import { writeFileAtomic, writeFileAtomicSync } from './atomic-write';
 import { createRecordingStore } from './recording-store';
 import { createRecordingJournal } from './recording-journal';
@@ -111,6 +116,17 @@ function writeSettings(settings: Settings): void {
     // queda al día para esta sesión.
     console.warn('[settings] escritura atómica falló:', err);
   }
+}
+
+/**
+ * Recuerda la carpeta del último `.orbit` abierto o guardado para que los
+ * diálogos de abrir/guardar arranquen ahí. Sin cambio no hay escritura: se
+ * llama tras cada guardado y no vale la pena tocar disco por lo mismo.
+ */
+function rememberProjectDir(filePath: string): void {
+  const settings = readSettings();
+  const next = withRememberedProjectDir(settings, filePath);
+  if (next !== settings) writeSettings(next);
 }
 
 // ─── Tema de ventana (arquitectura A del skill acrylic-theming) ──────────────
@@ -460,6 +476,12 @@ function rememberAllDetachedBounds(): void {
 let mainWindow: BrowserWindow | null = null;
 /** El renderer dice si el proyecto tiene cambios sin guardar (canal `app:dirty`). */
 let unsavedChanges = false;
+/**
+ * Hay un «Guardar y salir» esperando al renderer. Mientras esté puesto, un
+ * segundo intento de cierre (X o Alt+F4 otra vez) se ignora en vez de reabrir
+ * el aviso: el usuario ya decidió y está en el diálogo de guardar.
+ */
+let closeRequestInFlight = false;
 
 function createWindow(): BrowserWindow {
   const settings = readSettings();
@@ -560,16 +582,20 @@ function createWindow(): BrowserWindow {
   // contra un renderer muerto es peor que cerrarla.
   win.webContents.on('render-process-gone', () => {
     unsavedChanges = false;
+    closeRequestInFlight = false;
   });
-
-  let saveAndCloseTimer: NodeJS.Timeout | null = null;
-  const SAVE_AND_CLOSE_TIMEOUT_MS = 8000;
 
   win.on('close', (e) => {
     if (!unsavedChanges || win.isDestroyed()) return;
     // Renderer colgado/caído: no se puede guardar ni esperar respuesta.
     if (win.webContents.isCrashed()) return;
     e.preventDefault();
+    // Ya se le pidió guardar y está en ello. Antes, a los 8 s, este mismo
+    // handler volvía a llamar a close() y el aviso reaparecía ENCIMA del
+    // diálogo de «Guardar como»; el usuario veía dos veces la misma pregunta y
+    // podía encolar dos guardados. Ahora el cierre espera a que el renderer
+    // termine o cancele (`app:save-and-close-cancelled`).
+    if (closeRequestInFlight) return;
     const choice = dialog.showMessageBoxSync(win, {
       type: 'warning',
       buttons: ['Guardar y salir', 'Salir sin guardar', 'Cancelar'],
@@ -581,25 +607,18 @@ function createWindow(): BrowserWindow {
     });
     if (choice === 1) {
       unsavedChanges = false;
+      closeRequestInFlight = false;
       win.close();
     } else if (choice === 0) {
-      // Se le pide al renderer que guarde y vuelva a cerrar (su markClean baja
-      // el flag). Si no contesta a tiempo —colgado, o un guardado que nunca
-      // termina—, se reabre el diálogo para que el usuario decida de nuevo en
-      // vez de quedarse atrapado con una ventana que no cierra.
+      // Se le pide al renderer que guarde y vuelva a cerrar. El flag queda
+      // puesto hasta que confirme limpio o cancele: no hay timeout que reabra
+      // el aviso mientras el usuario elige dónde guardar.
+      closeRequestInFlight = true;
       win.webContents.send('app:save-and-close');
-      if (saveAndCloseTimer) clearTimeout(saveAndCloseTimer);
-      saveAndCloseTimer = setTimeout(() => {
-        saveAndCloseTimer = null;
-        if (!win.isDestroyed() && unsavedChanges) win.close();
-      }, SAVE_AND_CLOSE_TIMEOUT_MS);
     }
   });
   win.on('closed', () => {
-    if (saveAndCloseTimer) {
-      clearTimeout(saveAndCloseTimer);
-      saveAndCloseTimer = null;
-    }
+    closeRequestInFlight = false;
   });
   // Al cerrar la principal, las hijas se van con ella sin dar tiempo a su
   // propio 'close': su sitio se apunta desde aquí.
@@ -815,6 +834,15 @@ function registerIpc(): void {
   ipcMain.handle('app:dirty', (_event, flag: unknown) => {
     unsavedChanges = flag === true;
     return unsavedChanges;
+  });
+
+  /**
+   * El renderer no pudo dejar el proyecto limpio —canceló «Guardar como» o la
+   * escritura falló—. Se baja la guardia para que el próximo intento de cierre
+   * vuelva a preguntar, en vez de ignorarse para siempre.
+   */
+  ipcMain.handle('app:save-and-close-cancelled', () => {
+    closeRequestInFlight = false;
   });
 
   // ── Gente en la red local y amigos ─────────────────────────────────────────
@@ -1208,6 +1236,7 @@ function registerIpc(): void {
     const chosen = resolvePath(known);
     grantedWritePaths.add(chosen);
     rememberRecent(chosen);
+    rememberProjectDir(chosen);
     return { path: chosen, json };
   });
 
@@ -1215,6 +1244,9 @@ function registerIpc(): void {
     const win = windowOf(event.sender);
     const options = {
       title: 'Abrir proyecto',
+      // El diálogo arranca donde el usuario abrió/guardó por última vez; sin
+      // memoria todavía, en Documentos (predecible, no el cwd del proceso).
+      defaultPath: projectOpenDefaultPath(readSettings(), app.getPath('documents')),
       filters: [
         { name: 'Proyecto Orbit', extensions: ['orbit'] },
         { name: 'Todos los archivos', extensions: ['*'] },
@@ -1232,6 +1264,7 @@ function registerIpc(): void {
     grantedWritePaths.add(chosen);
     const json = await readFile(path, 'utf8');
     rememberRecent(chosen);
+    rememberProjectDir(chosen);
     return { path: chosen, json };
   });
 
@@ -1258,7 +1291,8 @@ function registerIpc(): void {
             : 'proyecto.orbit';
         const options = {
           title: 'Guardar proyecto',
-          defaultPath: join(app.getPath('documents'), name),
+          // Guardar como hereda la carpeta del proyecto que tienes abierto.
+          defaultPath: projectSaveDefaultPath(readSettings(), app.getPath('documents'), name),
           filters: [{ name: 'Proyecto Orbit', extensions: ['orbit'] }],
         };
         const result = win
@@ -1273,6 +1307,7 @@ function registerIpc(): void {
       // Guardar también cuenta como "estuve aquí": el proyecto que acabas de
       // guardar es justo el que querrás reabrir mañana.
       rememberRecent(target);
+      rememberProjectDir(target);
       return target;
     },
   );

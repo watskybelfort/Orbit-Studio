@@ -108,6 +108,12 @@ interface OrbitApi {
      * El main pide "guardar y salir" desde ese diálogo. Devuelve el unsubscribe.
      */
     onSaveAndClose(cb: () => void): () => void;
+    /**
+     * «Guardar y salir» no dejó el proyecto limpio (se canceló el diálogo o
+     * falló la escritura). El main baja la guardia para que el próximo cierre
+     * vuelva a preguntar en vez de ignorarse.
+     */
+    cancelSaveAndClose(): Promise<void>;
   };
   readonly window: {
     minimize(): Promise<void>;

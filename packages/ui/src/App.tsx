@@ -36,6 +36,7 @@ import { initPlugins } from './state/plugins';
 import { CommandPalette, loadRecentCommands } from './palette';
 import { registerDefaultCommands } from './palette/default-commands';
 import { refreshRecents, saveProject, useProjectFile } from './state/project-file';
+import { createSaveAndCloseRunner } from './state/save-and-close';
 import { dismissBounceRecovery, useBounceStore } from './state/bounce';
 import { dismissCaptureRecovery, useTrackCapture } from './state/track-capture';
 import { dismissRecorderError, dismissRecorderNotice, dismissRecorderRecovery, useRecorderStore } from './state/recorder';
@@ -128,14 +129,20 @@ export function App() {
      * "Guardar y salir" del diálogo de cierre. El main no sabe serializar el
      * proyecto, así que solo pide: aquí se guarda y, si el guardado salió
      * bien (markClean deja el flag a false), se vuelve a cerrar — esta vez sin
-     * nada que preguntar. Si el usuario cancela el "guardar como", seguimos
-     * sucios y la ventana se queda donde está, que es lo correcto.
+     * nada que preguntar. El runner es single-flight: los eventos repetidos
+     * del main no encolan otro guardado. Si el usuario cancela el "guardar
+     * como", seguimos sucios, se avisa al main y la ventana se queda donde
+     * está, que es lo correcto.
      */
-    const offSaveAndClose = window.orbit?.app.onSaveAndClose(() => {
-      void saveProject().then(() => {
-        if (!isDirty()) void window.orbit?.window.close();
-      });
-    });
+    const offSaveAndClose = window.orbit?.app.onSaveAndClose(
+      createSaveAndCloseRunner({
+        dirty: isDirty,
+        save: () => saveProject(),
+        flushClean: () => window.orbit?.app.setDirty(false) ?? Promise.resolve(false),
+        close: () => window.orbit?.window.close() ?? Promise.resolve(),
+        cancel: () => window.orbit?.app.cancelSaveAndClose() ?? Promise.resolve(),
+      }),
+    );
     // El AudioContext necesita un gesto: el primer pointerdown lo despierta.
     const wake = () => {
       ensureAudioReady();
