@@ -6,12 +6,13 @@ import { beatsInBar } from '@orbit/core';
  * nombre editable con doble clic, swatch que abre la paleta o cualquier color).
  * El color de una pista pinta sus clips que no tengan color propio, y la barra
  * de selección pinta los clips marcados con un solo comando. Regla superior:
- * números de compás; clic o
- * arrastre en la mitad inferior hace seek del transporte y arrastre en la
- * mitad superior define la región de loop (clic suelto la quita). Rejilla:
- * clic izquierdo pinta clips del patrón activo (arrastrando coloca varios
- * seguidos), arrastrar un clip lo mueve (pista y start), su borde derecho lo
- * redimensiona, Ctrl+arrastre lo duplica y el clic derecho lo borra.
+ * números de compás; un clic en CUALQUIER punto de la regla hace seek del
+ * transporte, y arrastrar en la mitad superior define la región de loop.
+ * Rejilla: clic izquierdo pinta clips del patrón activo (arrastrando coloca
+ * varios seguidos), arrastrar un clip lo mueve (pista y start), sus dos bordes
+ * lo redimensionan —el izquierdo solo en audio, moviendo el offset de fuente—,
+ * Ctrl+arrastre lo duplica, Shift+clic lo corta donde pulsas y el botón
+ * «Dividir»/S lo corta en el playhead. El clic derecho lo borra.
  * Snap a beat por defecto (selector en la toolbar; Alt = sin snap).
  * Ctrl+rueda hace zoom horizontal; rueda = scroll vertical; Shift+rueda =
  * scroll horizontal. Playhead vertical en reproducción (modo SONG).
@@ -73,8 +74,7 @@ import { defaultTrackColor, TRACK_COLOR_PRESETS } from '../../theme/track-palett
 import { useThemeVersion } from '../../theme/useThemeVersion';
 import { capturePointer } from '../../widgets/pointer';
 import { MenuPortal } from '../../widgets/MenuPortal';
-import { projectTempoMap, sliceAudioWindow } from '../clip-slice';
-import { sliceAutomationCurve } from '../automation/slice-curve';
+import { projectTempoMap, trimAudioStartAtBeat } from '../clip-slice';
 import {
   commonClipColor,
   normalizeHexColor,
@@ -89,6 +89,7 @@ import {
   type SelectableClip,
 } from './selection';
 import { msToBeats, NUDGE_FINE_MS, NUDGE_MS, nudgePatches } from './nudge';
+import { sliceClipCommands, sliceClipsAt } from './slice-clip';
 import { PlaylistScrollbar } from './PlaylistScrollbar';
 import { useJack } from './route-jack';
 import { mixerTargetLabel } from '../../state/route-cable';
@@ -152,7 +153,7 @@ type DragState =
    * que evita que un arrastre rápido descuadre el grupo.
    */
   | { mode: 'move'; clipId: Id; grabOffset: number; orig: Map<Id, MoveAnchor> }
-  | { mode: 'resize'; clipId: Id }
+  | { mode: 'resize'; clipId: Id; edge: 'start' | 'end' }
   | { mode: 'seek' }
   | { mode: 'loop'; anchor: number; moved: boolean; x0: number }
   /** Rectángulo de selección. `add` = suma a lo ya seleccionado (Shift). */
@@ -629,7 +630,7 @@ export function Playlist() {
   );
 
   const clipAt = useCallback(
-    (x: number, y: number): { clip: Clip; row: RowLayout; edge: boolean } | null => {
+    (x: number, y: number): { clip: Clip; row: RowLayout; edge: 'start' | 'end' | null } | null => {
       const row = rowAtY(y);
       if (!row) return null;
       const beat = xToBeat(x);
@@ -645,8 +646,19 @@ export function Playlist() {
           const c = list[i]!;
           if (wanted !== null && (c.lane ?? 0) !== wanted) continue;
           if (beat >= c.start && beat < c.start + c.length) {
+            const startX = beatToX(c.start);
             const endX = beatToX(c.start + c.length);
-            return { clip: c, row, edge: endX - x < RESIZE_EDGE && c.length * zoom > 16 };
+            const wide = c.length * zoom > 16;
+            // El borde izquierdo solo recorta audio: mover el inicio de un
+            // patrón sin ajustar su offset dejaría sonando el principio del
+            // patrón en otro sitio. El derecho sigue valiendo para todos.
+            const edge: 'start' | 'end' | null =
+              wide && c.kind === 'audio' && x - startX < RESIZE_EDGE
+                ? 'start'
+                : wide && endX - x < RESIZE_EDGE
+                  ? 'end'
+                  : null;
+            return { clip: c, row, edge };
           }
         }
         return null;
@@ -1261,56 +1273,30 @@ export function Playlist() {
   /** Corta un clip en el beat dado (dos clips, con offsets coherentes). */
   const sliceClip = useCallback(
     (clip: Clip, cut: number) => {
-      if (cut <= clip.start + 0.05 || cut >= clip.start + clip.length - 0.05) return;
-      const firstLen = cut - clip.start;
-      const second: Clip = { ...clip, id: newId(), start: cut, length: clip.length - firstLen };
-      let sliceHead: Partial<Clip> = {};
-      // Los fundidos se reparten: la cabeza se queda el de entrada y la cola el
-      // de salida. Copiar los dos a los dos trozos metería un fundido a mitad
-      // del sonido justo donde antes no había ninguno.
-      const cutFades = clampFades(clip.fadeIn, clip.fadeOut, clip.length);
-      const headFadeIn = Math.min(cutFades.fadeIn, firstLen);
-      const tailFadeOut = Math.min(cutFades.fadeOut, second.length);
-      second.fadeIn = 0;
-      second.fadeOut = tailFadeOut;
-      if (clip.kind === 'pattern') {
-        second.patternOffset = (clip.patternOffset ?? 0) + firstLen;
-      } else if (clip.kind === 'automation') {
-        const curve = sliceAutomationCurve(clip, firstLen);
-        sliceHead = curve.head;
-        Object.assign(second, curve.tail);
-      } else if (clip.kind === 'audio') {
-        // Ambas ventanas conservan su fuente y la fase de los grains.
-        const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
-        const audio = sliceAudioWindow(clip, cut, {
-          offset: clip.audioOffset ?? 0,
-          sampleDuration: sample?.duration ?? 0,
-          sourceLength: clip.audioSourceLength,
-          stretch: clip.audioStretch === true,
-          tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
-          fallbackTempo: project.tempo,
-        });
-        sliceHead = audio.head;
-        Object.assign(second, audio.tail);
-      }
+      const commands = sliceClipCommands(project, clip, cut);
+      if (commands.length === 0) return;
       const label = 'Cortar clip';
-      store.dispatch(
-        {
-          type: 'batch',
-          label,
-          commands: [
-            {
-              type: 'patchClips',
-              patches: [{ id: clip.id, length: firstLen, fadeIn: headFadeIn, fadeOut: 0, ...sliceHead }],
-            },
-            { type: 'addClips', clips: [second] },
-          ],
-        },
-        { label },
-      );
+      store.dispatch({ type: 'batch', label, commands }, { label });
     },
     [project],
   );
+
+  /**
+   * «Dividir»: corta en el playhead todos los clips seleccionados que lo
+   * crucen, en UN paso de undo. El botón y la tecla S usan esto; Shift+clic
+   * sigue cortando en el punto pulsado.
+   */
+  const splitSelectionAtPlayhead = useCallback(() => {
+    const cut = useUiStore.getState().positionBeats;
+    const commands = sliceClipsAt(project, selectedIds, cut);
+    if (commands.length === 0) {
+      notifyBanner('Movés el playhead dentro de un clip seleccionado para dividirlo.');
+      return;
+    }
+    const count = Math.ceil(commands.length / 2);
+    const label = count === 1 ? 'Cortar clip' : `Cortar ${count} clips`;
+    store.dispatch({ type: 'batch', label, commands }, { label });
+  }, [project, selectedIds]);
 
   /**
    * Arranca un arrastre de movimiento con `clipId` como clip agarrado y `ids`
@@ -1350,7 +1336,7 @@ export function Playlist() {
       const y = e.clientY - rect.top;
       ensureAudioReady();
 
-      // Regla: loop (mitad superior), seek (mitad inferior) y marcadores.
+      // Regla: seek en cualquier altura; arrastrar arriba define el loop.
       if (y < RULER_H) {
         if (e.button === 2) {
           // Clic derecho sobre una bandera: borrar el marcador; si no, quitar loop.
@@ -1367,17 +1353,20 @@ export function Playlist() {
         }
         if (e.button !== 0) return;
         const beat = quant(xToBeat(x), snapOf(e), true);
-        if (y < RULER_H / 2) {
-          // Sobre una bandera de marcador el gesto es del marcador (doble clic
-          // para editarlo): antes el primer clic de ese doble clic borraba la
-          // región de loop sin que el usuario lo pidiera.
-          if (markerAt(x)) return;
+        const marker = markerAt(x);
+        if (marker) {
+          // Clic sobre una bandera: salto exacto a su marcador. El doble clic
+          // sigue abriendo el renombrado; el primer clic ya no borra el loop.
+          drag.current = { mode: 'seek' };
+          doSeek(marker.time);
+        } else if (y < RULER_H / 2) {
+          // Arriba se puede arrastrar un loop, pero un clic sin movimiento
+          // también coloca el playhead: antes solo la mitad inferior hacía
+          // seek y la regla parecía muerta en la franja de los números.
           drag.current = { mode: 'loop', anchor: beat, moved: false, x0: x };
         } else {
-          // Clic sobre una bandera: salto exacto a su marcador.
-          const m = markerAt(x);
           drag.current = { mode: 'seek' };
-          doSeek(m ? m.time : beat);
+          doSeek(beat);
         }
         return;
       }
@@ -1443,7 +1432,7 @@ export function Playlist() {
 
       if (hit) {
         if (hit.edge) {
-          drag.current = { mode: 'resize', clipId: hit.clip.id };
+          drag.current = { mode: 'resize', clipId: hit.clip.id, edge: hit.edge };
         } else if (ctrl) {
           // Ctrl sobre un clip hace DOS cosas según lo que venga después:
           // soltar sin moverse lo mete o lo saca de la selección; arrastrar
@@ -1715,8 +1704,26 @@ export function Playlist() {
         case 'resize': {
           const clip = project.clips[d.clipId];
           if (!clip) return;
-          const end = quant(xToBeat(x), snapOf(e), true);
-          const length = Math.max(snapOf(e) ?? 0.25, end - clip.start);
+          const beat = quant(xToBeat(x), snapOf(e), true);
+          if (d.edge === 'start') {
+            if (clip.kind !== 'audio') return;
+            const sample = clip.sampleId ? project.samples[clip.sampleId] : undefined;
+            const patch = trimAudioStartAtBeat(clip, beat, {
+              offset: clip.audioOffset ?? 0,
+              sampleDuration: sample?.duration ?? 0,
+              sourceLength: clip.audioSourceLength,
+              stretch: clip.audioStretch === true,
+              tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
+              fallbackTempo: project.tempo,
+            });
+            if (!patch) return;
+            store.dispatch(
+              { type: 'patchClips', patches: [{ id: clip.id, ...patch }] },
+              { label: 'Recortar inicio del audio', mergeKey: `pl:trim-start:${clip.id}` },
+            );
+            break;
+          }
+          const length = Math.max(snapOf(e) ?? 0.25, beat - clip.start);
           if (length !== clip.length) {
             store.dispatch(
               { type: 'patchClips', patches: [{ id: clip.id, length }] },
@@ -1870,8 +1877,9 @@ export function Playlist() {
         draw();
       }
     } else if (d.mode === 'loop' && !d.moved) {
-      // Clic suelto en la mitad superior de la regla: quita el loop.
-      clearLoop();
+      // Clic suelto sin arrastrar: la regla entera hace seek. Para quitar el
+      // loop sigue estando el clic derecho, que no compite con el playhead.
+      doSeek(d.anchor);
     } else if (d.mode === 'ctrlpick') {
       // Ctrl+clic sin arrastre: dentro o fuera de la selección.
       setSelection((prev) => {
@@ -1913,7 +1921,7 @@ export function Playlist() {
       });
       draw();
     }
-  }, [project, clearLoop, draw, xToBeat, scrollY, rows, clipsByTrack, laneCount]);
+  }, [project, doSeek, draw, xToBeat, scrollY, rows, clipsByTrack, laneCount]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
@@ -1979,7 +1987,11 @@ export function Playlist() {
       // notas a la vez (los dos listeners de window). El árbitro ya existe para
       // Ctrl+C/V; esto usa el mismo.
       if (activeEditTarget() !== 'playlist') return;
-      if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+      if (e.code === 'KeyS' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
+        // Dividir en el playhead, igual que el botón de la barra de selección.
+        e.preventDefault();
+        splitSelectionAtPlayhead();
+      } else if (e.code === 'Delete' && !e.ctrlKey && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         deleteSelection();
       } else if (e.altKey && !e.ctrlKey && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
@@ -1994,7 +2006,7 @@ export function Playlist() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectAll, duplicateSelection, deleteSelection, clearSelection, toggleSelectionMuted, nudgeSelection, selection]);
+  }, [selectAll, duplicateSelection, deleteSelection, clearSelection, toggleSelectionMuted, nudgeSelection, selection, splitSelectionAtPlayhead]);
 
   // ── Toolbar ───────────────────────────────────────────────────────────────
 
@@ -2154,6 +2166,13 @@ export function Playlist() {
               <span className="pl-chip pl-sel-chip" title="Clips seleccionados">
                 {selectedIds.length} sel.
               </span>
+              <button
+                className="pl-add"
+                onClick={splitSelectionAtPlayhead}
+                title="Dividir la selección en el playhead (S) · Shift+clic corta justo donde pulses"
+              >
+                Dividir
+              </button>
               <button
                 className="pl-add"
                 onClick={duplicateSelection}

@@ -93,9 +93,13 @@ describe('041: cortar conserva la curva audible y sus anclas', () => {
     expect(difference(before, render(f))).toBeLessThan(1e-6);
   });
   it('el gesto real usa el reparto para las dos piezas', () => {
-    const source = readSource('editors/playlist/Playlist.tsx');
-    expect(source).toContain('sliceAutomationCurve(clip, firstLen)');
-    expect(source).toContain('Object.assign(second, curve.tail)');
-    expect(source).toContain('...sliceHead');
+    // El batch de corte se movió del componente a `playlist/slice-clip.ts`
+    // para compartirlo con el botón «Dividir» y la tecla S.
+    const playlist = readSource('editors/playlist/Playlist.tsx');
+    const slice = readSource('editors/playlist/slice-clip.ts');
+    expect(playlist).toContain('sliceClipCommands(project, clip, cut)');
+    expect(slice).toContain('sliceAutomationCurve(clip, firstLen)');
+    expect(slice).toContain('Object.assign(second, curve.tail)');
+    expect(slice).toContain('...sliceHead');
   });
 });

@@ -26,6 +26,7 @@ import {
   slicedTailOffset,
   sliceAudioWindow,
   trimAudioWindow,
+  trimAudioStartAtBeat,
   sourceSpanForOutput,
 } from '../src/editors/clip-slice';
 import { readSource } from './read-source';
@@ -239,6 +240,76 @@ describe('render real del corte (Playlist)', () => {
   });
 });
 
+describe('recorte por la IZQUIERDA en la Playlist', () => {
+  it('mueve el inicio, avanza el offset y conserva el resto de la fuente', () => {
+    const { project } = rampProject({ length: 4, stretch: false });
+    const clip = project.clips.clip!;
+    const patch = trimAudioStartAtBeat(clip, 1, {
+      offset: 0,
+      sampleDuration: 2,
+      sourceLength: undefined,
+      stretch: false,
+      tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
+      fallbackTempo: project.tempo,
+    });
+    // 4 beats a 120 son 2 s; recortar 1 beat deja 1,5 s de fuente, que son
+    // 3 beats. El offset de fuente avanza medio segundo.
+    expect(patch).toMatchObject({
+      start: 1,
+      length: 3,
+      audioOffset: 0.5,
+      audioSourceLength: 1.5,
+      audioGrainOffset: 0.5,
+    });
+  });
+
+  it('con stretch reparte la fuente por proporción, no por segundos de salida', () => {
+    const { project } = rampProject({ length: 2, seconds: 4, stretch: true });
+    const clip = project.clips.clip!;
+    // 2 beats a 120 = 1 s de salida y 4 s de fuente (ratio 4). Un beat de
+    // recorte son 0,5 s de salida, pero 2 s de fuente.
+    const patch = trimAudioStartAtBeat(clip, 1, {
+      offset: 0,
+      sampleDuration: 4,
+      sourceLength: undefined,
+      stretch: true,
+      tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
+      fallbackTempo: project.tempo,
+    });
+    expect(patch).toMatchObject({
+      start: 1,
+      length: 1,
+      audioOffset: 2,
+      audioSourceLength: 2,
+      audioGrainOffset: 2,
+    });
+  });
+
+  it('no inventa fuente antes del inicio y no toca el clip si el beat no cambia', () => {
+    const { project } = rampProject({ length: 4, offset: 0, stretch: false });
+    const clip = project.clips.clip!;
+    const ctx = {
+      offset: 0,
+      sampleDuration: 2,
+      sourceLength: undefined,
+      stretch: false,
+      tempoMap: projectTempoMap(Object.values(project.markers), project.tempo),
+      fallbackTempo: project.tempo,
+    };
+    expect(trimAudioStartAtBeat(clip, 0, ctx)).toBeNull();
+    // El clip empieza en 0 y su fuente también: no hay audio anterior.
+    expect(trimAudioStartAtBeat(clip, -1, ctx)).toBeNull();
+  });
+
+  it('Playlist usa el helper y solo ofrece el asa inicial en audio', () => {
+    const src = readSource('editors/playlist/Playlist.tsx');
+    expect(src).toContain('trimAudioStartAtBeat(');
+    expect(src).toContain("c.kind === 'audio' && x - startX < RESIZE_EDGE");
+    expect(src).toContain("d.edge === 'start'");
+    expect(src).toContain('pl:trim-start:');
+  });
+});
+
 describe('trocear con stretch (AudioEditor)', () => {
   it('las piezas son contiguas y a velocidad natural', () => {
     expect(naturalRatePieces(0, 2, [0.5, 1.5])).toEqual([
@@ -290,12 +361,17 @@ describe('trocear con stretch (AudioEditor)', () => {
 });
 
 describe('los editores usan la aritmética compartida', () => {
-  it('Playlist ya no calcula el offset con el tempo plano', () => {
-    const src = readSource('editors/playlist/Playlist.tsx');
-    expect(src).toContain('sliceAudioWindow(');
-    expect(src).toContain('Object.assign(second, audio.tail)');
-    expect(src).toContain('sliceHead = audio.head');
-    expect(src).not.toContain('firstLen * (60 / project.tempo)');
+  it('el corte de la Playlist delega en slice-clip.ts y no usa el tempo plano', () => {
+    // El batch de corte se movió del componente a `playlist/slice-clip.ts` para
+    // que el botón «Dividir» y el Shift+clic compartan una sola aritmética.
+    const playlist = readSource('editors/playlist/Playlist.tsx');
+    const slice = readSource('editors/playlist/slice-clip.ts');
+    expect(playlist).toContain('sliceClipCommands(project, clip, cut)');
+    expect(playlist).not.toContain('firstLen * (60 / project.tempo)');
+    expect(slice).toContain('sliceAudioWindow(');
+    expect(slice).toContain('Object.assign(second, audio.tail)');
+    expect(slice).toContain('sliceHead = audio.head');
+    expect(slice).not.toContain('firstLen * (60 / project.tempo)');
   });
 
   it('AudioEditor hornea el stretch de las piezas y usa naturalRatePieces', () => {

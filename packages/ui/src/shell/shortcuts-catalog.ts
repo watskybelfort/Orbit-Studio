@@ -97,6 +97,8 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { keys: 'Ctrl+clic', what: 'Meter o sacar un clip de la selección' },
       { keys: 'Ctrl+arrastre', what: 'En vacío, rectángulo de selección; sobre un clip, duplicarlo' },
       { keys: 'Alt+arrastre', what: 'Mover sin snap' },
+      { keys: 'Shift+clic', what: 'Cortar el clip justo donde pulsas' },
+      { keys: 'S', what: 'Dividir la selección en el playhead' },
       { keys: 'M', what: 'Mutear o activar la selección' },
       { keys: 'Esc', what: 'Quitar la selección' },
     ],

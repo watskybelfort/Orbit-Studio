@@ -16,7 +16,7 @@
  * cada una re-estirara lo que quedaba del sample sobre su largo.
  */
 
-import type { Clip, Marker } from '@orbit/core';
+import { clampFades, type Clip, type Marker } from '@orbit/core';
 import { secondsAtBeat, type TempoSegment } from '@orbit/engine';
 
 /**
@@ -152,6 +152,47 @@ export function trimAudioWindow(clip: Clip, from: number, to: number, oldSourceS
 export function trimStartShift(clip: Clip, from: number, oldSourceSpan: number): number {
   const delta = from - (clip.audioOffset ?? 0);
   return delta * (clip.length / Math.max(0.001, oldSourceSpan));
+}
+
+/**
+ * Recorta el INICIO de un clip de audio en la Playlist, en beats.
+ *
+ * El asa derecha de la Playlist ya existía; el inicio no tenía gesto y se
+ * movía el clip entero. Aquí se convierte el beat nuevo a segundos de fuente
+ * (con el mapa de tempo y el stretch del clip), se acorta la ventana y se
+ * mueve el `start` para que el material que queda siga sonando donde toca.
+ * Devuelve null si el borde no se movió o si el recorte pediría fuente antes
+ * del inicio del sample.
+ */
+export function trimAudioStartAtBeat(
+  clip: Clip,
+  newStart: number,
+  ctx: AudioSliceContext,
+): Partial<Clip> | null {
+  const end = clip.start + clip.length;
+  const target = Math.min(end - 0.05, Math.max(0, newStart));
+  if (Math.abs(target - clip.start) < 1e-6) return null;
+  const startSec = secondsAtBeat(ctx.tempoMap, clip.start, ctx.fallbackTempo);
+  const endSec = secondsAtBeat(ctx.tempoMap, end, ctx.fallbackTempo);
+  const targetSec = secondsAtBeat(ctx.tempoMap, target, ctx.fallbackTempo);
+  const clipSec = endSec - startSec;
+  const available = Math.max(0, ctx.sampleDuration - ctx.offset);
+  const sourceSpan = Math.min(
+    ctx.sourceLength ?? (ctx.stretch ? available : Math.min(available, clipSec)),
+    available,
+  );
+  if (clipSec <= 0 || sourceSpan <= 0) return null;
+  const stretch = ctx.stretch && sourceSpan > 0.01 && clipSec > 0.01;
+  const newOffset = ctx.offset +
+    sourceSpanForOutput(targetSec - startSec, clipSec, sourceSpan, stretch);
+  // Extender hacia la izquierda no puede inventar audio antes del offset 0.
+  if (newOffset < -1e-9) return null;
+  const from = Math.max(0, Math.min(newOffset, ctx.offset + sourceSpan - 0.02));
+  const patch = trimAudioWindow(clip, from, ctx.offset + sourceSpan, sourceSpan);
+  patch.start = target;
+  // Un fadeIn más largo que el clip recortado se comería todo el sonido.
+  patch.fadeIn = Math.min(clampFades(clip.fadeIn, clip.fadeOut, clip.length).fadeIn, patch.length ?? clip.length);
+  return patch;
 }
 
 /** Una pieza de un troceado, en coordenadas de fuente y de timeline natural. */
