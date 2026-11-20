@@ -6,6 +6,25 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## Estado — 19-11-2026: v3.17.0
+
+**"Donde quieras".** Encargo directo de edición y flujo. En la Playlist, la
+regla entera hace seek —antes solo la mitad inferior, una franja de 13 px— y el
+arrastre en la mitad superior sigue definiendo el loop. Los clips de audio
+estrenan **asa izquierda** (`trimAudioStartAtBeat`, en `editors/clip-slice.ts`):
+acorta por el inicio respetando mapa de tempo y time-stretch, y mueve el `start`
+para que el material que queda suene donde toca. El corte se centraliza en
+`editors/playlist/slice-clip.ts`, que devuelve un solo `batch` de undo; de ahí
+salen el **botón «Dividir»**, la tecla **S** y el Shift+clic de siempre. Fuera
+del editor: `lastProjectDir` en settings.json alimenta el `defaultPath` de abrir
+y guardar (`apps/desktop/src/main/project-dirs.ts`), y el cierre ya no reabre el
+aviso a los 8 s mientras se elige el nombre del archivo —sin timeout,
+`closeRequestInFlight` y un runner single-flight en `state/save-and-close.ts`—.
+Red: **341 archivos / 4014 tests**, typecheck, lint (35 CSS) y build limpios,
+golden 25/25 sin tocar.
+
+---
+
 ## Estado — 18-11-2026: v3.16.0
 
 **"Capa nativa".** El acabado suave gana su propia capa de diseño

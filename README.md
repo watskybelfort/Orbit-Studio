@@ -1,7 +1,7 @@
 # Orbit Studio
 
-![versión](https://img.shields.io/badge/versi%C3%B3n-v3.16.0-5aa9e6)
-![tests](https://img.shields.io/badge/tests-3957%20passing-7ce65a)
+![versión](https://img.shields.io/badge/versi%C3%B3n-v3.17.0-5aa9e6)
+![tests](https://img.shields.io/badge/tests-4014%20passing-7ce65a)
 ![licencia](https://img.shields.io/badge/licencia-Apache--2.0-5ae6c8)
 
 ![plataforma](https://img.shields.io/badge/Windows-x64-b45ae6)
@@ -106,6 +106,17 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
+
+**v3.17.0 — "donde quieras".** La Playlist deja de tener zonas muertas: **un
+clic en cualquier punto de la regla** coloca el playhead, y el arrastre en la
+mitad superior sigue dibujando el loop (el clic derecho lo quita). Los clips de
+audio se pueden **acortar también por el inicio**, no solo por el final, con un
+recorte que respeta el tempo y el time-stretch. Para partir un clip está
+**«Dividir»** y la tecla **S**: corta en el playhead toda la selección en un solo
+Ctrl+Z, sin buscar el punto exacto con el ratón (Shift+clic sigue cortando donde
+pulsas). Fuera del editor, **Abrir y Guardar como arrancan en la última carpeta**
+que usaste, y el cierre dejó de repetir el aviso de guardar mientras elegís el
+nombre del archivo.
 
 **v3.16.0 — "capa nativa".** El acabado suave deja de ser un tema y pasa a
 tener su propia capa de diseño: **lupas** en todos los buscadores (sonidos,
