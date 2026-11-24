@@ -132,6 +132,30 @@ class CompressorUnit implements EffectUnit {
 
 const LOOKAHEAD = 64;
 
+/**
+ * Detector de true peak (BS.1770-4, anexo 2): el pico ENTRE muestras se estima
+ * sobremuestreando ×4 con un sinc de 8 coeficientes y ventana de Hann. Las tres
+ * fases intermedias (¼, ½, ¾) se precalculan aquí, fuera del audio thread.
+ */
+const TP_TAPS = 8;
+const TP_PHASES = [0.25, 0.5, 0.75] as const;
+const TP_COEF: Float64Array = (() => {
+  const c = new Float64Array(TP_PHASES.length * TP_TAPS);
+  TP_PHASES.forEach((p, ph) => {
+    let sum = 0;
+    for (let j = 0; j < TP_TAPS; j++) {
+      const d = j - (3 + p); // distancia al punto interpolado entre h[3] y h[4]
+      const sinc = Math.abs(d) < 1e-9 ? 1 : Math.sin(Math.PI * d) / (Math.PI * d);
+      const w = 0.5 * (1 + Math.cos((Math.PI * d) / 4));
+      c[ph * TP_TAPS + j] = sinc * w;
+      sum += sinc * w;
+    }
+    // Ganancia DC unidad: una señal constante no "crece" entre muestras.
+    for (let j = 0; j < TP_TAPS; j++) c[ph * TP_TAPS + j]! /= sum;
+  });
+  return c;
+})();
+
 class LimiterUnit implements EffectUnit {
   private dl = new DelayLine(LOOKAHEAD + 4);
   private dr = new DelayLine(LOOKAHEAD + 4);
@@ -152,6 +176,11 @@ class LimiterUnit implements EffectUnit {
   private dqHead = 0;
   private dqCount = 0;
   private sampleIdx = 0;
+  // True peak (opcional): historia de 8 muestras por canal, preasignada.
+  private truePeak = false;
+  private histL = new Float64Array(TP_TAPS);
+  private histR = new Float64Array(TP_TAPS);
+  private histPos = 0;
 
   constructor(private sr: number) {}
 
@@ -159,6 +188,19 @@ class LimiterUnit implements EffectUnit {
     this.gainIn = dbToLin(p['gain'] ?? 0);
     this.ceilingLin = dbToLin(p['ceiling'] ?? -0.3);
     this.releaseCoef = timeCoef(p['release'] ?? 0.05, this.sr);
+    this.truePeak = (p['truePeak'] ?? 0) >= 0.5;
+  }
+
+  /** Pico entre muestras del tramo que acaba de completar la historia (sobremuestreo ×4). */
+  private interPeak(h: Float64Array): number {
+    let peak = 0;
+    for (let ph = 0; ph < TP_PHASES.length; ph++) {
+      let y = 0;
+      for (let j = 0; j < TP_TAPS; j++) y += h[(this.histPos + j) % TP_TAPS]! * TP_COEF[ph * TP_TAPS + j]!;
+      const a = Math.abs(y);
+      if (a > peak) peak = a;
+    }
+    return peak;
   }
 
   process(l: Float32Array, r: Float32Array, n: number): void {
@@ -175,7 +217,15 @@ class LimiterUnit implements EffectUnit {
     for (let i = 0; i < n; i++) {
       const inL = l[i]! * this.gainIn;
       const inR = r[i]! * this.gainIn;
-      const peak = Math.max(Math.abs(inL), Math.abs(inR), 1e-9);
+      let peak = Math.max(Math.abs(inL), Math.abs(inR), 1e-9);
+      if (this.truePeak) {
+        // La historia avanza con la muestra nueva; el tramo interpolado queda
+        // 4 muestras atrás, que el lookahead de 64 cubre de sobra.
+        this.histL[this.histPos] = inL;
+        this.histR[this.histPos] = inR;
+        this.histPos = (this.histPos + 1) % TP_TAPS;
+        peak = Math.max(peak, this.interPeak(this.histL), this.interPeak(this.histR));
+      }
       const target = Math.min(1, this.ceilingLin / peak);
       // Encolar por el back manteniendo la monotonía (el mínimo queda al frente).
       while (this.dqCount > 0) {

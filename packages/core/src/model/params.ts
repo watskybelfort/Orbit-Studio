@@ -242,6 +242,9 @@ export const EFFECT_PARAMS: Record<EffectKind, ParamSpec[]> = {
     p('gain', 'Gain', 0, 24, 0, { unit: 'dB' }),
     p('ceiling', 'Ceiling', -6, 0, -0.3, { unit: 'dB' }),
     p('release', 'Release', 0.01, 0.5, 0.05, { unit: 's', curve: 'exp' }),
+    // True peak (BS.1770-4): mira también el pico ENTRE muestras (×4). Apagado
+    // por defecto para que los proyectos y el golden suenen exactamente igual.
+    p('truePeak', 'True peak', 0, 1, 0, { options: ['Off', 'On'] }),
   ],
   reverb: [
     p('size', 'Size', 0, 1, 0.6),
