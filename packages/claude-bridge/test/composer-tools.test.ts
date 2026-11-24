@@ -219,3 +219,21 @@ describe('edición', () => {
     expect((await executor.execute('sections', { action: 'list' })).text).toMatch(/no tiene secciones/);
   });
 });
+
+describe('samples de fábrica al motor', () => {
+  it('compose_beat le pasa al host los samples que registró', async () => {
+    const store = new ProjectStore();
+    const loaded: string[] = [];
+    const host: ComposerHost = {
+      listProfiles: async () => [],
+      saveProfile: async () => undefined,
+      analyzeSample: async (ref) => ({ name: ref, features: null }),
+      loadSamples: async (refs) => { loaded.push(...refs.map((r) => r.id)); },
+    };
+    const executor = new ToolExecutor(store, undefined, undefined, undefined, undefined, undefined, host);
+    await executor.execute('compose_beat', { genre: 'boombap', seed: 1 });
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(loaded.every((id) => id.startsWith('drums/boombap/'))).toBe(true);
+    for (const id of loaded) expect(store.project.samples[id]).toBeDefined();
+  });
+});

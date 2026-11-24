@@ -303,7 +303,7 @@ export class ToolExecutor {
       case 'generate_pack': return { text: await this.generatePackTool(a) };
       case 'list_genres': return { text: await this.composer.listGenres() };
       case 'compose_beat': return { text: await this.composer.composeBeatTool(a) };
-      case 'recompose_part': return { text: this.composer.recomposePartTool(a) };
+      case 'recompose_part': return { text: await this.composer.recomposePartTool(a) };
       case 'list_style_profiles': return { text: await this.composer.listProfilesTool() };
       case 'learn_style': return { text: await this.composer.learnStyleTool(a) };
       case 'analyze_reference': return { text: await this.composer.analyzeReferenceTool(a) };

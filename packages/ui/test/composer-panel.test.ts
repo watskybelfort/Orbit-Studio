@@ -106,3 +106,13 @@ describe('panel y registro de la ventana (código fuente real)', () => {
     expect(css).not.toMatch(/monospace|Space Mono|font-family/i);
   });
 });
+
+describe('samples de fábrica en la app', () => {
+  it('componer y recomponer suben al motor lo que registran, y el host del MCP también', () => {
+    const src = readSource('state/composer.ts');
+    expect(src).toMatch(/store\.dispatch\(\{ type: 'batch', label, commands \}, \{ label \}\);\s*void loadSamplesIntoEngine\(samples\);/);
+    expect(src).toMatch(/void loadSamplesIntoEngine\(registeredIn\(commands\)\);/);
+    expect(src).toMatch(/loadSamples: loadSamplesIntoEngine,/);
+    expect(src).toMatch(/await engine\.loadSample\(ref\.id, bytes\)/);
+  });
+});

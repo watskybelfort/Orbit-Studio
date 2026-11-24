@@ -14,7 +14,7 @@
  * `ComposerHost`.
  */
 
-import { SCALES, type ProjectStore } from '@orbit/core';
+import { SCALES, type Command, type ProjectStore, type SampleRef } from '@orbit/core';
 import {
   COMPOSER_GENRES,
   COMPOSER_ROLES,
@@ -62,6 +62,12 @@ export interface ComposerHost {
    * librería (id del browser). `null` si no hay nada que medir.
    */
   analyzeSample(ref: string): Promise<{ name: string; features: TrackFeatures | null }>;
+  /**
+   * Sube al motor los samples de fábrica que un beat acaba de registrar (la
+   * batería sampleada de trap, reggaetón, neo perreo y boom bap). Sin host —un
+   * MCP sin app— no hace falta: no hay motor que los toque.
+   */
+  loadSamples?(refs: readonly SampleRef[]): Promise<void>;
 }
 
 /** Audios que learn_style mide de una vez (el esquema de tools.ts anuncia el mismo tope). */
@@ -127,6 +133,10 @@ function seedOf(a: Record<string, unknown>): number {
   if (seed === undefined) return Math.floor(Math.random() * 0xffffffff) >>> 0;
   if (!Number.isFinite(seed) || seed < 0) throw new ToolError('seed: entero >= 0');
   return Math.floor(seed) >>> 0;
+}
+
+function registered(commands: readonly Command[]): SampleRef[] {
+  return commands.flatMap((c) => (c.type === 'registerSample' ? [c.sample] : []));
 }
 
 function profileSummary(p: StyleProfile): string {
@@ -203,7 +213,12 @@ export class ComposerTools {
     };
   }
 
-  private composeAndApply(a: Record<string, unknown>, opts: ComposeOptions, profile: StyleProfile | null, label: string): string {
+  private async composeAndApply(
+    a: Record<string, unknown>,
+    opts: ComposeOptions,
+    profile: StyleProfile | null,
+    label: string,
+  ): Promise<string> {
     let plan: BeatPlan;
     try {
       plan = composeBeat(opts);
@@ -212,11 +227,12 @@ export class ComposerTools {
     }
     if (optBoolean(a, 'dryRun')) return `PLAN (sin aplicar): ${this.describe(plan, null)}`;
     const startBar = optBoundedNumber(a, 'startBar', 0, 10_000);
-    const { commands, applied } = planToCommands(this.store.project, plan, {
+    const { commands, applied, samples } = planToCommands(this.store.project, plan, {
       startBar: startBar === undefined ? undefined : Math.floor(startBar),
       setTransport: optBoolean(a, 'setTempo') ?? true,
     });
     this.dispatchBatch(label, commands);
+    await this.host?.loadSamples?.(samples);
     this.last = { plan, applied, profile };
     return this.describe(plan, applied);
   }
@@ -254,7 +270,7 @@ export class ComposerTools {
 
   // ── recompose_part ─────────────────────────────────────────────────────────
 
-  recomposePartTool(a: Record<string, unknown>): string {
+  async recomposePartTool(a: Record<string, unknown>): Promise<string> {
     const role = reqString(a, 'part');
     if (!isComposerRole(role)) throw new ToolError(`part "${role}" desconocida (${COMPOSER_ROLES.join(', ')})`);
     if (!this.last) throw new ToolError('No hay beat compuesto en esta sesión: usa compose_beat primero');
@@ -274,6 +290,7 @@ export class ComposerTools {
     const commands = replacePartCommands(this.store.project, target, fresh, { sound });
     if (commands.length === 0) throw new ToolError('Los patrones de esa parte ya no existen');
     this.dispatchBatch(`Recomponer ${ROLE_LABELS[role]}`, commands);
+    await this.host?.loadSamples?.(registered(commands));
     this.last = {
       ...this.last,
       plan: { ...this.last.plan, parts: this.last.plan.parts.map((p) => (p.role === role ? fresh : p)) },

@@ -33,8 +33,9 @@ import {
   type StyleProfile,
   type TrackFeatures,
 } from '@orbit/sound-library';
+import type { Command, SampleRef } from '@orbit/core';
 import type { ComposerHost } from '@orbit/claude-bridge';
-import { store } from './app';
+import { engine, store } from './app';
 import { decodeToMono } from './audio-analysis';
 import { readSampleBytes } from '../browser/sample-io';
 import { packEntries } from '../browser/pack-generator';
@@ -294,15 +295,40 @@ export function clearReference(): void {
   useComposerStore.setState({ reference: null, status: null });
 }
 
+// ── Samples de fábrica ───────────────────────────────────────────────────────
+
+/**
+ * Sube al motor los samples de fábrica que un beat acaba de registrar. Sin
+ * esto, la batería sampleada quedaría muda hasta reabrir el proyecto (que es
+ * cuando `rehydrateSamples` los sube). Mejor esfuerzo: uno que falle no
+ * impide oír los demás.
+ */
+export async function loadSamplesIntoEngine(refs: readonly SampleRef[]): Promise<void> {
+  for (const ref of refs) {
+    try {
+      const bytes = await readSampleBytes(ref.path);
+      if (bytes) await engine.loadSample(ref.id, bytes);
+    } catch {
+      // el canal sigue ahí; el sample se reintentará al reabrir el proyecto
+    }
+  }
+}
+
+/** Los SampleRef que registra una lista de comandos (recomponer con sonido nuevo). */
+function registeredIn(commands: readonly Command[]): SampleRef[] {
+  return commands.flatMap((c) => (c.type === 'registerSample' ? [c.sample] : []));
+}
+
 // ── Componer ─────────────────────────────────────────────────────────────────
 
 /** Compone y monta el beat en el proyecto (un paso de undo). */
 export function composeIntoProject(options: ComposeOptions): BeatPlan | null {
   try {
     const plan = composeBeat(options);
-    const { commands, applied } = planToCommands(store.project, plan);
+    const { commands, applied, samples } = planToCommands(store.project, plan);
     const label = `Componer beat (${describePlan(plan).split(' · ')[0]})`;
     store.dispatch({ type: 'batch', label, commands }, { label });
+    void loadSamplesIntoEngine(samples);
     useComposerStore.setState({
       last: { plan, applied, options },
       status: `${describePlan(plan)} · semilla ${plan.seed}. Ctrl+Z lo deshace entero.`,
@@ -339,6 +365,7 @@ export function recomposeLast(role: ComposerRole, newSound: boolean): void {
   if (commands.length === 0) return;
   const label = `Recomponer ${part.name}`;
   store.dispatch({ type: 'batch', label, commands }, { label });
+  void loadSamplesIntoEngine(registeredIn(commands));
   useComposerStore.setState({
     last: { ...last, plan: { ...last.plan, parts: last.plan.parts.map((p) => (p.role === role ? part : p)) } },
     status: `${part.name} nueva (semilla ${seed})${newSound ? ' con otro sonido' : ''}. Ctrl+Z la devuelve.`,
@@ -356,6 +383,7 @@ export function composerHost(): ComposerHost {
       return useComposerStore.getState().profiles;
     },
     saveProfile,
+    loadSamples: loadSamplesIntoEngine,
     async analyzeSample(ref) {
       const { name, bytes } = await bytesOfRef(ref);
       if (!bytes) return { name, features: null };
