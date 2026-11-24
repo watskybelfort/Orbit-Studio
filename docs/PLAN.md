@@ -6,6 +6,24 @@ se saca al final, cuando el conjunto está pulido.
 
 ---
 
+## En curso — v3.18 (sin release todavía): compositor de beats
+
+Encargo directo: que Orbit componga beats solo, con cada parte por separado.
+El compositor vive en `sound-library/src/composer/` (puro y determinista):
+`genres.ts` (seis presets, neo perreo incluido), `compose.ts` (BeatPlan),
+`plan-commands.ts` (Command[] para un único batch), `profile.ts` y
+`features.ts` (perfil de estilo medido de audio). Encima: doce tools MCP en
+`claude-bridge/src/composer-tools.ts` y el panel `ui/src/composer/`. Medido
+con el motor: los seis géneros renderizan sin clip con el grave mandando, y
+el balance por parte se ajustó renderizando cada parte sola. Limitación
+conocida y dicha en la UI: la sugerencia de género de una referencia acierta
+más o menos la mitad de las veces (el analizador confunde tempos 3:2), así
+que el género lo elige el usuario. Pendiente aparte: `room-invite.test.ts`
+(«sobreviven a que la sala se cierre») tardó 5,7 s en la CI de Windows y
+dejó rojo un push sin relación con el compositor.
+
+---
+
 ## Estado — 19-11-2026: v3.17.0
 
 **"Donde quieras".** Encargo directo de edición y flujo. En la Playlist, la

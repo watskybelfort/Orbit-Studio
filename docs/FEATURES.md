@@ -369,7 +369,7 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | Servidor **MCP** expuesto por la app (`.mcp.json` en el repo, stdio→WS) | v0.1 |
-| **24 tools** (22 en la v0.1; `list_library` y `load_sample` llegaron en la v3.11): proyecto, notas, canales, steps, keymaps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, packs de sonidos, librería y carga de samples, undo/redo | v0.1 |
+| **36 tools** (22 en la v0.1; `list_library` y `load_sample` en la v3.11; las doce del compositor y de edición en la v3.18): proyecto, notas, canales, steps, keymaps, patrones, clips, tempo/swing, mixer, efectos, automatización, render, análisis, consejo de mezcla, packs de sonidos, librería y carga de samples, compositor de beats, riff, transformaciones de notas, borrado, secciones, undo/redo | v0.1 |
 | Todas sus ediciones pasan por el bus de comandos → undo separado del tuyo | v0.1 |
 | **Panel de Claude**: feed de actividad en vivo (qué tocó, con qué resultado) | v0.1 |
 | Análisis de mezcla (`analyze_mix`: LUFS, peak, balance por bandas, correlación) | v0.1 |
@@ -377,6 +377,18 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Campo de petición en el panel (viaja adjunta al siguiente get_project de Claude) | v0.5 |
 | **Asistente de mezcla** (`advise_mix`): diagnóstico por tilts de banda, LUFS y fase, con cadena propuesta y opción de aplicarla | v1.0 |
 | **Claude genera packs a demanda** (`generate_pack`): "12 hats de drill" salen renderizados con el motor real y aterrizan en la librería; con `addChannels` los mete además en canales sampler del proyecto | v1.7 |
+| **Claude compone** (`compose_beat`, `recompose_part`, `compose_from_reference`): encargos concretos —género, tonalidad, escala, tempo, progresión, partes— montados como partes separadas en un paso de undo; `learn_style` y `analyze_reference` miden audios; `riff`, `transform_notes`, `delete_channel`, `delete_pattern` y `sections` para editar lo compuesto | v3.18 |
+
+## 13 bis. Compositor de beats (v3.18)
+
+| Función | Versión |
+|---|---|
+| **Compositor local** (ventana «Compositor de beats»): un beat entero —bombo, caja, hats, percusión, bajo/808, acordes, melodía y FX— con **cada parte en su canal, patrón y pista de playlist**, secciones del arreglo y cadena del master; determinista por semilla y en un solo Ctrl+Z | v3.18 |
+| Seis presets de género: **trap**, **reggaetón**, **neo perreo**, **boom bap**, **techno** (134) y **rave** (156), con patrones de batería probabilísticos, bajo, armonía, melodía y sonidos propios de cada uno | v3.18 |
+| **Perfiles de estilo**: entrenar con una carpeta o soltando audios; se mide tempo (con candidatos), tonalidad, groove por semicorchea en grave/medio/agudo, swing, brillo y suciedad — sin guardar audio ni notas — y el compositor lo usa en los géneros que encajan | v3.18 |
+| **Referencia**: soltar una pista saca beats nuevos con su temática (tempo, tonalidad, groove, carácter) sin copiar sus notas, y sugiere el género | v3.18 |
+| **Sonidos nuevos por beat**: presets de Prisma/Nova y Orbit Sub con macros y perillas movidas dentro de rangos seguros, empujadas por el brillo y la suciedad del perfil | v3.18 |
+| Recomponer **una sola parte** (otra melodía, otro bajo) con o sin sonido nuevo, sin tocar el resto | v3.18 |
 
 ## 14. Apariencia y temas
 

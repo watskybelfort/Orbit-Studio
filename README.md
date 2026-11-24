@@ -99,7 +99,7 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    convergencia sin conflictos, roles que reparte y hace cumplir el servidor,
    chat anclado al timeline, modo seguidor y undo POR USUARIO (tu Ctrl+Z no
    deshace lo del otro).
-6. **Claude dentro del estudio** — la app expone un servidor MCP con **24 tools**
+6. **Claude dentro del estudio** — la app expone un servidor MCP con **36 tools**
 
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
    steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
@@ -827,7 +827,8 @@ npm run lint       # reglas duras + hooks; exhaustive-deps es error, rompe la CI
 
 **Claude como colaborador:** abre la carpeta con Claude Code y la app en
 marcha; el `.mcp.json` del repo conecta el bridge (stdio → WS local 7855) y las
-24 tools aparecen solas. Todo lo que haga Claude sale en su panel (menú Ver →
+36 tools aparecen solas (entre ellas las del compositor de beats: `compose_beat`,
+`recompose_part`, `learn_style`, `compose_from_reference`…). Todo lo que haga Claude sale en su panel (menú Ver →
 Panel de Claude).
 
 ## Documentación
