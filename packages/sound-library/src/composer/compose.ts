@@ -37,7 +37,7 @@ import {
 } from './genres';
 import { fitTempo, styleHint, type StyleHint, type StyleProfile } from './profile';
 import { createRng, hashString, type Rng } from './rng';
-import { factorySound } from './factory-index';
+import { factoryInstrument, factorySound } from './factory-index';
 
 export const BEATS_PER_BAR = 4;
 /** Compases como mucho de un beat (tope de seguridad para MCP y UI). */
@@ -106,6 +106,12 @@ export interface ResolvedSound {
    * a su altura original.
    */
   samples?: Record<number, string>;
+  /**
+   * Solo sampler: un instrumento multisampleado de fábrica (`instrumentos/…`)
+   * con sus tomas por altura y por fuerza. Se toca como cualquier instrumento:
+   * el keymap reparte el teclado entre las raíces de las tomas.
+   */
+  zones?: { sampleId: string; keyRoot: number; velLow: number; velHigh: number }[];
   /** Parámetros del canal que se sobrescriben sobre los del preset/instrumento. */
   params: Record<string, number>;
   volume: number;
@@ -399,6 +405,8 @@ interface Ctx {
   complexity: number;
   motif: { start: number; duration: number; degree: number; velocity: number }[];
   motifBars: number;
+  bpm: number;
+  swing: number;
 }
 
 function chordAt(ctx: Ctx, absBar: number): number {
@@ -485,7 +493,28 @@ function drumPart(
       }
     }
   }
+  const feel = preset.drums.feelMs?.[lane];
+  if (feel) applyFeel(notes, feel, ctx.bpm, ctx.swing);
   return notes.sort((a, b) => a.start - b.start || a.key - b.key);
+}
+
+/**
+ * Microtiming fijo por pieza (boom bap): el bombo un poco tarde, la caja un
+ * poco adelantada, los hats bastante tarde, y el MISMO desfase en cada compás
+ * —así suena una MPC tocada, no un humanizado al azar (Linn, Bonedo, Hein).
+ *
+ * El motor solo aplica el swing a las notas que caen en la rejilla, y estas
+ * dejan de caer en ella al moverlas; por eso se les aplica aquí el swing del
+ * beat antes del desfase, con la misma cuenta que `swungStart` del compilador.
+ */
+function applyFeel(notes: PlanNote[], ms: number, bpm: number, swing: number): void {
+  const shift = (ms / 1000) * (bpm / 60);
+  for (const n of notes) {
+    const step = Math.round(n.start / STEP);
+    let start = n.start;
+    if (swing > 0 && Math.abs(start - step * STEP) < 1e-4 && step % 2 === 1) start += swing * (STEP / 2);
+    n.start = round3(Math.max(0, start + shift));
+  }
 }
 
 function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: number): PlanNote[] {
@@ -512,9 +541,13 @@ function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: nu
         const len = (next - step) * STEP;
         let key = root;
         let slide = false;
-        // El glide del 808: de vez en cuando sube a la octava o a la quinta deslizando.
-        if (idx > 0 && rng.chance(preset.bass.glide * (0.4 + ctx.complexity))) {
-          key = rng.chance(0.5) ? root + 12 : fifth;
+        // El glide va donde lo pone un productor: cerrando la frase (último
+        // compás de cada 4, segunda mitad) y casi siempre hacia la quinta. Un
+        // slide en cada nota pierde el impacto (Output, Attack): por eso aquí
+        // ya no se sortea en cualquier golpe.
+        const phraseTail = (sectionStartBar + b) % 4 === 3 && step >= 8;
+        if (idx > 0 && phraseTail && rng.chance(Math.min(1, preset.bass.glide * (1.2 + ctx.complexity)))) {
+          key = rng.chance(0.7) ? fifth : root + 12;
           slide = style === '808';
         }
         notes.push({
@@ -531,7 +564,9 @@ function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: nu
         const next = hits[idx + 1] ?? 16;
         const isPickup = step === 14 && !kicks.includes(14);
         const nextRoot = bassKey(keyRoot, degreePc(scale, chordAt(ctx, sectionStartBar + b + 1)));
-        const key = isPickup ? snapToScale(nextRoot + (rng.chance(0.5) ? -1 : 2), keyRoot, scale) : idx === 0 ? root : rng.pick([root, fifth, root + 12]);
+        const raw = isPickup ? snapToScale(nextRoot + (rng.chance(0.5) ? -1 : 2), keyRoot, scale) : idx === 0 ? root : rng.pick([root, fifth, root + 12]);
+        // La nota de paso puede caer un semitono por debajo del grave del bajo: se dobla arriba.
+        const key = foldOctave(raw, 27, 51);
         notes.push({
           start: barStart + step * STEP,
           duration: round3(Math.min((next - step) * STEP * 0.8, 1)),
@@ -569,7 +604,7 @@ function chordPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
   if (density.melody <= 0) return [];
   const { preset, keyRoot, scale } = ctx;
   const rng = ctx.rng.fork(`chords-${kind}-${bars}-${sectionStartBar}`);
-  const center = 12 * preset.chords.octave + 7; // ~G de esa octava (C5 = 60)
+  const center = preset.chords.center ?? 12 * preset.chords.octave + 7; // ~G de esa octava (C5 = 60)
   const notes: PlanNote[] = [];
   let prevCenter = center;
   const sevenths = rng.chance(preset.chords.sevenths);
@@ -687,7 +722,7 @@ function melodyPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: 
       notes.push({
         start: b * BEATS_PER_BAR + m.start,
         duration: m.duration,
-        key: foldOctave(key, 48, 96),
+        key: foldOctave(key, preset.melody.range?.[0] ?? 48, preset.melody.range?.[1] ?? 96),
         velocity: round3(clamp(m.velocity * (kind === 'intro' ? 0.85 : 1), 0.1, 1)),
       });
     }
@@ -767,8 +802,10 @@ function resolveSound(
     for (let i = 1; i <= 4; i++) params[`macro${i}`] = jitter(0.5 + (i === 2 ? bright * 0.3 : 0), 0.3, 0.05, 0.95);
   }
   const baseVolume = choice.volume ?? (role === 'bass' ? 0.8 : 0.78);
+  const takes = choice.instrument ? factoryInstrument(choice.instrument) : undefined;
   return {
     kind: choice.kind,
+    ...(takes ? { zones: takes.map((t) => ({ sampleId: t.id, keyRoot: t.rootMidi, velLow: t.velLow, velHigh: t.velHigh })) } : null),
     ...(choice.preset ? { preset: choice.preset } : null),
     params,
     volume: round3(clamp(baseVolume * (1 + (rng.next() * 2 - 1) * 0.05), 0.1, 1.2)),
@@ -861,6 +898,8 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
     complexity: opts.complexity,
     motif: motif.notes,
     motifBars: motif.bars,
+    bpm,
+    swing,
   };
 
   const parts: PlanPart[] = [];

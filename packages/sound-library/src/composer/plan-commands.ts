@@ -15,6 +15,8 @@
 import {
   createChannel,
   createKeymapZone,
+  normalizeKeymap,
+  spreadKeymapRanges,
   createPattern,
   createPlaylistTrack,
   defaultEffectParams,
@@ -138,6 +140,11 @@ export function contentEndBar(project: Project): number {
   return Math.ceil(end / bpb - 1e-9);
 }
 
+/** Los samples de fábrica que pide el sonido de una parte (batería o instrumento). */
+function soundSampleIds(part: PlanPart): string[] {
+  return [...Object.values(part.sound.samples ?? {}), ...(part.sound.zones ?? []).map((z) => z.sampleId)];
+}
+
 function channelFor(part: PlanPart, index: number): Channel {
   const channel = createChannel(part.sound.kind, index, part.name);
   const { preset } = part.sound;
@@ -148,6 +155,13 @@ function channelFor(part: PlanPart, index: number): Channel {
     const entries = Object.entries(part.sound.samples).map(([k, id]) => [Number(k), id] as const);
     channel.keymap = entries.map(([key, id]) => createKeymapZone(id, { keyLow: key, keyHigh: key, keyRoot: key }));
     if (entries[0]) channel.sampleId = entries[0][1];
+  } else if (part.sound.kind === 'sampler' && part.sound.zones && part.sound.zones.length > 0) {
+    // Instrumento multisampleado: el mismo reparto que hace el browser al
+    // soltarlo (raíces distintas se parten el teclado; las capas de una misma
+    // raíz se separan por fuerza).
+    const zones = part.sound.zones.map((z) => createKeymapZone(z.sampleId, { keyRoot: z.keyRoot, velLow: z.velLow, velHigh: z.velHigh }));
+    channel.keymap = normalizeKeymap(spreadKeymapRanges(zones));
+    channel.sampleId = part.sound.zones[0]!.sampleId;
   }
   if (part.sound.kind === 'prisma' && preset) {
     const p = findPrismaPreset(preset);
@@ -223,9 +237,8 @@ export function planToCommands(project: Project, plan: BeatPlan, opts: ApplyPlan
   let patternIndex = 0;
 
   plan.parts.forEach((part, i) => {
-    if (part.sound.samples) {
-      commands.push(...registerSamples(project, Object.values(part.sound.samples), seenSamples, samples));
-    }
+    const ids = soundSampleIds(part);
+    if (ids.length > 0) commands.push(...registerSamples(project, ids, seenSamples, samples));
     const channel = channelFor(part, channelBase + i);
     const mixerTrack = freeMixer.shift() ?? 0;
     channel.mixerTrack = mixerTrack;
@@ -338,8 +351,8 @@ export function replacePartCommands(
       if (fresh.kind === channel.kind) {
         if (fresh.prismaPreset) patch.prismaPreset = fresh.prismaPreset;
         if (fresh.novaPreset) patch.novaPreset = fresh.novaPreset;
-        if (fresh.keymap && part.sound.samples) {
-          commands.unshift(...registerSamples(project, Object.values(part.sound.samples), new Set(), []));
+        if (fresh.keymap && soundSampleIds(part).length > 0) {
+          commands.unshift(...registerSamples(project, soundSampleIds(part), new Set(), []));
           patch.keymap = fresh.keymap;
           if (fresh.sampleId) patch.sampleId = fresh.sampleId;
         }

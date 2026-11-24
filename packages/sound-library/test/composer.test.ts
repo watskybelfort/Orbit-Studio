@@ -6,6 +6,7 @@ import {
   composeBeat,
   createProfile,
   describePlan,
+  factoryInstrument,
   factorySound,
   fitTempo,
   genreDrumLanes,
@@ -117,7 +118,8 @@ describe('composeBeat', () => {
     for (const genre of COMPOSER_GENRES) {
       const drop = dropPattern(composeBeat({ genre, seed: 21 }), 'kick')!;
       for (let bar = 0; bar < drop.bars; bar++) {
-        expect(drop.notes.some((n) => n.start === bar * 4)).toBe(true);
+        // El boom bap toca el bombo unos ms tarde (microtiming MPC): cuenta como «en el 1».
+        expect(drop.notes.some((n) => Math.abs(n.start - bar * 4) < 0.05)).toBe(true);
       }
     }
   });
@@ -171,7 +173,9 @@ describe('composeBeat', () => {
     const plan = composeBeat({ genre: 'boombap', seed: 1, shape: 'loop', loopBars: 4 });
     expect(plan.sections).toHaveLength(1);
     expect(plan.totalBars).toBe(4);
-    expect(plan.swing).toBeGreaterThan(0.4);
+    // Swing MPC de boom bap: 0.36 ≈ 59 % de Linn (54-62 % es lo que suena suelto sin ser tresillo).
+    expect(plan.swing).toBeGreaterThan(0.25);
+    expect(plan.swing).toBeLessThan(0.48);
   });
 
   it('respeta tempo, tonalidad, escala, progresión y partes pedidas', () => {
@@ -271,7 +275,8 @@ describe('instrumentos propios de cada género', () => {
           for (const pt of part(plan, role)!.patterns) for (const n of pt.notes) expect(keys.has(n.key)).toBe(true);
         }
         const kit = Object.values(part(plan, 'kick')!.sound.samples!)[0]!;
-        expect(kit).toMatch(g === 'boombap' ? /^drums\/boombap\// : /^drums\/trap\//);
+        // Cada género, su kit: el del trap ya no viste al dembow.
+        expect(kit).toMatch(new RegExp(`^drums/${g}/`));
       }
     }
     for (const g of ['techno', 'rave'] as const) expect(part(composeBeat({ genre: g, seed: 1 }), 'kick')!.sound.kind).toBe('drums');
@@ -282,7 +287,14 @@ describe('instrumentos propios de cada género', () => {
     for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
       for (const seed of [1, 2, 3, 4, 5, 6]) {
         const plan = composeBeat({ genre: g, seed });
-        for (const p of plan.parts) expect(p.sound.preset ?? '', `${g} ${p.role}`).not.toMatch(banned);
+        // También los instrumentos grabados (sampler): su id va en la primera zona. La
+        // guitarra nylon GRABADA del reggaetón sí va (es del género, y cálida: centroide
+        // ~590 Hz); lo vetado era el nylon sintético brillante, que es un preset.
+        for (const p of plan.parts) {
+          expect(p.sound.preset ?? '', `${g} ${p.role}`).not.toMatch(banned);
+          const inst = (p.sound.zones?.[0]?.sampleId ?? '').replace(/^instrumentos\/guitarra-nylon.*/, '');
+          expect(inst, `${g} ${p.role}`).not.toMatch(banned);
+        }
         if (g === 'trap' || g === 'boombap') expect(part(plan, 'perc')).toBeUndefined();
       }
     }
@@ -307,5 +319,61 @@ describe('instrumentos propios de cada género', () => {
     expect(riser.start + riser.duration).toBeCloseTo(build.bars * 4, 5);
     const drop = fx.patterns.find((p) => p.id.startsWith('drop'))!;
     expect(drop.notes).toEqual([expect.objectContaining({ start: 0, key: 62 })]);
+  });
+
+  it('los instrumentos grabados que piden los presets existen, con varias tomas', () => {
+    for (const g of COMPOSER_GENRES) {
+      for (const role of ['bass', 'chords', 'melody'] as const) {
+        for (const c of GENRE_PRESETS[g].sounds[role]) {
+          if (!c.instrument) continue;
+          expect(c.kind, `${g} ${c.instrument}`).toBe('sampler');
+          expect(factoryInstrument(c.instrument)?.length ?? 0, `${g} ${c.instrument}`).toBeGreaterThan(1);
+        }
+      }
+    }
+  });
+});
+
+describe('reglas de la investigación de género', () => {
+  it('el glide del 808 solo cierra la frase: último compás de cada 4, segunda mitad', () => {
+    for (const g of ['trap', 'neoperreo', 'reggaeton'] as const) {
+      for (const seed of [1, 2, 3, 4, 5, 6]) {
+        for (const pt of part(composeBeat({ genre: g, seed }), 'bass')!.patterns) {
+          for (const n of pt.notes) {
+            if (!n.slide) continue;
+            expect(Math.floor(n.start / 4) % 4, `${g} ${seed} ${pt.id}`).toBe(3);
+            expect(n.start % 4, `${g} ${seed} ${pt.id}`).toBeGreaterThanOrEqual(2);
+          }
+        }
+      }
+    }
+  });
+
+  it('boom bap: bombo tarde, caja adelantada y hats tarde, el mismo desfase en cada compás', () => {
+    const plan = composeBeat({ genre: 'boombap', seed: 4 });
+    const ms = (beats: number) => (beats * 60000) / plan.bpm;
+    const off = (role: string, grid: number) =>
+      dropPattern(plan, role)!.notes.filter((n) => Math.abs(n.start - Math.round(n.start / grid) * grid) < 0.1).map((n) => ms(n.start - Math.round(n.start / grid) * grid));
+    for (const o of off('kick', 4)) expect(o).toBeCloseTo(8, 0);
+    for (const o of off('snare', 2).filter((x) => Math.abs(x) < 20)) expect(o).toBeCloseTo(-6, 0);
+    // Los hats llevan además el swing horneado en las semicorcheas pares: se miran las corcheas.
+    for (const o of off('hats', 0.5).filter((x) => Math.abs(x) < 30)) expect(o).toBeCloseTo(14, 0);
+  });
+
+  it('reggaetón: shaker en las 16 semicorcheas con la fuerza por pares; neo perreo en bucle de 1-2 acordes', () => {
+    const hats = dropPattern(composeBeat({ genre: 'reggaeton', seed: 2 }), 'hats')!.notes.filter((n) => n.key === 70 && n.start < 4);
+    expect(hats.length).toBeGreaterThanOrEqual(15);
+    const v = (i: number) => hats.find((n) => Math.abs(n.start - i * 0.25) < 1e-6)!.velocity;
+    expect(v(2)).toBeGreaterThan(v(0) + 0.15);
+    expect(v(3)).toBeGreaterThan(v(1) + 0.15);
+    for (const prog of GENRE_PRESETS.neoperreo.progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
+  });
+
+  it('los géneros urbanos dejan margen de true peak en el master; techno y rave, como estaban', () => {
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      const lim = GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!;
+      expect(lim.params['ceiling']).toBeLessThanOrEqual(-2);
+    }
+    for (const g of ['techno', 'rave'] as const) expect(GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!.params['ceiling']).toBe(-1);
   });
 });

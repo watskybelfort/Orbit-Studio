@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ProjectStore, createEmptyProject } from '@orbit/core';
-import { composeBeat, planToCommands, recomposePart, replacePartCommands, type BeatPlan } from '../src';
+import { composeBeat, factoryInstrument, planToCommands, recomposePart, replacePartCommands, type BeatPlan } from '../src';
 
 const part = (plan: BeatPlan, role: string) => plan.parts.find((p) => p.role === role);
 
@@ -83,5 +83,31 @@ describe('batería sampleada en el proyecto', () => {
     expect(again.samples).toHaveLength(0);
     expect(again.commands.some((c) => c.type === 'registerSample')).toBe(false);
     store.dispatch({ type: 'batch', commands: again.commands });
+  });
+});
+
+describe('instrumentos grabados de fábrica en el proyecto', () => {
+  it('un instrumento multisampleado entra con todas sus tomas y el teclado repartido como en el browser', () => {
+    const store = new ProjectStore();
+    // Boom bap: acordes de Rhodes, piano o piano de cinta según la semilla; se busca una con sampler.
+    let plan = composeBeat({ genre: 'boombap', seed: 1 });
+    for (let seed = 1; seed < 40 && !plan.parts.some((p) => p.sound.zones); seed++) plan = composeBeat({ genre: 'boombap', seed });
+    const inst = plan.parts.find((p) => p.sound.zones)!;
+    expect(inst).toBeDefined();
+    const takes = factoryInstrument(inst.sound.zones![0]!.sampleId.replace(/-\d+(-p+)?$|-p+$/, ''))!;
+    expect(takes.length).toBe(inst.sound.zones!.length);
+    const { commands, applied, samples } = planToCommands(store.project, plan);
+    for (const z of inst.sound.zones!) expect(samples.some((s) => s.id === z.sampleId)).toBe(true);
+    store.dispatch({ type: 'batch', commands });
+    const ch = store.project.channels[applied.parts.find((a) => a.role === inst.role)!.channelId]!;
+    expect(ch.kind).toBe('sampler');
+    // Cubre el teclado entero, sin huecos: cualquier nota de la parte suena.
+    const keymap = ch.keymap!;
+    for (const pt of inst.patterns) {
+      for (const n of pt.notes) {
+        expect(keymap.some((z) => n.key >= z.keyLow && n.key <= z.keyHigh && n.velocity >= z.velLow && n.velocity <= z.velHigh), `tecla ${n.key}`).toBe(true);
+      }
+    }
+    for (const z of keymap) expect(store.project.samples[z.sampleId], z.sampleId).toBeDefined();
   });
 });
