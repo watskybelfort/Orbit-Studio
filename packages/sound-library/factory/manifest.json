@@ -540,6 +540,22 @@
       "subcategory": "neoperreo"
     },
     {
+      "id": "drums/trap/kick-click-01",
+      "name": "Kick Click Trap",
+      "category": "drums",
+      "file": "drums/trap/kick-click-01.wav",
+      "tags": [
+        "trap",
+        "kick",
+        "click",
+        "layer",
+        "transient"
+      ],
+      "durationSec": 0.08,
+      "gainSuggestion": 0.7,
+      "subcategory": "trap"
+    },
+    {
       "id": "percusion-latina/conga-01",
       "name": "Conga Baja",
       "category": "percusion-latina",

@@ -393,6 +393,14 @@ const SPECS: SonidoSpec[] = [
       efectoGenero('bitcrush', { bits: 9, downsample: 2 }, 0.6),
     ]), { subcategory: 'neoperreo' }),
 
+  // El click del bombo de trap: solo el ataque, sin grave (paso alto a 700 Hz,
+  // realce en 3,5 kHz). Va en capa con el bombo para que el 808 no lo tape.
+  spec('drums/trap/kick-click-01', 'Kick Click Trap', 'drums', ['trap', 'kick', 'click', 'layer', 'transient'], 0.7,
+    golpe(0, K.kick, { tone: 0.2, decay: 0.3, punch: 1 }, [
+      efectoGenero('eq', { hpFreq: 700, midGain: 6, midFreq: 3500, midQ: 0.9, lpFreq: 12000 }),
+      efectoGenero('eq', { hpFreq: 700 }),
+    ], 0.2, 0.08), { subcategory: 'trap' }),
+
   // ── percusion-latina (kit 2) ───────────────────────────────────────────────
   spec('percusion-latina/conga-01', 'Conga Baja', 'percusion-latina', ['latin', 'conga', 'low'], 0.8,
     golpe(2, K.conga, { tone: 0.2, decay: 1 })),
