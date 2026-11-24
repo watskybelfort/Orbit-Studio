@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COMPOSER_ROLES, composeBeat, createProfile, type TrackFeatures } from '@orbit/sound-library';
 import {
   MAX_TRAIN_FILES,
+  bpmHint,
   defaultForm,
   isAudioFileName,
   parseForm,
@@ -60,6 +61,26 @@ describe('formulario del compositor', () => {
     expect(form.loopBars).toBe(16);
     expect(form.seed).toBe(7);
     expect(parseForm(null, 3)).toEqual(defaultForm(3));
+  });
+
+  it('una variante de otro género no sobrevive ni al guardado ni al componer', () => {
+    // El ajuste persistido puede venir con la variante del género anterior
+    // (lo que arregló el botón de la referencia). `parseForm` la tira y
+    // `toComposeOptions` tampoco la deja llegar a `resolvePreset`, que lanza
+    // con una variante que no existe para el género.
+    expect(parseForm({ genre: 'reggaeton', variant: 'moderno' }, 1).variant).toBe('moderno');
+    expect(parseForm({ genre: 'boombap', variant: 'moderno' }, 1).variant).toBeNull();
+    expect(parseForm({ genre: 'trap', variant: 'inventada' }, 1).variant).toBeNull();
+
+    const ajeno = { ...defaultForm(3), genre: 'boombap' as const, variant: 'moderno' };
+    expect(toComposeOptions(ajeno, [])).not.toHaveProperty('variant');
+    expect(toComposeOptions({ ...ajeno, genre: 'reggaeton' as const }, []).variant).toBe('moderno');
+  });
+
+  it('la pista del tempo sigue a la variante y vuelve al género si no existe', () => {
+    expect(bpmHint('trap')).toBe('142 (130–160)');
+    expect(bpmHint('trap', 'duro')).toBe('150 (140–162)');
+    expect(bpmHint('trap', 'inventada')).toBe('142 (130–160)');
   });
 
   it('solo audios, y una semilla de 32 bits', () => {
