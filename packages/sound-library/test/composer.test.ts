@@ -373,10 +373,10 @@ describe('reglas de la investigación de género', () => {
     for (const prog of GENRE_PRESETS.neoperreo.progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
   });
 
-  it('los géneros urbanos limitan por true peak a -1 dBTP; techno y rave, como estaban', () => {
+  it('los géneros urbanos limitan por true peak a -1,2 dBTP; techno y rave, como estaban', () => {
     for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
       const lim = GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!;
-      expect(lim.params).toMatchObject({ ceiling: -1, truePeak: 1 });
+      expect(lim.params).toMatchObject({ ceiling: -1.2, truePeak: 1 });
     }
     for (const g of ['techno', 'rave'] as const) {
       const lim = GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!;

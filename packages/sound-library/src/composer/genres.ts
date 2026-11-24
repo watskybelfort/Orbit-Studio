@@ -233,8 +233,11 @@ const MONO_LOW: FxChoice = { kind: 'stereo', params: { width: 1, gain: 1, monoBe
  * más dinámico, ~-11,5).
  */
 const LIMITER = (gain: number, ceiling = -1): FxChoice => ({ kind: 'limiter', params: { gain, ceiling } });
-/** Limitador de los géneros urbanos: detector de true peak y techo -1 dBTP (el estándar de streaming). */
-const LIMITER_TP = (gain: number): FxChoice => ({ kind: 'limiter', params: { gain, ceiling: -1, truePeak: 1 } });
+/**
+ * Limitador de los géneros urbanos: detector de true peak y techo -1,2 dBTP
+ * (-1 es el estándar de streaming; 0,2 de margen para el codificador MP3/AAC).
+ */
+const LIMITER_TP = (gain: number): FxChoice => ({ kind: 'limiter', params: { gain, ceiling: -1.2, truePeak: 1 } });
 
 /**
  * Techo de agudos de hats, shakers y cajas: dos pasos bajos seguidos (24 dB/oct).
@@ -357,7 +360,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       ],
       // Ducking suave: con el del reggaetón el 808 caía -15 dB a los 60 ms y perdía cuerpo.
       bass: [DUCK_SOFT],
-      snare: [{ kind: 'eq', params: { highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
+      // +2 dB en 3 kHz: el trap quedaba 3,7 dB por debajo de tus beats en 2-4 kHz.
+      snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
     },
     master: [MONO_LOW, LIMITER_TP(3.4)],
     // Forma de canción de rap (intro, hooks de 8, versos de 16): no de club.
@@ -623,7 +627,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Medios +4 dB en 250-500 y +7,6 en 1-2 kHz frente a tu boom bap: valle en 1,5 kHz.
       chords: [
         { kind: 'eq', params: { hpFreq: 280, midGain: -5, midFreq: 330, midQ: 0.9, highGain: -3, lpFreq: 8000 } },
-        { kind: 'eq', params: { midGain: -3, midFreq: 1500, midQ: 0.8 } },
+        { kind: 'eq', params: { lowGain: -2, lowFreq: 400, midGain: -5, midFreq: 1500, midQ: 0.8 } },
         { kind: 'vinyl', params: {} },
       ],
       melody: [{ kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 400, midGain: -3, midFreq: 1500, midQ: 0.8, highGain: -2, lpFreq: 7000 } }],
@@ -631,7 +635,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Y fuera la caja de cartón (300 Hz): el crack va arriba, en 1,8 kHz.
       snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: -2, midFreq: 1200, midQ: 0.9 } }, ...AIR_CAP(12000)],
     },
-    master: [MONO_LOW, LIMITER_TP(4.6)],
+    master: [MONO_LOW, LIMITER_TP(6)],
     shapes: [3, 4],
   },
 
