@@ -549,6 +549,18 @@ function drumPart(
   return notes.sort((a, b) => a.start - b.start || a.key - b.key);
 }
 
+/** El último hook de las secciones, o undefined (las formas de club no tienen). */
+function lastHookOf(sections: readonly Section[]): Section | undefined {
+  for (let i = sections.length - 1; i >= 0; i--) if (sections[i]!.kind === 'hook') return sections[i];
+  return undefined;
+}
+
+/** Dobla cada nota una octava abajo, más suave (si no baja del registro útil, C3). */
+function withOctaveBelow(notes: PlanNote[]): PlanNote[] {
+  const doubled = notes.filter((n) => n.key - 12 >= 48).map((n) => ({ ...n, key: n.key - 12, velocity: round3(n.velocity * 0.6) }));
+  return [...notes, ...doubled].sort((a, b) => a.start - b.start || a.key - b.key);
+}
+
 /** Las opciones de sonido de una parte; la melodía (con `tune`) no repite el timbre de los acordes. */
 function timbreChoices(choices: SoundChoice[], role: ComposerRole, preset: GenrePreset, chordsTimbre: string | undefined): SoundChoice[] {
   if (role !== 'melody' || !preset.melody.tune || !chordsTimbre) return choices;
@@ -1032,7 +1044,10 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
       // compás de arranque solo a través de la progresión, que es cíclica.
       // Cada verso se compone aparte (otros redobles, otros remates): copiar el
       // primero en el segundo sonaba a bucle. Los hooks sí se repiten iguales.
-      const pid = s.kind === 'verse' ? `${s.kind}-${s.bars}-${s.startBar}` : `${s.kind}-${s.bars}`;
+      // El último hook de una forma de rap sube un escalón: la melodía se dobla
+      // una octava abajo (más cuerpo), para que el cierre no sea copia del resto.
+      const finalHook = role === 'melody' && s.kind === 'hook' && s === lastHookOf(sections);
+      const pid = s.kind === 'verse' ? `${s.kind}-${s.bars}-${s.startBar}` : finalHook ? `${s.kind}-${s.bars}-final` : `${s.kind}-${s.bars}`;
       const at = s.kind === 'verse' ? s.startBar : 0;
       let pattern = byKey.get(pid);
       if (!pattern) {
@@ -1042,7 +1057,9 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
             : role === 'chords'
               ? chordPart(ctx, s.kind, s.bars, at)
               : role === 'melody'
-                ? melodyPart(ctx, s.kind, s.bars, at)
+                ? finalHook
+                  ? withOctaveBelow(melodyPart(ctx, s.kind, s.bars, at))
+                  : melodyPart(ctx, s.kind, s.bars, at)
                 : role === 'fx'
                   ? preset.fxKit
                     ? fxSamplePart(s.kind, s.bars, bpm, preset.fxKit.riser)

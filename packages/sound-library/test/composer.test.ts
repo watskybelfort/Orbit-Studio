@@ -441,4 +441,19 @@ describe('reglas de la investigación de género', () => {
       }
     }
   });
+
+  it('el último hook dobla la melodía una octava abajo; los anteriores son el mismo patrón', () => {
+    const plan = composeBeat({ genre: 'trap', seed: 1, shape: 3 });
+    const mel = part(plan, 'melody')!;
+    const hook = mel.patterns.find((p) => p.id === 'hook-8')!;
+    const fin = mel.patterns.find((p) => p.id === 'hook-8-final')!;
+    expect(fin.notes.length).toBeGreaterThan(hook.notes.length);
+    for (const n of hook.notes) {
+      if (n.key - 12 >= 48) expect(fin.notes.some((m) => m.start === n.start && m.key === n.key - 12)).toBe(true);
+    }
+    const hooks = plan.sections.filter((s) => s.kind === 'hook');
+    const clipsOf = (pid: string) => mel.clips.filter((c) => c.patternId === pid).map((c) => c.startBar);
+    expect(clipsOf('hook-8-final')).toEqual([hooks[hooks.length - 1]!.startBar]);
+    expect(clipsOf('hook-8')).toEqual(hooks.slice(0, -1).map((h) => h.startBar));
+  });
 });
