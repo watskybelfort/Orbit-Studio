@@ -36,9 +36,15 @@ aparte: el generador del pack ya no reproduce bit a bit tres archivos viejos
 Tras la primera ronda del crítico: forma de canción de rap para los urbanos,
 techo de 24 dB/oct en hats/shakers/cajas (el hat de fábrica pitaba en
 21,7 kHz y subía el true peak), jerarquía de batería y niveles de los
-instrumentos grabados. Pendiente que dejó el crítico y no se tocó: afinar el
-bombo sampleado a la tonalidad (en reggaetón bate contra el bajo) — pide
-medir la f0 de cada bombo y ponerla en la zona del keymap.
+instrumentos grabados. Rondas 3-5: bombos afinados a la tónica o la quinta
+(altura medida en `DRUM_PITCH`), sidechain del 808/bajo al bombo,
+limitador con detector de true peak en el motor (opcional; los urbanos a
+-1,2 dBTP), stems que conservan el sidechain (`keyOnly`), forma de rap con
+último hook reforzado. Veredicto del crítico en la ronda 5: los cuatro
+publicables (boom bap con reserva en medios, medido contra una sola
+referencia). Sin cerrar: no hay referencias propias de reggaetón ni de neo
+perreo, y el export real de stems con sidechain está cubierto por test pero
+no se probó en la app abierta.
 
 ---
 
