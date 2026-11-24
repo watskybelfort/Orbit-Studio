@@ -107,6 +107,16 @@ function efecto(kind: EffectKind, params: Record<string, number>, mix = 1): Comp
   return { id: `fx-${contador++}`, kind, enabled: true, mix, params };
 }
 
+/**
+ * Efecto de los kits por género. Lleva su PROPIO contador de ids: el id de un
+ * efecto entra en el render (siembra su ruido), y colgar estos del contador
+ * común habría cambiado el audio de todo lo que se genera después.
+ */
+let contadorGenero = 0;
+function efectoGenero(kind: EffectKind, params: Record<string, number>, mix = 1): CompiledEffect {
+  return { id: `fx-genero-${contadorGenero++}`, kind, enabled: true, mix, params };
+}
+
 function nota(
   start: number,
   duration: number,
@@ -308,6 +318,80 @@ const SPECS: SonidoSpec[] = [
     golpe(1, K.rim, { tone: 0.5, decay: 0.7 }), { subcategory: 'boombap' }),
   spec('drums/boombap/crash-01', 'Crash Boom Bap 01', 'drums', ['boombap', 'crash'], 0.65,
     golpe(1, K.crash, { tone: 0.4, decay: 0.75 }), { subcategory: 'boombap' }),
+
+  // Kit "SP-1200": 12 bits a ~22 kHz, techo a 9 kHz y un poco de cinta. Es el
+  // carácter que el boom bap de los 90 debe a la máquina (12 bits / 26 kHz):
+  // polvo y cuerpo, sin el brillo de un kit moderno.
+  spec('drums/boombap/kick-03', 'Kick Boom Bap Polvo', 'drums', ['boombap', 'kick', 'dusty', 'sp1200'], 0.9,
+    golpe(1, K.kick, { tone: 0.45, decay: 1.1, punch: 0.65 }, [
+      efectoGenero('eq', { hpFreq: 38, lowGain: 3, lowFreq: 62, midGain: -4, midFreq: 160, midQ: 1.2, lpFreq: 9000 }),
+      efectoGenero('bitcrush', { bits: 12, downsample: 2 }, 0.8),
+      efectoGenero('distortion', { drive: 0.18, tone: 6000, mode: 0, output: 1 }),
+    ]), { subcategory: 'boombap' }),
+  spec('drums/boombap/snare-03', 'Snare Boom Bap Polvo', 'drums', ['boombap', 'snare', 'dusty', 'crunchy', 'sp1200'], 0.85,
+    golpe(1, K.snare, { tone: 0.4, decay: 0.85, punch: 0.6 }, [
+      efectoGenero('eq', { hpFreq: 120, midGain: 3, midFreq: 220, midQ: 1, highGain: -2, highFreq: 6000, lpFreq: 9000 }),
+      efectoGenero('bitcrush', { bits: 12, downsample: 2 }, 0.85),
+      efectoGenero('distortion', { drive: 0.25, tone: 5000, mode: 0, output: 1 }),
+    ]), { subcategory: 'boombap' }),
+  spec('drums/boombap/hat-03', 'Hat Boom Bap Polvo', 'drums', ['boombap', 'hat', 'dusty', 'dark', 'sp1200'], 0.5,
+    golpe(1, K.hat, { tone: 0.35, decay: 0.75 }, [
+      efectoGenero('eq', { hpFreq: 500, highGain: -3, highFreq: 8000, lpFreq: 10000 }),
+      efectoGenero('bitcrush', { bits: 12, downsample: 2 }, 0.8),
+    ]), { subcategory: 'boombap' }),
+
+  // ── drums/reggaeton: bombo corto con cuerpo en medios, caja "boxy" ────────
+  // La caja del dembow se baja de tono, pasa por bitcrusher y se trabaja en
+  // 200-400 Hz, y se corta corta (MusicRadar). Nada de cola: el tresillo tiene
+  // que oírse golpe a golpe.
+  spec('drums/reggaeton/kick-01', 'Kick Reggaeton 01', 'drums', ['reggaeton', 'dembow', 'kick', 'tight', 'short'], 0.9,
+    golpe(0, K.kick, { tone: 0.4, decay: 0.5, punch: 0.85 }, [
+      efectoGenero('eq', { hpFreq: 32, lowGain: 2, lowFreq: 70, midGain: 3, midFreq: 220, midQ: 1.4 }),
+      efectoGenero('distortion', { drive: 0.15, tone: 5000, mode: 0, output: 1 }),
+    ]), { subcategory: 'reggaeton' }),
+  spec('drums/reggaeton/kick-02', 'Kick Reggaeton 02', 'drums', ['reggaeton', 'dembow', 'kick', 'round'], 0.9,
+    golpe(0, K.kick, { tone: 0.5, decay: 0.7, punch: 0.7 }, [
+      efectoGenero('eq', { hpFreq: 30, midGain: 2, midFreq: 180, midQ: 1.2 }),
+    ]), { subcategory: 'reggaeton' }),
+  spec('drums/reggaeton/snare-01', 'Snare Reggaeton Boxy', 'drums', ['reggaeton', 'dembow', 'snare', 'boxy', 'crushed'], 0.85,
+    golpe(0, K.snare, { tone: 0.25, decay: 0.55, punch: 0.65 }, [
+      efectoGenero('eq', { hpFreq: 150, midGain: 5, midFreq: 300, midQ: 1.3, highGain: -3, highFreq: 7000, lpFreq: 11000 }),
+      efectoGenero('bitcrush', { bits: 10, downsample: 2 }, 0.7),
+    ]), { subcategory: 'reggaeton' }),
+  spec('drums/reggaeton/snare-02', 'Snare Reggaeton Seca', 'drums', ['reggaeton', 'dembow', 'snare', 'tight'], 0.85,
+    golpe(0, K.snare, { tone: 0.4, decay: 0.45, punch: 0.7 }, [
+      efectoGenero('eq', { hpFreq: 180, midGain: 4, midFreq: 350, midQ: 1.2, highGain: -2, highFreq: 7000, lpFreq: 12000 }),
+      efectoGenero('bitcrush', { bits: 11, downsample: 1 }, 0.6),
+    ]), { subcategory: 'reggaeton' }),
+  spec('drums/reggaeton/clap-01', 'Clap Reggaeton', 'drums', ['reggaeton', 'clap', 'tight'], 0.8,
+    golpe(0, K.clap, { decay: 0.7 }, [
+      efectoGenero('eq', { hpFreq: 300, midGain: 2, midFreq: 1200, midQ: 1, lpFreq: 11000 }),
+    ]), { subcategory: 'reggaeton' }),
+
+  // ── drums/neoperreo: el dembow ensuciado (bombo clipeado, caja rota) ─────
+  spec('drums/neoperreo/kick-01', 'Kick Neoperreo Clip', 'drums', ['neoperreo', 'kick', 'distorted', 'clipped'], 0.9,
+    golpe(0, K.kick, { tone: 0.35, decay: 0.7, punch: 0.9 }, [
+      efectoGenero('eq', { hpFreq: 30, lowGain: 2, lowFreq: 60 }),
+      efectoGenero('distortion', { drive: 0.55, tone: 3500, mode: 1, output: 0.8 }),
+    ]), { subcategory: 'neoperreo' }),
+  spec('drums/neoperreo/kick-02', 'Kick Neoperreo Sucio', 'drums', ['neoperreo', 'kick', 'crushed', 'lofi'], 0.9,
+    golpe(0, K.kick, { tone: 0.3, decay: 0.9, punch: 0.8 }, [
+      // Sin bitcrush: con downsample 3 el aliasing dejaba un pitido de +18 dB
+      // sobre 5 kHz. La suciedad la pone la saturación dura, con techo.
+      efectoGenero('distortion', { drive: 0.45, tone: 2500, mode: 1, output: 0.8 }),
+      efectoGenero('eq', { hpFreq: 30, lpFreq: 7000 }),
+    ]), { subcategory: 'neoperreo' }),
+  spec('drums/neoperreo/snare-01', 'Snare Neoperreo Rota', 'drums', ['neoperreo', 'snare', 'crushed', 'dirty'], 0.85,
+    golpe(0, K.snare, { tone: 0.3, decay: 0.5, punch: 0.7 }, [
+      efectoGenero('eq', { hpFreq: 200, midGain: 4, midFreq: 400, midQ: 1.2, lpFreq: 8000 }),
+      efectoGenero('bitcrush', { bits: 8, downsample: 3 }, 0.75),
+      efectoGenero('distortion', { drive: 0.3, tone: 4000, mode: 0, output: 0.9 }),
+    ]), { subcategory: 'neoperreo' }),
+  spec('drums/neoperreo/rim-01', 'Rim Neoperreo', 'drums', ['neoperreo', 'rim', 'click', 'dark'], 0.6,
+    golpe(2, K.rim, { tone: 0.35, decay: 0.6 }, [
+      efectoGenero('eq', { hpFreq: 250, lpFreq: 6500 }),
+      efectoGenero('bitcrush', { bits: 9, downsample: 2 }, 0.6),
+    ]), { subcategory: 'neoperreo' }),
 
   // ── percusion-latina (kit 2) ───────────────────────────────────────────────
   spec('percusion-latina/conga-01', 'Conga Baja', 'percusion-latina', ['latin', 'conga', 'low'], 0.8,

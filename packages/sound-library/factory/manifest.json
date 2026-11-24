@@ -357,6 +357,189 @@
       "subcategory": "boombap"
     },
     {
+      "id": "drums/boombap/kick-03",
+      "name": "Kick Boom Bap Polvo",
+      "category": "drums",
+      "file": "drums/boombap/kick-03.wav",
+      "tags": [
+        "boombap",
+        "kick",
+        "dusty",
+        "sp1200"
+      ],
+      "durationSec": 0.575,
+      "gainSuggestion": 0.9,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/snare-03",
+      "name": "Snare Boom Bap Polvo",
+      "category": "drums",
+      "file": "drums/boombap/snare-03.wav",
+      "tags": [
+        "boombap",
+        "snare",
+        "dusty",
+        "crunchy",
+        "sp1200"
+      ],
+      "durationSec": 0.343,
+      "gainSuggestion": 0.85,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/boombap/hat-03",
+      "name": "Hat Boom Bap Polvo",
+      "category": "drums",
+      "file": "drums/boombap/hat-03.wav",
+      "tags": [
+        "boombap",
+        "hat",
+        "dusty",
+        "dark",
+        "sp1200"
+      ],
+      "durationSec": 0.108,
+      "gainSuggestion": 0.5,
+      "subcategory": "boombap"
+    },
+    {
+      "id": "drums/reggaeton/kick-01",
+      "name": "Kick Reggaeton 01",
+      "category": "drums",
+      "file": "drums/reggaeton/kick-01.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "kick",
+        "tight",
+        "short"
+      ],
+      "durationSec": 0.48,
+      "gainSuggestion": 0.9,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/reggaeton/kick-02",
+      "name": "Kick Reggaeton 02",
+      "category": "drums",
+      "file": "drums/reggaeton/kick-02.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "kick",
+        "round"
+      ],
+      "durationSec": 0.6,
+      "gainSuggestion": 0.9,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/reggaeton/snare-01",
+      "name": "Snare Reggaeton Boxy",
+      "category": "drums",
+      "file": "drums/reggaeton/snare-01.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "snare",
+        "boxy",
+        "crushed"
+      ],
+      "durationSec": 0.214,
+      "gainSuggestion": 0.85,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/reggaeton/snare-02",
+      "name": "Snare Reggaeton Seca",
+      "category": "drums",
+      "file": "drums/reggaeton/snare-02.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "snare",
+        "tight"
+      ],
+      "durationSec": 0.182,
+      "gainSuggestion": 0.85,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/reggaeton/clap-01",
+      "name": "Clap Reggaeton",
+      "category": "drums",
+      "file": "drums/reggaeton/clap-01.wav",
+      "tags": [
+        "reggaeton",
+        "clap",
+        "tight"
+      ],
+      "durationSec": 0.348,
+      "gainSuggestion": 0.8,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/neoperreo/kick-01",
+      "name": "Kick Neoperreo Clip",
+      "category": "drums",
+      "file": "drums/neoperreo/kick-01.wav",
+      "tags": [
+        "neoperreo",
+        "kick",
+        "distorted",
+        "clipped"
+      ],
+      "durationSec": 0.651,
+      "gainSuggestion": 0.9,
+      "subcategory": "neoperreo"
+    },
+    {
+      "id": "drums/neoperreo/kick-02",
+      "name": "Kick Neoperreo Sucio",
+      "category": "drums",
+      "file": "drums/neoperreo/kick-02.wav",
+      "tags": [
+        "neoperreo",
+        "kick",
+        "crushed",
+        "lofi"
+      ],
+      "durationSec": 0.822,
+      "gainSuggestion": 0.9,
+      "subcategory": "neoperreo"
+    },
+    {
+      "id": "drums/neoperreo/snare-01",
+      "name": "Snare Neoperreo Rota",
+      "category": "drums",
+      "file": "drums/neoperreo/snare-01.wav",
+      "tags": [
+        "neoperreo",
+        "snare",
+        "crushed",
+        "dirty"
+      ],
+      "durationSec": 0.205,
+      "gainSuggestion": 0.85,
+      "subcategory": "neoperreo"
+    },
+    {
+      "id": "drums/neoperreo/rim-01",
+      "name": "Rim Neoperreo",
+      "category": "drums",
+      "file": "drums/neoperreo/rim-01.wav",
+      "tags": [
+        "neoperreo",
+        "rim",
+        "click",
+        "dark"
+      ],
+      "durationSec": 0.077,
+      "gainSuggestion": 0.6,
+      "subcategory": "neoperreo"
+    },
+    {
       "id": "percusion-latina/conga-01",
       "name": "Conga Baja",
       "category": "percusion-latina",
