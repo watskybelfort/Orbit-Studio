@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SCALES } from '@orbit/core';
-import { COMPOSER_GENRES, GENRE_PRESETS, composeBeat, describePlan, factoryInstrument, factorySound, genreVariants, recomposePart, resolvePreset } from '../src';
+import { COMPOSER_GENRES, GENRE_PRESETS, MAX_PART_FX, composeBeat, describePlan, factoryInstrument, factorySound, genreVariants, recomposePart, resolvePreset } from '../src';
 
 describe('variantes de género', () => {
   it('sin variante se usa el preset de siempre', () => {
@@ -111,6 +111,15 @@ describe('variantes de género', () => {
     for (const v of fx.patterns.filter((pt) => pt.id.startsWith('verse'))) {
       const riser = v.notes.find((n) => n.key !== 62)!;
       expect(riser.start + riser.duration).toBeCloseTo(v.bars * 4, 5);
+    }
+  });
+
+  it('ninguna parte de ningún preset ni variante pide más insertos de los que tiene un canal', () => {
+    // Lo que pasaba de 4 no sonaba, sin aviso: se perdieron muescas y el sidechain del 808 del trap duro.
+    for (const g of COMPOSER_GENRES) {
+      for (const p of [GENRE_PRESETS[g], ...genreVariants(g).map((v) => v.preset)]) {
+        for (const [role, fx] of Object.entries(p.fx)) expect(fx?.length ?? 0, `${g} ${role}`).toBeLessThanOrEqual(MAX_PART_FX);
+      }
     }
   });
 });

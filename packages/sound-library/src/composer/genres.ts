@@ -17,7 +17,7 @@
  * género: el dembow sigue siendo dembow, pero no es el mismo dembow siempre.
  */
 
-import type { InstrumentKind } from '@orbit/core';
+import { CHANNEL_SLOTS, type InstrumentKind } from '@orbit/core';
 
 export const COMPOSER_GENRES = ['trap', 'reggaeton', 'neoperreo', 'boombap', 'techno', 'rave'] as const;
 export type ComposerGenre = (typeof COMPOSER_GENRES)[number];
@@ -276,14 +276,19 @@ const DUCK_SOFT: FxChoice = {
 };
 
 /**
- * Muescas para después de la reverb del motor, que suena con modos propios en
+ * Muesca para después de la reverb del motor, que suena con modos propios en
  * ~3,85-3,95 kHz y ~13,4 kHz (los midió el crítico por stems: eran las dos
- * resonancias fijas del reggaetón de los 2000).
+ * resonancias fijas del reggaetón de los 2000). Una sola EQ: un canal tiene
+ * 4 insertos (`MAX_PART_FX`) y lo que pasa de ahí no suena.
  */
-const REVERB_NOTCHES: FxChoice[] = [
-  { kind: 'eq', params: { midGain: -10, midFreq: 3900, midQ: 6, lpFreq: 12000 } },
-  { kind: 'eq', params: { midGain: -10, midFreq: 13367, midQ: 8 } },
-];
+const REVERB_NOTCH: FxChoice = { kind: 'eq', params: { midGain: -10, midFreq: 3900, midQ: 6, highGain: -6, highFreq: 12000, lpFreq: 12000 } };
+
+/**
+ * Insertos por parte como mucho: los slots de un canal. Lo que pasa de ahí no
+ * llega al canal (se perdían muescas y hasta el sidechain del 808); lo vigila
+ * un test.
+ */
+export const MAX_PART_FX = CHANNEL_SLOTS;
 
 const AIR_CAP = (hz: number): FxChoice[] => [
   { kind: 'eq', params: { lpFreq: hz } },
@@ -668,35 +673,33 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Los parciales del pluck de acordes (+34-37 dB en 2.210, 3.079 y 3.941 Hz)
       // eran el 58 % de la resonancia de 3,9 kHz del beat (lo midió el crítico por stems).
       chords: [
-        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 320, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
+        // Las cuerdas de cine abultaban 500 Hz-1 kHz (+10,7 dB sobre las referencias): valle en 700.
+        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 320, midGain: -4, midFreq: 700, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
         // Más estrecho: en el render 3 la correlación en medios bajaba a 0,22 (-3 dB en mono).
         { kind: 'stereo', params: { width: 0.5, gain: 1, monoBelow: 0 } },
         { kind: 'reverb', params: { size: 0.4, damp: 0.6, width: 0.5, predelay: 0.01 } },
-        // Las muescas, DESPUÉS de la reverb: la del motor tiene modos propios en ~3,9 kHz y
+        // La muesca, DESPUÉS de la reverb: la del motor tiene modos propios en ~3,9 kHz y
         // volvía a meter la resonancia que se quitaba antes de ella.
-        ...REVERB_NOTCHES,
-        { kind: 'eq', params: { lowGain: -6, lowFreq: 2210, midGain: -6, midFreq: 3079, midQ: 8 } },
-        // Las cuerdas de cine abultaban 500 Hz-1 kHz (+10,7 dB sobre las referencias en el render 3).
-        { kind: 'eq', params: { midGain: -5, midFreq: 700, midQ: 1 } },
+        REVERB_NOTCH,
       ],
       melody: [
         { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -3, midFreq: 2800, midQ: 1, highGain: -2, highFreq: 6000, lpFreq: 9500 } },
         { kind: 'stereo', params: { width: 0.35, gain: 1, monoBelow: 0 } },
         { kind: 'reverb', params: { size: 0.5, damp: 0.55, width: 0.5, predelay: 0.02 } },
-        ...REVERB_NOTCHES,
+        REVERB_NOTCH,
       ],
       // La caja de los 2000 llevaba su placa (~0,8 s).
       // La caja tiene parciales fijos en 13.364 Hz (+27 dB) y 15.429 Hz (+28): el 80 %
       // de la resonancia de 13,4 kHz del beat. Y su anillo de 3.844 Hz, el 31 % de la de 3,9.
       snare: [
-        // Techo a 12 kHz, 24 dB/oct: el clap brillaba en 14,8-15,4 kHz (+10-11 dB).
+        // Techo a 12 kHz, 24 dB/oct (dos pasos bajos): el clap brillaba en 14,8-15,4 kHz
+        // (+10-11 dB) y la caja tenía parciales en 13.364 y 15.429 Hz.
         { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6, highGain: 2, highFreq: 6000, lpFreq: 12000 } },
-        { kind: 'eq', params: { lpFreq: 12000 } },
-        { kind: 'eq', params: { midGain: -12, midFreq: 13364, midQ: 10 } },
         // El crack de la caja: presencia en 2,4 kHz (el beat iba 5 dB bajo el moderno en 2-6 kHz).
-        { kind: 'eq', params: { midGain: 4, midFreq: 2400, midQ: 0.8 } },
-        // El clap resuena en 4.735 Hz (+10-11 dB en los tres renders).
-        { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } },
+        { kind: 'eq', params: { midGain: 4, midFreq: 2400, midQ: 0.8, lpFreq: 12000 } },
+        // El clap resuena en 4.735 Hz (+10-11 dB). Esta muesca era la QUINTA EQ de la caja y no
+        // sonaba: un canal tiene 4 insertos. Por eso «volvía» el pico.
+        { kind: 'eq', params: { midGain: -10, midFreq: 4735, midQ: 5 } },
         // Sin reverb (la del motor pitaba en 8,1 kHz, como en el boom bap) y sin delay: el
         // ping-pong de 1/16 retrasaba el canal derecho una semicorchea y cada golpe del dembow sonaba dos veces.
       ],
@@ -802,6 +805,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         // Los +5 dB de verdad: el volumen de un instrumento tiene tope 1,2 en el compositor y no
         // llegaba. La ganancia va por el inserto estéreo (x1,8).
         { kind: 'stereo', params: { width: 1, gain: 1.8, monoBelow: 0 } },
+        // El aire en 9 kHz levantaba un pico propio del supersaw en 4.549 Hz (+11,5 dB).
+        { kind: 'eq', params: { midGain: -5, midFreq: 4549, midQ: 6 } },
       ],
       melody: [
         { kind: 'eq', params: { hpFreq: 300, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 7000, lpFreq: 11000 } },
@@ -809,7 +814,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 0.9, predelay: 0.02 } },
       ],
       // El clap resuena en 4.735 Hz (era él, no el rim).
-      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } }, { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6 } }, ...AIR_CAP(13000)],
+      snare: [
+        { kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1, lpFreq: 13000 } },
+        { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6, lpFreq: 13000 } },
+        { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6 } },
+      ],
       hats: AIR_CAP(12000),
       // El rim resonaba en 4.735 y 6.853 Hz.
       perc: [{ kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6, lpFreq: 12000 } }, { kind: 'eq', params: { midGain: -6, midFreq: 6853, midQ: 6, lpFreq: 12000 } }],
@@ -1090,7 +1099,8 @@ const TRAP_DURO: GenrePreset = {
     ...GENRE_PRESETS.trap.sounds,
     bass: [
       // El 808 manda (en el type beat de Esbabyface de tus referencias el sub va 9 dB sobre el resto).
-      // -2 dB: el 808 volvía a quedar por encima del bombo mientras golpea (+1,3 a +2,7 dB).
+      // -2 dB: el 808 quedaba por encima del bombo mientras golpea (+1,3 a +2,7 dB). La otra
+      // mitad del problema era el sidechain perdido (quinto inserto del canal).
       { kind: 'sub808', params: { decay: 1.5, drive: 0.55, glide: 0.1, punch: 0.75, tone: 1200 }, volume: 0.68 },
       { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.68 },
     ],
@@ -1112,21 +1122,22 @@ const TRAP_DURO: GenrePreset = {
     ...GENRE_PRESETS.trap.fx,
     // El bombo era el 60 % de 250 Hz-1 kHz (+9 dB de medios frente al type beat de Esbabyface).
     kick: [{ kind: 'distortion', params: { drive: 0.3, tone: 5000, output: 0.9 } }, { kind: 'eq', params: { midGain: -6, midFreq: 380, midQ: 0.9 } }],
-    // Caja y hats: 24 dB/oct a 12,5 kHz (silbidos metálicos de +9-12 dB en 13,6-15,3 kHz) y +2 dB en 8 kHz.
-    hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, lpFreq: 12500 } }, { kind: 'eq', params: { lpFreq: 12500 } }],
+    // Caja y hats: 24 dB/oct a 12 kHz (silbidos metálicos de +9-12 dB en 13,6-15,3 kHz) y +2 dB en 8 kHz.
+    hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, lpFreq: 12000 } }, { kind: 'eq', params: { lpFreq: 12000 } }],
     snare: [
-      { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 5000, lpFreq: 12500 } },
+      { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 5000, lpFreq: 12000 } },
       // La caja/clap de trap resuena en 3,8 y 4,57 kHz.
-      { kind: 'eq', params: { midGain: -6, midFreq: 3820, midQ: 6, lpFreq: 12500 } },
+      { kind: 'eq', params: { midGain: -6, midFreq: 3820, midQ: 6, lpFreq: 12000 } },
       { kind: 'eq', params: { midGain: -6, midFreq: 4573, midQ: 6 } },
     ],
     // La distorsión del 808 llenaba los medios (+10 dB en 250 Hz-1 kHz frente a la
     // referencia, siguiendo al grave con r = 0,97): paso bajo a 1,2 kHz y valle en 400.
     bass: [
       { kind: 'distortion', params: { drive: 0.3, tone: 3500, output: 0.9 } },
-      { kind: 'eq', params: { midGain: -5, midFreq: 400, midQ: 1, lpFreq: 1200 } },
-      // Con el bombo ya limpio, el 808 era el que llenaba 250 Hz-1 kHz (29-47 %).
-      { kind: 'eq', params: { midGain: -4, midFreq: 550, midQ: 0.7 } },
+      // Con el bombo ya limpio, el 808 era el que llenaba 250 Hz-1 kHz (29-47 %): un valle
+      // ancho de 400 a 550. Cuatro insertos como mucho: con cinco, el sidechain (el quinto)
+      // no llegaba al canal, y por eso el 808 tapaba al bombo.
+      { kind: 'eq', params: { midGain: -6, midFreq: 470, midQ: 0.6, lpFreq: 1200 } },
       { kind: 'eq', params: { lpFreq: 1200 } },
       DUCK_SOFT,
     ],
@@ -1141,7 +1152,7 @@ const TRAP_DURO: GenrePreset = {
   },
   // El hat-03 tenía picos metálicos fijos (+10 dB en 9,7, 10,7 y 13,6 kHz).
   drumKit: { ...GENRE_PRESETS.trap.drumKit, [HAT]: ['drums/trap/hat-01'] },
-  master: [MONO_LOW, LIMITER_TP(0)],
+  master: [MONO_LOW, LIMITER_TP(1.5)],
   // La forma larga con breakdown (2:08 a 150).
   shapes: [5],
 };
@@ -1155,7 +1166,7 @@ const TRAP_CRUDO: GenrePreset = {
   // arrancaba al nivel del cuerpo y el primer hook no subía. Entra en su segunda mitad.
   bass: { ...TRAP_DURO.bass, inIntro: 0.5 },
   drumMix: { kick: 1.05, snare: 1.05, hats: 0.7, perc: 0.65 },
-  master: [MONO_LOW, LIMITER_TP(-0.5)],
+  master: [MONO_LOW, LIMITER_TP(1.5)],
 };
 
 export const GENRE_VARIANTS: Partial<Record<ComposerGenre, readonly GenreVariant[]>> = {
