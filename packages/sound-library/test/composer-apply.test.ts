@@ -111,3 +111,21 @@ describe('instrumentos grabados de fábrica en el proyecto', () => {
     for (const z of keymap) expect(store.project.samples[z.sampleId], z.sampleId).toBeDefined();
   });
 });
+
+describe('sidechain del bajo al bombo', () => {
+  it('el compresor del 808 escucha la pista de mixer del bombo', () => {
+    for (const genre of ['trap', 'reggaeton'] as const) {
+      const store = new ProjectStore();
+      const { commands, applied } = planToCommands(store.project, composeBeat({ genre, seed: 1 }));
+      store.dispatch({ type: 'batch', commands });
+      const kick = applied.parts.find((a) => a.role === 'kick')!;
+      const bass = applied.parts.find((a) => a.role === 'bass')!;
+      expect(kick.mixerTrack).toBeGreaterThan(0);
+      const slots = store.project.channels[bass.channelId]!.fx ?? [];
+      const comp = slots.find((sl) => sl?.kind === 'compressor');
+      expect(comp, genre).toBeDefined();
+      expect(comp!.sidechainSource, genre).toBe(kick.mixerTrack);
+    }
+  });
+});
+

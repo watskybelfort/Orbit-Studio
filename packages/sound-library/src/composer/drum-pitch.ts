@@ -1,7 +1,7 @@
 /**
  * Altura medida de los bombos de fábrica (nota MIDI con decimales, C5 = 60):
- * pico del espectro entre 30 y 150 Hz en el cuerpo del golpe (30-250 ms tras
- * el ataque). Sale de medir los WAV que genera `generate/generate.ts`; si un
+ * pico del espectro entre 30 y 150 Hz en la cola ya asentada del golpe
+ * (80-350 ms tras el ataque, con interpolación parabólica del pico). Sale de medir los WAV que genera `generate/generate.ts`; si un
  * bombo se regenera con otra afinación, hay que volver a medirlo.
  *
  * Sirve para afinar el bombo a la tonalidad del beat: un bombo en La natural
@@ -9,16 +9,16 @@
  * bate contra el 808 (lo midió el crítico: batidos de 32-113 cents).
  */
 export const DRUM_PITCH: Readonly<Record<string, number>> = {
-  'drums/boombap/kick-01': 34.57,
-  'drums/boombap/kick-02': 34.57,
-  'drums/boombap/kick-03': 34.57,
-  'drums/neoperreo/kick-01': 33.16,
-  'drums/neoperreo/kick-02': 32.74,
-  'drums/reggaeton/kick-01': 33.47,
-  'drums/reggaeton/kick-02': 33.98,
-  'drums/trap/kick-01': 32.41,
-  'drums/trap/kick-02': 34.57,
-  'drums/trap/kick-03': 33.37,
+  'drums/boombap/kick-01': 34.51,
+  'drums/boombap/kick-02': 34.51,
+  'drums/boombap/kick-03': 34.51,
+  'drums/neoperreo/kick-01': 33.03,
+  'drums/neoperreo/kick-02': 32.68,
+  'drums/reggaeton/kick-01': 33.32,
+  'drums/reggaeton/kick-02': 33.92,
+  'drums/trap/kick-01': 32.36,
+  'drums/trap/kick-02': 34.51,
+  'drums/trap/kick-03': 33.31,
 };
 
 /**

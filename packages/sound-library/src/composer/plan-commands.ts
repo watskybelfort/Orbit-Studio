@@ -115,14 +115,16 @@ function toNote(n: PlanNote): Note {
   };
 }
 
-function effectSlot(fx: FxChoice): EffectSlot {
-  return {
+function effectSlot(fx: FxChoice, sidechainSource?: number): EffectSlot {
+  const slot: EffectSlot = {
     id: newId(),
     kind: fx.kind,
     enabled: true,
     mix: 1,
     params: { ...defaultEffectParams(fx.kind), ...fx.params },
   };
+  if (sidechainSource !== undefined) slot.sidechainSource = sidechainSource;
+  return slot;
 }
 
 /** Compás donde acaba lo que ya hay en la playlist activa (0 si está vacía). */
@@ -149,7 +151,10 @@ function soundSampleIds(part: PlanPart): string[] {
   ];
 }
 
-function channelFor(part: PlanPart, index: number): Channel {
+/** Pista de mixer de cada parte ya montada (para resolver los sidechain). */
+type MixerOf = (role: PlanPart['role']) => number | undefined;
+
+function channelFor(part: PlanPart, index: number, mixerOf: MixerOf = () => undefined): Channel {
   const channel = createChannel(part.sound.kind, index, part.name);
   const { preset } = part.sound;
   if (part.sound.kind === 'sampler' && part.sound.samples) {
@@ -193,7 +198,10 @@ function channelFor(part: PlanPart, index: number): Channel {
   // Los insertos de la parte van en el propio canal: siempre hay sitio (cuatro
   // ranuras) y viajan con él si se copia a otro proyecto.
   part.fx.slice(0, channel.fx?.length ?? 4).forEach((fx, i) => {
-    if (channel.fx) channel.fx[i] = effectSlot(fx);
+    // Un sidechain solo vale si la parte que lo alimenta tiene su propio
+    // inserto: escuchar el master (0) agacharía el bajo con todo el beat.
+    const source = fx.sidechainFrom ? mixerOf(fx.sidechainFrom) : undefined;
+    if (channel.fx) channel.fx[i] = effectSlot(fx, source !== undefined && source > 0 ? source : undefined);
   });
   return channel;
 }
@@ -245,11 +253,13 @@ export function planToCommands(project: Project, plan: BeatPlan, opts: ApplyPlan
   const seenSamples = new Set<string>();
   let patternIndex = 0;
 
+  const mixerByRole = new Map<PlanPart['role'], number>();
   plan.parts.forEach((part, i) => {
     const ids = soundSampleIds(part);
     if (ids.length > 0) commands.push(...registerSamples(project, ids, seenSamples, samples));
-    const channel = channelFor(part, channelBase + i);
+    const channel = channelFor(part, channelBase + i, (role) => mixerByRole.get(role));
     const mixerTrack = freeMixer.shift() ?? 0;
+    mixerByRole.set(part.role, mixerTrack);
     channel.mixerTrack = mixerTrack;
     commands.push({ type: 'addChannel', channel });
     if (mixerTrack > 0) {

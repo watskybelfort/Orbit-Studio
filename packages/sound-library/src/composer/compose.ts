@@ -502,6 +502,10 @@ function drumPart(
       }
       notes.push(...hatRoll(b, beat, key, rng).filter((n) => n.start < (b + 1) * BEATS_PER_BAR));
     }
+    // La entrada del hook se marca: hat abierto en el 1 de su primer compás.
+    if (lane === 'hats' && kind === 'hook' && b === 0 && preset.drums.keys.openhat !== undefined) {
+      notes.push({ start: 0, duration: 0.9, key: preset.drums.keys.openhat, velocity: 0.75 });
+    }
     // Hat abierto a contratiempo.
     if (lane === 'hats' && preset.drums.keys.openhat !== undefined && (isFull(kind) || kind === 'break')) {
       if (rng.chance(preset.drums.openHats)) {
@@ -620,7 +624,7 @@ function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
         }
         notes.push({
           start: barStart + step * STEP,
-          duration: round3(style === 'sub' ? Math.min(len * 0.85, 0.75) : Math.max(STEP, len * 0.96)),
+          duration: round3(style === 'sub' ? Math.min(len * 0.85, preset.bass.maxLen ?? 0.75) : Math.max(STEP, len * 0.96)),
           key,
           velocity: round3(idx === 0 ? 0.95 : rng.range(0.78, 0.9)),
           ...(slide ? { slide: true } : null),

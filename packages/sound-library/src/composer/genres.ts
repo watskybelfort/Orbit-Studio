@@ -76,6 +76,12 @@ export interface SoundChoice {
 export interface FxChoice {
   kind: 'eq' | 'compressor' | 'limiter' | 'reverb' | 'delay' | 'distortion' | 'bitcrush' | 'chorus' | 'vinyl' | 'stereo' | 'autofilter';
   params: Record<string, number>;
+  /**
+   * Solo compresor: la parte cuya pista de mixer alimenta el detector (el
+   * sidechain). Al montar el beat se resuelve a la pista que le tocó a esa
+   * parte; si el beat no la tiene, el compresor escucha su propia señal.
+   */
+  sidechainFrom?: ComposerRole;
 }
 
 export type BassStyle =
@@ -146,7 +152,8 @@ export interface GenrePreset {
     snareFills?: boolean;
   };
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). */
-  bass: { style: BassStyle; glide: number; octave: number; hits?: number[] };
+  /** `hits`: pasos fijos del bajo (si no, sigue al bombo). `maxLen`: tope de duración de la nota del bajo `sub`, en tiempos. */
+  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
   /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
   /** `sparseVerse`: en el verso, el rasgueo `perreo` deja huecos para la voz. */
@@ -232,6 +239,16 @@ const LIMITER = (gain: number, ceiling = -1): FxChoice => ({ kind: 'limiter', pa
  * en 21,7 kHz: era el «agudo raro» y, de paso, lo que hacía subir el true peak
  * del master entre 0,8 y 1,6 dB por encima del pico de muestra.
  */
+/**
+ * El bajo/808 se agacha cuando pega el bombo: sidechain clásico (4-6 dB, ataque
+ * rápido, suelta en ~70 ms). Sin él el 808 tapaba al bombo +6,9 dB en 30-160 Hz.
+ */
+const DUCK_FROM_KICK: FxChoice = {
+  kind: 'compressor',
+  params: { threshold: -26, ratio: 6, attack: 0.002, release: 0.07, knee: 3, makeup: 0 },
+  sidechainFrom: 'kick',
+};
+
 const AIR_CAP = (hz: number): FxChoice[] => [
   { kind: 'eq', params: { lpFreq: hz } },
   { kind: 'eq', params: { lpFreq: hz } },
@@ -311,7 +328,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       fx: [{ kind: 'sampler', volume: 0.45 }],
     },
     kit: { kit: 0, tone: 0.55, decay: 1, punch: 0.65 },
-    drumMix: { kick: 1, snare: 0.9, hats: 0.7, perc: 0.6 },
+    drumMix: { kick: 1.2, snare: 0.9, hats: 0.7, perc: 0.6 },
     fx: {
       melody: [
         // Un valle ancho en 2,6-2,8 kHz: ahí se apilaba un armónico del piano (+14 dB medido).
@@ -323,10 +340,12 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // El click del bombo (+5 dB en 3 kHz): sin él, el 808 se lo comía.
       // Los hats filtrados dejaban el trap apagado (-6 dB en 2-16 kHz frente a tus
       // beats): brillo en 7 kHz y el techo más arriba, sin volver al pico de 21,7 kHz.
+      // A 15 kHz el true peak volvía a subir 1 dB: 13,5 con el brillo en 7 kHz.
       hats: [
-        { kind: 'eq', params: { highGain: 3, highFreq: 7000, lpFreq: 15000 } },
-        { kind: 'eq', params: { lpFreq: 15000 } },
+        { kind: 'eq', params: { highGain: 3, highFreq: 7000, lpFreq: 13500 } },
+        { kind: 'eq', params: { lpFreq: 13500 } },
       ],
+      bass: [DUCK_FROM_KICK],
       snare: [{ kind: 'eq', params: { highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
     },
     master: [MONO_LOW, LIMITER(1.3, -2.5)],
@@ -376,7 +395,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [RIM]: ['percusion-latina/rim-01'],
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
-    bass: { style: 'sub', glide: 0.05, octave: 2 },
+    // Bajo corto (0,4 tiempos): con notas largas tapaba al bombo +7 dB.
+    bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.4 },
     chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true, sparseVerse: true },
     melody: { style: 'hook', density: 4, octave: 5, range: [60, 79], tune: true },
     sounds: {
@@ -401,14 +421,15 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
     // La caja del dembow tiene que mandar en medios: estaba 9,4 dB por debajo del bombo.
-    drumMix: { kick: 0.72, snare: 1.6, hats: 0.4, perc: 0.9 },
+    drumMix: { kick: 0.95, snare: 1.6, hats: 0.4, perc: 0.9 },
     fx: {
       // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
       // La nylon grabada es casi toda lateral (correlación 0,13): se estrecha para que no se pierda en mono.
       chords: [
         { kind: 'eq', params: { hpFreq: 200, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
-        { kind: 'stereo', params: { width: 0.55, gain: 1, monoBelow: 0 } },
+        { kind: 'stereo', params: { width: 0.3, gain: 1, monoBelow: 0 } },
       ],
+      bass: [DUCK_FROM_KICK],
       melody: [
         { kind: 'eq', params: { hpFreq: 220, midGain: -4, midFreq: 2500, midQ: 1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
         { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 1, predelay: 0.02 } },
@@ -583,14 +604,16 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       kick: [{ kind: 'eq', params: { hpFreq: 32, lowGain: 6, lowFreq: 55, midGain: -3, midFreq: 160, midQ: 1.2 } }],
       hats: AIR_CAP(11000),
       // Los Rhodes de séptimas apilaban 200-400 Hz (barro de -1 dB medido en solitario).
+      // Medios +4 dB en 250-500 y +7,6 en 1-2 kHz frente a tu boom bap: valle en 1,5 kHz.
       chords: [
         { kind: 'eq', params: { hpFreq: 280, midGain: -5, midFreq: 330, midQ: 0.9, highGain: -3, lpFreq: 8000 } },
+        { kind: 'eq', params: { midGain: -3, midFreq: 1500, midQ: 0.8 } },
         { kind: 'vinyl', params: {} },
       ],
-      melody: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 1800, midQ: 0.8, highGain: -2, lpFreq: 7000 } }],
+      melody: [{ kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 400, midGain: -3, midFreq: 1500, midQ: 0.8, highGain: -2, lpFreq: 7000 } }],
       // Sin reverb en la caja: la del motor sonaba a pitido en 4,6 y 13,4 kHz sobre una caja seca limpia.
       // Y fuera la caja de cartón (300 Hz): el crack va arriba, en 1,8 kHz.
-      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: 1, midFreq: 1800, midQ: 0.9 } }, ...AIR_CAP(12000)],
+      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: -2, midFreq: 1200, midQ: 0.9 } }, ...AIR_CAP(12000)],
     },
     master: [MONO_LOW, LIMITER(4.5, -2.5)],
     shapes: [3, 4],
