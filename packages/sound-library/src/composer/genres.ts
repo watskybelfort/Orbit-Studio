@@ -163,7 +163,8 @@ export interface GenrePreset {
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). `maxLen`: tope de duración de la nota del bajo `sub`, en tiempos. */
   /** `inIntro`: el bajo ya suena en la intro (por defecto la intro va sin bajo). */
   /** `lowKey`: tecla más grave del bajo (por defecto 27, Re#1); el registro es `lowKey`..`lowKey + 11`. */
-  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number; inIntro?: boolean; lowKey?: number };
+  /** `inIntro` numérico (0..1): el bajo entra en esa fracción final de la intro, para que suba hacia el hook. */
+  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number; inIntro?: boolean | number; lowKey?: number };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
   /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
   /** `sparseVerse`: en el verso, el rasgueo `perreo` deja huecos para la voz. */
@@ -649,7 +650,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       ],
       melody: [
         // El piano suave grabado: el brillante tenía parciales fijos en 2.649 y 5.243 Hz (+17 dB).
-        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.75 },
+        // Con ganancia 2 iba a -7 LUFS, casi el nivel del beat entero: -8 dB.
+        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 1 }, volume: 0.6 },
         // Sin el supersaw: su centroide en 4 kHz era justo el agudo raro que ya vetaste.
         { kind: 'prisma', preset: 'strings/violin-solo', volume: 0.45 },
         { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.45 },
@@ -691,6 +693,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'eq', params: { midGain: -12, midFreq: 13364, midQ: 10 } },
         // El crack de la caja: presencia en 2,4 kHz (el beat iba 5 dB bajo el moderno en 2-6 kHz).
         { kind: 'eq', params: { midGain: 4, midFreq: 2400, midQ: 0.8 } },
+        // El clap resuena en 4.735 Hz (+10-11 dB en los tres renders).
+        { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } },
         // Sin reverb (la del motor pitaba en 8,1 kHz, como en el boom bap) y sin delay: el
         // ping-pong de 1/16 retrasaba el canal derecho una semicorchea y cada golpe del dembow sonaba dos veces.
       ],
@@ -701,7 +705,9 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       hats: [
         { kind: 'eq', params: { highGain: 3, highFreq: 7000, midGain: -8, midFreq: 9700, midQ: 8, lpFreq: 13000 } },
         { kind: 'eq', params: { midGain: -8, midFreq: 13600, midQ: 8, lpFreq: 13000 } },
-        { kind: 'eq', params: { midGain: -8, midFreq: 14150, midQ: 8 } },
+        { kind: 'eq', params: { midGain: -8, midFreq: 14150, midQ: 8, lpFreq: 11000 } },
+        // Quedaban picos en 11,96 y 15,85 kHz: techo a 11 kHz, 24 dB/oct.
+        { kind: 'eq', params: { lpFreq: 11000 } },
       ],
       // El bombo daba el 53 % de 250 Hz-1 kHz.
       kick: [{ kind: 'eq', params: { midGain: -4, midFreq: 350, midQ: 1 } }],
@@ -790,13 +796,17 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       chords: [
         { kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 350, midGain: -2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 8000, lpFreq: 13000 } },
         { kind: 'reverb', params: { size: 0.55, damp: 0.6, width: 0.8, predelay: 0.02 } },
+        // Los +5 dB de verdad: el volumen de un instrumento tiene tope 1,2 en el compositor y no
+        // llegaba. La ganancia va por el inserto estéreo (x1,8).
+        { kind: 'stereo', params: { width: 1, gain: 1.8, monoBelow: 0 } },
       ],
       melody: [
         { kind: 'eq', params: { hpFreq: 300, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 7000, lpFreq: 11000 } },
         { kind: 'delay', params: { time: 4, feedback: 0.3, pingpong: 1, filter: 3500 } },
         { kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 0.9, predelay: 0.02 } },
       ],
-      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, ...AIR_CAP(13000)],
+      // El clap resuena en 4.735 Hz (era él, no el rim).
+      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } }, ...AIR_CAP(13000)],
       hats: AIR_CAP(12000),
       // El rim resonaba en 4.735 y 6.853 Hz.
       perc: [{ kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6, lpFreq: 12000 } }, { kind: 'eq', params: { midGain: -6, midFreq: 6853, midQ: 6, lpFreq: 12000 } }],
@@ -1106,17 +1116,22 @@ const TRAP_DURO: GenrePreset = {
     hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, lpFreq: 12500 } }, { kind: 'eq', params: { lpFreq: 12500 } }],
     snare: [
       { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 8000, lpFreq: 12500 } },
-      { kind: 'eq', params: { lpFreq: 12500 } },
+      // La caja/clap de trap resuena en 3,8 y 4,57 kHz.
+      { kind: 'eq', params: { midGain: -6, midFreq: 3820, midQ: 6, lpFreq: 12500 } },
+      { kind: 'eq', params: { midGain: -6, midFreq: 4573, midQ: 6 } },
     ],
     // La distorsión del 808 llenaba los medios (+10 dB en 250 Hz-1 kHz frente a la
     // referencia, siguiendo al grave con r = 0,97): paso bajo a 1,2 kHz y valle en 400.
     bass: [
       { kind: 'distortion', params: { drive: 0.3, tone: 3500, output: 0.9 } },
       { kind: 'eq', params: { midGain: -5, midFreq: 400, midQ: 1, lpFreq: 1200 } },
+      // Con el bombo ya limpio, el 808 era el que llenaba 250 Hz-1 kHz (29-47 %).
+      { kind: 'eq', params: { midGain: -4, midFreq: 550, midQ: 0.7 } },
       { kind: 'eq', params: { lpFreq: 1200 } },
       DUCK_SOFT,
     ],
-    chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 4500 } }],
+    // El colchón era casi todo picos tonales en 2-3,5 kHz (+12-13 dB): techo a 1,8 kHz.
+    chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 1800 } }, { kind: 'eq', params: { lpFreq: 1800 } }],
     melody: [
       { kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 2800, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
       { kind: 'reverb', params: { size: 0.5, damp: 0.7, width: 0.5, predelay: 0.02 } },
@@ -1134,8 +1149,9 @@ const TRAP_CRUDO: GenrePreset = {
   ...TRAP_DURO,
   description: 'Trap sin melodía a 150: solo batería dura, 808 sucio que desliza y FX. Nada que le pise la voz.',
   sounds: { ...TRAP_DURO.sounds, chords: [], melody: [] },
-  // Sin melodía, la intro eran 8 compases a -30 LUFS (13 s casi en silencio): el 808 ya entra en ella.
-  bass: { ...TRAP_DURO.bass, inIntro: true },
+  // Sin melodía, la intro eran 8 compases a -30 LUFS (13 s casi en silencio); con el 808 entero
+  // arrancaba al nivel del cuerpo y el primer hook no subía. Entra en su segunda mitad.
+  bass: { ...TRAP_DURO.bass, inIntro: 0.5 },
   drumMix: { kick: 1.05, snare: 1.05, hats: 0.7, perc: 0.65 },
   master: [MONO_LOW, LIMITER_TP(-0.5)],
 };

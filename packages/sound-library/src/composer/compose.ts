@@ -653,15 +653,19 @@ function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: nu
 
 function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: number): PlanNote[] {
   const base = densityOf(kind);
-  // La intro de un género con `inIntro` ya lleva el bajo entero.
-  const density = kind === 'intro' && ctx.preset.bass.inIntro ? { ...base, bass: 1 } : base;
+  // La intro de un género con `inIntro` lleva el bajo (entero, o su fracción final si es un número).
+  const inIntro = ctx.preset.bass.inIntro;
+  const introBass = inIntro === true ? 1 : typeof inIntro === 'number' ? clamp(inIntro, 0, 1) : 0;
+  const density = kind === 'intro' && introBass > 0 ? { ...base, bass: introBass } : base;
   if (density.bass <= 0) return [];
   const { preset, keyRoot, scale } = ctx;
   const rng = ctx.rng.fork(`bass-${kind}-${bars}-${sectionStartBar}`);
   const style = preset.bass.style;
   const notes: PlanNote[] = [];
   const activeBars = density.bass < 1 ? Math.max(1, Math.round(bars * density.bass)) : bars;
-  for (let b = 0; b < activeBars; b++) {
+  // En la intro con `inIntro` fraccionario el bajo ocupa los ÚLTIMOS compases: entra y empuja al hook.
+  const firstBar = kind === 'intro' && introBass > 0 && introBass < 1 ? bars - activeBars : 0;
+  for (let b = firstBar; b < firstBar + activeBars; b++) {
     const degree = chordAt(ctx, sectionStartBar + b);
     const root = bassKey(keyRoot, degreePc(scale, degree), preset.bass.lowKey);
     const fifth = bassKey(keyRoot, degreePc(scale, degree + 4), preset.bass.lowKey);
