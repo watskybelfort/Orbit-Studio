@@ -24,7 +24,7 @@ import * as syncProtocol from 'y-protocols/sync';
 import * as awarenessProtocol from 'y-protocols/awareness';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
-import { MESSAGE_CONTROL, encodeControl, parseControl, type ControlMessage } from '@orbit/collab';
+import { MESSAGE_CONTROL, parseControl, type ControlMessage } from '@orbit/collab';
 import { startServer, type ServerHandle } from '../src/index';
 
 const ROOM = 'D5K2QW';

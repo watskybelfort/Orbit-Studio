@@ -11,7 +11,7 @@ import {
   rm,
   stat,
 } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve as resolvePath } from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { lookup } from 'node:dns/promises';

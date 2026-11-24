@@ -17,7 +17,7 @@
  * Node (`packages/ui/test/plugin-view-list.test.ts`).
  */
 
-import { OP, PALETTE_SLOTS, VIEW_MAX_LABELS } from './view-protocol';
+import { OP, VIEW_MAX_LABELS } from './view-protocol';
 
 export class DrawRecorder {
   /** Buffer donde se anota. Preasignado por quien construye el recorder. */
@@ -180,6 +180,3 @@ export class DrawRecorder {
     return this.stroke();
   }
 }
-
-/** Número de slots de paleta, reexportado para quien construya una vista. */
-export const PALETTE_COUNT = PALETTE_SLOTS;

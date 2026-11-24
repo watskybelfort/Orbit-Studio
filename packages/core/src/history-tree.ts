@@ -151,15 +151,6 @@ export function branchChain(
   return null;
 }
 
-/** ¿Se puede volver a esta rama ahora mismo? */
-export function isBranchReachable(
-  branches: readonly HistoryBranch[],
-  id: string,
-  inTrunk: (entryId: string) => boolean,
-): boolean {
-  return branchChain(branches, id, inTrunk) !== null;
-}
-
 /**
  * Monta la vista del árbol: el tronco tal cual lo da `historyView()` más las
  * ramas resueltas (dónde cuelgan, a qué profundidad y si se puede volver).

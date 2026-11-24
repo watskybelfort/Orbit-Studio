@@ -94,6 +94,7 @@ import {
 import {
   ToolError,
   asObject,
+  describeArg,
   reqString,
   optString,
   MAX_NOTES_PER_CALL,
@@ -552,10 +553,20 @@ export class ToolExecutor {
       }
       let key = optNumber(n, 'key');
       const noteName = optString(n, 'note');
-      if (key === undefined && noteName !== undefined) key = noteToMidi(noteName);
+      if (key === undefined && noteName !== undefined) {
+        // `noteToMidi` lanza un Error a secas ("Nota inválida: X"): aquí se
+        // reescribe para decir en QUÉ nota de la lista falla y qué formas vale.
+        try {
+          key = noteToMidi(noteName);
+        } catch {
+          throw new ToolError(
+            `Nota ${i}: "${noteName}" no es un nombre de nota válido (usa "F2", "A#4" o "Bb3")`,
+          );
+        }
+      }
       if (key === undefined) throw new ToolError(`Nota ${i}: falta "key" (MIDI) o "note" ("F2")`);
-      if (key < 0 || key > 127 || !Number.isInteger(key)) {
-        throw new ToolError(`Nota ${i}: key ${key} fuera de rango MIDI 0..127`);
+      if (!Number.isInteger(key) || key < 0 || key > 127) {
+        throw new ToolError(`Nota ${i}: "key" debe ser un entero MIDI 0..127 (llegó ${key})`);
       }
       return {
         id: newId(),
@@ -635,7 +646,15 @@ export class ToolExecutor {
       zones = spreadKeymapRanges(
         samples.map((s, i) => {
           const root = roots[i];
-          if (typeof root !== 'number') throw new ToolError(`roots[${i}] no es un número`);
+          // El esquema de la tool promete entero 0..127. Antes solo se miraba
+          // que fuera número y `createKeymapZone` recortaba lo demás en
+          // silencio: un `roots: [200]` acababa en la tecla 127 y un 60.5 se
+          // redondeaba sin que el que llamó se enterara.
+          if (typeof root !== 'number' || !Number.isInteger(root) || root < 0 || root > 127) {
+            throw new ToolError(
+              `roots[${i}] debe ser un entero MIDI 0..127 (llegó ${describeArg(root)})`,
+            );
+          }
           return createKeymapZone(s.id, { keyRoot: root });
         }),
       );
@@ -809,8 +828,10 @@ export class ToolExecutor {
     const pattern = createPattern(this.project.patternOrder.length, optString(a, 'name'));
     const length = optNumber(a, 'length');
     if (length !== undefined) {
-      if (length <= 0 || length > MAX_BEATS) {
-        throw new ToolError(`length debe estar entre 0 y ${MAX_BEATS} beats`);
+      // El rango anterior decía "entre 0 y N" y luego rechazaba el 0: el
+      // mensaje anunciaba un valor que la comprobación no admite.
+      if (!(length > 0) || length > MAX_BEATS) {
+        throw new ToolError(`length debe ser > 0 y como máximo ${MAX_BEATS} beats (llegó ${length})`);
       }
       pattern.length = length;
     }
@@ -1045,7 +1066,7 @@ export class ToolExecutor {
       throw new ToolError(`Demasiados puntos (${rawPoints.length} > ${MAX_POINTS})`);
     }
     const points: AutomationPoint[] = rawPoints
-      .map((raw, i) => {
+      .map((raw) => {
         const o = asObject(raw);
         const time = boundedNumber(o, 'time', 0, MAX_BEATS);
         return {

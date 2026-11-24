@@ -485,6 +485,28 @@ describe('set_keymap', () => {
     ).rejects.toThrow();
   });
 
+  it('se queja de una raíz fuera del teclado en vez de recortarla en silencio', async () => {
+    // El esquema de la tool promete entero 0..127; antes solo se miraba que
+    // fuera número y `createKeymapZone` recortaba: 200 acababa en la tecla 127.
+    const { store, executor } = setup();
+    await addChannel(executor, store, 'sampler', 'Kit');
+    withSamples(store, ['a.wav', 'b.wav']);
+    await expect(
+      executor.execute('set_keymap', {
+        channelId: 'Kit',
+        samples: ['a.wav', 'b.wav'],
+        roots: [40, 200],
+      }),
+    ).rejects.toThrow(/roots\[1\] debe ser un entero MIDI 0\.\.127 \(llegó 200\)/);
+    await expect(
+      executor.execute('set_keymap', {
+        channelId: 'Kit',
+        samples: ['a.wav', 'b.wav'],
+        roots: [40.5, 80],
+      }),
+    ).rejects.toThrow(/roots\[0\] debe ser un entero MIDI 0\.\.127/);
+  });
+
   it('todo el keymap es UN paso de undo', async () => {
     const { store, executor } = setup();
     const id = await addChannel(executor, store, 'sampler', 'Piano');
@@ -647,5 +669,53 @@ describe('load_sample: los canales de Claude son deshacibles', () => {
     await executor.execute('load_sample', { sonidos: ['Kick Rumble 01'], mixerTrack: 2 });
     const channelId = store.project.channelOrder[0]!;
     expect(store.project.channels[channelId]!.mixerTrack).toBe(2);
+  });
+});
+
+describe('mensajes de error: dicen en qué nota y con qué rango', () => {
+  it('set_notes señala el índice y el nombre cuando la nota no se entiende', async () => {
+    const { store, executor, patternId } = setup();
+    const channelId = await addChannel(executor, store, 'sub808', '808');
+    await expect(
+      executor.execute('set_notes', {
+        patternId,
+        channelId,
+        notes: [
+          { start: 0, duration: 1, note: 'F2' },
+          { start: 1, duration: 1, note: 'H2' },
+        ],
+      }),
+    ).rejects.toThrow(/Nota 1: "H2" no es un nombre de nota válido/);
+    // Y nada se escribe si una nota de la lista falla.
+    expect(store.project.patterns[patternId]!.notes[channelId] ?? []).toHaveLength(0);
+  });
+
+  it('set_notes distingue un key no entero de uno fuera de rango', async () => {
+    const { store, executor, patternId } = setup();
+    const channelId = await addChannel(executor, store, 'sub808', '808');
+    await expect(
+      executor.execute('set_notes', {
+        patternId,
+        channelId,
+        notes: [{ start: 0, duration: 1, key: 60.5 }],
+      }),
+    ).rejects.toThrow(/Nota 0: "key" debe ser un entero MIDI 0\.\.127 \(llegó 60\.5\)/);
+    await expect(
+      executor.execute('set_notes', {
+        patternId,
+        channelId,
+        notes: [{ start: 0, duration: 1, key: 128 }],
+      }),
+    ).rejects.toThrow(/Nota 0: "key" debe ser un entero MIDI 0\.\.127/);
+  });
+
+  it('add_pattern anuncia el rango que de verdad exige (el 0 no vale)', async () => {
+    const { executor } = setup();
+    await expect(executor.execute('add_pattern', { length: 0 })).rejects.toThrow(
+      /length debe ser > 0 y como máximo \d+ beats \(llegó 0\)/,
+    );
+    await expect(executor.execute('add_pattern', { length: 100_001 })).rejects.toThrow(
+      /length debe ser > 0 y como máximo/,
+    );
   });
 });

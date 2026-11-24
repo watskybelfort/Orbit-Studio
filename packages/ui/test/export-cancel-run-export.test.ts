@@ -25,7 +25,6 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { ExportOptions } from '../src/export/run-export';
 
 const renderStemsSpy = vi.fn();
 vi.mock('@orbit/engine', async () => {

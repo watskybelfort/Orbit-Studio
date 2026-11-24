@@ -97,8 +97,6 @@ interface ErrorMessage {
   message: string;
 }
 
-type WorkerMessage = DrawMessage | ErrorMessage;
-
 function isDrawMessage(m: unknown): m is DrawMessage {
   if (typeof m !== 'object' || m === null) return false;
   const o = m as Record<string, unknown>;

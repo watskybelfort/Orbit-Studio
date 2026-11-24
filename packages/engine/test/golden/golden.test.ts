@@ -20,7 +20,6 @@ import { compare, explain, METRIC_TOLERANCE_DB } from './fingerprint';
 import { BASELINE_FORMAT_VERSION, encodeFixture, renderFixture, type Baseline } from './run';
 import {
   BIT_EXACT_ARCHS,
-  describeRuntime,
   isBitExactVerified,
   unverifiedArchWarning,
 } from './platform';

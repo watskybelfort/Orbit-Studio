@@ -13,7 +13,6 @@ import { onsetEnvelope, type OnsetEnvelope } from './onset';
 import { detectKey, keyFromProfile, tonalProfile } from './key';
 import {
   analysisWindows,
-  clamp01,
   mixToMono,
   peakOf,
   resampleMono,
@@ -56,7 +55,7 @@ export function analyzeAudio(
   let tempoWindowSec = 0;
   const wholeEnvelope = onsetEnvelope(pcm, sr, { hop: 256, fftSize: 1024 });
   if (wholeEnvelope.values.length > 0) {
-    const picked = pickTempoWindow(wholeEnvelope, maxTempoSec, sr);
+    const picked = pickTempoWindow(wholeEnvelope, maxTempoSec);
     tempoWindowStart = picked.startSec;
     tempoWindowSec = picked.envelope.values.length / picked.envelope.rate;
     tempo = detectTempo(picked.envelope, {
@@ -175,7 +174,6 @@ export function estimateKey(
 function pickTempoWindow(
   env: OnsetEnvelope,
   maxSeconds: number,
-  sampleRate: number,
 ): { envelope: OnsetEnvelope; startSec: number; wholeFile: boolean } {
   const rate = env.rate;
   const maxFrames = Math.max(4, Math.floor(maxSeconds * rate));
@@ -222,9 +220,4 @@ function shiftTempo(tempo: TempoEstimate, offsetSec: number): TempoEstimate {
       beatTimes: tempo.grid.beatTimes.map((t) => t + offsetSec),
     },
   };
-}
-
-/** Normaliza una confianza para la UI (0..1, tres decimales). */
-export function displayConfidence(value: number): number {
-  return Math.round(clamp01(value) * 1000) / 1000;
 }

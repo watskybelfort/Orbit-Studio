@@ -103,6 +103,22 @@ describe('compose_beat', () => {
     expect(names).not.toContain('Melodía');
   });
 
+  it('shape "song" con loopBars compone un bucle de esos compases (decisión deliberada)', async () => {
+    // El esquema llama "song" a la forma completa, pero si además llegan
+    // compases de bucle lo que se pidió es el bucle: mandar la forma entera
+    // ignorando loopBars sería lo raro. Queda fijado para que nadie lo
+    // "arregle" sin decidirlo.
+    const { executor } = setup();
+    const loop4 = (await executor.execute('compose_beat', { genre: 'trap', seed: 2, shape: 'song', loopBars: 4 })).text;
+    expect(loop4).toMatch(/Forma: Drop 4c/);
+    // Y "loop" sin compases usa los 8 por defecto.
+    const loop8 = (await executor.execute('compose_beat', { genre: 'trap', seed: 2, shape: 'loop' })).text;
+    expect(loop8).toMatch(/Forma: Drop 8c/);
+    // Sin shape ni loopBars, la forma completa del género (más de una sección).
+    const song = (await executor.execute('compose_beat', { genre: 'trap', seed: 2, shape: 'song' })).text;
+    expect(song).toMatch(/Intro \d+c → .* → Final \d+c/);
+  });
+
   it('rechaza lo que no tiene sentido con un mensaje claro', async () => {
     const { executor } = setup();
     await expect(executor.execute('compose_beat', { genre: 'polka' })).rejects.toThrow(/genre/);

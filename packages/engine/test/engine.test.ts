@@ -4,7 +4,6 @@ import {
   createChannel,
   createEmptyProject,
   createLfo,
-  createPattern,
   defaultEffectParams,
   NOVA_CATEGORIES,
   NOVA_PRESETS,
