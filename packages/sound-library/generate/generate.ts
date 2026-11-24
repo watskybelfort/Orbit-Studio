@@ -185,6 +185,57 @@ function golpe(
   };
 }
 
+/**
+ * Canal de los sonidos que se añaden al final del pack, con su PROPIO contador
+ * de ids (como `efectoGenero`): colgarlos de `contador` correría los ids de
+ * todo lo que se genera después y cambiaría su audio.
+ */
+let contadorCanalGenero = 0;
+function canalGenero(kind: InstrumentKind, params: Record<string, number>, volume = 0.8): CompiledChannel {
+  return { ...canal(kind, params, volume), id: `ch-genero-${contadorCanalGenero++}` };
+}
+
+/** Como `golpe`, con `canalGenero`. */
+function golpeGenero(kit: number, key: number, p: { tone?: number; decay?: number; punch?: number }, masterSlots: CompiledEffect[], tail = 0.5): SonidoSpec['build'] {
+  return () => ({
+    project: proyecto({
+      tempo: 120,
+      lengthBeats: 8,
+      channels: [canalGenero('drums', { kit, tone: p.tone ?? 0.5, decay: p.decay ?? 1, punch: p.punch ?? 0.5 })],
+      events: [nota(0, 8, key, 1)],
+      masterSlots,
+    }),
+    tail,
+  });
+}
+
+/**
+ * Timbal: parche afinado (FM inarmónico, que es lo que le da el metal del
+ * casco) más el golpe del palo (un rim del kit latino). Los toms de
+ * `percusion-latina` están en 135-190 Hz; un timbal de verdad vive en
+ * 300-450 Hz y suena a lata, que es lo que se oye en los redobles del
+ * reggaetón de los 2000.
+ */
+function timbal(key: number, decay: number): SonidoSpec['build'] {
+  return () => ({
+    project: proyecto({
+      tempo: 120,
+      lengthBeats: 4,
+      channels: [
+        canalGenero('fm', { ratio: 2.33, index: 8, indexDecay: 0.07, attack: 0.001, decay, sustain: 0, release: 0.08, octave: 0 }, 0.8),
+        canalGenero('drums', { kit: 2, tone: 0.7, decay: 0.8, punch: 0.6 }, 0.8),
+      ],
+      events: [nota(0, 1, key, 1), { ...nota(0, 1, K.rim, 1), channelIndex: 1 }],
+      masterSlots: [
+        efectoGenero('eq', { hpFreq: 200, lowGain: -4, lowFreq: 350, midGain: 8, midFreq: 2600, midQ: 0.8, highGain: -2, highFreq: 9000, lpFreq: 12000 }),
+        efectoGenero('distortion', { drive: 0.12, tone: 6000, mode: 0, output: 1 }),
+      ],
+    }),
+    tail: 0.3,
+    maxSec: 0.9,
+  });
+}
+
 /** One-shot de 808: nota sostenida `hold` beats a 120 BPM. */
 function sub(
   key: number,
@@ -607,6 +658,27 @@ const SPECS: SonidoSpec[] = [
         exactSamples: Math.round(16 * (60 / 174) * SR),
       };
     }, { bpm: 174, keyRoot: 'E' }),
+
+  // ── Reggaetón de los 2000 (al final del pack: no mueve los ids de nada) ──
+  // El dembow de Luny Tunes / DJ Nelson: bombo que pega en medios (100-120 Hz,
+  // poco sub largo), caja brillante de crack (1,5-2 kHz, sin cartón) y
+  // timbales metálicos para los redobles de cierre de frase.
+  spec('drums/reggaeton/kick-2000', 'Kick Reggaeton 2000', 'drums', ['reggaeton', 'dembow', 'kick', 'old-school', '2000s', 'punchy'], 0.9,
+    golpeGenero(2, K.kick, { tone: 0.6, decay: 0.45, punch: 0.95 }, [
+      efectoGenero('eq', { hpFreq: 38, lowGain: -2, lowFreq: 50, midGain: 7, midFreq: 110, midQ: 1, lpFreq: 12000 }),
+      efectoGenero('eq', { midGain: -3, midFreq: 350, midQ: 1.2, highGain: 2, highFreq: 4000 }),
+      efectoGenero('distortion', { drive: 0.22, tone: 6000, mode: 0, output: 1 }),
+    ]), { subcategory: 'reggaeton' }),
+  spec('drums/reggaeton/snare-2000', 'Snare Reggaeton 2000', 'drums', ['reggaeton', 'dembow', 'snare', 'old-school', '2000s', 'crack', 'bright'], 0.85,
+    golpeGenero(2, K.snare, { tone: 0.75, decay: 0.55, punch: 0.85 }, [
+      efectoGenero('eq', { hpFreq: 170, lowGain: -3, lowFreq: 300, midGain: 4, midFreq: 1800, midQ: 0.9, lpFreq: 13000 }),
+      efectoGenero('eq', { highGain: 2, highFreq: 6000, lpFreq: 13000 }),
+      efectoGenero('distortion', { drive: 0.12, tone: 7000, mode: 0, output: 1 }),
+    ]), { subcategory: 'reggaeton' }),
+  spec('percusion-latina/timbal-alto-01', 'Timbal Alto Metálico', 'percusion-latina', ['latin', 'timbal', 'timbales', 'high', 'metallic', 'reggaeton'], 0.8,
+    timbal(68, 0.22)),
+  spec('percusion-latina/timbal-bajo-01', 'Timbal Bajo Metálico', 'percusion-latina', ['latin', 'timbal', 'timbales', 'low', 'metallic', 'reggaeton'], 0.8,
+    timbal(63, 0.26)),
 ];
 
 // ── Main ─────────────────────────────────────────────────────────────────────

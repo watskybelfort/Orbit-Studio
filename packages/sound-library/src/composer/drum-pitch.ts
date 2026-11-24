@@ -16,6 +16,7 @@ export const DRUM_PITCH: Readonly<Record<string, number>> = {
   'drums/neoperreo/kick-02': 32.68,
   'drums/reggaeton/kick-01': 33.32,
   'drums/reggaeton/kick-02': 33.92,
+  'drums/reggaeton/kick-2000': 34.51,
   'drums/trap/kick-01': 32.36,
   'drums/trap/kick-02': 34.51,
   'drums/trap/kick-03': 33.31,

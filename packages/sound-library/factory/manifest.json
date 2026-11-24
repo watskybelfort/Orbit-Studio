@@ -1081,6 +1081,73 @@
       "bpm": 174
     },
     {
+      "id": "drums/reggaeton/kick-2000",
+      "name": "Kick Reggaeton 2000",
+      "category": "drums",
+      "file": "drums/reggaeton/kick-2000.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "kick",
+        "old-school",
+        "2000s",
+        "punchy"
+      ],
+      "durationSec": 0.44,
+      "gainSuggestion": 0.9,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "drums/reggaeton/snare-2000",
+      "name": "Snare Reggaeton 2000",
+      "category": "drums",
+      "file": "drums/reggaeton/snare-2000.wav",
+      "tags": [
+        "reggaeton",
+        "dembow",
+        "snare",
+        "old-school",
+        "2000s",
+        "crack",
+        "bright"
+      ],
+      "durationSec": 0.237,
+      "gainSuggestion": 0.85,
+      "subcategory": "reggaeton"
+    },
+    {
+      "id": "percusion-latina/timbal-alto-01",
+      "name": "Timbal Alto Metálico",
+      "category": "percusion-latina",
+      "file": "percusion-latina/timbal-alto-01.wav",
+      "tags": [
+        "latin",
+        "timbal",
+        "timbales",
+        "high",
+        "metallic",
+        "reggaeton"
+      ],
+      "durationSec": 0.431,
+      "gainSuggestion": 0.8
+    },
+    {
+      "id": "percusion-latina/timbal-bajo-01",
+      "name": "Timbal Bajo Metálico",
+      "category": "percusion-latina",
+      "file": "percusion-latina/timbal-bajo-01.wav",
+      "tags": [
+        "latin",
+        "timbal",
+        "timbales",
+        "low",
+        "metallic",
+        "reggaeton"
+      ],
+      "durationSec": 0.5,
+      "gainSuggestion": 0.8
+    },
+    {
       "id": "instrumentos/piano-suave",
       "name": "Piano Suave",
       "category": "instrumentos",
