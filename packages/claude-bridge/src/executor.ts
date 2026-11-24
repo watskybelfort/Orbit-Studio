@@ -1045,7 +1045,7 @@ export class ToolExecutor {
       throw new ToolError(`Demasiados puntos (${rawPoints.length} > ${MAX_POINTS})`);
     }
     const points: AutomationPoint[] = rawPoints
-      .map((raw, i) => {
+      .map((raw) => {
         const o = asObject(raw);
         const time = boundedNumber(o, 'time', 0, MAX_BEATS);
         return {

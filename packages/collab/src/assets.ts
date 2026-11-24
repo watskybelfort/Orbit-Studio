@@ -672,8 +672,13 @@ function hex(bytes: Uint8Array): string {
  * `node:crypto`); aquí, en el renderer, hace falta algo síncrono y sin dependencias,
  * y comparar 16 MB en cada consulta sería criminal. Dos acumuladores distintos
  * (FNV-1a y una mezcla con signo) para que la unión sea de 64 bits y no de 32.
+ *
+ * Se exporta porque el servidor la necesita para las claves que no son un sha1
+ * (proyectos viejos): la calculaba otra vez, copiada, y dos copias del mismo
+ * algoritmo acaban divergiendo —y entonces el servidor rechaza como "cambió"
+ * un asset que el cliente no tocó—.
  */
-function huellaDe(bytes: Uint8Array): string {
+export function huellaDe(bytes: Uint8Array): string {
   let a = 0x811c9dc5;
   let b = 0x01000193;
   for (let i = 0; i < bytes.length; i++) {

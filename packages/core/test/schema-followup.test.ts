@@ -25,7 +25,6 @@ import {
   createEmptyProject,
   esUnset,
   findProjectProblems,
-  serializeProject,
   UNSET,
   type Lfo,
   type Send,

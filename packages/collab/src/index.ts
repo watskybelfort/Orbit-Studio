@@ -92,6 +92,7 @@ export {
   MAX_ASSET_BYTES,
   MAX_ROOM_ASSET_BYTES,
   SampleAssetBinding,
+  huellaDe,
   isSampleAsset,
 } from './assets';
 export type {

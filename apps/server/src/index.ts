@@ -43,6 +43,7 @@ import {
   consumeInvite,
   encodeAudioChunk,
   encodeControl,
+  huellaDe,
   makeInviteRecord,
   newInviteToken,
   parseControl,
@@ -142,23 +143,6 @@ function esSha1(texto: string): boolean {
 /** El sha1 de unos bytes: la identidad real del contenido. */
 function sha1De(bytes: Uint8Array): string {
   return createHash('sha1').update(bytes).digest('hex');
-}
-
-/**
- * Huella para las claves que NO son un sha1 (proyectos viejos), donde no se puede
- * exigir la correspondencia pero sí detectar que el contenido cambió.
- */
-function huellaDe(bytes: Uint8Array): string {
-  let a = 0x811c9dc5;
-  let b = 0x01000193;
-  for (let i = 0; i < bytes.length; i++) {
-    const byte = bytes[i]!;
-    a = Math.imul(a ^ byte, 0x01000193) >>> 0;
-    b = (Math.imul(b ^ byte, 0x85ebca6b) + ((b << 13) | (b >>> 19))) >>> 0;
-  }
-  return `${(a >>> 0).toString(16).padStart(8, '0')}${(b >>> 0)
-    .toString(16)
-    .padStart(8, '0')}${bytes.length.toString(16)}`;
 }
 
 /**
@@ -1696,7 +1680,7 @@ class Room {
       total += asset.bytes.byteLength;
     }
     if (total > MAX_ROOM_ASSET_BYTES) {
-      for (const [key, asset] of changed) {
+      for (const [key] of changed) {
         if (total <= MAX_ROOM_ASSET_BYTES) break;
         if (toDelete.has(key)) continue;
         const value = assets.get(key);

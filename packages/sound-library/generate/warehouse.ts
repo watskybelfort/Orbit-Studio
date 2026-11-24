@@ -48,6 +48,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { proyecto } from './project';
 import {
   encodeWavMono,
   esMono,
@@ -65,7 +66,6 @@ import type {
   CompiledAutomationEvent,
   CompiledChannel,
   CompiledEffect,
-  CompiledMixerTrack,
   CompiledNoteEvent,
   CompiledProject,
 } from '../../engine/src/protocol';
@@ -150,42 +150,6 @@ function nota(start: number, duration: number, key: number, o: OpcionesNota = {}
     pan: o.pan ?? 0,
     slide: o.slide ?? false,
     channelIndex: o.ch ?? 0,
-  };
-}
-
-interface ProyectoOpts {
-  tempo: number;
-  lengthBeats: number;
-  channels: CompiledChannel[];
-  events: CompiledNoteEvent[];
-  masterSlots?: CompiledEffect[];
-  automation?: CompiledAutomationEvent[];
-}
-
-function proyecto(o: ProyectoOpts): CompiledProject {
-  const master: CompiledMixerTrack = {
-    id: 'master',
-    volume: 1,
-    pan: 0,
-    stereoWidth: 1,
-    eqLow: 0,
-    eqMid: 0,
-    eqHigh: 0,
-    audible: true,
-    slots: o.masterSlots ?? [],
-    routeTo: null,
-    sends: [],
-  };
-  return {
-    tempo: o.tempo,
-    lengthBeats: o.lengthBeats,
-    channels: o.channels,
-    events: [...o.events].sort((a, b) => a.start - b.start),
-    audioClips: [],
-    automation: o.automation ?? [],
-    lfos: [],
-    mixer: [master],
-    mixerOrder: [0],
   };
 }
 

@@ -15,7 +15,7 @@
  * Todo son funciones puras sobre el proyecto: sin React y sin comandos.
  */
 
-import type { Id, MixerTrack, Project, Send } from './types';
+import type { Id, MixerTrack, Project } from './types';
 import { resolveSend, type ResolvedSend } from './sends';
 import { busOfChannel, busTracks, resolveGroupBuses } from './groups';
 

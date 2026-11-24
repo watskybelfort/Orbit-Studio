@@ -183,24 +183,6 @@ export function appearanceFromSettings(settings: Record<string, unknown>): Appea
   });
 }
 
-/** Lee la apariencia persistida, la aplica y la devuelve. */
-export async function loadAppearanceFromSettings(): Promise<Appearance> {
-  const api = orbit();
-  if (!api) {
-    applyAppearance(DEFAULT_APPEARANCE);
-    return { ...DEFAULT_APPEARANCE };
-  }
-  try {
-    const settings = await api.settings.get();
-    const appearance = appearanceFromSettings(settings);
-    applyAppearance(appearance);
-    return appearance;
-  } catch {
-    applyAppearance(DEFAULT_APPEARANCE);
-    return { ...DEFAULT_APPEARANCE };
-  }
-}
-
 /** Persiste la apariencia en settings.json (merge superficial). */
 export async function saveAppearanceToSettings(a: Appearance): Promise<void> {
   const api = orbit();

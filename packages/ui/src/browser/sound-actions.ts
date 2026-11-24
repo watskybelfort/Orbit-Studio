@@ -719,11 +719,6 @@ export function describeKeymapDrop(result: KeymapDropResult): string {
   return parts.length > 0 ? parts.join(' ') : 'No ha entrado ninguna muestra.';
 }
 
-/** Drop en la playlist: clip de audio con la longitud real del sonido. */
-export async function addAudioClip(entry: SoundEntry, trackId: Id, startBeat: number): Promise<void> {
-  return addAudioClips([entry], trackId, startBeat);
-}
-
 /** Un clip de audio recién colocado, con lo necesario para analizarlo después. */
 interface PlacedAudio {
   entryName: string;

@@ -126,7 +126,6 @@ function q15(name: string): number[] {
   // Se coge la versión de coma flotante (`29440/32768.`), que es la que aplica
   // aquí: el numerador es el mismo valor Q15 de la versión de enteros.
   return numbers(body)
-    .filter((_, i, all) => all.length % 2 === 0 || true)
     .filter((value) => value !== 32768)
     .map((value) => value / 32768);
 }
