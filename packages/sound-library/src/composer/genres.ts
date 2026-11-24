@@ -249,6 +249,13 @@ const DUCK_FROM_KICK: FxChoice = {
   sidechainFrom: 'kick',
 };
 
+/** Ducking suave para el 808 largo del trap: 4-6 dB, que el cuerpo del 808 no desaparezca. */
+const DUCK_SOFT: FxChoice = {
+  kind: 'compressor',
+  params: { threshold: -18, ratio: 3, attack: 0.002, release: 0.07, knee: 3, makeup: 0 },
+  sidechainFrom: 'kick',
+};
+
 const AIR_CAP = (hz: number): FxChoice[] => [
   { kind: 'eq', params: { lpFreq: hz } },
   { kind: 'eq', params: { lpFreq: hz } },
@@ -345,10 +352,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'eq', params: { highGain: 3, highFreq: 7000, lpFreq: 13500 } },
         { kind: 'eq', params: { lpFreq: 13500 } },
       ],
-      bass: [DUCK_FROM_KICK],
+      // Ducking suave: con el del reggaetón el 808 caía -15 dB a los 60 ms y perdía cuerpo.
+      bass: [DUCK_SOFT],
       snare: [{ kind: 'eq', params: { highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
     },
-    master: [MONO_LOW, LIMITER(1.3, -2.5)],
+    master: [MONO_LOW, LIMITER(3, -2.5)],
     // Forma de canción de rap (intro, hooks de 8, versos de 16): no de club.
     shapes: [3, 4],
   },
@@ -432,14 +440,16 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       bass: [DUCK_FROM_KICK],
       melody: [
         { kind: 'eq', params: { hpFreq: 220, midGain: -4, midFreq: 2500, midQ: 1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
-        { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 1, predelay: 0.02 } },
+        // La nylon grabada es casi toda lateral también cuando toca la melodía (correlación 0,12).
+        { kind: 'stereo', params: { width: 0.4, gain: 1, monoBelow: 0 } },
+        { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 0.7, predelay: 0.02 } },
       ],
       snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 250, midQ: 1 } }, ...AIR_CAP(12000)],
       hats: AIR_CAP(11000),
       // El rim de la clave llegaba a 20,8 kHz y subía el true peak 1,1 dB.
       perc: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER(2.8, -2.5)],
+    master: [MONO_LOW, LIMITER(4.8, -2.5)],
     shapes: [3, 4],
   },
 
@@ -599,7 +609,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     kit: { kit: 1, tone: 0.45, decay: 1, punch: 0.55 },
     drumMix: { kick: 1.2, snare: 1.5, hats: 0.5, perc: 0.6 },
     fx: {
-      bass: [{ kind: 'eq', params: { hpFreq: 30, lowGain: 6, lowFreq: 60, lpFreq: 2500 } }],
+      // El contrabajo era lo que llenaba 1-2 kHz (más que el piano): techo a 900 Hz.
+      bass: [{ kind: 'eq', params: { hpFreq: 30, lowGain: 6, lowFreq: 60, lpFreq: 900 } }],
       // El bombo polvoriento de 12 bits pierde sub; se le devuelve en 55 Hz (Attack: +60 / -150).
       kick: [{ kind: 'eq', params: { hpFreq: 32, lowGain: 6, lowFreq: 55, midGain: -3, midFreq: 160, midQ: 1.2 } }],
       hats: AIR_CAP(11000),
