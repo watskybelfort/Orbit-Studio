@@ -700,6 +700,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         // El clap resuena en 4.735 Hz (+10-11 dB). Esta muesca era la QUINTA EQ de la caja y no
         // sonaba: un canal tiene 4 insertos. Por eso «volvía» el pico.
         { kind: 'eq', params: { midGain: -10, midFreq: 4735, midQ: 5 } },
+        // Brillo metálico de la caja en 13,6 kHz (+10-11 dB).
+        { kind: 'eq', params: { midGain: -6, midFreq: 13601, midQ: 8 } },
         // Sin reverb (la del motor pitaba en 8,1 kHz, como en el boom bap) y sin delay: el
         // ping-pong de 1/16 retrasaba el canal derecho una semicorchea y cada golpe del dembow sonaba dos veces.
       ],
@@ -1125,14 +1127,16 @@ const TRAP_DURO: GenrePreset = {
   fx: {
     ...GENRE_PRESETS.trap.fx,
     // El bombo era el 60 % de 250 Hz-1 kHz (+9 dB de medios frente al type beat de Esbabyface).
-    kick: [{ kind: 'distortion', params: { drive: 0.3, tone: 5000, output: 0.9 } }, { kind: 'eq', params: { midGain: -6, midFreq: 380, midQ: 0.9 } }],
+    kick: [{ kind: 'distortion', params: { drive: 0.3, tone: 5000, output: 0.9 } }, { kind: 'eq', params: { midGain: -6, midFreq: 380, midQ: 0.9 } }, { kind: 'eq', params: { midGain: -2, midFreq: 700, midQ: 1 } }],
     // Caja y hats: 24 dB/oct a 12 kHz (silbidos metálicos de +9-12 dB en 13,6-15,3 kHz) y +2 dB en 8 kHz.
-    hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, lpFreq: 12000 } }, { kind: 'eq', params: { lpFreq: 12000 } }],
+    // Muescas en los brillos metálicos de 13,6 y 14 kHz (+10-12 dB, caja y hats de fábrica).
+    hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, midGain: -6, midFreq: 13600, midQ: 8, lpFreq: 12000 } }, { kind: 'eq', params: { midGain: -6, midFreq: 14040, midQ: 8, lpFreq: 12000 } }],
     snare: [
       { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 5000, lpFreq: 12000 } },
       // La caja/clap de trap resuena en 3,8 y 4,57 kHz.
       { kind: 'eq', params: { midGain: -6, midFreq: 3820, midQ: 6, lpFreq: 12000 } },
       { kind: 'eq', params: { midGain: -6, midFreq: 4573, midQ: 6 } },
+      { kind: 'eq', params: { midGain: -6, midFreq: 13600, midQ: 8 } },
     ],
     // La distorsión del 808 llenaba los medios (+10 dB en 250 Hz-1 kHz frente a la
     // referencia, siguiendo al grave con r = 0,97): paso bajo a 1,2 kHz y valle en 400.
@@ -1149,7 +1153,7 @@ const TRAP_DURO: GenrePreset = {
     chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 1800 } }, { kind: 'eq', params: { lpFreq: 1800 } }],
     melody: [
       // El riff resonaba en 3,1-4,6 kHz (+12-14 dB, el 73 % del pico de 3.846 Hz): techo a 3 kHz, 24 dB/oct.
-      { kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 600, midQ: 1, lpFreq: 3000 } },
+      { kind: 'eq', params: { hpFreq: 250, midGain: -4, midFreq: 700, midQ: 0.9, lpFreq: 3000 } },
       { kind: 'eq', params: { lpFreq: 3000 } },
       { kind: 'reverb', params: { size: 0.5, damp: 0.7, width: 0.5, predelay: 0.02 } },
     ],
