@@ -33,6 +33,12 @@ master. Límite honesto: no hay referencias propias de reggaetón ni de neo
 perreo; sus objetivos salen de la investigación y del corpus de trap. Pendiente
 aparte: el generador del pack ya no reproduce bit a bit tres archivos viejos
 (sweep-up, sweep-down, hardtek) — deriva del motor, no se regeneraron.
+Tras la primera ronda del crítico: forma de canción de rap para los urbanos,
+techo de 24 dB/oct en hats/shakers/cajas (el hat de fábrica pitaba en
+21,7 kHz y subía el true peak), jerarquía de batería y niveles de los
+instrumentos grabados. Pendiente que dejó el crítico y no se tocó: afinar el
+bombo sampleado a la tonalidad (en reggaetón bate contra el bajo) — pide
+medir la f0 de cada bombo y ponerla en la zona del keymap.
 
 ---
 
