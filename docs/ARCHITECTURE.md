@@ -62,7 +62,7 @@
   moderación.
 
 ### `packages/ui`
-- React 18 + zustand. Canvas 2D para piano roll/playlist (rendimiento), DOM
+- React 19 + zustand. Canvas 2D para piano roll/playlist (rendimiento), DOM
   para racks y mixer. Ninguna librería de componentes pesada: los widgets
   (perilla, fader, LED) son nuestros, tematizables por CSS variables.
 
@@ -88,7 +88,7 @@
   `engine` (determinista, semilla fija) → WAVs reproducibles. Son **dos** y no
   escriben en el mismo sitio:
   - `generate.ts` → `factory/`, el pack **Orbit Essentials** que viaja dentro
-    del instalador y está versionado en el repo (276 grabaciones, 98,87 MB de
+    del instalador y está versionado en el repo (293 grabaciones, 104 MB de
     115 de tope).
   - `warehouse.ts` → `userData/packs/warehouse/`, el pack **Warehouse**
     (techno/rave). No va en el repo ni en el instalador: se genera con

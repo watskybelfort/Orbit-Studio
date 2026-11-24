@@ -85,8 +85,8 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
    sobre cualquier perilla), grabación al patrón con el tiempo del evento y
    overdub por vuelta, **monitor de micro con la cadena del canal puesta** y
    tomas grabadas **en crudo por el kernel**, sin códec de por medio.
-4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**84 sonidos
-   en 276 grabaciones, 98,87 MB**, generados por síntesis propia, con los **24
+4. **Librería clasificada** — pack de fábrica *Orbit Essentials* (**101 sonidos
+   en 293 grabaciones, 104 MB**, generados por síntesis propia, con los **24
    instrumentos en multisample**: tres alturas cada uno, repartidas por el
    teclado) con categorías, tags de género/tonalidad/BPM, detección automática
    de BPM y tonalidad, búsqueda instantánea, **selección múltiple y arrastre
@@ -697,16 +697,13 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Las cachés de audio del hilo de UI** | La del render ya se acota, pero solo al exportar. Quedan sin freno el `pcmCache` del editor de audio —que crece garantizado: cada Normalizar deja la entrada anterior retenida— y la de picos |
 | **Firmar el instalador** | Sin firma de editor, SmartScreen avisa a todo el que lo baja. El camino queda preparado en el workflow: falta el certificado |
-| **Cancelar un export a medias** | Hoy un export de doce stems que tarda minutos no se puede parar |
 
 ### Horizonte
 
 | Qué | Estado |
 |---|---|
 | **Puente CLAP / VST3** | Necesita un host nativo con GUI embebida: proyecto aparte, no un rato |
-| **SDK de plugins con interfaz propia** | Que un plugin JS pueda pintar su propia UI (canvas) además de declarar perillas |
 | **Export de vídeo para visuales** | Un visualizador que renderice el tema a vídeo; fuera del alcance del DAW hasta que el resto esté redondo |
 | **Kernel con SIMD (WASM)** | Llevar el hilo de audio a WebAssembly con SIMD y un pool de voces para acercarse a "cero alocaciones por bloque" |
 
@@ -743,11 +740,14 @@ ffmpeg.**
 
 ### Lo que todavía no hace
 
-Le queda una decisión: el **reparto de bits** — VBR por trama e intensidad
-estéreo. Eso es una *decisión*, no sintaxis: da un archivo válido que suena algo
-peor que el de libopus a igualdad de bits, no uno roto.
+**El reparto de bits ya no falta.** El VBR por trama, la intensidad estéreo y el
+estéreo dual están desde la v3.6 (`render/opus/vbr.ts`, `celt-encoder.ts`), y son
+los que llevaron la distancia media a libopus de −3,59 a −0,22 dB. Queda una
+sola sombra conocida: cómo reparte bits el VBR en el fundido de salida, que es el
+peor caso del cuadro de arriba (−10,61 dB en el acorde estéreo a 128k). Es una
+*decisión* de reparto, no sintaxis: el archivo sale válido siempre.
 
-Sí están el dynalloc (refuerzo a las bandas que sobresalen sobre sus vecinas,
+También están el dynalloc (refuerzo a las bandas que sobresalen sobre sus vecinas,
 sin el cual un tono puro suena sucio a bitrate medio), la elección intra/inter
 de la energía —que se decide **codificando las dos y quedándose con la que
 menos recorta**—, la **inclinación del reparto**, que sale de la pendiente del
@@ -813,7 +813,7 @@ constante y a 0,620 con la adaptativa.
 npm install
 npm run dev        # Electron + Vite (la app) — renderer en localhost:5900
 npm run server     # servidor de colaboración (puerto 7900)
-npm test           # 2456 tests (core, engine, collab, claude-bridge, sound-library, ui, server, desktop)
+npm test           # unit + golden DSP (toda la suite)
 
 npm run typecheck  # tsc --noEmit sobre todo el monorepo
 npm run lint       # reglas duras + hooks; exhaustive-deps es error, rompe la CI
@@ -841,6 +841,7 @@ Panel de Claude).
 | [docs/CLAUDE-INTEGRATION.md](docs/CLAUDE-INTEGRATION.md) | Claude como colaborador (MCP) |
 | [docs/PLUGINS.md](docs/PLUGINS.md) | SDK de plugins JS (efectos e instrumentos) con ejemplo |
 | [docs/THEMING.md](docs/THEMING.md) | Sistema de temas: oscuro, claro, acrílico, semáforo Mac |
+| [docs/GOLDEN.md](docs/GOLDEN.md) | Golden tests: cómo se fija el sonido y por qué el banco muerde |
 | [docs/PLAN.md](docs/PLAN.md) | Plan por fases, con lo que se quedó fuera y su motivo |
 
 ## Estructura
@@ -946,6 +947,6 @@ Dos cosas que la licencia **no** cubre y conviene tener claras:
   marca del proyecto (Apache 2.0 §6 no concede derechos de marca): tu fork puede
   hacer lo que quiera, pero con otro nombre.
 - **Los sonidos son libres de verdad.** El pack de fábrica *Orbit Essentials*
-  (276 .wav) no lleva samples de terceros: los genera por síntesis el propio
+  (293 .wav) no lleva samples de terceros: los genera por síntesis el propio
   motor desde `packages/sound-library/generate/generate.ts`. Lo que produzcas
   con ellos es tuyo, sin regalías ni atribución.

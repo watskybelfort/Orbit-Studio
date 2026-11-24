@@ -10,7 +10,7 @@ está en el diseño sino en si alguien comprobó que muerde.
 
 | archivo | qué es |
 | --- | --- |
-| `packages/engine/test/golden/fixtures.ts` | El banco: 24 proyectos deterministas + 2 flujos Opus, uno por familia de sonido |
+| `packages/engine/test/golden/fixtures.ts` | El banco: 25 proyectos deterministas + 2 flujos Opus, uno por familia de sonido |
 | `packages/engine/test/golden/fingerprint.ts` | Qué se compara (hash + métricas) y con cuánta tolerancia |
 | `packages/engine/test/golden/platform.ts` | La medida de reproducibilidad entre plataformas |
 | `packages/engine/test/golden/run.ts` | Renderizar/codificar un fixture; lo comparten test y herramientas |
@@ -22,7 +22,7 @@ está en el diseño sino en si alguien comprobó que muerde.
 ## El flujo de trabajo
 
 ```bash
-npm test                       # el golden va dentro; ~4 s de los 22 s totales
+npm test                       # el golden va dentro, con el resto de la suite
 npm run golden:update          # informe del diff de sonido. NO escribe nada
 npm run golden:update -- --only fx-vinyl
 npm run golden:update -- --accept "el vinilo ya no da silencio exacto"
@@ -80,7 +80,7 @@ con semilla fija, y los ids del proyecto están fijados a mano.
 Eso fue el experimento. El test **permanente** de determinismo es más barato a
 propósito y comprueba 2 de los 25 en cada corrida (`golden.test.ts`, con el
 motivo escrito al lado): renderizar los 25 dos veces en cada `npm test` costaría
-el doble del banco entero para volver a demostrar algo que ya se midió. Los 24
+el doble del banco entero para volver a demostrar algo que ya se midió. Los 25
 se cubren igual en cada corrida contra la línea base, que es la comparación que
 de verdad importa.
 

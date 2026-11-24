@@ -12,8 +12,9 @@ Encargo directo: que Orbit componga beats solo, con cada parte por separado.
 El compositor vive en `sound-library/src/composer/` (puro y determinista):
 `genres.ts` (seis presets, neo perreo incluido), `compose.ts` (BeatPlan),
 `plan-commands.ts` (Command[] para un único batch), `profile.ts` y
-`features.ts` (perfil de estilo medido de audio). Encima: doce tools MCP en
-`claude-bridge/src/composer-tools.ts` y el panel `ui/src/composer/`. Medido
+`features.ts` (perfil de estilo medido de audio). Encima: siete tools MCP en
+`claude-bridge/src/tools.ts` (los handlers, en `composer-tools.ts`) y el panel
+`ui/src/composer/`. Medido
 con el motor: los seis géneros renderizan sin clip con el grave mandando, y
 el balance por parte se ajustó renderizando cada parte sola. Limitación
 conocida y dicha en la UI: la sugerencia de género de una referencia acierta
