@@ -51,7 +51,6 @@
         "findBranch",
         "branchContaining",
         "branchChain",
-        "isBranchReachable",
         "buildTreeView"
       ],
       "sources": ["store.ts", "commands.ts", "history-tree.ts"]
