@@ -82,4 +82,35 @@ describe('variantes de género', () => {
     const plan = composeBeat({ genre: 'trap', variant: 'crudo', seed: 5 });
     expect(plan.parts.map((x) => x.role).sort()).toEqual(['bass', 'fx', 'hats', 'kick', 'snare'].sort());
   });
+
+  it('trap duro: el 808 vive en Re1-Fa1 hacia abajo (26..37) con la tónica entre Re y Fa, y la forma larga dura 2:00-2:30', () => {
+    for (const variant of ['duro', 'crudo']) {
+      for (const seed of [1, 2, 3, 4, 5]) {
+        const plan = composeBeat({ genre: 'trap', variant, seed });
+        expect([2, 3, 4, 5]).toContain(plan.keyRoot);
+        // Sin contar los glides, que al cerrar la frase pueden subir una octava (firma del 808).
+        const notes = plan.parts.find((x) => x.role === 'bass')!.patterns.flatMap((pt) => pt.notes);
+        const slideUp = new Set(notes.filter((n) => n.slide).map((n) => n.start));
+        for (const n of notes) {
+          if (n.slide || slideUp.has(n.start)) continue;
+          expect(n.key, `${variant} ${seed} @${n.start}`).toBeGreaterThanOrEqual(26);
+          expect(n.key, `${variant} ${seed} @${n.start}`).toBeLessThanOrEqual(37);
+        }
+        expect(plan.totalBars).toBe(80);
+        const sec = (plan.totalBars * 4 * 60) / plan.bpm;
+        expect(sec).toBeGreaterThanOrEqual(120);
+        expect(sec).toBeLessThanOrEqual(150);
+        expect(plan.sections.some((x) => x.kind === 'break')).toBe(true);
+      }
+    }
+  });
+
+  it('las variantes con golpe en el hook entran al hook con un barrido que acaba justo en él', () => {
+    const plan = composeBeat({ genre: 'reggaeton', seed: 2, shape: 3 });
+    const fx = plan.parts.find((x) => x.role === 'fx')!;
+    for (const v of fx.patterns.filter((pt) => pt.id.startsWith('verse'))) {
+      const riser = v.notes.find((n) => n.key !== 62)!;
+      expect(riser.start + riser.duration).toBeCloseTo(v.bars * 4, 5);
+    }
+  });
 });

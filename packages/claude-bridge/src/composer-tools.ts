@@ -191,7 +191,7 @@ export class ComposerTools {
     }
     lines.push(`Partes (parts): ${COMPOSER_ROLES.map((r) => `${r} (${ROLE_LABELS[r]})`).join(', ')}.`);
     lines.push(`Escalas (scale): ${Object.keys(SCALES).join(', ')}.`);
-    lines.push('Formas (shape): "song" = la del género (trap, reggaetón, neo perreo y boom bap: canción de rap con versos de 16 y hooks de 8; techno y rave: intro/subida/drop/puente/final); "loop" = un bucle de loopBars compases; 0..2 = formas de club, 3..4 = formas de rap.');
+    lines.push('Formas (shape): "song" = la del género (trap, reggaetón, neo perreo y boom bap: canción de rap con versos de 16 y hooks de 8; techno y rave: intro/subida/drop/puente/final); "loop" = un bucle de loopBars compases; 0..2 = formas de club, 3..5 = formas de rap (la 5, larga y con breakdown).');
     if (this.host) {
       const profiles = await this.host.listProfiles();
       lines.push(profiles.length > 0 ? `Perfiles de estilo (profile): ${profiles.map(profileSummary).join(' · ')}` : 'Perfiles de estilo: ninguno todavía (learn_style).');

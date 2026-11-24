@@ -643,8 +643,8 @@ export const TOOLS: ToolDef[] = [
         key: { type: 'string', description: 'Tónica: "C", "F#", "Bb"…' },
         scale: { type: 'string', description: `Escala: ${Object.keys(SCALES).join(', ')} (o "major"/"minor").` },
         shape: {
-          description: '"song" (forma completa del género, por defecto), "loop" (un bucle) o 0..4: 0-2 de club (intro/subida/drop), 3-4 de canción de rap (versos de 16, hooks de 8).',
-          oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 4 }],
+          description: '"song" (forma completa del género, por defecto), "loop" (un bucle) o 0..5: 0-2 de club (intro/subida/drop), 3-5 de canción de rap (versos de 16, hooks de 8; la 5 es larga, con breakdown).',
+          oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 5 }],
         },
         loopBars: { type: 'integer', minimum: 1, maximum: 32, description: 'Compases del bucle (shape="loop"; por defecto 8).' },
         parts: {
@@ -744,7 +744,7 @@ export const TOOLS: ToolDef[] = [
         bpm: { type: 'number', minimum: 40, maximum: 250 },
         key: { type: 'string' },
         scale: { type: 'string' },
-        shape: { oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 4 }] },
+        shape: { oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 5 }] },
         loopBars: { type: 'integer', minimum: 1, maximum: 32 },
         parts: { type: 'array', items: { type: 'string', enum: [...COMPOSER_ROLES] } },
         influence: { type: 'number', minimum: 0, maximum: 1 },

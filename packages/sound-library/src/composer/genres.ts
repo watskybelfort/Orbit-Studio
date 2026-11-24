@@ -162,7 +162,8 @@ export interface GenrePreset {
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). */
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). `maxLen`: tope de duración de la nota del bajo `sub`, en tiempos. */
   /** `inIntro`: el bajo ya suena en la intro (por defecto la intro va sin bajo). */
-  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number; inIntro?: boolean };
+  /** `lowKey`: tecla más grave del bajo (por defecto 27, Re#1); el registro es `lowKey`..`lowKey + 11`. */
+  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number; inIntro?: boolean; lowKey?: number };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
   /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
   /** `sparseVerse`: en el verso, el rasgueo `perreo` deja huecos para la voz. */
@@ -272,6 +273,16 @@ const DUCK_SOFT: FxChoice = {
   params: { threshold: -18, ratio: 3, attack: 0.002, release: 0.07, knee: 3, makeup: 0 },
   sidechainFrom: 'kick',
 };
+
+/**
+ * Muescas para después de la reverb del motor, que suena con modos propios en
+ * ~3,85-3,95 kHz y ~13,4 kHz (los midió el crítico por stems: eran las dos
+ * resonancias fijas del reggaetón de los 2000).
+ */
+const REVERB_NOTCHES: FxChoice[] = [
+  { kind: 'eq', params: { midGain: -10, midFreq: 3900, midQ: 6, lpFreq: 12000 } },
+  { kind: 'eq', params: { midGain: -10, midFreq: 13367, midQ: 8 } },
+];
 
 const AIR_CAP = (hz: number): FxChoice[] => [
   { kind: 'eq', params: { lpFreq: hz } },
@@ -633,11 +644,12 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       chords: [
         { kind: 'prisma', preset: 'strings/cuerdas-staccato', volume: 0.42 },
         { kind: 'prisma', preset: 'plucks/pizzicato-cuerdas', volume: 0.45 },
-        // Los metales a 0,4 iban a -14 LUFS solos: tapaban la melodía.
-        { kind: 'prisma', preset: 'brass/metales-anchos', volume: 0.24 },
+        // Sin los metales: tenían formantes fijos en 3.079 y 6.568 Hz (+14 dB en el beat).
+        { kind: 'prisma', preset: 'strings/cuerdas-cine', volume: 0.65 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/piano-brillante', params: { gain: 1.6 }, volume: 0.7 },
+        // El piano suave grabado: el brillante tenía parciales fijos en 2.649 y 5.243 Hz (+17 dB).
+        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.75 },
         // Sin el supersaw: su centroide en 4 kHz era justo el agudo raro que ya vetaste.
         { kind: 'prisma', preset: 'strings/violin-solo', volume: 0.45 },
         { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.45 },
@@ -647,30 +659,47 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     kit: { kit: 2, tone: 0.6, decay: 0.9, punch: 0.7 },
     // El bombo de los 2000 pega mucho (a 1 iba a -8 LUFS solo, por encima de todo el beat).
     // Los timbales a 0,85 iban a -8 LUFS solos (en los redobles): eran lo más fuerte del beat.
-    drumMix: { kick: 0.5, snare: 1.2, hats: 0.65, perc: 0.3 },
+    drumMix: { kick: 0.5, snare: 1.3, hats: 1.1, perc: 0.3 },
     fx: {
       bass: [DUCK_FROM_KICK],
       // Las cuerdas en staccato llevan el ritmo: medios presentes, sin barro ni chillido.
+      // Los parciales del pluck de acordes (+34-37 dB en 2.210, 3.079 y 3.941 Hz)
+      // eran el 58 % de la resonancia de 3,9 kHz del beat (lo midió el crítico por stems).
       chords: [
         { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 320, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
-        { kind: 'reverb', params: { size: 0.4, damp: 0.6, width: 0.6, predelay: 0.01 } },
+        // Más estrecho: en el render 3 la correlación en medios bajaba a 0,22 (-3 dB en mono).
+        { kind: 'stereo', params: { width: 0.5, gain: 1, monoBelow: 0 } },
+        { kind: 'reverb', params: { size: 0.4, damp: 0.6, width: 0.5, predelay: 0.01 } },
+        // Las muescas, DESPUÉS de la reverb: la del motor tiene modos propios en ~3,9 kHz y
+        // volvía a meter la resonancia que se quitaba antes de ella.
+        ...REVERB_NOTCHES,
+        { kind: 'eq', params: { lowGain: -6, lowFreq: 2210, midGain: -6, midFreq: 3079, midQ: 8 } },
       ],
       melody: [
         { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -3, midFreq: 2800, midQ: 1, highGain: -2, highFreq: 6000, lpFreq: 9500 } },
-        { kind: 'reverb', params: { size: 0.5, damp: 0.55, width: 0.7, predelay: 0.02 } },
+        { kind: 'stereo', params: { width: 0.35, gain: 1, monoBelow: 0 } },
+        { kind: 'reverb', params: { size: 0.5, damp: 0.55, width: 0.5, predelay: 0.02 } },
+        ...REVERB_NOTCHES,
       ],
-      // La caja de los 2000 llevaba su sala corta.
-      // Valles estrechos en 3,8 y 8,1 kHz: la caja repetida idéntica dejaba ahí dos resonancias fijas (+16 y +14 dB en el beat).
+      // La caja de los 2000 llevaba su placa (~0,8 s).
+      // La caja tiene parciales fijos en 13.364 Hz (+27 dB) y 15.429 Hz (+28): el 80 %
+      // de la resonancia de 13,4 kHz del beat. Y su anillo de 3.844 Hz, el 31 % de la de 3,9.
       snare: [
-        { kind: 'eq', params: { midGain: -5, midFreq: 3850, midQ: 3, highGain: -2, highFreq: 7000 } },
-        { kind: 'eq', params: { midGain: -5, midFreq: 8100, midQ: 3 } },
-        { kind: 'reverb', params: { size: 0.25, damp: 0.6, width: 0.5, predelay: 0 } },
-        ...AIR_CAP(12500),
+        { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6, highGain: 2, highFreq: 6000, lpFreq: 13000 } },
+        { kind: 'eq', params: { midGain: -12, midFreq: 13364, midQ: 10 } },
+        // El crack de la caja: presencia en 2,4 kHz (el beat iba 5 dB bajo el moderno en 2-6 kHz).
+        { kind: 'eq', params: { midGain: 4, midFreq: 2400, midQ: 0.8 } },
+        // Sin reverb: la del motor pitaba en 8,1 kHz sobre la caja (el 94 % del pico del beat),
+        // igual que en el boom bap. La sala la pone el delay corto, que no resuena.
+        { kind: 'delay', params: { time: 1, feedback: 0.18, pingpong: 1, filter: 3000 } },
       ],
-      hats: AIR_CAP(11000),
+      // El platillo y el barrido llevaban el 74 % de la resonancia de 13,4 kHz.
+      fx: [{ kind: 'eq', params: { midGain: -10, midFreq: 13367, midQ: 8, lpFreq: 12000 } }],
+      // Brillo de vuelta: sin los metales ni el piano brillante el beat quedaba 6 dB apagado en 2-6 kHz.
+      hats: [{ kind: 'eq', params: { highGain: 3, highFreq: 7000, lpFreq: 13000 } }, { kind: 'eq', params: { lpFreq: 13000 } }],
       perc: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER_TP(7)],
+    master: [MONO_LOW, LIMITER_TP(8)],
     shapes: [3, 4],
   },
 
@@ -720,7 +749,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [RIM]: ['drums/neoperreo/rim-01'],
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/zap-01', hookImpact: true },
-    bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.5, inIntro: true },
+    // Sin bajo en la intro: con él la intro era lo más fuerte del beat (-7,5 a -9 LUFS frente a -10).
+    bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.5 },
     chords: { style: 'stabs', sevenths: 0, octave: 4, center: 62, openVoicing: true },
     melody: { style: 'arp', density: 4, octave: 5, range: [60, 84], tune: true },
     sounds: {
@@ -730,10 +760,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'sub808', params: { decay: 0.55, drive: 0.7, glide: 0.04, punch: 0.75, tone: 1600 }, volume: 1.4 },
         { kind: 'prisma', preset: 'bass/dembow-goma', volume: 0.9 },
       ],
+      // La capa rave / Y2K: supersaw ancho siempre (10-16 kHz iba 3-5 dB bajo las
+      // referencias); el pluck de house no es del género.
       chords: [
-        { kind: 'prisma', preset: 'leads/saw-ancho', volume: 0.3 },
+        { kind: 'prisma', preset: 'leads/saw-ancho', volume: 0.34 },
         { kind: 'prisma', preset: 'pads/pad-neon-house', volume: 1.2 },
-        { kind: 'prisma', preset: 'plucks/pluck-house', volume: 0.6 },
       ],
       melody: [
         { kind: 'prisma', preset: 'arps/arp-trance', volume: 0.85 },
@@ -1005,6 +1036,14 @@ const TRAP_DURO: GenrePreset = {
     { name: 'Menor natural', weight: 3 },
     { name: 'Menor armónica', weight: 2 },
   ],
+  // El 808 en Re1-Fa1 (37-44 Hz), como el type beat de Esbabyface de las
+  // referencias: iba una cuarta o una quinta alto y faltaban 6-10 dB en 20-40 Hz.
+  roots: [
+    { root: 2, weight: 3 },
+    { root: 3, weight: 2 },
+    { root: 4, weight: 2 },
+    { root: 5, weight: 3 },
+  ],
   // Casi estático: la tensión la da el bII frigio, no la progresión.
   progressions: [
     [0, 0, 0, 0],
@@ -1023,14 +1062,14 @@ const TRAP_DURO: GenrePreset = {
   },
   // Golpe al entrar cada hook: en la forma de rap no hay drop y el FX no sonaba nunca.
   fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-01', hookImpact: true },
-  bass: { style: '808', glide: 0.85, octave: 2 },
+  bass: { style: '808', glide: 0.85, octave: 2, lowKey: 26 },
   chords: { style: 'pad', sevenths: 0, octave: 4, center: 55, openVoicing: true },
   melody: { style: 'riff', density: 4, octave: 5, range: [55, 79], tune: true },
   sounds: {
     ...GENRE_PRESETS.trap.sounds,
     bass: [
       // El 808 manda (en el type beat de Esbabyface de tus referencias el sub va 9 dB sobre el resto).
-      { kind: 'sub808', params: { decay: 1.5, drive: 0.7, glide: 0.1, punch: 0.75, tone: 1500 }, volume: 0.85 },
+      { kind: 'sub808', params: { decay: 1.5, drive: 0.55, glide: 0.1, punch: 0.75, tone: 1200 }, volume: 0.85 },
       { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.85 },
     ],
     chords: [
@@ -1050,14 +1089,25 @@ const TRAP_DURO: GenrePreset = {
   fx: {
     ...GENRE_PRESETS.trap.fx,
     kick: [{ kind: 'distortion', params: { drive: 0.3, tone: 5000, output: 0.9 } }],
-    bass: [{ kind: 'distortion', params: { drive: 0.3, tone: 3500, output: 0.9 } }, DUCK_SOFT],
+    // La distorsión del 808 llenaba los medios (+10 dB en 250 Hz-1 kHz frente a la
+    // referencia, siguiendo al grave con r = 0,97): paso bajo a 1,2 kHz y valle en 400.
+    bass: [
+      { kind: 'distortion', params: { drive: 0.3, tone: 3500, output: 0.9 } },
+      { kind: 'eq', params: { midGain: -5, midFreq: 400, midQ: 1, lpFreq: 1200 } },
+      { kind: 'eq', params: { lpFreq: 1200 } },
+      DUCK_SOFT,
+    ],
     chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 4500 } }],
     melody: [
       { kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 2800, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
       { kind: 'reverb', params: { size: 0.5, damp: 0.7, width: 0.5, predelay: 0.02 } },
     ],
   },
+  // El hat-03 tenía picos metálicos fijos (+10 dB en 9,7, 10,7 y 13,6 kHz).
+  drumKit: { ...GENRE_PRESETS.trap.drumKit, [HAT]: ['drums/trap/hat-01'] },
   master: [MONO_LOW, LIMITER_TP(0)],
+  // La forma larga con breakdown (2:08 a 150).
+  shapes: [5],
 };
 
 /** Trap sin melodía: el duro desnudo — batería, 808 y FX, para rapear encima sin nada que tape la voz. */

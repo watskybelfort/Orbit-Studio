@@ -189,6 +189,13 @@ export const RAP_SHAPES: readonly { kind: SectionKind; bars: number }[][] = [
     { kind: 'intro', bars: 4 }, { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 }, { kind: 'verse', bars: 16 },
     { kind: 'hook', bars: 8 }, { kind: 'outro', bars: 4 },
   ],
+  // Larga (80 compases: 2:08 a 150), con un breakdown de 4 sin 808 antes del
+  // último hook. El crítico: 90 s sin un corte, con 1-2 LU de rango, era plano.
+  [
+    { kind: 'intro', bars: 8 }, { kind: 'hook', bars: 8 }, { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 },
+    { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 }, { kind: 'break', bars: 4 }, { kind: 'hook', bars: 8 },
+    { kind: 'outro', bars: 4 },
+  ],
 ];
 /** Índice de la primera forma de rap (las 0..2 son las de club). */
 export const RAP_SHAPE_BASE = 3;
@@ -302,10 +309,14 @@ function voiceChord(pcs: number[], keyRoot: number, center: number, clusterPenal
   return best;
 }
 
-/** Tecla de bajo para una nota de la escala: siempre en 27..38 (como el 808 de la plantilla). */
-function bassKey(keyRoot: number, pc: number): number {
+/**
+ * Tecla de bajo para una nota de la escala: en `lo`..`lo + 11` (por defecto
+ * 27..38, como el 808 de la plantilla; el trap duro lo baja a 26).
+ */
+function bassKey(keyRoot: number, pc: number, lo = 27): number {
   let key = 24 + ((((keyRoot + pc) % 12) + 12) % 12);
-  if (key < 27) key += 12;
+  while (key < lo) key += 12;
+  while (key >= lo + 12) key -= 12;
   return key;
 }
 
@@ -652,8 +663,8 @@ function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
   const activeBars = density.bass < 1 ? Math.max(1, Math.round(bars * density.bass)) : bars;
   for (let b = 0; b < activeBars; b++) {
     const degree = chordAt(ctx, sectionStartBar + b);
-    const root = bassKey(keyRoot, degreePc(scale, degree));
-    const fifth = bassKey(keyRoot, degreePc(scale, degree + 4));
+    const root = bassKey(keyRoot, degreePc(scale, degree), preset.bass.lowKey);
+    const fifth = bassKey(keyRoot, degreePc(scale, degree + 4), preset.bass.lowKey);
     const barStart = b * BEATS_PER_BAR;
     const kicks = (b % 4 === 3 && isFull(kind) ? ctx.grooves.kick.fill : ctx.grooves.kick.main)
       .map((v, i) => (v > 0 ? i : -1))
@@ -688,7 +699,7 @@ function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
       hits.forEach((step, idx) => {
         const next = hits[idx + 1] ?? 16;
         const isPickup = step === 14 && !kicks.includes(14);
-        const nextRoot = bassKey(keyRoot, degreePc(scale, chordAt(ctx, sectionStartBar + b + 1)));
+        const nextRoot = bassKey(keyRoot, degreePc(scale, chordAt(ctx, sectionStartBar + b + 1)), preset.bass.lowKey);
         const raw = isPickup ? snapToScale(nextRoot + (rng.chance(0.5) ? -1 : 2), keyRoot, scale) : idx === 0 ? root : rng.pick([root, fifth, root + 12]);
         // La nota de paso puede caer un semitono por debajo del grave del bajo: se dobla arriba.
         const key = foldOctave(raw, 27, 51);
@@ -881,6 +892,12 @@ function fxSamplePart(kind: SectionKind, bars: number, bpm: number, riserId: str
     const sec = factorySound(riserId)?.durationSec ?? 3.4;
     const len = Math.min(bars * BEATS_PER_BAR, Math.ceil(((sec * bpm) / 60) * 4) / 4);
     return [{ start: bars * BEATS_PER_BAR - len, duration: len, key: FX_RISER_KEY, velocity: 0.75 }];
+  }
+  // Con `hookImpact`, el verso (y el breakdown) acaba con el barrido que entra al hook.
+  if (hookImpact && (kind === 'verse' || kind === 'break')) {
+    const sec = factorySound(riserId)?.durationSec ?? 3.4;
+    const len = Math.min(BEATS_PER_BAR * 2, Math.ceil(((sec * bpm) / 60) * 4) / 4);
+    return [{ start: bars * BEATS_PER_BAR - len, duration: len, key: FX_RISER_KEY, velocity: 0.6 }];
   }
   if (kind === 'drop' || (hookImpact && kind === 'hook')) return [{ start: 0, duration: BEATS_PER_BAR, key: FX_IMPACT_KEY, velocity: 0.8 }];
   return [];
