@@ -848,9 +848,8 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
       if (pattern.notes.length > 0) clips.push({ patternId: pid, startBar: s.startBar, bars: s.bars });
     }
     if (clips.length === 0) continue;
-    // El volumen de la batería se reparte por pieza: los hats y la percusión, más abajo.
-    if (role === 'hats') sound.volume = round3(sound.volume * 0.72);
-    if (role === 'perc') sound.volume = round3(sound.volume * 0.62);
+    // El volumen de la batería se reparte por pieza, según el balance del género.
+    if (isDrum) sound.volume = round3(clamp(sound.volume * preset.drumMix[role as DrumLaneId], 0.1, 1.6));
     parts.push({ role, name: ROLE_LABELS[role], sound, fx: preset.fx[role] ?? [], patterns, clips });
   }
 

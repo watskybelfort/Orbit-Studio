@@ -137,6 +137,12 @@ export interface GenrePreset {
   sounds: Record<Exclude<ComposerRole, 'kick' | 'snare' | 'hats' | 'perc'> | 'drums', SoundChoice[]>;
   /** Parámetros del canal de batería (kit, tone, decay, punch). */
   kit: Record<string, number>;
+  /**
+   * Volumen relativo de cada pieza de batería (1 = el del canal). Medido
+   * renderizando cada parte sola: sin esto la percusión se perdía y la caja
+   * del boom bap quedaba por debajo del bombo.
+   */
+  drumMix: Record<'kick' | 'snare' | 'hats' | 'perc', number>;
   /** Insertos por parte, además de la cadena del master. */
   fx: Partial<Record<ComposerRole, FxChoice[]>>;
   master: FxChoice[];
@@ -234,6 +240,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       fx: [{ kind: 'prisma', preset: 'fx/riser-cinta', volume: 0.45 }],
     },
     kit: { kit: 0, tone: 0.55, decay: 1, punch: 0.65 },
+    drumMix: { kick: 1, snare: 1.15, hats: 0.8, perc: 0.9 },
     fx: {
       melody: [{ kind: 'reverb', params: { size: 0.7, damp: 0.45, width: 1, predelay: 0.02 } }],
       chords: [{ kind: 'eq', params: { hpFreq: 180 } }],
@@ -279,18 +286,19 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'sub808', params: { decay: 0.9, drive: 0.25, glide: 0.03, punch: 0.55, tone: 700 } },
       ],
       chords: [
-        { kind: 'nova', preset: 'organs/organo-perreo', volume: 0.55 },
-        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.55 },
-        { kind: 'prisma', preset: 'guitars/requinto-latino', volume: 0.55 },
+        { kind: 'nova', preset: 'organs/organo-perreo', volume: 1.2 },
+        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 1.1 },
+        { kind: 'prisma', preset: 'guitars/requinto-latino', volume: 1.1 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'leads/talkbox-latino', volume: 0.55 },
+        { kind: 'prisma', preset: 'leads/talkbox-latino', volume: 0.65 },
         { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.55 },
-        { kind: 'prisma', preset: 'leads/melodica-caribe', volume: 0.55 },
+        { kind: 'prisma', preset: 'leads/melodica-caribe', volume: 0.65 },
       ],
       fx: [{ kind: 'prisma', preset: 'fx/barrido-inverso', volume: 0.4 }],
     },
     kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
+    drumMix: { kick: 1, snare: 1, hats: 0.75, perc: 0.85 },
     fx: {
       chords: [{ kind: 'delay', params: { time: 3, feedback: 0.28, filter: 3500 } }],
       melody: [{ kind: 'reverb', params: { size: 0.5, damp: 0.5, width: 1, predelay: 0.02 } }],
@@ -339,19 +347,20 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'prisma', preset: 'bass/808-carbon' },
       ],
       chords: [
-        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.5 },
-        { kind: 'prisma', preset: 'pads/pad-neon-house', volume: 0.5 },
-        { kind: 'prisma', preset: 'keys/juguete-metalico', volume: 0.5 },
+        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.62 },
+        { kind: 'prisma', preset: 'pads/pad-neon-house', volume: 0.62 },
+        { kind: 'prisma', preset: 'keys/juguete-metalico', volume: 0.62 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'leads/sync-neon', volume: 0.5 },
-        { kind: 'prisma', preset: 'leads/chicle-neon', volume: 0.52 },
+        { kind: 'prisma', preset: 'leads/sync-neon', volume: 0.6 },
+        { kind: 'prisma', preset: 'leads/chicle-neon', volume: 0.6 },
         { kind: 'nova', preset: 'leads/square-8bit', volume: 0.5 },
-        { kind: 'prisma', preset: 'arps/arp-neon', volume: 0.5 },
+        { kind: 'prisma', preset: 'arps/arp-neon', volume: 0.6 },
       ],
       fx: [{ kind: 'prisma', preset: 'fx/laser', volume: 0.4 }],
     },
     kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
+    drumMix: { kick: 1, snare: 1.1, hats: 0.85, perc: 0.75 },
     fx: {
       kick: [{ kind: 'distortion', params: { drive: 0.25, tone: 5000, output: 0.9 } }],
       snare: [{ kind: 'bitcrush', params: { bits: 10, downsample: 2 } }],
@@ -402,18 +411,19 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'prisma', preset: 'bass/slap-dedo' },
       ],
       chords: [
-        { kind: 'prisma', preset: 'keys/ep-cremoso', volume: 0.6 },
-        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.6 },
-        { kind: 'nova', preset: 'keys/rhodes-calido', volume: 0.6 },
+        { kind: 'prisma', preset: 'keys/ep-cremoso', volume: 0.3 },
+        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.3 },
+        { kind: 'nova', preset: 'keys/rhodes-calido', volume: 0.3 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'brass/saxo-noche', volume: 0.5 },
-        { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.5 },
-        { kind: 'prisma', preset: 'guitars/electrica-limpia', volume: 0.5 },
+        { kind: 'prisma', preset: 'brass/saxo-noche', volume: 0.65 },
+        { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.65 },
+        { kind: 'prisma', preset: 'guitars/electrica-limpia', volume: 0.65 },
       ],
       fx: [{ kind: 'prisma', preset: 'atmos/cinta-polvo', volume: 0.35 }],
     },
     kit: { kit: 1, tone: 0.45, decay: 1, punch: 0.55 },
+    drumMix: { kick: 1.15, snare: 1.5, hats: 0.75, perc: 0.9 },
     fx: {
       chords: [
         { kind: 'eq', params: { hpFreq: 160, highGain: -3, lpFreq: 9000 } },
@@ -466,8 +476,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'prisma', preset: 'bass/house-redondo' },
       ],
       chords: [
-        { kind: 'prisma', preset: 'plucks/pluck-house', volume: 0.45 },
-        { kind: 'prisma', preset: 'pads/pad-analogico', volume: 0.45 },
+        { kind: 'prisma', preset: 'plucks/pluck-house', volume: 1.3 },
+        { kind: 'prisma', preset: 'pads/pad-analogico', volume: 0.8 },
       ],
       melody: [
         { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.45 },
@@ -477,6 +487,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       fx: [{ kind: 'prisma', preset: 'atmos/motor-lejano', volume: 0.35 }],
     },
     kit: { kit: 0, tone: 0.5, decay: 0.7, punch: 0.8 },
+    drumMix: { kick: 1, snare: 0.9, hats: 0.8, perc: 0.9 },
     fx: {
       melody: [{ kind: 'delay', params: { time: 3, feedback: 0.4, filter: 2500 } }],
       chords: [{ kind: 'reverb', params: { size: 0.6, damp: 0.5, width: 1, predelay: 0.02 } }],
@@ -531,6 +542,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       fx: [{ kind: 'prisma', preset: 'fx/sirena-drill', volume: 0.35 }],
     },
     kit: { kit: 0, tone: 0.6, decay: 0.6, punch: 0.9 },
+    drumMix: { kick: 1, snare: 0.9, hats: 0.8, perc: 0.75 },
     fx: {
       kick: [{ kind: 'distortion', params: { drive: 0.4, tone: 6000, output: 0.8 } }],
       melody: [{ kind: 'reverb', params: { size: 0.75, damp: 0.4, width: 1, predelay: 0.02 } }],
