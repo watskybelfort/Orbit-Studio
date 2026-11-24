@@ -154,3 +154,7 @@ export {
   type SectionDensity,
   type SectionKind,
 } from './pack-structure';
+
+// El compositor de beats: presets de género, perfiles de estilo aprendidos de
+// audio, el plan (datos puros) y los comandos del bus que lo montan.
+export * from './composer';
