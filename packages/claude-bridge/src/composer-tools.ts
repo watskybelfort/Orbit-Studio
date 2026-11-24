@@ -23,6 +23,7 @@ import {
   MAX_PROFILE_TRACKS,
   NOTE_LABELS,
   ROLE_LABELS,
+  SHAPE_TOTAL,
   composeBeat,
   createProfile,
   describePlan,
@@ -117,8 +118,8 @@ function parseShape(a: Record<string, unknown>): Pick<ComposeOptions, 'shape' | 
   const loopBars = optBoundedNumber(a, 'loopBars', 1, 32);
   if (shape === undefined || shape === 'song') return loopBars !== undefined ? { shape: 'loop', loopBars: Math.round(loopBars) } : {};
   if (shape === 'loop') return { shape: 'loop', loopBars: loopBars !== undefined ? Math.round(loopBars) : 8 };
-  if (typeof shape === 'number' && Number.isInteger(shape) && shape >= 0 && shape <= 2) return { shape };
-  throw new ToolError('shape: "song" (forma completa al azar del género), "loop", o 0..2 (forma concreta)');
+  if (typeof shape === 'number' && Number.isInteger(shape) && shape >= 0 && shape < SHAPE_TOTAL) return { shape };
+  throw new ToolError(`shape: "song" (forma completa al azar del género), "loop", o 0..${SHAPE_TOTAL - 1} (forma concreta)`);
 }
 
 function parseProgression(raw: unknown): number[] | undefined {
@@ -186,7 +187,7 @@ export class ComposerTools {
     }
     lines.push(`Partes (parts): ${COMPOSER_ROLES.map((r) => `${r} (${ROLE_LABELS[r]})`).join(', ')}.`);
     lines.push(`Escalas (scale): ${Object.keys(SCALES).join(', ')}.`);
-    lines.push('Formas (shape): "song" = intro/subida/drop/puente/final; "loop" = un bucle de loopBars compases; 0..2 = forma concreta.');
+    lines.push('Formas (shape): "song" = la del género (trap, reggaetón, neo perreo y boom bap: canción de rap con versos de 16 y hooks de 8; techno y rave: intro/subida/drop/puente/final); "loop" = un bucle de loopBars compases; 0..2 = formas de club, 3..4 = formas de rap.');
     if (this.host) {
       const profiles = await this.host.listProfiles();
       lines.push(profiles.length > 0 ? `Perfiles de estilo (profile): ${profiles.map(profileSummary).join(' · ')}` : 'Perfiles de estilo: ninguno todavía (learn_style).');

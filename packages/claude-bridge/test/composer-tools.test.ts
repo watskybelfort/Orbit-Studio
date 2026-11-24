@@ -78,7 +78,9 @@ describe('compose_beat', () => {
     const text = (await executor.execute('compose_beat', { genre: 'neoperreo', seed: 3, key: 'F#', scale: 'Frigio', bpm: 98 })).text;
     expect(text).toMatch(/Neo perreo · 98 BPM · F# Frigio/);
     expect(store.project.tempo).toBe(98);
-    expect(store.project.channelOrder.length).toBeGreaterThanOrEqual(8);
+    // Bombo, caja, hats, bajo, acordes y melodía: el neo perreo despojado no lleva
+    // percusión suelta, y en forma de canción de rap no hay subida que pida FX.
+    expect(store.project.channelOrder.length).toBeGreaterThanOrEqual(6);
     expect(store.history.at(-1)?.origin).toBe('claude');
     store.undo('claude');
     expect(JSON.stringify(store.project)).toBe(before);
