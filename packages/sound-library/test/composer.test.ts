@@ -219,7 +219,7 @@ describe('perfil de estilo', () => {
     const plan = composeBeat({ genre: 'neoperreo', seed: 4, profile, influence: 1 });
     expect(plan.bpm).toBe(96);
     expect(plan.keyRoot).toBe(6);
-    expect(plan.style).toEqual({ profile: 'Mis beats', matched: 1, influence: 1 });
+    expect(plan.style).toEqual({ profile: 'Mis beats', matched: 1, grooved: 1, influence: 1 });
     const without = composeBeat({ genre: 'neoperreo', seed: 4 });
     expect(JSON.stringify(plan.parts)).not.toBe(JSON.stringify(without.parts));
   });

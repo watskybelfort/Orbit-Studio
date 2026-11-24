@@ -28,6 +28,13 @@ export interface TrackFeatures {
   durationSec: number;
   bpm: number | null;
   bpmConfidence: number;
+  /**
+   * Otros tempos que el analizador consideró, de más a menos probable. Sirven
+   * cuando el principal está en una relación rara con el real (3:2 es el
+   * error típico: un boom bap a 87 medido a 140). El groove (`lanes`) se midió
+   * SOLO sobre el principal, así que un tempo de aquí no lo arrastra.
+   */
+  bpmCandidates?: number[];
   /** Tónica 0..11 (0 = C). */
   keyRoot: number | null;
   keyMode: 'major' | 'minor' | null;
@@ -94,6 +101,9 @@ function isValidTrack(t: unknown): t is TrackFeatures {
     (r['bpm'] === null || (finite(r['bpm']) && (r['bpm'] as number) > 0)) &&
     (r['keyRoot'] === null || (Number.isInteger(r['keyRoot']) && (r['keyRoot'] as number) >= 0 && (r['keyRoot'] as number) < 12)) &&
     (r['keyMode'] === null || r['keyMode'] === 'major' || r['keyMode'] === 'minor') &&
+    (r['bpmCandidates'] === undefined ||
+      (Array.isArray(r['bpmCandidates']) && (r['bpmCandidates'] as unknown[]).length <= 8 &&
+        (r['bpmCandidates'] as unknown[]).every((b) => finite(b) && b > 0))) &&
     finite(r['swing']) && finite(r['brightness']) && finite(r['grit']) &&
     finite(r['bpmConfidence']) && finite(r['keyConfidence']) &&
     !!lanes && isLane(lanes['low']) && isLane(lanes['mid']) && isLane(lanes['high']) &&
@@ -128,6 +138,8 @@ export function parseProfile(raw: unknown): StyleProfile | null {
 export interface StyleHint {
   /** Pistas que encajaron con el género (por tempo). */
   matched: number;
+  /** De esas, las que además aportan groove (su tempo principal encaja). */
+  grooved: number;
   bpm: number | null;
   keyRoot: number | null;
   keyMode: 'major' | 'minor' | null;
@@ -144,11 +156,33 @@ export interface StyleHint {
  * `null` si ni doblando ni partiendo cae dentro.
  */
 export function fitTempo(bpm: number, genre: ComposerGenre): number | null {
+  return fitTempoFactor(bpm, genre)?.bpm ?? null;
+}
+
+/** Como `fitTempo`, diciendo además por cuánto hubo que multiplicar. */
+export function fitTempoFactor(bpm: number, genre: ComposerGenre): { bpm: number; factor: number } | null {
   const { min, max } = GENRE_PRESETS[genre].bpm;
   for (const factor of [1, 2, 0.5, 4, 0.25]) {
     const t = bpm * factor;
-    if (t >= min - 2 && t <= max + 2) return t;
+    if (t >= min - 2 && t <= max + 2) return { bpm: t, factor };
   }
+  return null;
+}
+
+/**
+ * Un carril medido a un tempo, visto al tempo del género. Medido a la mitad
+ * (factor 2: un trap a 70 que «es» 140), cada compás medido son dos del
+ * género y cada semicorchea medida, dos: el paso j del género cae en el j/2
+ * de una de las dos mitades. Medido al doble (factor 0,5), cada paso del
+ * género es una corchea medida. Con factor 4 o 0,25 el carril ya no dice
+ * nada fiable y se descarta.
+ */
+export function remapLane(lane: readonly number[], factor: number): number[] | null {
+  if (factor === 1) return [...lane];
+  if (factor === 2) {
+    return Array.from({ length: 16 }, (_, j) => (j % 2 === 0 ? Math.max(lane[j / 2]!, lane[8 + j / 2]!) : 0));
+  }
+  if (factor === 0.5) return Array.from({ length: 16 }, (_, j) => lane[(2 * j) % 16]!);
   return null;
 }
 
@@ -158,9 +192,19 @@ export function fitTempo(bpm: number, genre: ComposerGenre): number | null {
  * no para el groove — el groove de otro género sería ruido.
  */
 export function styleHint(profile: StyleProfile, genre: ComposerGenre): StyleHint {
+  // Primero el tempo principal (con él se midió el groove); si no encaja, un
+  // candidato — que aporta el tempo pero no el groove.
   const fitted = profile.tracks
-    .map((t) => ({ t, bpm: t.bpm === null ? null : fitTempo(t.bpm, genre) }))
-    .filter((x): x is { t: TrackFeatures; bpm: number } => x.bpm !== null);
+    .map((t) => {
+      const main = t.bpm === null ? null : fitTempoFactor(t.bpm, genre);
+      if (main) return { t, bpm: main.bpm, factor: main.factor as number | null };
+      for (const c of t.bpmCandidates ?? []) {
+        const alt = fitTempoFactor(c, genre);
+        if (alt) return { t, bpm: alt.bpm, factor: null };
+      }
+      return null;
+    })
+    .filter((x): x is { t: TrackFeatures; bpm: number; factor: number | null } => x !== null);
   const pool = fitted.length > 0 ? fitted.map((x) => x.t) : profile.tracks;
   const weightOf = (t: TrackFeatures): number => Math.max(1, t.durationSec);
   let wsum = 0;
@@ -177,14 +221,16 @@ export function styleHint(profile: StyleProfile, genre: ComposerGenre): StyleHin
   wsum = wsum || 1;
 
   let lanes: StyleHint['lanes'] = null;
-  if (fitted.length > 0) {
+  const grooved = fitted.filter((x) => x.factor !== null && remapLane(x.t.lanes.low, x.factor) !== null);
+  if (grooved.length > 0) {
     const acc = { low: new Array(16).fill(0), mid: new Array(16).fill(0), high: new Array(16).fill(0) };
     let lw = 0;
-    for (const { t } of fitted) {
+    for (const { t, factor } of grooved) {
       const w = weightOf(t) * (0.5 + t.bpmConfidence);
       lw += w;
       for (const band of ['low', 'mid', 'high'] as const) {
-        for (let i = 0; i < 16; i++) acc[band][i] += t.lanes[band][i]! * w;
+        const lane = remapLane(t.lanes[band], factor!)!;
+        for (let i = 0; i < 16; i++) acc[band][i] += lane[i]! * w;
       }
     }
     const norm = (lane: number[]): number[] => {
@@ -200,6 +246,7 @@ export function styleHint(profile: StyleProfile, genre: ComposerGenre): StyleHin
   const bpms = fitted.map((x) => x.bpm).sort((a, b) => a - b);
   return {
     matched: fitted.length,
+    grooved: grooved.length,
     bpm: bpms.length > 0 ? bpms[Math.floor(bpms.length / 2)]! : null,
     keyRoot: keyed[0]?.keyRoot ?? null,
     keyMode: keyed[0]?.keyMode ?? null,
@@ -222,16 +269,26 @@ export function guessGenre(track: TrackFeatures): ComposerGenre {
   const mid = track.lanes.mid;
   const dembow = (mid[3]! + mid[6]! + mid[11]! + mid[14]!) / 4;
   const bpm = track.bpm ?? 0;
+  const tempoFit = (genre: ComposerGenre): { fitted: number; raw: number; penalty: number } | null => {
+    const list = [bpm, ...(track.bpmCandidates ?? [])].filter((b) => b > 0);
+    for (let i = 0; i < list.length; i++) {
+      const f = fitTempo(list[i]!, genre);
+      // Cada candidato más abajo en la lista cuesta un poco de credibilidad.
+      if (f !== null) return { fitted: f, raw: list[i]!, penalty: i === 0 ? 0 : 0.15 + 0.05 * i };
+    }
+    return null;
+  };
   const candidates: { genre: ComposerGenre; score: number }[] = (Object.keys(GENRE_PRESETS) as ComposerGenre[]).map(
     (genre) => {
-      const fitted = bpm > 0 ? fitTempo(bpm, genre) : null;
-      let score = fitted === null ? 0 : 1 - Math.abs(fitted - GENRE_PRESETS[genre].bpm.default) / 40;
-      if (fitted !== null && Math.abs(fitted - bpm) < 1) score += 0.25; // sin doblar: más creíble
+      const fit = tempoFit(genre);
+      let score = fit === null ? 0 : 1 - Math.abs(fit.fitted - GENRE_PRESETS[genre].bpm.default) / 40 - fit.penalty;
+      if (fit !== null && Math.abs(fit.fitted - fit.raw) < 1) score += 0.25; // sin doblar: más creíble
       if (genre === 'techno' || genre === 'rave') score += (fourFloor - offFloor) * 0.8;
       if (genre === 'reggaeton' || genre === 'neoperreo') score += dembow * 0.6 + fourFloor * 0.2;
       if (genre === 'neoperreo') score += (track.grit - 0.5) * 0.4;
       if (genre === 'boombap') score += track.swing * 0.6 - fourFloor * 0.3;
-      if (genre === 'trap') score += (track.density.high > 6 ? 0.2 : 0) - fourFloor * 0.2;
+      // Trap: hats llenos encima de un grave escaso (el 808 sostiene, no golpea).
+      if (genre === 'trap') score += (track.density.high > 6.5 ? 0.35 : 0) + (track.density.low < 3.5 ? 0.15 : 0) - fourFloor * 0.2;
       return { genre, score };
     },
   );

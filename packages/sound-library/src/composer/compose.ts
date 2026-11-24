@@ -137,7 +137,7 @@ export interface BeatPlan {
   parts: PlanPart[];
   master: FxChoice[];
   /** Qué se usó del perfil (para contarlo en la UI y el MCP). */
-  style: { profile: string; matched: number; influence: number } | null;
+  style: { profile: string; matched: number; grooved: number; influence: number } | null;
 }
 
 export const SECTION_LABELS: Record<SectionKind, string> = {
@@ -868,7 +868,7 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
     totalBars,
     parts,
     master: preset.master,
-    style: hint && opts.profile ? { profile: opts.profile.name, matched: hint.matched, influence } : null,
+    style: hint && opts.profile ? { profile: opts.profile.name, matched: hint.matched, grooved: hint.grooved, influence } : null,
   };
 }
 
