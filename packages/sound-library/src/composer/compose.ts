@@ -590,7 +590,9 @@ function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: nu
 }
 
 function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: number): PlanNote[] {
-  const density = densityOf(kind);
+  const base = densityOf(kind);
+  // La intro de un género con `inIntro` ya lleva el bajo entero.
+  const density = kind === 'intro' && ctx.preset.bass.inIntro ? { ...base, bass: 1 } : base;
   if (density.bass <= 0) return [];
   const { preset, keyRoot, scale } = ctx;
   const rng = ctx.rng.fork(`bass-${kind}-${bars}-${sectionStartBar}`);

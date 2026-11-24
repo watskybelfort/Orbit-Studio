@@ -373,12 +373,16 @@ describe('reglas de la investigación de género', () => {
     for (const prog of GENRE_PRESETS.neoperreo.progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
   });
 
-  it('los géneros urbanos dejan margen de true peak en el master; techno y rave, como estaban', () => {
+  it('los géneros urbanos limitan por true peak a -1 dBTP; techno y rave, como estaban', () => {
     for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
       const lim = GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!;
-      expect(lim.params['ceiling']).toBeLessThanOrEqual(-2);
+      expect(lim.params).toMatchObject({ ceiling: -1, truePeak: 1 });
     }
-    for (const g of ['techno', 'rave'] as const) expect(GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!.params['ceiling']).toBe(-1);
+    for (const g of ['techno', 'rave'] as const) {
+      const lim = GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!;
+      expect(lim.params['ceiling']).toBe(-1);
+      expect(lim.params['truePeak']).toBeUndefined();
+    }
   });
 
   it('el bombo se afina a la tónica o la quinta, y cada bombo de los kits tiene su altura medida', () => {

@@ -153,7 +153,8 @@ export interface GenrePreset {
   };
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). */
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). `maxLen`: tope de duración de la nota del bajo `sub`, en tiempos. */
-  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number };
+  /** `inIntro`: el bajo ya suena en la intro (por defecto la intro va sin bajo). */
+  bass: { style: BassStyle; glide: number; octave: number; hits?: number[]; maxLen?: number; inIntro?: boolean };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
   /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
   /** `sparseVerse`: en el verso, el rasgueo `perreo` deja huecos para la voz. */
@@ -232,6 +233,8 @@ const MONO_LOW: FxChoice = { kind: 'stereo', params: { width: 1, gain: 1, monoBe
  * más dinámico, ~-11,5).
  */
 const LIMITER = (gain: number, ceiling = -1): FxChoice => ({ kind: 'limiter', params: { gain, ceiling } });
+/** Limitador de los géneros urbanos: detector de true peak y techo -1 dBTP (el estándar de streaming). */
+const LIMITER_TP = (gain: number): FxChoice => ({ kind: 'limiter', params: { gain, ceiling: -1, truePeak: 1 } });
 
 /**
  * Techo de agudos de hats, shakers y cajas: dos pasos bajos seguidos (24 dB/oct).
@@ -356,7 +359,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       bass: [DUCK_SOFT],
       snare: [{ kind: 'eq', params: { highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
     },
-    master: [MONO_LOW, LIMITER(3, -2.5)],
+    master: [MONO_LOW, LIMITER_TP(3.4)],
     // Forma de canción de rap (intro, hooks de 8, versos de 16): no de club.
     shapes: [3, 4],
   },
@@ -434,12 +437,13 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
       // La nylon grabada es casi toda lateral (correlación 0,13): se estrecha para que no se pierda en mono.
       chords: [
-        { kind: 'eq', params: { hpFreq: 200, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
+        { kind: 'eq', params: { hpFreq: 260, lowGain: -3, lowFreq: 320, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
         { kind: 'stereo', params: { width: 0.3, gain: 1, monoBelow: 0 } },
       ],
       bass: [DUCK_FROM_KICK],
       melody: [
-        { kind: 'eq', params: { hpFreq: 220, midGain: -4, midFreq: 2500, midQ: 1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
+        // Valle en 3 kHz: ahí quedaba la última resonancia medida (+11 dB, 3079 Hz).
+        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -5, midFreq: 3000, midQ: 1.1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
         // La nylon grabada es casi toda lateral también cuando toca la melodía (correlación 0,12).
         { kind: 'stereo', params: { width: 0.4, gain: 1, monoBelow: 0 } },
         { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 0.7, predelay: 0.02 } },
@@ -449,7 +453,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // El rim de la clave llegaba a 20,8 kHz y subía el true peak 1,1 dB.
       perc: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER(4.8, -2.5)],
+    master: [MONO_LOW, LIMITER_TP(6)],
     shapes: [3, 4],
   },
 
@@ -496,14 +500,15 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
     // El 808 largo sobre el 1 y el 9, no en negras pegadas al bombo.
-    bass: { style: '808', glide: 0.3, octave: 2, hits: [0, 8] },
+    // `inIntro`: el 808 ya suena en la intro (sin él la intro quedaba 10 dB por debajo del hook).
+    bass: { style: '808', glide: 0.3, octave: 2, hits: [0, 8], inIntro: true },
     chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 60, openVoicing: true },
     melody: { style: 'riff', density: 4, octave: 5, range: [57, 79], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
-        { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 }, volume: 0.66 },
-        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.66 },
+        { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 }, volume: 0.59 },
+        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.59 },
       ],
       chords: [
         // Los acordes quedaban enterrados (-25 LUFS en solitario): +5 dB.
@@ -520,7 +525,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
     // El dembow tiene que cortar: la caja estaba 12 dB por debajo del bombo.
-    drumMix: { kick: 0.85, snare: 1.6, hats: 0.85, perc: 0.6 },
+    drumMix: { kick: 0.76, snare: 1.45, hats: 0.78, perc: 0.6 },
     fx: {
       bass: [{ kind: 'distortion', params: { drive: 0.2, tone: 3000, output: 0.9 } }],
       melody: [
@@ -537,7 +542,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       snare: [{ kind: 'eq', params: { hpFreq: 180, midGain: 5, midFreq: 3000, midQ: 0.8 } }, ...AIR_CAP(13000)],
       hats: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER(0, -2.5)],
+    master: [MONO_LOW, LIMITER_TP(0)],
     shapes: [3, 4],
   },
 
@@ -626,7 +631,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Y fuera la caja de cartón (300 Hz): el crack va arriba, en 1,8 kHz.
       snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: -2, midFreq: 1200, midQ: 0.9 } }, ...AIR_CAP(12000)],
     },
-    master: [MONO_LOW, LIMITER(4.5, -2.5)],
+    master: [MONO_LOW, LIMITER_TP(4.6)],
     shapes: [3, 4],
   },
 
