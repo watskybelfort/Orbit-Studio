@@ -30,6 +30,8 @@ import {
   extendProfile,
   guessGenre,
   isComposerGenre,
+  genreVariants,
+  presetLabel,
   isComposerRole,
   planToCommands,
   recomposePart,
@@ -184,6 +186,9 @@ export class ComposerTools {
         `- ${g} — ${p.name}: ${p.description} BPM ${p.bpm.min}–${p.bpm.max} (por defecto ${p.bpm.default}); ` +
           `escalas ${p.scales.map((s) => s.name).join(' / ')}; swing ${p.swing}.`,
       );
+      for (const v of genreVariants(g)) {
+        lines.push(`  · variant="${v.id}" — ${v.name}: ${v.description} BPM ${v.preset.bpm.min}–${v.preset.bpm.max}.`);
+      }
     }
     lines.push(`Partes (parts): ${COMPOSER_ROLES.map((r) => `${r} (${ROLE_LABELS[r]})`).join(', ')}.`);
     lines.push(`Escalas (scale): ${Object.keys(SCALES).join(', ')}.`);
@@ -200,6 +205,7 @@ export class ComposerTools {
   private composeOptions(a: Record<string, unknown>, profile: StyleProfile | null, genre: ComposerGenre): ComposeOptions {
     return {
       genre,
+      variant: optString(a, 'variant'),
       seed: seedOf(a),
       bpm: optBoundedNumber(a, 'bpm', 40, 250),
       keyRoot: parseKeyRoot(a['key']),
@@ -266,7 +272,7 @@ export class ComposerTools {
     if (!isComposerGenre(genre)) throw new ToolError(`genre "${genre}" desconocido (${COMPOSER_GENRES.join(', ')})`);
     const profile = await this.findProfile(optString(a, 'profile'));
     const opts = this.composeOptions(a, profile, genre);
-    return this.composeAndApply(a, opts, profile, `Componer beat ${GENRE_PRESETS[genre].name}`);
+    return this.composeAndApply(a, opts, profile, `Componer beat ${presetLabel(genre, opts.variant)}`);
   }
 
   // ── recompose_part ─────────────────────────────────────────────────────────

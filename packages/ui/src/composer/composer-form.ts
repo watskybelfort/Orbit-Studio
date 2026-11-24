@@ -11,6 +11,7 @@ import {
   COMPOSER_GENRES,
   COMPOSER_ROLES,
   GENRE_PRESETS,
+  genreVariants,
   type ComposeOptions,
   type ComposerGenre,
   type ComposerRole,
@@ -31,6 +32,8 @@ export type ShapeChoice = 'song' | 'loop';
 
 export interface ComposerForm {
   genre: ComposerGenre;
+  /** Variante del género, o `null` para la de siempre. */
+  variant: string | null;
   seed: number;
   /** `null` = lo decide el género / el perfil. */
   bpm: number | null;
@@ -49,6 +52,7 @@ export interface ComposerForm {
 export function defaultForm(seed: number): ComposerForm {
   return {
     genre: 'trap',
+    variant: null,
     seed,
     bpm: null,
     keyRoot: null,
@@ -86,6 +90,7 @@ export function toComposeOptions(
     complexity: form.complexity,
     soundVariation: form.soundVariation,
   };
+  if (form.variant !== null && genreVariants(form.genre).some((v) => v.id === form.variant)) opts.variant = form.variant;
   if (form.bpm !== null) opts.bpm = form.bpm;
   if (form.keyRoot !== null) opts.keyRoot = form.keyRoot;
   if (form.scale !== null) opts.scale = form.scale;
@@ -111,8 +116,10 @@ export function parseForm(raw: unknown, seed: number): ComposerForm {
   const roles = Array.isArray(r['roles'])
     ? (r['roles'] as unknown[]).filter((x): x is ComposerRole => COMPOSER_ROLES.includes(x as ComposerRole))
     : base.roles;
+  const variant = genreVariants(genre).find((v) => v.id === r['variant'])?.id ?? null;
   return {
     genre,
+    variant,
     seed,
     bpm: num(r['bpm'], 40, 250) ?? null,
     keyRoot: (() => {
@@ -131,7 +138,8 @@ export function parseForm(raw: unknown, seed: number): ComposerForm {
 }
 
 /** El rango de tempo del género, para el placeholder del campo BPM. */
-export function bpmHint(genre: ComposerGenre): string {
-  const { min, max, default: def } = GENRE_PRESETS[genre].bpm;
+export function bpmHint(genre: ComposerGenre, variant: string | null = null): string {
+  const preset = genreVariants(genre).find((v) => v.id === variant)?.preset ?? GENRE_PRESETS[genre];
+  const { min, max, default: def } = preset.bpm;
   return `${def} (${min}–${max})`;
 }

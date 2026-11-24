@@ -28,6 +28,8 @@ import {
   GENRE_PRESETS,
   ROLE_LABELS,
   genreDrumLanes,
+  presetLabel,
+  resolvePreset,
   type ComposerGenre,
   type ComposerRole,
   type FxChoice,
@@ -47,6 +49,8 @@ const STEP = 0.25; // una semicorchea, en beats
 
 export interface ComposeOptions {
   genre: ComposerGenre;
+  /** Variante del género (`GENRE_VARIANTS`); sin ella, el preset de siempre. */
+  variant?: string;
   seed: number;
   /** Tempo fijo; si falta, el del perfil o el del género. */
   bpm?: number;
@@ -140,6 +144,8 @@ export interface PlanSection {
 
 export interface BeatPlan {
   genre: ComposerGenre;
+  /** Variante usada (solo si se pidió una). */
+  variant?: string;
   seed: number;
   bpm: number;
   swing: number;
@@ -201,9 +207,12 @@ const round3 = (x: number): number => Math.round(x * 1000) / 1000;
 // ── Entrada saneada ───────────────────────────────────────────────────────────
 
 /** Comprueba y normaliza las opciones; lanza `Error` con un motivo legible. */
-export function normalizeComposeOptions(opts: ComposeOptions): Required<Omit<ComposeOptions, 'bpm' | 'keyRoot' | 'scale' | 'profile' | 'progression' | 'shape'>> &
-  Pick<ComposeOptions, 'bpm' | 'keyRoot' | 'scale' | 'profile' | 'progression' | 'shape'> {
+export function normalizeComposeOptions(opts: ComposeOptions): Required<Omit<ComposeOptions, 'bpm' | 'keyRoot' | 'scale' | 'profile' | 'progression' | 'shape' | 'variant'>> &
+  Pick<ComposeOptions, 'bpm' | 'keyRoot' | 'scale' | 'profile' | 'progression' | 'shape' | 'variant'> {
   if (!GENRE_PRESETS[opts.genre]) throw new Error(`género desconocido "${String(opts.genre)}"`);
+  if (opts.variant !== undefined && typeof opts.variant !== 'string') throw new Error('variant debe ser texto');
+  // Lanza si la variante no existe para el género.
+  resolvePreset(opts.genre, opts.variant);
   if (!Number.isFinite(opts.seed)) throw new Error('seed debe ser un número');
   if (opts.bpm !== undefined && !(opts.bpm >= 40 && opts.bpm <= 250)) throw new Error('bpm fuera de 40..250');
   if (opts.keyRoot !== undefined && !(Number.isInteger(opts.keyRoot) && opts.keyRoot >= 0 && opts.keyRoot < 12)) {
@@ -229,6 +238,7 @@ export function normalizeComposeOptions(opts: ComposeOptions): Required<Omit<Com
   }
   return {
     genre: opts.genre,
+    variant: opts.variant || undefined,
     seed: Math.floor(Math.abs(opts.seed)) >>> 0,
     bpm: opts.bpm,
     keyRoot: opts.keyRoot,
@@ -960,8 +970,9 @@ function sectionsFor(shape: number | 'loop', loopBars: number): Section[] {
 
 export function composeBeat(input: ComposeOptions): BeatPlan {
   const opts = normalizeComposeOptions(input);
-  const preset = GENRE_PRESETS[opts.genre];
-  const rng = createRng(hashString(opts.genre, opts.seed));
+  const preset = resolvePreset(opts.genre, opts.variant);
+  // Sin variante, la misma semilla de siempre: los beats ya hechos no cambian.
+  const rng = createRng(hashString(opts.variant ? `${opts.genre}/${opts.variant}` : opts.genre, opts.seed));
   const hint = opts.profile ? styleHint(opts.profile, opts.genre) : null;
   const influence = hint ? opts.influence : 0;
 
@@ -1086,6 +1097,7 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
 
   return {
     genre: opts.genre,
+    ...(opts.variant ? { variant: opts.variant } : null),
     seed: opts.seed,
     bpm,
     swing,
@@ -1115,6 +1127,7 @@ export function recomposePart(
 ): PlanPart | null {
   const beat = composeBeat({
     genre: plan.genre,
+    variant: plan.variant,
     seed,
     bpm: plan.bpm,
     keyRoot: plan.keyRoot,
@@ -1130,7 +1143,7 @@ export function recomposePart(
 
 /** Una línea legible del plan («Neo perreo · 98 BPM · F# Frigio · 40 compases · 8 partes»). */
 export function describePlan(plan: BeatPlan): string {
-  const preset = GENRE_PRESETS[plan.genre];
+  const name = presetLabel(plan.genre, plan.variant);
   const style = plan.style ? ` · estilo «${plan.style.profile}» (${plan.style.matched} pistas)` : '';
-  return `${preset.name} · ${plan.bpm} BPM · ${NOTE_LABELS[plan.keyRoot]} ${plan.scaleName} · ${plan.totalBars} compases · ${plan.parts.length} partes${style}`;
+  return `${name} · ${plan.bpm} BPM · ${NOTE_LABELS[plan.keyRoot]} ${plan.scaleName} · ${plan.totalBars} compases · ${plan.parts.length} partes${style}`;
 }

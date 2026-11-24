@@ -15,6 +15,7 @@ import {
   COMPOSER_GENRES,
   COMPOSER_ROLES,
   GENRE_PRESETS,
+  genreVariants,
   NOTE_LABELS,
   ROLE_LABELS,
   guessGenre,
@@ -54,7 +55,8 @@ export function ComposerPanel() {
     void loadComposer();
   }, []);
 
-  const preset = GENRE_PRESETS[form.genre];
+  const variants = genreVariants(form.genre);
+  const preset = variants.find((v) => v.id === form.variant)?.preset ?? GENRE_PRESETS[form.genre];
   const profile = profiles.find((p) => p.id === form.profileId) ?? null;
   const working = busy || training !== null;
 
@@ -117,12 +119,35 @@ export function ComposerPanel() {
               role="radio"
               aria-checked={form.genre === g}
               className={`cmp-chip${form.genre === g ? ' selected' : ''}`}
-              onClick={() => updateForm({ genre: g })}
+              onClick={() => updateForm({ genre: g, variant: null })}
             >
               {GENRE_PRESETS[g].name}
             </button>
           ))}
         </div>
+        {variants.length > 0 && (
+          <div className="cmp-genres" role="radiogroup" aria-label="Variante">
+            <button
+              role="radio"
+              aria-checked={form.variant === null}
+              className={`cmp-chip${form.variant === null ? ' selected' : ''}`}
+              onClick={() => updateForm({ variant: null })}
+            >
+              {GENRE_PRESETS[form.genre].variantName ?? 'Clásico'}
+            </button>
+            {variants.map((v) => (
+              <button
+                key={v.id}
+                role="radio"
+                aria-checked={form.variant === v.id}
+                className={`cmp-chip${form.variant === v.id ? ' selected' : ''}`}
+                onClick={() => updateForm({ variant: v.id })}
+              >
+                {v.name}
+              </button>
+            ))}
+          </div>
+        )}
         <p className="cmp-note">{preset.description}</p>
       </section>
 
@@ -242,7 +267,7 @@ export function ComposerPanel() {
             type="number"
             min={40}
             max={250}
-            placeholder={`Auto · ${bpmHint(form.genre)}`}
+            placeholder={`Auto · ${bpmHint(form.genre, form.variant)}`}
             value={form.bpm ?? ''}
             onChange={(e) => {
               const v = e.target.value === '' ? null : Number(e.target.value);

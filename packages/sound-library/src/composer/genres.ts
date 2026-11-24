@@ -119,6 +119,8 @@ export type MelodyStyle =
 export interface GenrePreset {
   id: ComposerGenre;
   name: string;
+  /** Si el género tiene variantes: cómo se llama la de siempre en el selector («Melódico», «2000»). */
+  variantName?: string;
   description: string;
   bpm: { min: number; max: number; default: number };
   /** Swing del proyecto 0..1. */
@@ -759,6 +761,47 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
 
 export function genrePreset(genre: ComposerGenre): GenrePreset {
   return GENRE_PRESETS[genre];
+}
+
+// ── Variantes ─────────────────────────────────────────────────────────────────
+
+/**
+ * Una variante es otro ADN dentro del mismo género: el trap duro sin melodía,
+ * el reggaetón moderno al lado del de los 2000. Se elige con `variant` al
+ * componer; sin ella, el preset de siempre (que no cambia de sonido).
+ */
+export interface GenreVariant {
+  id: string;
+  name: string;
+  description: string;
+  preset: GenrePreset;
+}
+
+export const GENRE_VARIANTS: Partial<Record<ComposerGenre, readonly GenreVariant[]>> = {};
+
+/** Las variantes de un género (vacío si no tiene). */
+export function genreVariants(genre: ComposerGenre): readonly GenreVariant[] {
+  return GENRE_VARIANTS[genre] ?? [];
+}
+
+/** El preset de un género y una variante; lanza con un motivo legible si la variante no existe. */
+export function resolvePreset(genre: ComposerGenre, variant?: string | null): GenrePreset {
+  const base = GENRE_PRESETS[genre];
+  if (!base) throw new Error(`género desconocido "${String(genre)}"`);
+  if (variant === undefined || variant === null || variant === '') return base;
+  const v = genreVariants(genre).find((x) => x.id === variant);
+  if (!v) {
+    const ids = genreVariants(genre).map((x) => x.id);
+    throw new Error(`variante "${variant}" desconocida para ${base.name} (${ids.length > 0 ? ids.join(', ') : 'no tiene variantes'})`);
+  }
+  return v.preset;
+}
+
+/** Nombre para mostrar: «Trap · Duro» o «Trap». */
+export function presetLabel(genre: ComposerGenre, variant?: string | null): string {
+  const base = GENRE_PRESETS[genre].name;
+  const v = variant ? genreVariants(genre).find((x) => x.id === variant) : undefined;
+  return v ? `${base} · ${v.name}` : base;
 }
 
 /** Carriles de batería de un género ya parseados (los usa el compositor y los tests). */

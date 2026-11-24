@@ -633,6 +633,11 @@ export const TOOLS: ToolDef[] = [
       type: 'object',
       properties: {
         genre: { type: 'string', enum: [...COMPOSER_GENRES], description: 'Género (ver list_genres).' },
+        variant: {
+          type: 'string',
+          maxLength: 40,
+          description: 'Variante del género (ver list_genres): p. ej. trap "duro" o "crudo", reggaeton "moderno", neoperreo "oscuro". Sin ella, la de siempre.',
+        },
         seed: { type: 'number', minimum: 0, description: 'Semilla (por defecto, al azar; se devuelve para repetir).' },
         bpm: { type: 'number', minimum: 40, maximum: 250, description: 'Tempo fijo.' },
         key: { type: 'string', description: 'Tónica: "C", "F#", "Bb"…' },
@@ -734,6 +739,7 @@ export const TOOLS: ToolDef[] = [
       properties: {
         sample: { type: 'string', description: 'Id o nombre del sample de referencia.' },
         genre: { type: 'string', enum: [...COMPOSER_GENRES] },
+        variant: { type: 'string', maxLength: 40, description: 'Variante del género (ver list_genres).' },
         seed: { type: 'number', minimum: 0 },
         bpm: { type: 'number', minimum: 40, maximum: 250 },
         key: { type: 'string' },
