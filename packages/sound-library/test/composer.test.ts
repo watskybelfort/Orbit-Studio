@@ -19,7 +19,9 @@ import {
 } from '../src';
 
 const part = (plan: BeatPlan, role: string) => plan.parts.find((p) => p.role === role);
-const dropPattern = (plan: BeatPlan, role: string) => part(plan, role)?.patterns.find((p) => p.id.startsWith('drop'));
+// El pico del tema: el drop en las formas de club, el hook en las de rap.
+const dropPattern = (plan: BeatPlan, role: string) =>
+  part(plan, role)?.patterns.find((p) => p.id.startsWith('drop')) ?? part(plan, role)?.patterns.find((p) => p.id.startsWith('hook'));
 
 function track(over: Partial<TrackFeatures> = {}): TrackFeatures {
   const lane = (hits: number[]) => Array.from({ length: 16 }, (_, i) => (hits.includes(i) ? 0.9 : 0.02));
@@ -354,18 +356,18 @@ describe('reglas de la investigación de género', () => {
     const ms = (beats: number) => (beats * 60000) / plan.bpm;
     const off = (role: string, grid: number) =>
       dropPattern(plan, role)!.notes.filter((n) => Math.abs(n.start - Math.round(n.start / grid) * grid) < 0.1).map((n) => ms(n.start - Math.round(n.start / grid) * grid));
-    for (const o of off('kick', 4)) expect(o).toBeCloseTo(8, 0);
-    for (const o of off('snare', 2).filter((x) => Math.abs(x) < 20)) expect(o).toBeCloseTo(-6, 0);
+    for (const o of off('kick', 4)) expect(o).toBeCloseTo(GENRE_PRESETS.boombap.drums.feelMs!.kick!, 0);
+    for (const o of off('snare', 2).filter((x) => Math.abs(x) < 20)) expect(o).toBeCloseTo(GENRE_PRESETS.boombap.drums.feelMs!.snare!, 0);
     // Los hats llevan además el swing horneado en las semicorcheas pares: se miran las corcheas.
-    for (const o of off('hats', 0.5).filter((x) => Math.abs(x) < 30)) expect(o).toBeCloseTo(14, 0);
+    for (const o of off('hats', 0.5).filter((x) => Math.abs(x) < 30)) expect(o).toBeCloseTo(GENRE_PRESETS.boombap.drums.feelMs!.hats!, 0);
   });
 
-  it('reggaetón: shaker en las 16 semicorcheas con la fuerza por pares; neo perreo en bucle de 1-2 acordes', () => {
+  it('reggaetón: shaker en las 16 semicorcheas con el acento en el 3+3+2; neo perreo en bucle de 1-2 acordes', () => {
     const hats = dropPattern(composeBeat({ genre: 'reggaeton', seed: 2 }), 'hats')!.notes.filter((n) => n.key === 70 && n.start < 4);
     expect(hats.length).toBeGreaterThanOrEqual(15);
     const v = (i: number) => hats.find((n) => Math.abs(n.start - i * 0.25) < 1e-6)!.velocity;
-    expect(v(2)).toBeGreaterThan(v(0) + 0.15);
-    expect(v(3)).toBeGreaterThan(v(1) + 0.15);
+    // Acento en el tresillo 3+3+2 (pasos 1, 4, 7 de cada medio compás).
+    for (const strong of [0, 3, 6, 8, 11]) expect(v(strong)).toBeGreaterThan(v(strong + 1) + 0.15);
     for (const prog of GENRE_PRESETS.neoperreo.progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
   });
 

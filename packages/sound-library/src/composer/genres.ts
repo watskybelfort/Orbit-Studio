@@ -141,9 +141,11 @@ export interface GenrePreset {
   };
   bass: { style: BassStyle; glide: number; octave: number };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
-  chords: { style: ChordStyle; sevenths: number; octave: number; center?: number };
+  /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
+  chords: { style: ChordStyle; sevenths: number; octave: number; center?: number; openVoicing?: boolean };
   /** `range`: tesitura MIDI de la melodía [grave, agudo]; lo que se sale se dobla por octavas. */
-  melody: { style: MelodyStyle; density: number; octave: number; range?: [number, number] };
+  /** `tune`: quita las b9 contra la raíz del acorde y deja respirar la fuerza de las notas. */
+  melody: { style: MelodyStyle; density: number; octave: number; range?: [number, number]; tune?: boolean };
   sounds: Record<Exclude<ComposerRole, 'kick' | 'snare' | 'hats' | 'perc'> | 'drums', SoundChoice[]>;
   /** Parámetros del canal de batería (kit, tone, decay, punch). */
   kit: Record<string, number>;
@@ -210,9 +212,22 @@ const MONO_LOW: FxChoice = { kind: 'stereo', params: { width: 1, gain: 1, monoBe
  * Limitador del master. El techo es de pico de MUESTRA: entre muestras el
  * audio sube más (true peak medido de +0,5 a +1,8 dBTP con techo -1), y eso
  * distorsiona al pasarlo a MP3. Los géneros urbanos llevan -2 de techo, que
- * deja el true peak por debajo de -1 dBTP.
+ * deja el true peak por debajo de -1 dBTP. `gain` va en dB (entrada al
+ * limitador): con él se igualan los géneros urbanos en ~-10 LUFS (boom bap,
+ * más dinámico, ~-11,5).
  */
 const LIMITER = (gain: number, ceiling = -1): FxChoice => ({ kind: 'limiter', params: { gain, ceiling } });
+
+/**
+ * Techo de agudos de hats, shakers y cajas: dos pasos bajos seguidos (24 dB/oct).
+ * El hat de fábrica tenía el 40 % de su energía por encima de 16 kHz y un pico
+ * en 21,7 kHz: era el «agudo raro» y, de paso, lo que hacía subir el true peak
+ * del master entre 0,8 y 1,6 dB por encima del pico de muestra.
+ */
+const AIR_CAP = (hz: number): FxChoice[] => [
+  { kind: 'eq', params: { lpFreq: hz } },
+  { kind: 'eq', params: { lpFreq: hz } },
+];
 
 // ── Los géneros ───────────────────────────────────────────────────────────────
 
@@ -262,18 +277,20 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-01' },
     bass: { style: '808', glide: 0.5, octave: 2 },
-    chords: { style: 'pad', sevenths: 0.1, octave: 4, center: 58 },
-    melody: { style: 'motif', density: 4, octave: 5, range: [60, 81] },
+    chords: { style: 'pad', sevenths: 0.1, octave: 4, center: 58, openVoicing: true },
+    melody: { style: 'motif', density: 4, octave: 5, range: [60, 81], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
+      // El 808 lleva más saturación (armónicos que se oyen en un móvil) y va
+      // 2 dB por debajo: tapaba al bombo +6,8 dB en 30-160 Hz.
       bass: [
-        { kind: 'sub808', params: { decay: 1.6, drive: 0.45, glide: 0.08, punch: 0.6, tone: 900 } },
-        { kind: 'prisma', preset: 'bass/808-carbon' },
+        { kind: 'sub808', params: { decay: 1.6, drive: 0.62, glide: 0.08, punch: 0.6, tone: 1300 }, volume: 0.64 },
+        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.64 },
       ],
       chords: [
-        { kind: 'prisma', preset: 'pads/pad-cine-oscuro', volume: 0.55 },
-        { kind: 'sampler', instrument: 'instrumentos/strings-ensemble', volume: 0.45 },
-        { kind: 'nova', preset: 'pads/pad-oscuro', volume: 0.5 },
+        { kind: 'prisma', preset: 'pads/pad-cine-oscuro', volume: 0.4 },
+        { kind: 'sampler', instrument: 'instrumentos/strings-ensemble', volume: 0.33 },
+        { kind: 'nova', preset: 'pads/pad-oscuro', volume: 0.36 },
       ],
       melody: [
         { kind: 'sampler', instrument: 'instrumentos/piano-suave', volume: 0.6 },
@@ -288,12 +305,18 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       melody: [
         // Un valle ancho en 2,6-2,8 kHz: ahí se apilaba un armónico del piano (+14 dB medido).
         { kind: 'eq', params: { hpFreq: 200, midGain: -4, midFreq: 2700, midQ: 0.9, highGain: -3, highFreq: 5000, lpFreq: 7000 } },
-        { kind: 'reverb', params: { size: 0.6, damp: 0.65, width: 1, predelay: 0.02 } },
+        // Reverb a media anchura: a todo lo ancho la melodía quedaba en 0,30 de correlación.
+        { kind: 'reverb', params: { size: 0.6, damp: 0.65, width: 0.5, predelay: 0.02 } },
       ],
       chords: [{ kind: 'eq', params: { hpFreq: 220, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 6500 } }],
+      // El click del bombo (+5 dB en 3 kHz): sin él, el 808 se lo comía.
+      kick: [{ kind: 'eq', params: { midGain: 5, midFreq: 3000, midQ: 1 } }],
+      hats: AIR_CAP(13000),
+      snare: AIR_CAP(13000),
     },
     master: [MONO_LOW, LIMITER(1.3, -2.5)],
-    shapes: [0, 1, 2],
+    // Forma de canción de rap (intro, hooks de 8, versos de 16): no de club.
+    shapes: [3, 4],
   },
 
   reggaeton: {
@@ -319,12 +342,13 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       kick: ['X...x...X...x...', 'X...x...X...x..?'],
       // La variedad del reggaetón está en la caja: fantasma en el 10 o el 14.
       snare: ['...x..x....x..x.', '...x..x..g.x..x.', '...x..x....x.gx.'],
-      // Shaker en las 16 semicorcheas, con la fuerza en pares (suave, suave, fuerte, fuerte).
-      hats: ['vvxxvvxxvvxxvvxx', 'vvxxvvxxvvxxvvx?'],
-      perc: ['......o.......o.', '..............o.'],
-      keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM, openhat: OPENHAT },
+      // Shaker en las 16 semicorcheas con el acento en el tresillo 3+3+2 del dembow.
+      hats: ['xvvxvvxvxvvxvvxv', 'xvvxvvxvxvvxvvx?'],
+      // La clave a contratiempo, que se oiga.
+      perc: ['..x...x...x...x.', '..x...x...x...xo'],
+      keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM },
       hatRolls: 0,
-      openHats: 0.05,
+      openHats: 0,
       clapLayer: CLAP,
     },
     drumKit: {
@@ -333,12 +357,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [CLAP]: ['drums/reggaeton/clap-01'],
       [SHAKER]: ['percusion-latina/shaker-01', 'percusion-latina/shaker-02'],
       [RIM]: ['percusion-latina/rim-01'],
-      [OPENHAT]: ['drums/trap/openhat-01'],
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
     bass: { style: 'sub', glide: 0.05, octave: 2 },
-    chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62 },
-    melody: { style: 'hook', density: 4, octave: 5, range: [60, 79] },
+    chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true },
+    melody: { style: 'hook', density: 4, octave: 5, range: [60, 79], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
@@ -346,19 +369,22 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'sub808', params: { decay: 0.7, drive: 0.2, glide: 0.03, punch: 0.6, tone: 650 } },
       ],
       chords: [
-        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', volume: 0.6 },
-        { kind: 'sampler', instrument: 'instrumentos/piano-suave', volume: 0.65 },
-        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.6 },
+        // Los instrumentos grabados salían 10-19 dB por debajo del pluck (medido):
+        // el sampler lleva su ganancia al doble y el pluck baja.
+        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 1.1 },
+        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.9 },
+        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.42 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/piano-suave', volume: 0.7 },
-        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', volume: 0.6 },
-        { kind: 'sampler', instrument: 'instrumentos/vibrafono', volume: 0.55 },
+        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.85 },
+        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 0.95 },
+        { kind: 'sampler', instrument: 'instrumentos/vibrafono', params: { gain: 2 }, volume: 0.75 },
       ],
       fx: [{ kind: 'sampler', volume: 0.4 }],
     },
     kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
-    drumMix: { kick: 1, snare: 0.95, hats: 0.4, perc: 0.45 },
+    // La caja del dembow tiene que mandar en medios: estaba 9,4 dB por debajo del bombo.
+    drumMix: { kick: 0.9, snare: 1.5, hats: 0.4, perc: 0.9 },
     fx: {
       // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
       chords: [{ kind: 'eq', params: { hpFreq: 200, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } }],
@@ -366,9 +392,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'eq', params: { hpFreq: 220, midGain: -4, midFreq: 2500, midQ: 1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
         { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 1, predelay: 0.02 } },
       ],
+      snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 250, midQ: 1 } }, ...AIR_CAP(12000)],
+      hats: AIR_CAP(11000),
     },
-    master: [MONO_LOW, LIMITER(1.6, -2.5)],
-    shapes: [0, 2],
+    master: [MONO_LOW, LIMITER(2.8, -2.5)],
+    shapes: [3, 4],
   },
 
   neoperreo: {
@@ -391,12 +419,13 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [0, 0, 3, 3],
     ],
     drums: {
-      // Despojado: el riddim deja a veces solo el 1 y el 9.
-      kick: ['X...x...X...x...', 'X.......X.......', 'X.......X...x...', 'X...x...X.......'],
+      // Bombo en las cuatro negras: con solo el 1 y el 9 era medio tiempo de trap bajo una caja dembow.
+      kick: ['X...x...X...x...', 'X...x...X...x...', 'X...x...X...x..?'],
       snare: ['...x..x....x..x.', '...x..x....x..x.', '...x..x....x..xg'],
       // Hats ausentes o a contratiempo.
       hats: ['..x...x...x...x.', '..x.......x.....', '..x...x...x...xo'],
-      perc: ['.......?.......o', '...............o'],
+      // Sin conga suelta: dos golpes cada 8 compases sonaban a error.
+      perc: [],
       keys: { kick: KICK, snare: RIM, hats: HAT, perc: CONGA, openhat: OPENHAT },
       hatRolls: 0.1,
       openHats: 0.1,
@@ -407,18 +436,17 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [RIM]: ['drums/neoperreo/snare-01', 'drums/neoperreo/rim-01'],
       [SNARE]: ['drums/reggaeton/clap-01'],
       [HAT]: ['drums/trap/hat-03'],
-      [CONGA]: ['percusion-latina/conga-01', 'percusion-latina/conga-02'],
       [OPENHAT]: ['drums/trap/openhat-01'],
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
     bass: { style: '808', glide: 0.3, octave: 2 },
-    chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 57 },
-    melody: { style: 'riff', density: 4, octave: 5, range: [55, 77] },
+    chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 60, openVoicing: true },
+    melody: { style: 'riff', density: 4, octave: 5, range: [57, 79], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
-        { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 } },
-        { kind: 'prisma', preset: 'bass/808-carbon' },
+        { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 }, volume: 0.66 },
+        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.66 },
       ],
       chords: [
         { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.5 },
@@ -426,27 +454,33 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'sampler', instrument: 'instrumentos/pad-calido', volume: 0.45 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', volume: 0.45 },
+        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1.6 }, volume: 0.6 },
         { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.55 },
         { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
       ],
       fx: [{ kind: 'sampler', volume: 0.45 }],
     },
     kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
-    drumMix: { kick: 1, snare: 0.9, hats: 0.6, perc: 0.6 },
+    // El dembow tiene que cortar: la caja estaba 12 dB por debajo del bombo.
+    drumMix: { kick: 0.85, snare: 1.6, hats: 0.85, perc: 0.6 },
     fx: {
       bass: [{ kind: 'distortion', params: { drive: 0.2, tone: 3000, output: 0.9 } }],
       melody: [
         // Oscuro pero no apagado: con techo en 5 kHz el beat entero quedaba 7 dB por debajo de tus beats en agudos.
-        { kind: 'eq', params: { hpFreq: 180, midGain: -3, midFreq: 4800, midQ: 1.5, highGain: -2, highFreq: 6000, lpFreq: 7500 } },
+        { kind: 'eq', params: { hpFreq: 180, midGain: -3, midFreq: 4800, midQ: 1.5, lpFreq: 9500 } },
         { kind: 'reverb', params: { size: 0.6, damp: 0.75, width: 1, predelay: 0.03 } },
       ],
-      chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 9000 } }],
+      // Paso alto doble (24 dB/oct): con uno solo seguía habiendo 90 Hz en los acordes.
+      chords: [
+        { kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 9000 } },
+        { kind: 'eq', params: { hpFreq: 250 } },
+      ],
       // La caja rota sube en presencia: es la que corta en un dembow despojado.
-      snare: [{ kind: 'eq', params: { hpFreq: 180, midGain: 3, midFreq: 2500, midQ: 0.8 } }],
+      snare: [{ kind: 'eq', params: { hpFreq: 180, midGain: 5, midFreq: 3000, midQ: 0.8 } }, ...AIR_CAP(13000)],
+      hats: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER(1.15, -2.5)],
-    shapes: [0, 1, 2],
+    master: [MONO_LOW, LIMITER(0, -2.5)],
+    shapes: [3, 4],
   },
 
   boombap: {
@@ -472,22 +506,24 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // Bombo: 1 + 11 (casi siempre), 7-8 (a menudo), 3 (a veces, suave).
       kick: ['X......x..x.....', 'X.?....x..x.....', 'X......x..x...?.', 'X.g.......x..o..'],
       snare: ['....X.......X...', '....X......gX...', '....X..g....X..g'],
-      hats: ['x.x.x.x.x.x.x.x.', 'xgxgxgxgxgxgxgxg', 'x.x.x.x.x.x.x.o.'],
+      // Semicorcheas con la par suave: el swing del motor solo mueve las
+      // semicorcheas pares, y en corcheas rectas no había swing que oír.
+      hats: ['xvxvxvxvxvxvxvxv', 'xvxvxvxvxvxvxvxg', 'xvxvxvxgxvxvxvxv'],
       perc: [],
       keys: { kick: KICK, snare: SNARE, hats: HAT, perc: RIM, openhat: OPENHAT },
       hatRolls: 0,
       openHats: 0.15,
-      feelMs: { kick: 8, snare: -6, hats: 14 },
+      feelMs: { kick: 8, snare: -4, hats: 10 },
     },
     drumKit: {
       [KICK]: ['drums/boombap/kick-03', 'drums/boombap/kick-01'],
       [SNARE]: ['drums/boombap/snare-03'],
-      [HAT]: ['drums/boombap/hat-03', 'drums/boombap/hat-01'],
+      [HAT]: ['drums/boombap/hat-03'],
       [OPENHAT]: ['drums/boombap/openhat-01'],
     },
     bass: { style: 'walk', glide: 0, octave: 2 },
-    chords: { style: 'chops', sevenths: 0.9, octave: 4, center: 64 },
-    melody: { style: 'hook', density: 3, octave: 5, range: [55, 77] },
+    chords: { style: 'chops', sevenths: 0.9, octave: 4, center: 64, openVoicing: true },
+    melody: { style: 'hook', density: 3, octave: 5, range: [55, 77], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
@@ -503,28 +539,30 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       melody: [
         { kind: 'sampler', instrument: 'instrumentos/vibrafono', volume: 0.5 },
         { kind: 'sampler', instrument: 'instrumentos/piano-suave', volume: 0.6 },
-        { kind: 'prisma', preset: 'strings/cuerdas-cinta', volume: 0.5 },
+        // Las cuerdas eran lo más fuerte de la mezcla (medios +6-10 dB sobre la referencia).
+        { kind: 'prisma', preset: 'strings/cuerdas-cinta', volume: 0.3 },
       ],
       fx: [],
     },
     kit: { kit: 1, tone: 0.45, decay: 1, punch: 0.55 },
     drumMix: { kick: 1.2, snare: 1.5, hats: 0.5, perc: 0.6 },
     fx: {
-      bass: [{ kind: 'eq', params: { hpFreq: 30, lowGain: 5, lowFreq: 60, lpFreq: 2500 } }],
+      bass: [{ kind: 'eq', params: { hpFreq: 30, lowGain: 6, lowFreq: 60, lpFreq: 2500 } }],
       // El bombo polvoriento de 12 bits pierde sub; se le devuelve en 55 Hz (Attack: +60 / -150).
-      kick: [{ kind: 'eq', params: { hpFreq: 32, lowGain: 4, lowFreq: 55, midGain: -3, midFreq: 160, midQ: 1.2 } }],
+      kick: [{ kind: 'eq', params: { hpFreq: 32, lowGain: 6, lowFreq: 55, midGain: -3, midFreq: 160, midQ: 1.2 } }],
+      hats: AIR_CAP(11000),
       // Los Rhodes de séptimas apilaban 200-400 Hz (barro de -1 dB medido en solitario).
       chords: [
         { kind: 'eq', params: { hpFreq: 280, midGain: -5, midFreq: 330, midQ: 0.9, highGain: -3, lpFreq: 8000 } },
         { kind: 'vinyl', params: {} },
       ],
-      melody: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 2700, midQ: 0.9, highGain: -2, lpFreq: 7000 } }],
+      melody: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 1800, midQ: 0.8, highGain: -2, lpFreq: 7000 } }],
       // Sin reverb en la caja: la del motor sonaba a pitido en 4,6 y 13,4 kHz sobre una caja seca limpia.
       // Y fuera la caja de cartón (300 Hz): el crack va arriba, en 1,8 kHz.
-      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: 3, midFreq: 1800, midQ: 0.9 } }],
+      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: 3, midFreq: 1800, midQ: 0.9 } }, ...AIR_CAP(12000)],
     },
-    master: [MONO_LOW, LIMITER(1.45, -2.5)],
-    shapes: [1, 0],
+    master: [MONO_LOW, LIMITER(3.4, -2.5)],
+    shapes: [3, 4],
   },
 
   techno: {

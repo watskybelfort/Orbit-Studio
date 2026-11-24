@@ -159,7 +159,34 @@ export const SECTION_LABELS: Record<SectionKind, string> = {
   drop: 'Drop',
   break: 'Puente',
   outro: 'Final',
+  verse: 'Verso',
+  hook: 'Hook',
 };
+
+/**
+ * Formas de canción de rap del compositor, además de las tres de club del
+ * pack (0..2): versos de 16 y hooks de 8, sin subida ni redoble de caja
+ * (eso es de EDM). La transición al hook es un corte: el bombo y el bajo se
+ * callan en la segunda mitad del último compás del verso.
+ */
+export const RAP_SHAPES: readonly { kind: SectionKind; bars: number }[][] = [
+  [
+    { kind: 'intro', bars: 8 }, { kind: 'hook', bars: 8 }, { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 },
+    { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 }, { kind: 'outro', bars: 4 },
+  ],
+  [
+    { kind: 'intro', bars: 4 }, { kind: 'verse', bars: 16 }, { kind: 'hook', bars: 8 }, { kind: 'verse', bars: 16 },
+    { kind: 'hook', bars: 8 }, { kind: 'outro', bars: 4 },
+  ],
+];
+/** Índice de la primera forma de rap (las 0..2 son las de club). */
+export const RAP_SHAPE_BASE = 3;
+export const SHAPE_TOTAL = RAP_SHAPE_BASE + RAP_SHAPES.length;
+
+/** ¿Suena esta sección con la batería entera (drop de club, hook o verso)? */
+function isFull(kind: SectionKind): boolean {
+  return kind === 'drop' || kind === 'hook' || kind === 'verse';
+}
 
 export const NOTE_LABELS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
 
@@ -233,7 +260,7 @@ export function chordTones(scale: readonly number[], degree: number, seventh: bo
 }
 
 /** Coloca el acorde en la inversión más cercana a `center` (MIDI). */
-function voiceChord(pcs: number[], keyRoot: number, center: number): number[] {
+function voiceChord(pcs: number[], keyRoot: number, center: number, clusterPenalty = 0): number[] {
   let best: number[] = [];
   let bestScore = Infinity;
   for (let inv = 0; inv < pcs.length; inv++) {
@@ -248,7 +275,9 @@ function voiceChord(pcs: number[], keyRoot: number, center: number): number[] {
         prev = key;
       }
       const mid = (notes[0]! + notes[notes.length - 1]!) / 2;
-      const score = Math.abs(mid - center) + (notes[notes.length - 1]! - notes[0]!) * 0.05;
+      let score = Math.abs(mid - center) + (notes[notes.length - 1]! - notes[0]!) * 0.05;
+      // Dos notas a un semitono (la 7.ª mayor pegada a la raíz) embarran el acorde en el grave.
+      if (clusterPenalty > 0) for (let i = 1; i < notes.length; i++) if (notes[i]! - notes[i - 1]! === 1) score += clusterPenalty;
       if (score < bestScore) {
         bestScore = score;
         best = notes;
@@ -431,7 +460,7 @@ function drumPart(
   for (let b = 0; b < bars; b++) {
     const last = b === bars - 1;
     const phraseEnd = b % 4 === 3;
-    let steps = [...(phraseEnd && kind === 'drop' ? groove.fill : groove.main)];
+    let steps = [...(phraseEnd && isFull(kind) ? groove.fill : groove.main)];
 
     if (kind === 'build') {
       // La subida quita el bombo en su último compás y deja que la caja redoble.
@@ -444,6 +473,9 @@ function drumPart(
       if (lane === 'snare' && kind === 'outro' && b >= bars - 1) steps = steps.map(() => 0);
     } else if (kind === 'intro') {
       if (lane !== 'hats') steps = steps.map(() => 0);
+    } else if (kind === 'verse' && last && lane === 'kick') {
+      // El corte antes del hook: el bombo se calla en la segunda mitad del compás.
+      steps = steps.map((v, i) => (i < 8 ? v : 0));
     }
 
     if (lane === 'hats' && density.doubleHats) {
@@ -455,7 +487,7 @@ function drumPart(
     notes.push(...stepsToNotes(steps, b, key, rng, lane === 'kick' ? STEP * 1.6 : STEP * 0.9));
 
     // Redobles de hats (trap) en los drops.
-    if (lane === 'hats' && kind === 'drop' && rng.chance(preset.drums.hatRolls * (0.5 + ctx.complexity))) {
+    if (lane === 'hats' && isFull(kind) && !(kind === 'verse' && last) && rng.chance(preset.drums.hatRolls * (0.5 + ctx.complexity))) {
       const beat = rng.pick([1, 3, 3.5]);
       const at = b * BEATS_PER_BAR + beat;
       // El redoble sustituye a lo que hubiera en ese tramo.
@@ -466,7 +498,7 @@ function drumPart(
       notes.push(...hatRoll(b, beat, key, rng).filter((n) => n.start < (b + 1) * BEATS_PER_BAR));
     }
     // Hat abierto a contratiempo.
-    if (lane === 'hats' && preset.drums.keys.openhat !== undefined && (kind === 'drop' || kind === 'break')) {
+    if (lane === 'hats' && preset.drums.keys.openhat !== undefined && (isFull(kind) || kind === 'break')) {
       if (rng.chance(preset.drums.openHats)) {
         const at = b * BEATS_PER_BAR + rng.pick(preset.drums.openHats > 0.5 ? [0.5, 1.5, 2.5, 3.5] : [1.5, 3.5]);
         if (preset.drums.openHats > 0.5) {
@@ -479,7 +511,7 @@ function drumPart(
       }
     }
     // Palmas doblando la caja en el drop.
-    if (lane === 'snare' && kind === 'drop' && preset.drums.clapLayer !== undefined) {
+    if (lane === 'snare' && isFull(kind) && preset.drums.clapLayer !== undefined) {
       steps.forEach((v, i) => {
         if (v >= 0.8) notes.push({ start: b * BEATS_PER_BAR + i * STEP, duration: STEP * 0.9, key: preset.drums.clapLayer!, velocity: round3(v * 0.8) });
       });
@@ -496,6 +528,16 @@ function drumPart(
   const feel = preset.drums.feelMs?.[lane];
   if (feel) applyFeel(notes, feel, ctx.bpm, ctx.swing);
   return notes.sort((a, b) => a.start - b.start || a.key - b.key);
+}
+
+/** Las opciones de sonido de una parte; la melodía (con `tune`) no repite el timbre de los acordes. */
+function timbreChoices(choices: SoundChoice[], role: ComposerRole, preset: GenrePreset, chordsTimbre: string | undefined): SoundChoice[] {
+  if (role !== 'melody' || !preset.melody.tune || !chordsTimbre) return choices;
+  const other = choices.filter((c) => {
+    const id = c.preset ?? (c.instrument ? factoryInstrument(c.instrument)?.[0]?.id : undefined);
+    return id !== chordsTimbre;
+  });
+  return other.length > 0 ? other : choices;
 }
 
 /**
@@ -518,6 +560,17 @@ function applyFeel(notes: PlanNote[], ms: number, bpm: number, swing: number): v
 }
 
 function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: number): PlanNote[] {
+  const notes = bassNotes(ctx, kind, bars, sectionStartBar);
+  if (kind !== 'verse') return notes;
+  // El corte antes del hook, igual que el bombo: nada de bajo en la segunda
+  // mitad del último compás del verso, y lo que venía sonando se apaga ahí.
+  const cut = (bars - 1) * BEATS_PER_BAR + 2;
+  return notes
+    .filter((n) => n.start < cut)
+    .map((n) => (n.start + n.duration > cut ? { ...n, duration: round3(cut - n.start) } : n));
+}
+
+function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: number): PlanNote[] {
   const density = densityOf(kind);
   if (density.bass <= 0) return [];
   const { preset, keyRoot, scale } = ctx;
@@ -530,7 +583,7 @@ function bassPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: nu
     const root = bassKey(keyRoot, degreePc(scale, degree));
     const fifth = bassKey(keyRoot, degreePc(scale, degree + 4));
     const barStart = b * BEATS_PER_BAR;
-    const kicks = (b % 4 === 3 && kind === 'drop' ? ctx.grooves.kick.fill : ctx.grooves.kick.main)
+    const kicks = (b % 4 === 3 && isFull(kind) ? ctx.grooves.kick.fill : ctx.grooves.kick.main)
       .map((v, i) => (v > 0 ? i : -1))
       .filter((i) => i >= 0);
 
@@ -611,7 +664,7 @@ function chordPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
   for (let b = 0; b < bars; b++) {
     const degree = chordAt(ctx, sectionStartBar + b);
     const pcs = chordTones(scale, degree, sevenths);
-    const voiced = voiceChord(pcs, keyRoot, (prevCenter * 2 + center) / 3);
+    const voiced = voiceChord(pcs, keyRoot, (prevCenter * 2 + center) / 3, preset.chords.openVoicing ? 6 : 0);
     prevCenter = (voiced[0]! + voiced[voiced.length - 1]!) / 2;
     const barStart = b * BEATS_PER_BAR;
     const hits: { at: number; len: number; vel: number }[] = [];
@@ -718,12 +771,19 @@ function melodyPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: 
       if (answer) deg += rng.pick([-1, 1, 2]);
       const isLast = answer && m === ctx.motif[ctx.motif.length - 1];
       if (isLast) deg = Math.round(deg / scale.length) * scale.length;
-      const key = snapToScale(keyRoot + base + degreePc(scale, deg), keyRoot, scale);
+      let key = snapToScale(keyRoot + base + degreePc(scale, deg), keyRoot, scale);
+      const tune = preset.melody.tune;
+      if (tune) {
+        // Un semitono por encima de la raíz del acorde (la b9) choca: se baja a la raíz.
+        const chordRootPc = (keyRoot + degreePc(scale, chordDeg)) % 12;
+        if ((((key - chordRootPc) % 12) + 12) % 12 === 1) key -= 1;
+      }
       notes.push({
         start: b * BEATS_PER_BAR + m.start,
         duration: m.duration,
         key: foldOctave(key, preset.melody.range?.[0] ?? 48, preset.melody.range?.[1] ?? 96),
-        velocity: round3(clamp(m.velocity * (kind === 'intro' ? 0.85 : 1), 0.1, 1)),
+        // Con `tune`, la fuerza respira (±10 %): dos velocidades fijas suenan a máquina.
+        velocity: round3(clamp(m.velocity * (kind === 'intro' ? 0.85 : 1) * (tune ? rng.range(0.88, 1.08) : 1), 0.1, 1)),
       });
     }
   }
@@ -841,6 +901,15 @@ function resolveShape(opts: ReturnType<typeof normalizeComposeOptions>, preset: 
 
 function sectionsFor(shape: number | 'loop', loopBars: number): Section[] {
   if (shape === 'loop') return [{ kind: 'drop', bars: loopBars, startBar: 0 }];
+  const rap = RAP_SHAPES[shape - RAP_SHAPE_BASE];
+  if (rap) {
+    let startBar = 0;
+    return rap.map((s) => {
+      const section = { kind: s.kind, bars: s.bars, startBar };
+      startBar += s.bars;
+      return section;
+    });
+  }
   return planSections(shape);
 }
 
@@ -904,6 +973,9 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
 
   const parts: PlanPart[] = [];
   const sr = rng.fork('sounds');
+  // El timbre de los acordes, para no repetirlo en la melodía (dos partes con el
+  // mismo piano eléctrico se tapan en la misma banda).
+  let chordsTimbre: string | undefined;
   for (const role of COMPOSER_ROLES) {
     if (!opts.roles.includes(role)) continue;
     const isDrum = role === 'kick' || role === 'snare' || role === 'hats' || role === 'perc';
@@ -915,7 +987,8 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
       ? sampledDrum(preset, role as DrumLaneId, roleRng)
       : role === 'fx' && preset.fxKit
         ? { kind: 'sampler' as const, params: {}, volume: choices[0]!.volume ?? 0.5, samples: { [FX_RISER_KEY]: preset.fxKit.riser, [FX_IMPACT_KEY]: preset.fxKit.impact } }
-        : resolveSound(roleRng.pick(choices), role, preset, hint, opts.soundVariation, roleRng);
+        : resolveSound(roleRng.pick(timbreChoices(choices, role, preset, chordsTimbre)), role, preset, hint, opts.soundVariation, roleRng);
+    if (role === 'chords') chordsTimbre = sound.preset ?? sound.zones?.[0]?.sampleId;
 
     const patterns: PlanPattern[] = [];
     const clips: PlanClip[] = [];

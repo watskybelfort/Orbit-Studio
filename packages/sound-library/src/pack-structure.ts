@@ -19,7 +19,12 @@
  * - `break`   baja para dejar respirar antes de volver a subir.
  * - `outro`   deja ir.
  */
-export const SECTION_KINDS = ['intro', 'build', 'drop', 'break', 'outro'] as const;
+/**
+ * `verse` y `hook` son la forma de canción de rap (versos de 16, hooks de 8):
+ * las usa el compositor para los géneros urbanos. Las formas del pack
+ * (`SHAPES`) siguen siendo de club, sin ellas.
+ */
+export const SECTION_KINDS = ['intro', 'build', 'drop', 'break', 'outro', 'verse', 'hook'] as const;
 export type SectionKind = (typeof SECTION_KINDS)[number];
 
 export interface Section {
@@ -54,6 +59,10 @@ const DENSITY: Record<SectionKind, SectionDensity> = {
   // La vuelta baja de verdad: sin 808 y con la batería a media asta.
   break: { drums: 0.5, hats: 0.6, doubleHats: false, bass: 0, melody: 0.8, roll: false },
   outro: { drums: 0.3, hats: 0.4, doubleHats: false, bass: 0.4, melody: 0.6, roll: false },
+  // El verso deja sitio a la voz: batería y bajo enteros, la armonía sí, el
+  // motivo melódico no (entra en el hook).
+  verse: { drums: 1, hats: 1, doubleHats: false, bass: 1, melody: 0.6, roll: false },
+  hook: { drums: 1, hats: 1, doubleHats: false, bass: 1, melody: 1, roll: false },
 };
 
 export function densityOf(kind: SectionKind): SectionDensity {

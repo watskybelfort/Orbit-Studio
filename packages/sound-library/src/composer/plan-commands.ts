@@ -299,7 +299,9 @@ export function planToCommands(project: Project, plan: BeatPlan, opts: ApplyPlan
       name: s.name,
       start: startBeat + s.startBar * bpb,
       length: s.bars * bpb,
-      kind: s.kind,
+      // El modelo conoce las secciones de club; el hook es el pico (como un
+      // drop) y el verso no tiene equivalente: va sin tipo, con su nombre.
+      ...(s.kind === 'verse' ? null : { kind: s.kind === 'hook' ? ('drop' as const) : s.kind }),
     }));
     commands.push({ type: 'addSections', sections });
   }
