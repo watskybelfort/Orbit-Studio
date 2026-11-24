@@ -15,6 +15,16 @@ import {
   EFFECT_PARAMS,
   INSTRUMENT_PARAMS,
   MIXER_SLOTS,
+  SCALES,
+  arpeggiate,
+  chop,
+  chordify,
+  humanize,
+  riff,
+  strum,
+  type ArpMode,
+  type ArrangementSection,
+  type RiffCharacter,
   autoMapKeymap,
   createChannel,
   createKeymapZone,
@@ -81,6 +91,25 @@ import {
   type MixGenre,
   type TrackSlots,
 } from './mix-advisor';
+import {
+  ToolError,
+  asObject,
+  reqString,
+  optString,
+  MAX_NOTES_PER_CALL,
+  MAX_STEPS_LEN,
+  MAX_POINTS,
+  MAX_BEATS,
+  reqArray,
+  reqNumber,
+  boundedNumber,
+  optBoundedNumber,
+  optNumber,
+  optBoolean,
+  clamp,
+  f,
+} from './args';
+import { ComposerTools, parseKeyRoot, parseScale, type ComposerHost } from './composer-tools';
 
 /** Guarda `data` con nombre sugerido y devuelve la ruta final. */
 export type SaveFileFn = (suggestedName: string, data: Uint8Array) => Promise<string>;
@@ -184,100 +213,6 @@ const EFFECT_KINDS: EffectKind[] = (Object.keys(EFFECT_PARAMS) as EffectKind[]).
 
 // ── Helpers de validación de argumentos ──────────────────────────────────────
 
-class ToolError extends Error {}
-
-function asObject(args: unknown): Record<string, unknown> {
-  if (args === undefined || args === null) return {};
-  if (typeof args !== 'object' || Array.isArray(args)) {
-    throw new ToolError('Los argumentos deben ser un objeto JSON');
-  }
-  return args as Record<string, unknown>;
-}
-
-function reqString(o: Record<string, unknown>, key: string): string {
-  const v = o[key];
-  if (typeof v !== 'string' || v.length === 0) {
-    throw new ToolError(`Falta el parámetro "${key}" (string)`);
-  }
-  return v;
-}
-
-function optString(o: Record<string, unknown>, key: string): string | undefined {
-  const v = o[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'string') throw new ToolError(`"${key}" debe ser string`);
-  return v;
-}
-
-// Cotas de tamaño: los args de las tools los manda un cliente MCP (o el modelo
-// con un JSON mal formado) y el JSON Schema de tools.ts es solo consejo para el
-// modelo — nadie lo valida en runtime. Sin estos topes, un set_notes con
-// millones de notas, un start de 1e12 o un set_steps gigantesco congelaban o
-// tumbaban el renderer (o reservaban un buffer astronómico en el render).
-const MAX_NOTES_PER_CALL = 4096;
-const MAX_STEPS_LEN = 4096;
-const MAX_POINTS = 4096;
-/** Tope superior de posiciones/duraciones en beats (≈ miles de compases). */
-const MAX_BEATS = 100_000;
-
-function reqArray(o: Record<string, unknown>, key: string): unknown[] {
-  const v = o[key];
-  if (!Array.isArray(v)) throw new ToolError(`Falta el parámetro "${key}" (lista)`);
-  return v;
-}
-
-function reqNumber(o: Record<string, unknown>, key: string): number {
-
-  const v = o[key];
-  if (typeof v !== 'number' || !Number.isFinite(v)) {
-    throw new ToolError(`Falta el parámetro "${key}" (número)`);
-  }
-  return v;
-}
-
-/** Número finito y acotado a [min, max]: lanza si se sale (no clampa). */
-function boundedNumber(o: Record<string, unknown>, key: string, min: number, max: number): number {
-  const v = reqNumber(o, key);
-  if (v < min || v > max) throw new ToolError(`"${key}" fuera de rango [${min}, ${max}]: ${v}`);
-  return v;
-}
-
-/** Como `boundedNumber`, pero para parámetros opcionales (ausente = undefined). */
-function optBoundedNumber(
-  o: Record<string, unknown>,
-  key: string,
-  min: number,
-  max: number,
-): number | undefined {
-  if (o[key] === undefined || o[key] === null) return undefined;
-  return boundedNumber(o, key, min, max);
-}
-
-function optNumber(o: Record<string, unknown>, key: string): number | undefined {
-  const v = o[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'number' || !Number.isFinite(v)) throw new ToolError(`"${key}" debe ser número`);
-  return v;
-}
-
-function optBoolean(o: Record<string, unknown>, key: string): boolean | undefined {
-  const v = o[key];
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== 'boolean') throw new ToolError(`"${key}" debe ser boolean`);
-  return v;
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v));
-}
-
-/** Número compacto para respuestas (2 decimales máx, sin ceros de cola). */
-function f(x: number, decimals = 2): string {
-  const p = Math.pow(10, decimals);
-  return String(Math.round(x * p) / p);
-}
-
-/** Valida un objeto de params contra los specs del registro y los clampa. */
 function validateParams(
   raw: unknown,
   specs: ParamSpec[],
@@ -315,7 +250,14 @@ export class ToolExecutor {
     private readonly library?: LibraryFn,
     /** Mismas entradas del render/export de la aplicación. */
     private readonly resolveRenderInputs?: ResolveRenderInputsFn,
-  ) {}
+    /** Audio y perfiles de estilo para el compositor (lo cablea el renderer). */
+    composerHost?: ComposerHost,
+  ) {
+    this.composer = new ComposerTools(store, composerHost);
+  }
+
+  /** El compositor de beats (sus tools viven en composer-tools.ts). */
+  private readonly composer: ComposerTools;
 
   /** Adjunta la petición pendiente del usuario al texto de get_project. */
   private withRequest(text: string): string {
@@ -359,6 +301,18 @@ export class ToolExecutor {
       case 'list_library': return { text: await this.listLibrary(a) };
       case 'load_sample': return { text: await this.loadSample(a) };
       case 'generate_pack': return { text: await this.generatePackTool(a) };
+      case 'list_genres': return { text: await this.composer.listGenres() };
+      case 'compose_beat': return { text: await this.composer.composeBeatTool(a) };
+      case 'recompose_part': return { text: this.composer.recomposePartTool(a) };
+      case 'list_style_profiles': return { text: await this.composer.listProfilesTool() };
+      case 'learn_style': return { text: await this.composer.learnStyleTool(a) };
+      case 'analyze_reference': return { text: await this.composer.analyzeReferenceTool(a) };
+      case 'compose_from_reference': return { text: await this.composer.composeFromReferenceTool(a) };
+      case 'riff': return { text: this.riffTool(a) };
+      case 'transform_notes': return { text: this.transformNotes(a) };
+      case 'delete_channel': return { text: this.deleteChannel(a) };
+      case 'delete_pattern': return { text: this.deletePattern(a) };
+      case 'sections': return { text: this.sectionsTool(a) };
       case 'undo': return { text: this.undo() };
       case 'redo': return { text: this.redo() };
       default:
@@ -1727,6 +1681,203 @@ export class ToolExecutor {
   }
 
   // ── Undo / redo ──────────────────────────────────────────────────────────
+
+  // ── Edición de notas: riff y transformaciones ──────────────────────────────
+
+  private riffTool(a: Record<string, unknown>): string {
+    const pattern = this.findPattern(reqString(a, 'patternId'));
+    const channel = this.findChannel(reqString(a, 'channelId'));
+    const root = parseKeyRoot(a['key']) ?? 0;
+    const scaleName = parseScale(a['scale']) ?? 'Menor natural';
+    const bpb = this.project.timeSig.num;
+    const bars = Math.round(optBoundedNumber(a, 'bars', 1, 64) ?? Math.max(1, Math.round(pattern.length / bpb)));
+    const character = (optString(a, 'character') ?? 'sincopado') as RiffCharacter;
+    if (!['sostenido', 'sincopado', 'puntillo'].includes(character)) {
+      throw new ToolError('character: sostenido | sincopado | puntillo');
+    }
+    const seed = Math.floor(optBoundedNumber(a, 'seed', 0, 0xffffffff) ?? Math.random() * 0xffffffff) >>> 0;
+    const notes = riff({
+      seed,
+      root,
+      scale: SCALES[scaleName]!,
+      bars,
+      beatsPerBar: bpb,
+      density: optBoundedNumber(a, 'density', 1, 32) ?? 4,
+      octaveLow: Math.round(optBoundedNumber(a, 'octave', 0, 9) ?? 5),
+      octaves: Math.round(optBoundedNumber(a, 'octaves', 1, 3) ?? 1),
+      character,
+    });
+    const replace = optBoolean(a, 'replace') ?? true;
+    const commands: Command[] = [];
+    const existing = pattern.notes[channel.id] ?? [];
+    if (replace && existing.length > 0) {
+      commands.push({ type: 'removeNotes', patternId: pattern.id, channelId: channel.id, noteIds: existing.map((n) => n.id) });
+    }
+    commands.push({ type: 'addNotes', patternId: pattern.id, channelId: channel.id, notes });
+    const end = bars * bpb;
+    if (end > pattern.length) commands.push({ type: 'patchPattern', patternId: pattern.id, patch: { length: end } });
+    this.dispatch({ type: 'batch', label: 'Riff', commands }, `Riff en "${channel.name}"`);
+    return `Riff de ${notes.length} notas (${scaleName}, semilla ${seed}) en "${channel.name}" / "${pattern.name}"${replace ? ', sustituyendo lo que había' : ''}.`;
+  }
+
+  private transformNotes(a: Record<string, unknown>): string {
+    const pattern = this.findPattern(reqString(a, 'patternId'));
+    const channel = this.findChannel(reqString(a, 'channelId'));
+    const op = reqString(a, 'op');
+    const notes = pattern.notes[channel.id] ?? [];
+    if (notes.length === 0) throw new ToolError(`"${channel.name}" no tiene notas en "${pattern.name}"`);
+    const seed = Math.floor(optBoundedNumber(a, 'seed', 0, 0xffffffff) ?? 1) >>> 0;
+    let next: Note[];
+    let added: Note[] | null = null;
+    switch (op) {
+      case 'humanize':
+        next = humanize(notes, {
+          timing: optBoundedNumber(a, 'amount', 0, 0.5) ?? 0.02,
+          velocity: optBoundedNumber(a, 'velocity', 0, 1) ?? 0.08,
+          seed,
+        });
+        break;
+      case 'strum':
+        next = strum(notes, {
+          spread: optBoundedNumber(a, 'amount', 0, 2) ?? 0.12,
+          direction: optString(a, 'direction') === 'down' ? 'down' : 'up',
+        });
+        break;
+      case 'arpeggiate': {
+        const mode = (optString(a, 'mode') ?? 'up') as ArpMode;
+        if (!['up', 'down', 'updown', 'downup', 'alternate', 'random', 'chord'].includes(mode)) {
+          throw new ToolError('mode: up | down | updown | downup | alternate | random | chord');
+        }
+        next = arpeggiate(notes, {
+          rate: optBoundedNumber(a, 'grid', 0.03125, 4) ?? 0.25,
+          mode,
+          octaves: Math.round(optBoundedNumber(a, 'octaves', 1, 4) ?? 1),
+          seed,
+        });
+        break;
+      }
+      case 'chop':
+        next = chop(notes, { grid: optBoundedNumber(a, 'grid', 0.03125, 4) ?? 0.25 });
+        break;
+      case 'chordify': {
+        const raw = a['intervals'];
+        const intervals: unknown[] = Array.isArray(raw) ? raw : [0, 4, 7];
+        if (
+          intervals.length === 0 ||
+          intervals.length > 8 ||
+          !intervals.every((x) => typeof x === 'number' && Number.isInteger(x) && x >= -24 && x <= 24)
+        ) {
+          throw new ToolError('intervals: de 1 a 8 semitonos enteros (-24..24), p. ej. [0,3,7]');
+        }
+        const scaleName = parseScale(a['scale']);
+        added = chordify(notes, {
+          intervals: intervals as number[],
+          ...(scaleName ? { scale: SCALES[scaleName]!, root: parseKeyRoot(a['key']) ?? 0 } : null),
+          existing: notes,
+        });
+        next = notes;
+        break;
+      }
+      case 'transpose': {
+        const semis = Math.round(optBoundedNumber(a, 'amount', -48, 48) ?? 12);
+        next = notes.map((n) => ({ ...n, key: clamp(n.key + semis, 0, 127) }));
+        break;
+      }
+      case 'quantize': {
+        const grid = optBoundedNumber(a, 'grid', 0.03125, 4) ?? 0.25;
+        const strength = optBoundedNumber(a, 'amount', 0, 1) ?? 1;
+        next = notes.map((n) => {
+          const target = Math.round(n.start / grid) * grid;
+          return { ...n, start: Math.max(0, n.start + (target - n.start) * strength) };
+        });
+        break;
+      }
+      case 'velocity': {
+        const scale = optBoundedNumber(a, 'amount', 0, 2) ?? 1;
+        next = notes.map((n) => ({ ...n, velocity: clamp(n.velocity * scale, 0.02, 1) }));
+        break;
+      }
+      default:
+        throw new ToolError('op: humanize | strum | arpeggiate | chop | chordify | transpose | quantize | velocity');
+    }
+    const commands: Command[] = [];
+    if (added) {
+      if (added.length === 0) return 'chordify no añadió nada (las notas ya formaban esos acordes).';
+      commands.push({ type: 'addNotes', patternId: pattern.id, channelId: channel.id, notes: added });
+    } else {
+      // Sustituir entero, con ids nuevos: es UN paso de undo y no depende de qué
+      // ids conserve cada transformación.
+      commands.push({ type: 'removeNotes', patternId: pattern.id, channelId: channel.id, noteIds: notes.map((n) => n.id) });
+      commands.push({
+        type: 'addNotes',
+        patternId: pattern.id,
+        channelId: channel.id,
+        notes: next.map((n) => ({ ...n, id: newId() })),
+      });
+    }
+    this.dispatch({ type: 'batch', label: `Notas: ${op}`, commands }, `Notas: ${op} en "${channel.name}"`);
+    const count = added ? added.length : next.length;
+    return `${op} aplicado a "${channel.name}" / "${pattern.name}": ${added ? `${count} notas añadidas` : `${notes.length} → ${count} notas`}.`;
+  }
+
+  // ── Borrar canales y patrones ──────────────────────────────────────────────
+
+  private deleteChannel(a: Record<string, unknown>): string {
+    const channel = this.findChannel(reqString(a, 'channelId'));
+    this.dispatch({ type: 'removeChannel', channelId: channel.id }, `Borrar canal "${channel.name}"`);
+    return `Canal "${channel.name}" borrado (con sus notas). undo lo devuelve.`;
+  }
+
+  private deletePattern(a: Record<string, unknown>): string {
+    const pattern = this.findPattern(reqString(a, 'patternId'));
+    if (this.project.patternOrder.length <= 1) throw new ToolError('No se puede borrar el último patrón');
+    this.dispatch({ type: 'removePattern', patternId: pattern.id }, `Borrar patrón "${pattern.name}"`);
+    return `Patrón "${pattern.name}" borrado (y sus clips de la playlist). undo lo devuelve.`;
+  }
+
+  // ── Secciones del arreglo ──────────────────────────────────────────────────
+
+  private sectionsTool(a: Record<string, unknown>): string {
+    const action = reqString(a, 'action');
+    const p = this.project;
+    const bpb = p.timeSig.num;
+    const sections = Object.values(p.sections ?? {})
+      .filter((s) => s.arrangementId === p.activeArrangementId)
+      .sort((x, y) => x.start - y.start);
+    if (action === 'list') {
+      if (sections.length === 0) return 'El arrangement activo no tiene secciones.';
+      return sections
+        .map((s) => `- "${s.name}"${s.kind ? ` (${s.kind})` : ''} id=${s.id}: compás ${f(s.start / bpb)}–${f((s.start + s.length) / bpb)}`)
+        .join('\n');
+    }
+    if (action === 'add') {
+      const name = reqString(a, 'name').slice(0, 60);
+      const startBar = optBoundedNumber(a, 'startBar', 0, MAX_BEATS / bpb) ?? 0;
+      const bars = optBoundedNumber(a, 'bars', 0.25, 1024) ?? 4;
+      const kind = optString(a, 'kind');
+      if (kind !== undefined && !['intro', 'build', 'drop', 'break', 'outro'].includes(kind)) {
+        throw new ToolError('kind: intro | build | drop | break | outro');
+      }
+      const section: ArrangementSection = {
+        id: newId(),
+        arrangementId: p.activeArrangementId,
+        name,
+        start: startBar * bpb,
+        length: bars * bpb,
+        ...(kind ? { kind: kind as NonNullable<ArrangementSection['kind']> } : null),
+      };
+      this.dispatch({ type: 'addSections', sections: [section] }, `Sección "${name}"`);
+      return `Sección "${name}" añadida en el compás ${f(startBar)} (${f(bars)} compases), id=${section.id}.`;
+    }
+    if (action === 'remove') {
+      const id = reqString(a, 'sectionId');
+      const hit = sections.find((s) => s.id === id || s.name.toLowerCase() === id.toLowerCase());
+      if (!hit) throw new ToolError(`No existe la sección "${id}"`);
+      this.dispatch({ type: 'removeSections', sectionIds: [hit.id] }, `Quitar sección "${hit.name}"`);
+      return `Sección "${hit.name}" quitada (los clips siguen en su sitio).`;
+    }
+    throw new ToolError('action: list | add | remove');
+  }
 
   private undo(): string {
     const entry = [...this.store.history].reverse().find((e) => e.origin === 'claude');

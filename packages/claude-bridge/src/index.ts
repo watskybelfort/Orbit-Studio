@@ -17,6 +17,13 @@ export {
   type ResolveRenderInputsFn,
 } from './executor';
 export {
+  ComposerTools,
+  MAX_LEARN_SAMPLES,
+  parseKeyRoot,
+  parseScale,
+  type ComposerHost,
+} from './composer-tools';
+export {
   CEILING_DB,
   GENRE_LABELS,
   GENRE_PROFILES,

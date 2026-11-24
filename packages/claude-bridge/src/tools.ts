@@ -15,13 +15,16 @@
  *   aceptan el nombre exacto ("Patrón 1", "Orbit Sub").
  */
 
-import { EFFECT_PARAMS, INSTRUMENT_PARAMS } from '@orbit/core';
+import { EFFECT_PARAMS, INSTRUMENT_PARAMS, SCALES } from '@orbit/core';
 import {
+  COMPOSER_GENRES,
+  COMPOSER_ROLES,
   MAX_PACK_SOUNDS,
   MAX_STRUCTURED_BEATS,
   PACK_FAMILIES,
   PACK_STYLES,
 } from '@orbit/sound-library';
+import { MAX_LEARN_SAMPLES as MAX_LEARN } from './composer-tools';
 
 /** JSON Schema (draft-07 compatible) del input de una tool. */
 export interface ToolInputSchema {
@@ -603,6 +606,227 @@ export const TOOLS: ToolDef[] = [
         },
       },
       required: ['family'],
+    },
+  },
+  // ── Compositor de beats ─────────────────────────────────────────────────────
+  {
+    name: 'list_genres',
+    description:
+      'Lista los géneros del compositor (tempos, escalas, carácter), las partes que sabe generar, ' +
+      'las escalas válidas, las formas de tema y los perfiles de estilo guardados. Llámala antes ' +
+      'de compose_beat si no sabes qué pedir.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'compose_beat',
+    description:
+      'Compone un beat ENTERO con el compositor local de Orbit y lo monta en el proyecto con CADA ' +
+      'PARTE POR SEPARADO: bombo, caja, hats, percusión, bajo/808, acordes, melodía y FX, cada uno ' +
+      'en su canal (con su sonido e insertos), su pista de mixer, sus patrones (uno por tipo de ' +
+      'sección) y su pista de playlist; más las secciones del arreglo y la cadena del master. Todo ' +
+      'en UN paso de undo, detrás de lo que ya haya en la playlist. Es determinista: misma semilla ' +
+      '+ mismos argumentos = mismo beat. Todo lo que no pases lo decide el género (o el perfil). ' +
+      'Úsala para encargos concretos: "neo perreo en F# frigio a 98 con solo batería y bajo" es ' +
+      'genre=neoperreo, key="F#", scale="Frigio", bpm=98, parts=["kick","snare","hats","perc","bass"]. ' +
+      'Con dryRun describe el plan sin tocar el proyecto. Después, recompose_part cambia una parte.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        genre: { type: 'string', enum: [...COMPOSER_GENRES], description: 'Género (ver list_genres).' },
+        seed: { type: 'number', minimum: 0, description: 'Semilla (por defecto, al azar; se devuelve para repetir).' },
+        bpm: { type: 'number', minimum: 40, maximum: 250, description: 'Tempo fijo.' },
+        key: { type: 'string', description: 'Tónica: "C", "F#", "Bb"…' },
+        scale: { type: 'string', description: `Escala: ${Object.keys(SCALES).join(', ')} (o "major"/"minor").` },
+        shape: {
+          description: '"song" (forma completa del género, por defecto), "loop" (un bucle) o 0..2 (forma concreta).',
+          oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 2 }],
+        },
+        loopBars: { type: 'integer', minimum: 1, maximum: 32, description: 'Compases del bucle (shape="loop"; por defecto 8).' },
+        parts: {
+          type: 'array',
+          items: { type: 'string', enum: [...COMPOSER_ROLES] },
+          description: 'Qué partes generar (por defecto todas).',
+        },
+        progression: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0, maximum: 6 },
+          maxItems: 16,
+          description: 'Grados de la escala por compás (0 = tónica). P. ej. [0,5,3,4].',
+        },
+        profile: { type: 'string', description: 'Perfil de estilo (id o nombre) que empuja tempo, tonalidad, groove y sonido.' },
+        influence: { type: 'number', minimum: 0, maximum: 1, description: 'Cuánto manda el perfil sobre el género (0.5).' },
+        complexity: { type: 'number', minimum: 0, maximum: 1, description: 'Densidad de notas (0.5).' },
+        soundVariation: {
+          type: 'number',
+          minimum: 0,
+          maximum: 1,
+          description: 'Cuánto se alejan los sonidos de sus presets: 0 = el preset tal cual, 1 = sonido nuevo (0.35).',
+        },
+        startBar: { type: 'number', minimum: 0, description: 'Compás de arranque (por defecto, al final de lo existente).' },
+        setTempo: { type: 'boolean', description: 'Cambiar tempo y swing del proyecto a los del beat (por defecto true).' },
+        dryRun: { type: 'boolean', description: 'Solo describir el plan, sin aplicarlo.' },
+      },
+      required: ['genre'],
+    },
+  },
+  {
+    name: 'recompose_part',
+    description:
+      'Vuelve a componer UNA parte del último beat de compose_beat (misma tonalidad, tempo, ' +
+      'progresión y forma), sustituyendo sus notas en su sitio. Con newSound también le da otro ' +
+      'sonido. Un paso de undo. Ejemplo: "otra melodía" = part="melody".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        part: { type: 'string', enum: [...COMPOSER_ROLES], description: 'Parte a recomponer.' },
+        seed: { type: 'number', minimum: 0, description: 'Semilla nueva (por defecto, al azar).' },
+        complexity: { type: 'number', minimum: 0, maximum: 1 },
+        soundVariation: { type: 'number', minimum: 0, maximum: 1 },
+        newSound: { type: 'boolean', description: 'Cambiar también el sonido (por defecto false).' },
+      },
+      required: ['part'],
+    },
+  },
+  {
+    name: 'list_style_profiles',
+    description:
+      'Perfiles de estilo guardados (lo que el compositor aprendió de los beats del usuario): por ' +
+      'pista, tempo, tonalidad, swing, brillo, suciedad y a qué género suena.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'learn_style',
+    description:
+      'Entrena un perfil de estilo midiendo audios (samples del proyecto o sonidos de la librería, ' +
+      'por id o nombre): tempo, tonalidad, groove por semicorchea en grave/medio/agudo, swing, ' +
+      `brillo y suciedad. No guarda audio ni notas. De 1 a ${MAX_LEARN} audios; con \`profile\` ` +
+      'amplía uno existente. Después: compose_beat profile="<nombre>".',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        samples: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: MAX_LEARN },
+        name: { type: 'string', description: 'Nombre del perfil nuevo (por defecto "Mi estilo").' },
+        profile: { type: 'string', description: 'Perfil existente a ampliar (id o nombre).' },
+      },
+      required: ['samples'],
+    },
+  },
+  {
+    name: 'analyze_reference',
+    description:
+      'Mide una pista de referencia (sample del proyecto o de la librería) y cuenta su tempo, ' +
+      'tonalidad, groove, swing, brillo y a qué género suena. No cambia nada.',
+    inputSchema: {
+      type: 'object',
+      properties: { sample: { type: 'string', description: 'Id o nombre del sample.' } },
+      required: ['sample'],
+    },
+  },
+  {
+    name: 'compose_from_reference',
+    description:
+      'Saca un beat NUEVO con la temática de una pista de referencia: la mide, elige el género que ' +
+      'mejor le va (o el que pases) y compone con su tempo, tonalidad, groove y carácter de sonido ' +
+      '(influencia 0.7 por defecto), sin copiar sus notas. Acepta los mismos ajustes que ' +
+      'compose_beat. Monta el beat igual: partes separadas, un paso de undo.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sample: { type: 'string', description: 'Id o nombre del sample de referencia.' },
+        genre: { type: 'string', enum: [...COMPOSER_GENRES] },
+        seed: { type: 'number', minimum: 0 },
+        bpm: { type: 'number', minimum: 40, maximum: 250 },
+        key: { type: 'string' },
+        scale: { type: 'string' },
+        shape: { oneOf: [{ type: 'string', enum: ['song', 'loop'] }, { type: 'integer', minimum: 0, maximum: 2 }] },
+        loopBars: { type: 'integer', minimum: 1, maximum: 32 },
+        parts: { type: 'array', items: { type: 'string', enum: [...COMPOSER_ROLES] } },
+        influence: { type: 'number', minimum: 0, maximum: 1 },
+        complexity: { type: 'number', minimum: 0, maximum: 1 },
+        soundVariation: { type: 'number', minimum: 0, maximum: 1 },
+        startBar: { type: 'number', minimum: 0 },
+        dryRun: { type: 'boolean' },
+      },
+      required: ['sample'],
+    },
+  },
+  // ── Edición de notas, borrado y arreglo ─────────────────────────────────────
+  {
+    name: 'riff',
+    description:
+      'Genera un riff/melodía en la escala dentro de un patrón y canal (la "riff machine" del piano ' +
+      'roll, Alt+G), determinista por semilla. Por defecto sustituye lo que había en ese canal.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        patternId: { type: 'string' },
+        channelId: { type: 'string' },
+        key: { type: 'string', description: 'Tónica ("A", "F#"…; por defecto C).' },
+        scale: { type: 'string', description: 'Escala (por defecto "Menor natural").' },
+        bars: { type: 'integer', minimum: 1, maximum: 64 },
+        density: { type: 'number', minimum: 1, maximum: 32, description: 'Notas por compás (4).' },
+        octave: { type: 'integer', minimum: 0, maximum: 9, description: 'Octava baja estilo FL (C5 = 60; por defecto 5).' },
+        octaves: { type: 'integer', minimum: 1, maximum: 3 },
+        character: { type: 'string', enum: ['sostenido', 'sincopado', 'puntillo'] },
+        seed: { type: 'number', minimum: 0 },
+        replace: { type: 'boolean', description: 'Sustituir las notas existentes (por defecto true).' },
+      },
+      required: ['patternId', 'channelId'],
+    },
+  },
+  {
+    name: 'transform_notes',
+    description:
+      'Transforma las notas de un canal en un patrón, en un paso de undo. op: humanize (amount = ' +
+      'timing en beats, velocity), strum (amount = beats, direction up/down), arpeggiate (grid, mode, ' +
+      'octaves), chop (grid), chordify (intervals en semitonos, o scale+key para acordes en escala), ' +
+      'transpose (amount = semitonos), quantize (grid, amount = fuerza 0..1), velocity (amount = factor).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        patternId: { type: 'string' },
+        channelId: { type: 'string' },
+        op: { type: 'string', enum: ['humanize', 'strum', 'arpeggiate', 'chop', 'chordify', 'transpose', 'quantize', 'velocity'] },
+        amount: { type: 'number' },
+        velocity: { type: 'number', minimum: 0, maximum: 1 },
+        grid: { type: 'number', minimum: 0.03125, maximum: 4, description: 'En beats (0.25 = semicorchea).' },
+        mode: { type: 'string', enum: ['up', 'down', 'updown', 'downup', 'alternate', 'random', 'chord'] },
+        octaves: { type: 'integer', minimum: 1, maximum: 4 },
+        direction: { type: 'string', enum: ['up', 'down'] },
+        intervals: { type: 'array', items: { type: 'integer', minimum: -24, maximum: 24 }, maxItems: 8 },
+        scale: { type: 'string' },
+        key: { type: 'string' },
+        seed: { type: 'number', minimum: 0 },
+      },
+      required: ['patternId', 'channelId', 'op'],
+    },
+  },
+  {
+    name: 'delete_channel',
+    description: 'Borra un canal del rack con todas sus notas (undo lo devuelve entero).',
+    inputSchema: { type: 'object', properties: { channelId: { type: 'string' } }, required: ['channelId'] },
+  },
+  {
+    name: 'delete_pattern',
+    description: 'Borra un patrón y sus clips de la playlist (undo lo devuelve). No borra el último.',
+    inputSchema: { type: 'object', properties: { patternId: { type: 'string' } }, required: ['patternId'] },
+  },
+  {
+    name: 'sections',
+    description:
+      'Secciones del arreglo (intro, drop…) del arrangement activo: action=list las enumera, add ' +
+      'añade una (name, startBar, bars, kind), remove quita una (sectionId o nombre; los clips se quedan).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['list', 'add', 'remove'] },
+        name: { type: 'string' },
+        startBar: { type: 'number', minimum: 0 },
+        bars: { type: 'number', exclusiveMinimum: 0 },
+        kind: { type: 'string', enum: ['intro', 'build', 'drop', 'break', 'outro'] },
+        sectionId: { type: 'string' },
+      },
+      required: ['action'],
     },
   },
   {
