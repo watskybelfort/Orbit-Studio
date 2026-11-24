@@ -22,6 +22,18 @@ que el género lo elige el usuario. Pendiente aparte: `room-invite.test.ts`
 («sobreviven a que la sala se cierre») tardó 5,7 s en la CI de Windows y
 dejó rojo un push sin relación con el compositor.
 
+Segunda vuelta, por queja de sonido («instrumentos que nada que ver», «sonidos
+raros y agudos»): investigación de cómo se construye cada género, un banco de
+medición local (espectro por bandas contra beats reales, resonancias, tonos
+agudos, true peak, y un juez simbólico sobre las notas del plan) y un crítico
+independiente. De ahí: kits de batería propios de reggaetón, neo perreo y boom
+bap en el generador del pack, instrumentos grabados en el compositor, glide del
+808 solo al cerrar la frase, microtiming MPC en boom bap y techo -2,5 en el
+master. Límite honesto: no hay referencias propias de reggaetón ni de neo
+perreo; sus objetivos salen de la investigación y del corpus de trap. Pendiente
+aparte: el generador del pack ya no reproduce bit a bit tres archivos viejos
+(sweep-up, sweep-down, hardtek) — deriva del motor, no se regeneraron.
+
 ---
 
 ## Estado — 19-11-2026: v3.17.0
