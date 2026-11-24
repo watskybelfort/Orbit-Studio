@@ -101,6 +101,13 @@ export interface CompiledMixerTrack {
   eqMid: number;
   eqHigh: number;
   audible: boolean; // mute/solo resueltos
+  /**
+   * Solo con `audible: false`: la pista se procesa igual (para que su señal
+   * alimente el detector de un compresor sidechain) pero no suena ni se
+   * enruta. Lo usa el export de stems: sin esto, el stem del bajo salía sin el
+   * ducking del bombo, porque la pista del bombo muteada no llegaba al detector.
+   */
+  keyOnly?: boolean;
   slots: (CompiledEffect | null)[];
   routeTo: number | null;
   /**

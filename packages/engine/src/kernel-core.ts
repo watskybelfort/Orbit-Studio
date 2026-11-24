@@ -2307,7 +2307,7 @@ export class KernelCore {  private project: CompiledProject | null = null;
         }
       }
 
-      if (!track.audible) {
+      if (!track.audible && !track.keyOnly) {
         bl.fill(0, 0, n);
         br.fill(0, 0, n);
         if (needsPre) {
@@ -2383,6 +2383,16 @@ export class KernelCore {  private project: CompiledProject | null = null;
       // Copia post-fader para detectores sidechain del siguiente bloque
       this.copiar(this.lastL[t]!, bl, n);
       this.copiar(this.lastR[t]!, br, n);
+      // Pista que solo alimenta un sidechain (export de stems): ya dejó su
+      // señal al detector; a partir de aquí suena como muteada.
+      if (!track.audible && track.keyOnly) {
+        bl.fill(0, 0, n);
+        br.fill(0, 0, n);
+        if (needsPre) {
+          this.preL.fill(0, 0, n);
+          this.preR.fill(0, 0, n);
+        }
+      }
 
       // Medidores: peak con decay visual + sum-of-squares para el RMS por pista
       let peak = this.peaks[t]! * 0.85; // decay visual

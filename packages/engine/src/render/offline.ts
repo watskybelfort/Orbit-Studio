@@ -253,6 +253,7 @@ export function renderStems(
     if (opts.isCancelled?.()) break;
     try {
       const keep = audibleTracksForStem(project, idx);
+      const keys = sidechainKeysFor(project, keep);
       const solo: CompiledProject = {
         ...project,
         mixer: project.mixer.map((t, i) => ({
@@ -260,6 +261,7 @@ export function renderStems(
           slots: t.slots.map((s) => (s ? { ...s, params: { ...s.params } } : null)),
           sends: t.sends.map((s) => ({ ...s })),
           audible: keep.has(i) ? t.audible : false,
+          ...(!keep.has(i) && keys.has(i) ? { keyOnly: true } : null),
         })),
       };
       results.set(idx, renderProject(solo, opts));
@@ -277,6 +279,24 @@ export function renderStems(
     }
   }
   return { results, errors };
+}
+
+/**
+ * Pistas que alimentan el detector de un compresor sidechain de lo que suena
+ * en el stem (en sus slots de mixer o en los slots de un canal que va a ellas).
+ * En el stem se procesan sin sonar (`keyOnly`): así el bajo exportado se
+ * agacha con el bombo igual que en la mezcla, sin que el bombo se cuele.
+ */
+export function sidechainKeysFor(project: CompiledProject, keep: ReadonlySet<number>): Set<number> {
+  const keys = new Set<number>();
+  const add = (slots: readonly ({ sidechainSource?: number } | null)[] | undefined) => {
+    for (const s of slots ?? []) if (s?.sidechainSource !== undefined) keys.add(s.sidechainSource);
+  };
+  project.mixer.forEach((t, i) => {
+    if (keep.has(i)) add(t.slots);
+  });
+  for (const ch of project.channels) if (keep.has(ch.mixerTrack)) add(ch.fx);
+  return keys;
 }
 
 /**
