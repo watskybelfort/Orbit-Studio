@@ -143,6 +143,16 @@ export interface GenrePreset {
    * del boom bap quedaba por debajo del bombo.
    */
   drumMix: Record<'kick' | 'snare' | 'hats' | 'perc', number>;
+  /**
+   * Batería SAMPLEADA del género: por pieza del kit (tecla de DRUM_MAP), los
+   * sonidos de la librería de fábrica que le van (`drums/trap/…`,
+   * `drums/boombap/…`, `percusion-latina/…`), uno por semilla. Sin esto, la
+   * batería es el kit sintético de Orbit, que es lo que pide el techno y el
+   * rave pero no un trap ni un dembow.
+   */
+  drumKit?: Partial<Record<number, string[]>>;
+  /** FX de la librería de fábrica: barrido en la subida e impacto al caer el drop. */
+  fxKit?: { riser: string; impact: string };
   /** Insertos por parte, además de la cadena del master. */
   fx: Partial<Record<ComposerRole, FxChoice[]>>;
   master: FxChoice[];
@@ -192,7 +202,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   trap: {
     id: 'trap',
     name: 'Trap',
-    description: 'Half-time a 140, 808 largo con glide, hats con redobles y melodía oscura.',
+    description: 'Half-time a 140: kit de trap sampleado, 808 largo con glide, hats con redobles y piano o flauta oscuros.',
     bpm: { min: 130, max: 160, default: 142 },
     swing: 0,
     scales: [
@@ -211,15 +221,25 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       kick: ['X.....x...x.....', 'X......x..x...o.', 'X.....x.?.x...?.', 'X..x......x..?..'],
       snare: ['........X.......', '........X.....g.', '........X...g...'],
       hats: ['x.x.x.x.x.x.x.x.', 'xoxoxoxoxoxoxoxo', 'x.xox.x.x.xox.x.'],
-      perc: ['......?.......?.', '...?.......?....'],
+      // Sin percusión suelta: en trap el aire lo llenan los hats, y los golpes
+      // de rim salteados sonaban a ruido agudo fuera de sitio.
+      perc: [],
       keys: { kick: KICK, snare: SNARE, hats: HAT, perc: RIM, openhat: OPENHAT },
-      hatRolls: 0.55,
-      openHats: 0.15,
+      hatRolls: 0.5,
+      openHats: 0.12,
       clapLayer: CLAP,
     },
+    drumKit: {
+      [KICK]: ['drums/trap/kick-01', 'drums/trap/kick-02'],
+      [SNARE]: ['drums/trap/snare-01', 'drums/trap/snare-02'],
+      [CLAP]: ['drums/trap/clap-01'],
+      [HAT]: ['drums/trap/hat-01', 'drums/trap/hat-03'],
+      [OPENHAT]: ['drums/trap/openhat-01'],
+    },
+    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-01' },
     bass: { style: '808', glide: 0.45, octave: 2 },
     chords: { style: 'pad', sevenths: 0.2, octave: 4 },
-    melody: { style: 'motif', density: 5, octave: 6 },
+    melody: { style: 'motif', density: 4, octave: 5 },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
@@ -227,23 +247,22 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'prisma', preset: 'bass/808-carbon' },
       ],
       chords: [
-        { kind: 'prisma', preset: 'pads/pad-cine-oscuro', volume: 0.5 },
+        { kind: 'prisma', preset: 'pads/pad-cine-oscuro', volume: 0.6 },
         { kind: 'prisma', preset: 'strings/cuerdas-cine', volume: 0.5 },
-        { kind: 'nova', preset: 'pads/pad-oscuro', volume: 0.5 },
+        { kind: 'nova', preset: 'pads/pad-oscuro', volume: 0.55 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'bells/campana-lejana', volume: 0.6 },
-        { kind: 'prisma', preset: 'keys/piano-drill', volume: 0.62 },
+        { kind: 'prisma', preset: 'keys/piano-drill', volume: 0.7 },
         { kind: 'nova', preset: 'leads/flauta-trap', volume: 0.6 },
-        { kind: 'prisma', preset: 'plucks/pluck-metal-drill', volume: 0.6 },
+        { kind: 'nova', preset: 'keys/piano-lofi', volume: 0.65 },
       ],
-      fx: [{ kind: 'prisma', preset: 'fx/riser-cinta', volume: 0.45 }],
+      fx: [{ kind: 'sampler', volume: 0.5 }],
     },
     kit: { kit: 0, tone: 0.55, decay: 1, punch: 0.65 },
-    drumMix: { kick: 1, snare: 1.15, hats: 0.8, perc: 0.9 },
+    drumMix: { kick: 1, snare: 0.9, hats: 0.55, perc: 0.6 },
     fx: {
-      melody: [{ kind: 'reverb', params: { size: 0.7, damp: 0.45, width: 1, predelay: 0.02 } }],
-      chords: [{ kind: 'eq', params: { hpFreq: 180 } }],
+      melody: [{ kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 1, predelay: 0.02 } }],
+      chords: [{ kind: 'eq', params: { hpFreq: 180, lpFreq: 8000 } }],
     },
     master: [MONO_LOW, LIMITER(1.8)],
     shapes: [0, 1, 2],
@@ -252,7 +271,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   reggaeton: {
     id: 'reggaeton',
     name: 'Reggaetón',
-    description: 'Dembow a 94, sub pegado al bombo, plucks y acordes con rasgueo de perreo.',
+    description: 'Dembow a 94: bombo y caja de reggaetón, clave y shaker latinos, sub pegado al bombo, piano y plucks de perreo.',
     bpm: { min: 88, max: 100, default: 94 },
     swing: 0,
     scales: [
@@ -270,12 +289,21 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       kick: ['X...x...X...x...', 'X...x...X...x..?'],
       snare: ['...x..x....x..x.', '...x..x....x..xo'],
       hats: ['x.x.x.x.x.x.x.x.', 'x?x.x?x.x?x.x?x.'],
-      perc: ['..o...o...o...o.', '.?..o..?..?.o...'],
+      perc: ['..o...o...o...o.', '......o.......o.'],
       keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM, openhat: OPENHAT },
-      hatRolls: 0.05,
-      openHats: 0.1,
+      hatRolls: 0,
+      openHats: 0.08,
       clapLayer: CLAP,
     },
+    drumKit: {
+      [KICK]: ['drums/trap/kick-01', 'drums/trap/kick-03'],
+      [SNARE]: ['drums/trap/snare-01'],
+      [CLAP]: ['drums/trap/clap-01'],
+      [SHAKER]: ['percusion-latina/shaker-01', 'percusion-latina/shaker-02'],
+      [RIM]: ['percusion-latina/rim-01'],
+      [OPENHAT]: ['drums/trap/openhat-01'],
+    },
+    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
     bass: { style: 'sub', glide: 0.1, octave: 2 },
     chords: { style: 'perreo', sevenths: 0.15, octave: 4 },
     melody: { style: 'hook', density: 4, octave: 5 },
@@ -286,22 +314,22 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'sub808', params: { decay: 0.9, drive: 0.25, glide: 0.03, punch: 0.55, tone: 700 } },
       ],
       chords: [
-        { kind: 'nova', preset: 'organs/organo-perreo', volume: 1.2 },
-        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 1.1 },
-        { kind: 'prisma', preset: 'guitars/requinto-latino', volume: 1.1 },
+        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.75 },
+        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.8 },
+        { kind: 'nova', preset: 'pads/pad-calido', volume: 1 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'leads/talkbox-latino', volume: 0.65 },
-        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.55 },
-        { kind: 'prisma', preset: 'leads/melodica-caribe', volume: 0.65 },
+        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.65 },
+        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.7 },
+        { kind: 'prisma', preset: 'plucks/pluck-gota', volume: 0.7 },
       ],
-      fx: [{ kind: 'prisma', preset: 'fx/barrido-inverso', volume: 0.4 }],
+      fx: [{ kind: 'sampler', volume: 0.45 }],
     },
     kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
-    drumMix: { kick: 1, snare: 1, hats: 0.75, perc: 0.85 },
+    drumMix: { kick: 1, snare: 0.85, hats: 0.45, perc: 0.5 },
     fx: {
-      chords: [{ kind: 'delay', params: { time: 3, feedback: 0.28, filter: 3500 } }],
-      melody: [{ kind: 'reverb', params: { size: 0.5, damp: 0.5, width: 1, predelay: 0.02 } }],
+      chords: [{ kind: 'delay', params: { time: 3, feedback: 0.25, filter: 3000 } }],
+      melody: [{ kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 1, predelay: 0.02 } }],
     },
     master: [MONO_LOW, LIMITER(2)],
     shapes: [0, 2],
@@ -311,7 +339,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     id: 'neoperreo',
     name: 'Neo perreo',
     description:
-      'Dembow roto y sucio: bajo distorsionado, sintes oscuros con aire Y2K, batería lo-fi y huecos raros.',
+      'Dembow roto y sucio: bombo saturado, clave latina en el dembow, conga, 808 distorsionado, pads oscuros y un lead de sinte grave.',
     bpm: { min: 90, max: 106, default: 98 },
     swing: 0.04,
     scales: [
@@ -326,50 +354,58 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [0, 3, 1, 0],
     ],
     drums: {
-      // El dembow se rompe: el bombo se salta un pulso, la caja se trocea.
+      // El dembow se rompe: el bombo se salta un pulso, la clave se trocea.
       kick: ['X...x...X...?...', 'X.......X...x...', 'X...x..?X.....x.', 'X..?....X...x...'],
       snare: ['...x..x....x..x.', '...x..xo...x..x.', '...x.......x..xg', '...x..x.g..x..x.'],
       hats: ['x...x...x...x...', 'x.?.x.?.x.?.x.?.', '..x...x...x...x.'],
       perc: ['..?...o...?...o.', '.o..?..o.?..o...', 'o..?..o...o..?..'],
       keys: { kick: KICK, snare: RIM, hats: HAT, perc: CONGA, openhat: OPENHAT },
-      hatRolls: 0.2,
-      openHats: 0.2,
+      hatRolls: 0.1,
+      openHats: 0.15,
       clapLayer: SNARE,
     },
+    drumKit: {
+      [KICK]: ['drums/trap/kick-01', 'drums/trap/kick-03'],
+      [RIM]: ['percusion-latina/rim-01', 'percusion-latina/rim-02'],
+      [SNARE]: ['drums/trap/snare-01'],
+      [HAT]: ['drums/trap/hat-03'],
+      [CONGA]: ['percusion-latina/conga-01', 'percusion-latina/conga-02'],
+      [OPENHAT]: ['drums/trap/openhat-01'],
+    },
+    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
     bass: { style: 'sub', glide: 0.35, octave: 2 },
     chords: { style: 'stabs', sevenths: 0.1, octave: 4 },
     melody: { style: 'riff', density: 4, octave: 5 },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
-        { kind: 'sub808', params: { decay: 1.2, drive: 0.75, glide: 0.07, punch: 0.7, tone: 1600 } },
-        { kind: 'prisma', preset: 'bass/reese-partido' },
+        { kind: 'sub808', params: { decay: 1.2, drive: 0.75, glide: 0.07, punch: 0.7, tone: 1400 } },
         { kind: 'prisma', preset: 'bass/808-carbon' },
+        { kind: 'prisma', preset: 'bass/reese-partido' },
       ],
       chords: [
-        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.62 },
-        { kind: 'prisma', preset: 'pads/pad-neon-house', volume: 0.62 },
-        { kind: 'prisma', preset: 'keys/juguete-metalico', volume: 0.62 },
+        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.5 },
+        { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
+        { kind: 'prisma', preset: 'pads/pad-analogico', volume: 0.45 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'leads/sync-neon', volume: 0.6 },
-        { kind: 'prisma', preset: 'leads/chicle-neon', volume: 0.6 },
-        { kind: 'nova', preset: 'leads/square-8bit', volume: 0.5 },
-        { kind: 'prisma', preset: 'arps/arp-neon', volume: 0.6 },
+        { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.6 },
+        { kind: 'nova', preset: 'leads/saw-ancho', volume: 0.5 },
+        { kind: 'prisma', preset: 'leads/chicle-neon', volume: 0.55 },
       ],
-      fx: [{ kind: 'prisma', preset: 'fx/laser', volume: 0.4 }],
+      fx: [{ kind: 'sampler', volume: 0.45 }],
     },
     kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
-    drumMix: { kick: 1, snare: 1.1, hats: 0.85, perc: 0.75 },
+    drumMix: { kick: 1, snare: 0.8, hats: 0.5, perc: 0.7 },
     fx: {
       kick: [{ kind: 'distortion', params: { drive: 0.25, tone: 5000, output: 0.9 } }],
       snare: [{ kind: 'bitcrush', params: { bits: 10, downsample: 2 } }],
       bass: [{ kind: 'distortion', params: { drive: 0.35, tone: 3500, output: 0.85 } }],
       melody: [
-        { kind: 'chorus', params: {} },
-        { kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 1, predelay: 0.03 } },
+        { kind: 'eq', params: { hpFreq: 150, lpFreq: 7000 } },
+        { kind: 'reverb', params: { size: 0.55, damp: 0.65, width: 1, predelay: 0.03 } },
       ],
-      chords: [{ kind: 'eq', params: { hpFreq: 220, highGain: -2 } }],
+      chords: [{ kind: 'eq', params: { hpFreq: 220, highGain: -3, lpFreq: 8000 } }],
     },
     master: [MONO_LOW, LIMITER(1.8)],
     shapes: [0, 1, 2],
@@ -378,7 +414,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   boombap: {
     id: 'boombap',
     name: 'Boom bap',
-    description: 'A 90 con swing, caja seca en 2 y 4, bajo tocado y acordes de séptima troceados.',
+    description: 'A 90 con swing: kit de boom bap polvoriento, caja seca en 2 y 4, contrabajo tocado y piano o Rhodes de séptimas troceados.',
     bpm: { min: 82, max: 96, default: 90 },
     swing: 0.55,
     scales: [
@@ -396,40 +432,45 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       kick: ['X......x..x.....', 'X.?....x..x..?..', 'X......x.x......', 'X.x....x..x...?.'],
       snare: ['....X.......X...', '....X......gX...', '....X..g....X..g'],
       hats: ['x.x.x.x.x.x.x.x.', 'x.o.x.o.x.o.x.o.', 'x?x?x?x?x?x?x?x?'],
-      perc: ['..............?.', '......?.......?.'],
+      perc: [],
       keys: { kick: KICK, snare: SNARE, hats: HAT, perc: RIM, openhat: OPENHAT },
       hatRolls: 0,
-      openHats: 0.25,
+      openHats: 0.2,
+    },
+    drumKit: {
+      [KICK]: ['drums/boombap/kick-01', 'drums/boombap/kick-02'],
+      [SNARE]: ['drums/boombap/snare-01', 'drums/boombap/snare-02'],
+      [HAT]: ['drums/boombap/hat-01', 'drums/boombap/hat-02'],
+      [OPENHAT]: ['drums/boombap/openhat-01'],
     },
     bass: { style: 'walk', glide: 0, octave: 2 },
     chords: { style: 'chops', sevenths: 0.85, octave: 4 },
     melody: { style: 'hook', density: 3, octave: 5 },
     sounds: {
       drums: [{ kind: 'drums' }],
-      bass: [
-        { kind: 'prisma', preset: 'bass/upright-humo' },
-        { kind: 'prisma', preset: 'bass/slap-dedo' },
-      ],
+      bass: [{ kind: 'prisma', preset: 'bass/upright-humo' }],
       chords: [
-        { kind: 'prisma', preset: 'keys/ep-cremoso', volume: 0.3 },
-        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.3 },
-        { kind: 'nova', preset: 'keys/rhodes-calido', volume: 0.3 },
+        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.55 },
+        { kind: 'nova', preset: 'keys/rhodes-calido', volume: 0.45 },
+        { kind: 'prisma', preset: 'keys/mellotron-polvo', volume: 0.5 },
       ],
       melody: [
-        { kind: 'prisma', preset: 'brass/saxo-noche', volume: 0.65 },
-        { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.65 },
-        { kind: 'prisma', preset: 'guitars/electrica-limpia', volume: 0.65 },
+        { kind: 'prisma', preset: 'keys/piano-cinta', volume: 0.6 },
+        { kind: 'nova', preset: 'keys/piano-lofi', volume: 0.6 },
+        { kind: 'prisma', preset: 'strings/cuerdas-cinta', volume: 0.55 },
       ],
-      fx: [{ kind: 'prisma', preset: 'atmos/cinta-polvo', volume: 0.35 }],
+      // Boom bap sin risers ni barridos: el aire lo pone el vinilo de los acordes.
+      fx: [],
     },
     kit: { kit: 1, tone: 0.45, decay: 1, punch: 0.55 },
-    drumMix: { kick: 1.15, snare: 1.5, hats: 0.75, perc: 0.9 },
+    drumMix: { kick: 1.2, snare: 1.8, hats: 0.5, perc: 0.6 },
     fx: {
       chords: [
-        { kind: 'eq', params: { hpFreq: 160, highGain: -3, lpFreq: 9000 } },
+        { kind: 'eq', params: { hpFreq: 160, highGain: -3, lpFreq: 8000 } },
         { kind: 'vinyl', params: {} },
       ],
-      snare: [{ kind: 'reverb', params: { size: 0.35, damp: 0.6, width: 0.8, predelay: 0.01 } }],
+      melody: [{ kind: 'eq', params: { hpFreq: 200, lpFreq: 7000 } }],
+      snare: [{ kind: 'reverb', params: { size: 0.3, damp: 0.7, width: 0.8, predelay: 0.01 } }],
     },
     master: [MONO_LOW, LIMITER(1.4)],
     shapes: [1, 0],
@@ -467,8 +508,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       openHats: 0.9,
     },
     bass: { style: 'offbeat', glide: 0, octave: 2 },
-    chords: { style: 'stabs', sevenths: 0.3, octave: 4 },
-    melody: { style: 'riff', density: 6, octave: 5 },
+    chords: { style: 'stabs', sevenths: 0.3, octave: 5 },
+    melody: { style: 'riff', density: 6, octave: 6 },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
@@ -523,8 +564,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       openHats: 0,
     },
     bass: { style: 'rolling', glide: 0, octave: 2 },
-    chords: { style: 'pad', sevenths: 0, octave: 4 },
-    melody: { style: 'riff', density: 8, octave: 5 },
+    chords: { style: 'pad', sevenths: 0, octave: 5 },
+    melody: { style: 'riff', density: 8, octave: 6 },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [

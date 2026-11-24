@@ -6,6 +6,7 @@ import {
   composeBeat,
   createProfile,
   describePlan,
+  factorySound,
   fitTempo,
   genreDrumLanes,
   guessGenre,
@@ -243,5 +244,68 @@ describe('perfil de estilo', () => {
     const four = (i: number[]) => Array.from({ length: 16 }, (_, k) => (i.includes(k) ? 1 : 0));
     expect(guessGenre(track({ bpm: 134, lanes: { low: four([0, 4, 8, 12]), mid: four([4, 12]), high: four([2, 6, 10, 14]) } }))).toBe('techno');
     expect(guessGenre(track({ bpm: 70, swing: 0, lanes: { low: four([0, 6, 10]), mid: four([8]), high: four([0, 2, 4, 6, 8, 10, 12, 14]) }, density: { low: 3, mid: 1, high: 12 } }))).toBe('trap');
+  });
+});
+
+describe('instrumentos propios de cada género', () => {
+  it('todo sonido de fábrica que piden los presets existe en la librería', () => {
+    for (const g of COMPOSER_GENRES) {
+      const p = GENRE_PRESETS[g];
+      for (const ids of Object.values(p.drumKit ?? {})) for (const id of ids ?? []) expect(factorySound(id), `${g}: ${id}`).toBeDefined();
+      if (p.fxKit) {
+        expect(factorySound(p.fxKit.riser)).toBeDefined();
+        expect(factorySound(p.fxKit.impact)).toBeDefined();
+      }
+    }
+  });
+
+  it('trap, reggaetón, neo perreo y boom bap tocan su batería sampleada; techno y rave, el kit sintético', () => {
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      for (const seed of [1, 2, 3]) {
+        const plan = composeBeat({ genre: g, seed });
+        for (const role of ['kick', 'snare', 'hats'] as const) {
+          const sound = part(plan, role)!.sound;
+          expect(sound.kind).toBe('sampler');
+          // Cada nota cae en una tecla que tiene sample: nada mudo.
+          const keys = new Set(Object.keys(sound.samples!).map(Number));
+          for (const pt of part(plan, role)!.patterns) for (const n of pt.notes) expect(keys.has(n.key)).toBe(true);
+        }
+        const kit = Object.values(part(plan, 'kick')!.sound.samples!)[0]!;
+        expect(kit).toMatch(g === 'boombap' ? /^drums\/boombap\// : /^drums\/trap\//);
+      }
+    }
+    for (const g of ['techno', 'rave'] as const) expect(part(composeBeat({ genre: g, seed: 1 }), 'kick')!.sound.kind).toBe('drums');
+  });
+
+  it('nada de timbres metálicos ni de juguete, y sin percusión suelta en trap y boom bap', () => {
+    const banned = /celesta|juguete|talkbox|melodica|saxo|campana|laser|sirena|requinto|nylon|8bit|metal/;
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      for (const seed of [1, 2, 3, 4, 5, 6]) {
+        const plan = composeBeat({ genre: g, seed });
+        for (const p of plan.parts) expect(p.sound.preset ?? '', `${g} ${p.role}`).not.toMatch(banned);
+        if (g === 'trap' || g === 'boombap') expect(part(plan, 'perc')).toBeUndefined();
+      }
+    }
+    expect(part(composeBeat({ genre: 'boombap', seed: 1 }), 'fx')).toBeUndefined();
+  });
+
+  it('la melodía no se va a lo agudo (media por debajo de C6)', () => {
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      for (const seed of [1, 2, 3]) {
+        const notes = part(composeBeat({ genre: g, seed }), 'melody')!.patterns.flatMap((p) => p.notes);
+        const avg = notes.reduce((s, n) => s + n.key, 0) / notes.length;
+        expect(avg, `${g} ${seed}`).toBeLessThan(84);
+      }
+    }
+  });
+
+  it('el barrido de la subida termina justo en el drop y el impacto cae en el 1', () => {
+    const plan = composeBeat({ genre: 'trap', seed: 2, shape: 0 });
+    const fx = part(plan, 'fx')!;
+    const build = fx.patterns.find((p) => p.id.startsWith('build'))!;
+    const riser = build.notes[0]!;
+    expect(riser.start + riser.duration).toBeCloseTo(build.bars * 4, 5);
+    const drop = fx.patterns.find((p) => p.id.startsWith('drop'))!;
+    expect(drop.notes).toEqual([expect.objectContaining({ start: 0, key: 62 })]);
   });
 });

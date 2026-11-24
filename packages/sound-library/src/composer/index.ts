@@ -5,3 +5,4 @@ export * from './compose';
 export * from './plan-commands';
 export { createRng, hashString, type Rng } from './rng';
 export * from './features';
+export { factorySound, type FactorySound } from './factory-index';

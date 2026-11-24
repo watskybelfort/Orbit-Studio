@@ -14,6 +14,7 @@
 
 import {
   createChannel,
+  createKeymapZone,
   createPattern,
   createPlaylistTrack,
   defaultEffectParams,
@@ -28,9 +29,11 @@ import {
   type EffectSlot,
   type Note,
   type Project,
+  type SampleRef,
 } from '@orbit/core';
 import { BEATS_PER_BAR, type BeatPlan, type PlanNote, type PlanPart } from './compose';
 import type { ComposerRole, FxChoice } from './genres';
+import { factorySound } from './factory-index';
 
 export interface ApplyPlanOptions {
   /**
@@ -62,6 +65,38 @@ export interface AppliedBeat {
 export interface PlanCommands {
   commands: Command[];
   applied: AppliedBeat;
+  /**
+   * Samples de fábrica que el beat registra en el proyecto y que el motor
+   * todavía no tiene: quien despacha los comandos tiene que subirle sus bytes
+   * (`engine.loadSample`), igual que el browser al cargar un sonido.
+   */
+  samples: SampleRef[];
+}
+
+/** El SampleRef de un sonido de fábrica, con el mismo id y ruta que usa el browser. */
+export function factorySampleRef(id: string): SampleRef | null {
+  const sound = factorySound(id);
+  if (!sound) return null;
+  // Sin bytes a mano no hay sha1: el id hace de identidad, que es el mismo
+  // respaldo que usa el browser cuando no puede calcularlo.
+  return { id: sound.id, name: sound.name, path: `factory:${sound.file}`, hash: sound.id, duration: sound.durationSec };
+}
+
+/**
+ * Comandos para registrar los samples de una parte que el proyecto aún no
+ * conoce (y que no se hayan registrado ya en este mismo lote).
+ */
+function registerSamples(project: Project, ids: Iterable<string>, seen: Set<string>, out: SampleRef[]): Command[] {
+  const commands: Command[] = [];
+  for (const id of ids) {
+    if (seen.has(id) || Object.hasOwn(project.samples, id)) continue;
+    seen.add(id);
+    const ref = factorySampleRef(id);
+    if (!ref) continue;
+    commands.push({ type: 'registerSample', sample: ref });
+    out.push(ref);
+  }
+  return commands;
 }
 
 const round = (x: number): number => Math.round(x * 10000) / 10000;
@@ -106,6 +141,14 @@ export function contentEndBar(project: Project): number {
 function channelFor(part: PlanPart, index: number): Channel {
   const channel = createChannel(part.sound.kind, index, part.name);
   const { preset } = part.sound;
+  if (part.sound.kind === 'sampler' && part.sound.samples) {
+    // Una zona por tecla, con su raíz en esa misma tecla: cada pieza suena a
+    // su altura original. `sampleId` va también (el primero), como en el
+    // browser: quitar el keymap no deja el canal mudo.
+    const entries = Object.entries(part.sound.samples).map(([k, id]) => [Number(k), id] as const);
+    channel.keymap = entries.map(([key, id]) => createKeymapZone(id, { keyLow: key, keyHigh: key, keyRoot: key }));
+    if (entries[0]) channel.sampleId = entries[0][1];
+  }
   if (part.sound.kind === 'prisma' && preset) {
     const p = findPrismaPreset(preset);
     if (p) {
@@ -175,9 +218,14 @@ export function planToCommands(project: Project, plan: BeatPlan, opts: ApplyPlan
   const patternBase = project.patternOrder.length;
   const applied: AppliedBeat = { startBar, parts: [] };
   const clips: Clip[] = [];
+  const samples: SampleRef[] = [];
+  const seenSamples = new Set<string>();
   let patternIndex = 0;
 
   plan.parts.forEach((part, i) => {
+    if (part.sound.samples) {
+      commands.push(...registerSamples(project, Object.values(part.sound.samples), seenSamples, samples));
+    }
     const channel = channelFor(part, channelBase + i);
     const mixerTrack = freeMixer.shift() ?? 0;
     channel.mixerTrack = mixerTrack;
@@ -254,7 +302,7 @@ export function planToCommands(project: Project, plan: BeatPlan, opts: ApplyPlan
     });
   }
 
-  return { commands, applied };
+  return { commands, applied, samples };
 }
 
 /**
@@ -290,6 +338,11 @@ export function replacePartCommands(
       if (fresh.kind === channel.kind) {
         if (fresh.prismaPreset) patch.prismaPreset = fresh.prismaPreset;
         if (fresh.novaPreset) patch.novaPreset = fresh.novaPreset;
+        if (fresh.keymap && part.sound.samples) {
+          commands.unshift(...registerSamples(project, Object.values(part.sound.samples), new Set(), []));
+          patch.keymap = fresh.keymap;
+          if (fresh.sampleId) patch.sampleId = fresh.sampleId;
+        }
         commands.push({ type: 'patchChannel', channelId: applied.channelId, patch });
       }
     }

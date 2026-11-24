@@ -37,6 +37,7 @@ import {
 } from './genres';
 import { fitTempo, styleHint, type StyleHint, type StyleProfile } from './profile';
 import { createRng, hashString, type Rng } from './rng';
+import { factorySound } from './factory-index';
 
 export const BEATS_PER_BAR = 4;
 /** Compases como mucho de un beat (tope de seguridad para MCP y UI). */
@@ -99,6 +100,12 @@ export interface PlanClip {
 export interface ResolvedSound {
   kind: SoundChoice['kind'];
   preset?: string;
+  /**
+   * Solo sampler: qué sonido de la librería de fábrica suena en cada tecla
+   * (la de DRUM_MAP de la pieza, o 60/62 en los FX). Cada tecla toca su sample
+   * a su altura original.
+   */
+  samples?: Record<number, string>;
   /** Parámetros del canal que se sobrescriben sobre los del preset/instrumento. */
   params: Record<string, number>;
   volume: number;
@@ -320,6 +327,10 @@ function drumGrooves(
   let kickAnchors: boolean[] = new Array(16).fill(false);
   for (const id of ['kick', 'snare', 'hats', 'perc'] as const) {
     const r = rng.fork(`drum-${id}`);
+    if (lanes[id].variants.length === 0) {
+      out[id] = { main: new Array(16).fill(0), fill: new Array(16).fill(0) };
+      continue;
+    }
     const variant = r.pick(lanes[id].variants);
     const blended = blendLane(variant, learned[id], influence);
     if (id === 'kick') kickAnchors = blended.map((s) => s.p >= 1);
@@ -558,7 +569,7 @@ function chordPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
   if (density.melody <= 0) return [];
   const { preset, keyRoot, scale } = ctx;
   const rng = ctx.rng.fork(`chords-${kind}-${bars}-${sectionStartBar}`);
-  const center = 12 * (preset.chords.octave + 1) + 7; // ~G de esa octava
+  const center = 12 * preset.chords.octave + 7; // ~G de esa octava (C5 = 60)
   const notes: PlanNote[] = [];
   let prevCenter = center;
   const sevenths = rng.chance(preset.chords.sevenths);
@@ -658,7 +669,8 @@ function melodyPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: 
   if (density.melody < 0.8) return [];
   const { preset, keyRoot, scale } = ctx;
   const rng = ctx.rng.fork(`melody-${kind}-${bars}-${sectionStartBar}`);
-  const base = 12 * (preset.melody.octave + 1);
+  // Convención FL de la casa: octava 5 = C5 = 60.
+  const base = 12 * preset.melody.octave;
   const notes: PlanNote[] = [];
   for (let b = 0; b < bars; b += ctx.motifBars) {
     const answer = (b / ctx.motifBars) % 4 === 3 || (ctx.motifBars === 2 && (b / 2) % 2 === 1);
@@ -682,6 +694,25 @@ function melodyPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: 
   }
   // En la intro, solo la primera mitad: presenta y deja hueco.
   return kind === 'intro' ? notes.filter((n) => n.start < Math.max(BEATS_PER_BAR, (bars * BEATS_PER_BAR) / 2) || rng.chance(0.5)) : notes;
+}
+
+/** Tecla del barrido y del impacto en el sampler de FX. */
+export const FX_RISER_KEY = 60;
+export const FX_IMPACT_KEY = 62;
+
+/**
+ * FX con samples de fábrica: el barrido arranca para TERMINAR justo donde cae
+ * el drop (mide lo que mide el archivo, así que se calcula con el tempo), y
+ * el impacto cae en el primer tiempo del drop. Nada en intro ni puente.
+ */
+function fxSamplePart(kind: SectionKind, bars: number, bpm: number, riserId: string): PlanNote[] {
+  if (kind === 'build') {
+    const sec = factorySound(riserId)?.durationSec ?? 3.4;
+    const len = Math.min(bars * BEATS_PER_BAR, Math.ceil(((sec * bpm) / 60) * 4) / 4);
+    return [{ start: bars * BEATS_PER_BAR - len, duration: len, key: FX_RISER_KEY, velocity: 0.75 }];
+  }
+  if (kind === 'drop') return [{ start: 0, duration: BEATS_PER_BAR, key: FX_IMPACT_KEY, velocity: 0.8 }];
+  return [];
 }
 
 function fxPart(kind: SectionKind, bars: number, keyRoot: number): PlanNote[] {
@@ -742,6 +773,26 @@ function resolveSound(
     params,
     volume: round3(clamp(baseVolume * (1 + (rng.next() * 2 - 1) * 0.05), 0.1, 1.2)),
   };
+}
+
+/**
+ * Batería sampleada: un canal sampler por parte con, en cada tecla de las
+ * piezas que toca esa parte (bombo; caja + palmas; hat + abierto;
+ * percusión), uno de los sonidos de fábrica que el género propone para ella.
+ */
+function sampledDrum(preset: GenrePreset, lane: DrumLaneId, rng: Rng): ResolvedSound {
+  const d = preset.drums;
+  const keys: number[] =
+    lane === 'kick' ? [d.keys.kick]
+      : lane === 'snare' ? [d.keys.snare, ...(d.clapLayer !== undefined ? [d.clapLayer] : [])]
+        : lane === 'hats' ? [d.keys.hats, ...(d.keys.openhat !== undefined ? [d.keys.openhat] : [])]
+          : [d.keys.perc];
+  const samples: Record<number, string> = {};
+  for (const key of keys) {
+    const options = preset.drumKit?.[key];
+    if (options && options.length > 0) samples[key] = rng.pick(options);
+  }
+  return { kind: 'sampler', params: {}, volume: 0.8, samples };
 }
 
 // ── Plan entero ───────────────────────────────────────────────────────────────
@@ -818,8 +869,14 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
     if (!opts.roles.includes(role)) continue;
     const isDrum = role === 'kick' || role === 'snare' || role === 'hats' || role === 'perc';
     const choices = isDrum ? preset.sounds.drums : preset.sounds[role as 'bass' | 'chords' | 'melody' | 'fx'];
+    // Un género sin sonidos para una parte no la tiene (boom bap sin FX).
+    if (choices.length === 0) continue;
     const roleRng = sr.fork(role);
-    const sound = resolveSound(roleRng.pick(choices), role, preset, hint, opts.soundVariation, roleRng);
+    const sound = isDrum && preset.drumKit
+      ? sampledDrum(preset, role as DrumLaneId, roleRng)
+      : role === 'fx' && preset.fxKit
+        ? { kind: 'sampler' as const, params: {}, volume: choices[0]!.volume ?? 0.5, samples: { [FX_RISER_KEY]: preset.fxKit.riser, [FX_IMPACT_KEY]: preset.fxKit.impact } }
+        : resolveSound(roleRng.pick(choices), role, preset, hint, opts.soundVariation, roleRng);
 
     const patterns: PlanPattern[] = [];
     const clips: PlanClip[] = [];
@@ -839,13 +896,22 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
               : role === 'melody'
                 ? melodyPart(ctx, s.kind, s.bars, 0)
                 : role === 'fx'
-                  ? fxPart(s.kind, s.bars, keyRoot)
+                  ? preset.fxKit
+                    ? fxSamplePart(s.kind, s.bars, bpm, preset.fxKit.riser)
+                    : fxPart(s.kind, s.bars, keyRoot)
                   : drumPart(ctx, role, s.kind, s.bars, 0);
         pattern = { id: pid, name: `${ROLE_LABELS[role]} · ${SECTION_LABELS[s.kind]}`, bars: s.bars, notes };
         byKey.set(pid, pattern);
         if (notes.length > 0) patterns.push(pattern);
       }
       if (pattern.notes.length > 0) clips.push({ patternId: pid, startBar: s.startBar, bars: s.bars });
+    }
+    if (sound.samples) {
+      const playable = new Set(Object.keys(sound.samples).map(Number));
+      for (const pt of patterns) pt.notes = pt.notes.filter((n) => playable.has(n.key));
+      const emptied = new Set(patterns.filter((pt) => pt.notes.length === 0).map((pt) => pt.id));
+      for (let i = patterns.length - 1; i >= 0; i--) if (emptied.has(patterns[i]!.id)) patterns.splice(i, 1);
+      for (let i = clips.length - 1; i >= 0; i--) if (emptied.has(clips[i]!.patternId)) clips.splice(i, 1);
     }
     if (clips.length === 0) continue;
     // El volumen de la batería se reparte por pieza, según el balance del género.

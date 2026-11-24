@@ -62,3 +62,26 @@ describe('plan → proyecto', () => {
     expect(now).not.toBe(old);
   });
 });
+
+describe('batería sampleada en el proyecto', () => {
+  it('registra cada sample de fábrica una vez, lo devuelve para el motor y el canal toca por keymap', () => {
+    const store = new ProjectStore();
+    const plan = composeBeat({ genre: 'reggaeton', seed: 3 });
+    const { commands, applied, samples } = planToCommands(store.project, plan);
+    const registered = commands.filter((c) => c.type === 'registerSample');
+    expect(registered.length).toBe(samples.length);
+    expect(new Set(samples.map((s) => s.id)).size).toBe(samples.length);
+    for (const s of samples) expect(s.path).toMatch(/^factory:.+\.wav$/);
+    store.dispatch({ type: 'batch', commands });
+    const kick = applied.parts.find((a) => a.role === 'kick')!;
+    const ch = store.project.channels[kick.channelId]!;
+    expect(ch.kind).toBe('sampler');
+    expect(ch.keymap![0]).toMatchObject({ keyLow: 36, keyHigh: 36, keyRoot: 36 });
+    expect(store.project.samples[ch.keymap![0]!.sampleId]).toBeDefined();
+    // Un segundo beat del mismo género no vuelve a registrar lo que ya está.
+    const again = planToCommands(store.project, composeBeat({ genre: 'reggaeton', seed: 3 }));
+    expect(again.samples).toHaveLength(0);
+    expect(again.commands.some((c) => c.type === 'registerSample')).toBe(false);
+    store.dispatch({ type: 'batch', commands: again.commands });
+  });
+});
