@@ -83,6 +83,16 @@ describe('panel y registro de la ventana (código fuente real)', () => {
     expect(body.slice(0, read)).not.toMatch(/\bawait\b|\.then\(/);
   });
 
+  it('cambiar de género limpia la variante del anterior', () => {
+    // `resolvePreset` es estricto con la variante: si el formulario se queda
+    // con la del género viejo, no hay ninguna chip marcada y el ajuste guardado
+    // viaja inválido. Todo `updateForm` que toque `genre` limpia la variante.
+    const src = readSource('composer/ComposerPanel.tsx');
+    const calls = [...src.matchAll(/updateForm\(\{[^}]*genre:[^}]*\}\)/g)].map((m) => m[0]);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of calls) expect(call).toMatch(/variant:\s*null/);
+  });
+
   it('la ventana está en todos los sitios que la abren o la describen', () => {
     expect(readSource('state/ui.ts')).toMatch(/\| 'composer'/);
     expect(readSource('state/ui.ts')).toMatch(/composer: \{ open: false/);

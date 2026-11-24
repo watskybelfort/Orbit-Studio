@@ -225,7 +225,7 @@ export function ComposerPanel() {
           </div>
         </div>
         {ref && guessGenre(ref) !== form.genre && (
-          <button className="cmp-link" onClick={() => updateForm({ genre: guessGenre(ref) })}>
+          <button className="cmp-link" onClick={() => updateForm({ genre: guessGenre(ref), variant: null })}>
             Usar el género que sugiere la referencia ({GENRE_PRESETS[guessGenre(ref)].name})
           </button>
         )}
