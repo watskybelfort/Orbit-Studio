@@ -689,7 +689,9 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // La caja tiene parciales fijos en 13.364 Hz (+27 dB) y 15.429 Hz (+28): el 80 %
       // de la resonancia de 13,4 kHz del beat. Y su anillo de 3.844 Hz, el 31 % de la de 3,9.
       snare: [
-        { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6, highGain: 2, highFreq: 6000, lpFreq: 13000 } },
+        // Techo a 12 kHz, 24 dB/oct: el clap brillaba en 14,8-15,4 kHz (+10-11 dB).
+        { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6, highGain: 2, highFreq: 6000, lpFreq: 12000 } },
+        { kind: 'eq', params: { lpFreq: 12000 } },
         { kind: 'eq', params: { midGain: -12, midFreq: 13364, midQ: 10 } },
         // El crack de la caja: presencia en 2,4 kHz (el beat iba 5 dB bajo el moderno en 2-6 kHz).
         { kind: 'eq', params: { midGain: 4, midFreq: 2400, midQ: 0.8 } },
@@ -794,7 +796,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     fx: {
       bass: [{ kind: 'distortion', params: { drive: 0.25, tone: 3200, output: 0.9 } }, DUCK_FROM_KICK],
       chords: [
-        { kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 350, midGain: -2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 8000, lpFreq: 13000 } },
+        // El supersaw sumaba medios (+6 dB en 500 Hz-1 kHz) y no brillo: valle en 500, aire en 9 kHz.
+        { kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 350, midGain: -3, midFreq: 500, midQ: 1, highGain: 3, highFreq: 9000, lpFreq: 13000 } },
         { kind: 'reverb', params: { size: 0.55, damp: 0.6, width: 0.8, predelay: 0.02 } },
         // Los +5 dB de verdad: el volumen de un instrumento tiene tope 1,2 en el compositor y no
         // llegaba. La ganancia va por el inserto estéreo (x1,8).
@@ -806,7 +809,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 0.9, predelay: 0.02 } },
       ],
       // El clap resuena en 4.735 Hz (era él, no el rim).
-      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } }, ...AIR_CAP(13000)],
+      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, { kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6 } }, { kind: 'eq', params: { midGain: -6, midFreq: 3844, midQ: 6 } }, ...AIR_CAP(13000)],
       hats: AIR_CAP(12000),
       // El rim resonaba en 4.735 y 6.853 Hz.
       perc: [{ kind: 'eq', params: { midGain: -6, midFreq: 4735, midQ: 6, lpFreq: 12000 } }, { kind: 'eq', params: { midGain: -6, midFreq: 6853, midQ: 6, lpFreq: 12000 } }],
@@ -1091,8 +1094,9 @@ const TRAP_DURO: GenrePreset = {
     ...GENRE_PRESETS.trap.sounds,
     bass: [
       // El 808 manda (en el type beat de Esbabyface de tus referencias el sub va 9 dB sobre el resto).
-      { kind: 'sub808', params: { decay: 1.5, drive: 0.55, glide: 0.1, punch: 0.75, tone: 1200 }, volume: 0.85 },
-      { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.85 },
+      // -2 dB: el 808 volvía a quedar por encima del bombo mientras golpea (+1,3 a +2,7 dB).
+      { kind: 'sub808', params: { decay: 1.5, drive: 0.55, glide: 0.1, punch: 0.75, tone: 1200 }, volume: 0.68 },
+      { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.68 },
     ],
     chords: [
       // El colchón, por debajo de todo: a 0,3 era lo que embarraba los medios (-2,8 dB en 250-2k solo).
@@ -1115,7 +1119,7 @@ const TRAP_DURO: GenrePreset = {
     // Caja y hats: 24 dB/oct a 12,5 kHz (silbidos metálicos de +9-12 dB en 13,6-15,3 kHz) y +2 dB en 8 kHz.
     hats: [{ kind: 'eq', params: { highGain: 2, highFreq: 8000, lpFreq: 12500 } }, { kind: 'eq', params: { lpFreq: 12500 } }],
     snare: [
-      { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 8000, lpFreq: 12500 } },
+      { kind: 'eq', params: { midGain: 2, midFreq: 3000, midQ: 1, highGain: 2, highFreq: 5000, lpFreq: 12500 } },
       // La caja/clap de trap resuena en 3,8 y 4,57 kHz.
       { kind: 'eq', params: { midGain: -6, midFreq: 3820, midQ: 6, lpFreq: 12500 } },
       { kind: 'eq', params: { midGain: -6, midFreq: 4573, midQ: 6 } },
@@ -1133,7 +1137,9 @@ const TRAP_DURO: GenrePreset = {
     // El colchón era casi todo picos tonales en 2-3,5 kHz (+12-13 dB): techo a 1,8 kHz.
     chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 1800 } }, { kind: 'eq', params: { lpFreq: 1800 } }],
     melody: [
-      { kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 2800, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
+      // El riff resonaba en 3,1-4,6 kHz (+12-14 dB, el 73 % del pico de 3.846 Hz): techo a 3 kHz, 24 dB/oct.
+      { kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 600, midQ: 1, lpFreq: 3000 } },
+      { kind: 'eq', params: { lpFreq: 3000 } },
       { kind: 'reverb', params: { size: 0.5, damp: 0.7, width: 0.5, predelay: 0.02 } },
     ],
   },
