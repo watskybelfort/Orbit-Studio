@@ -27,7 +27,7 @@ import {
   COMPOSER_ROLES,
   GENRE_PRESETS,
   ROLE_LABELS,
-  genreDrumLanes,
+  presetDrumLanes,
   presetLabel,
   resolvePreset,
   type ComposerGenre,
@@ -366,7 +366,7 @@ function drumGrooves(
   complexity: number,
   rng: Rng,
 ): Record<DrumLaneId, DrumGroove> {
-  const lanes = genreDrumLanes(preset.id);
+  const lanes = presetDrumLanes(preset);
   const learned: Record<DrumLaneId, number[] | null> = {
     kick: hint?.lanes?.low ?? null,
     snare: hint?.lanes?.mid ?? null,
@@ -537,6 +537,35 @@ function drumPart(
       for (const [j, i] of fill.entries()) {
         if (notes.some((n) => Math.abs(n.start - at(i)) < 1e-6 && n.key === key)) continue;
         notes.push({ start: at(i), duration: STEP * 0.8, key, velocity: round3(0.45 + 0.4 * (j / Math.max(1, fill.length - 1))) });
+      }
+    }
+    // Redoble de timbales (reggaetón de los 2000): cierra la frase de 8, el
+    // hook y, más largo, el compás que entra al hook (donde el bombo se corta).
+    const tim = preset.drums.timbales;
+    if (lane === 'perc' && tim && (kind === 'verse' || kind === 'hook')) {
+      const preHook = kind === 'verse' && last;
+      if (preHook || b % 8 === 7 || (kind === 'hook' && last)) {
+        const from = preHook ? 8 : 12;
+        const barStart = b * BEATS_PER_BAR;
+        for (let i = notes.length - 1; i >= 0; i--) if (notes[i]!.start >= barStart + from * STEP) notes.splice(i, 1);
+        const roll: [number, 'h' | 'l'][] = preHook
+          ? rng.pick([
+              [[8, 'h'], [10, 'h'], [11, 'h'], [12, 'l'], [13, 'l'], [14, 'h'], [15, 'l']],
+              [[8, 'h'], [9, 'h'], [10, 'l'], [11, 'l'], [12, 'h'], [13, 'h'], [14, 'l'], [15, 'l']],
+            ] as [number, 'h' | 'l'][][])
+          : rng.pick([
+              [[12, 'h'], [13, 'h'], [14, 'l'], [15, 'l']],
+              [[12, 'h'], [14, 'h'], [15, 'l']],
+              [[13, 'h'], [14, 'l'], [15, 'l']],
+            ] as [number, 'h' | 'l'][][]);
+        roll.forEach(([i, which], j) => {
+          notes.push({
+            start: barStart + i * STEP,
+            duration: STEP * 0.9,
+            key: which === 'h' ? tim.hi : tim.lo,
+            velocity: round3(0.55 + 0.4 * (j / Math.max(1, roll.length - 1))),
+          });
+        });
       }
     }
     // Palmas doblando la caja en el drop.
@@ -847,13 +876,13 @@ export const FX_IMPACT_KEY = 62;
  * el drop (mide lo que mide el archivo, así que se calcula con el tempo), y
  * el impacto cae en el primer tiempo del drop. Nada en intro ni puente.
  */
-function fxSamplePart(kind: SectionKind, bars: number, bpm: number, riserId: string): PlanNote[] {
+function fxSamplePart(kind: SectionKind, bars: number, bpm: number, riserId: string, hookImpact: boolean): PlanNote[] {
   if (kind === 'build') {
     const sec = factorySound(riserId)?.durationSec ?? 3.4;
     const len = Math.min(bars * BEATS_PER_BAR, Math.ceil(((sec * bpm) / 60) * 4) / 4);
     return [{ start: bars * BEATS_PER_BAR - len, duration: len, key: FX_RISER_KEY, velocity: 0.75 }];
   }
-  if (kind === 'drop') return [{ start: 0, duration: BEATS_PER_BAR, key: FX_IMPACT_KEY, velocity: 0.8 }];
+  if (kind === 'drop' || (hookImpact && kind === 'hook')) return [{ start: 0, duration: BEATS_PER_BAR, key: FX_IMPACT_KEY, velocity: 0.8 }];
   return [];
 }
 
@@ -930,7 +959,7 @@ function sampledDrum(preset: GenrePreset, lane: DrumLaneId, rng: Rng, keyRoot: n
     lane === 'kick' ? [d.keys.kick]
       : lane === 'snare' ? [d.keys.snare, ...(d.clapLayer !== undefined ? [d.clapLayer] : [])]
         : lane === 'hats' ? [d.keys.hats, ...(d.keys.openhat !== undefined ? [d.keys.openhat] : [])]
-          : [d.keys.perc];
+          : [d.keys.perc, ...(d.timbales ? [d.timbales.hi, d.timbales.lo] : [])];
   const samples: Record<number, string> = {};
   for (const key of keys) {
     const options = preset.drumKit?.[key];
@@ -1073,7 +1102,7 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
                   : melodyPart(ctx, s.kind, s.bars, at)
                 : role === 'fx'
                   ? preset.fxKit
-                    ? fxSamplePart(s.kind, s.bars, bpm, preset.fxKit.riser)
+                    ? fxSamplePart(s.kind, s.bars, bpm, preset.fxKit.riser, preset.fxKit.hookImpact ?? false)
                     : fxPart(s.kind, s.bars, keyRoot)
                   : drumPart(ctx, role, s.kind, s.bars, at);
         pattern = { id: pid, name: `${ROLE_LABELS[role]} · ${SECTION_LABELS[s.kind]}`, bars: s.bars, notes };

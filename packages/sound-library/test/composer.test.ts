@@ -15,6 +15,7 @@ import {
   guessGenre,
   parseProfile,
   parseSteps,
+  resolvePreset,
   styleHint,
   type BeatPlan,
   type TrackFeatures,
@@ -279,15 +280,17 @@ describe('instrumentos propios de cada género', () => {
           for (const pt of part(plan, role)!.patterns) for (const n of pt.notes) expect(keys.has(n.key)).toBe(true);
         }
         const kit = Object.values(part(plan, 'kick')!.sound.samples!)[0]!;
-        // Cada género, su kit: el del trap ya no viste al dembow.
-        expect(kit).toMatch(new RegExp(`^drums/${g}/`));
+        // Cada género, su kit: el del trap ya no viste al dembow (el neo perreo de
+        // club alterna su bombo saturado con el del reggaetón de los 2000).
+        expect(kit).toMatch(g === 'neoperreo' ? /^drums\/(neoperreo|reggaeton)\// : new RegExp(`^drums/${g}/`));
       }
     }
     for (const g of ['techno', 'rave'] as const) expect(part(composeBeat({ genre: g, seed: 1 }), 'kick')!.sound.kind).toBe('drums');
   });
 
   it('nada de timbres metálicos ni de juguete, y sin percusión suelta en trap y boom bap', () => {
-    const banned = /celesta|juguete|talkbox|melodica|saxo|campana|laser|sirena|requinto|nylon|8bit|metal/;
+    // «metales» (la sección de vientos de los 2000) no es un timbre metálico.
+    const banned = /celesta|juguete|talkbox|melodica|saxo|campana|laser|sirena|requinto|nylon|8bit|metal(?!es)/;
     for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
       for (const seed of [1, 2, 3, 4, 5, 6]) {
         const plan = composeBeat({ genre: g, seed });
@@ -364,13 +367,30 @@ describe('reglas de la investigación de género', () => {
     for (const o of off('hats', 0.5).filter((x) => Math.abs(x) < 30)) expect(o).toBeCloseTo(GENRE_PRESETS.boombap.drums.feelMs!.hats!, 0);
   });
 
-  it('reggaetón: shaker en las 16 semicorcheas con el acento en el 3+3+2; neo perreo en bucle de 1-2 acordes', () => {
-    const hats = dropPattern(composeBeat({ genre: 'reggaeton', seed: 2 }), 'hats')!.notes.filter((n) => n.key === 70 && n.start < 4);
+  it('reggaetón moderno: shaker en las 16 semicorcheas con el acento en el 3+3+2; neo perreo oscuro en bucle de 1-2 acordes', () => {
+    const hats = dropPattern(composeBeat({ genre: 'reggaeton', variant: 'moderno', seed: 2 }), 'hats')!.notes.filter((n) => n.key === 70 && n.start < 4);
     expect(hats.length).toBeGreaterThanOrEqual(15);
     const v = (i: number) => hats.find((n) => Math.abs(n.start - i * 0.25) < 1e-6)!.velocity;
     // Acento en el tresillo 3+3+2 (pasos 1, 4, 7 de cada medio compás).
     for (const strong of [0, 3, 6, 8, 11]) expect(v(strong)).toBeGreaterThan(v(strong + 1) + 0.15);
-    for (const prog of GENRE_PRESETS.neoperreo.progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
+    for (const prog of resolvePreset('neoperreo', 'oscuro').progressions) expect(new Set(prog).size).toBeLessThanOrEqual(2);
+  });
+
+  it('reggaetón de los 2000: timbales al entrar el hook y al cerrar la frase de 8, platillo al entrar cada hook', () => {
+    const plan = composeBeat({ genre: 'reggaeton', seed: 2, shape: 3 });
+    const { hi, lo } = GENRE_PRESETS.reggaeton.drums.timbales!;
+    const perc = part(plan, 'perc')!;
+    for (const pt of perc.patterns.filter((p) => p.id.startsWith('verse'))) {
+      // El último compás del verso (el que entra al hook) redobla desde el tercer tiempo, con los dos timbales.
+      const lastBar = pt.notes.filter((n) => n.start >= (pt.bars - 1) * 4 + 2);
+      expect(lastBar.length).toBeGreaterThanOrEqual(7);
+      expect(new Set(lastBar.map((n) => n.key))).toEqual(new Set([hi, lo]));
+      // Y cierra la frase de 8 en el cuarto tiempo.
+      expect(pt.notes.some((n) => n.start >= 7 * 4 + 3 && n.start < 8 * 4)).toBe(true);
+    }
+    const fx = part(plan, 'fx')!;
+    for (const pt of fx.patterns.filter((p) => p.id.startsWith('hook'))) expect(pt.notes[0]).toMatchObject({ start: 0, key: 62 });
+    expect(part(plan, 'perc')!.sound.samples![hi]).toBe('percusion-latina/timbal-alto-01');
   });
 
   it('los géneros urbanos limitan por true peak a -1,2 dBTP; techno y rave, como estaban', () => {
@@ -407,21 +427,23 @@ describe('reglas de la investigación de género', () => {
   });
 
   it('verso y hook: remate de caja al cerrar cada frase, y el segundo verso no es copia del primero', () => {
-    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+    // El reggaetón de los 2000 remata con timbales (su test va aparte), no con la caja.
+    for (const g of ['trap', 'neoperreo', 'boombap'] as const) {
       const plan = composeBeat({ genre: g, seed: 2, shape: 3 });
       const verses = part(plan, 'snare')!.patterns.filter((p) => p.id.startsWith('verse'));
       expect(verses.length, g).toBe(2);
-      const bar4 = verses[0]!.notes.filter((n) => n.start >= 12 && n.start < 16).length;
-      const bar1 = verses[0]!.notes.filter((n) => n.start < 4).length;
-      expect(bar4, g).toBeGreaterThan(bar1);
+      // El cuarto compás remata: no es copia del primero y lleva caja en el último tiempo, pasado el 3,25.
+      const bar = (from: number) => JSON.stringify(verses[0]!.notes.filter((n) => n.start >= from && n.start < from + 4).map((n) => [n.start - from, n.key]));
+      expect(bar(12), g).not.toBe(bar(0));
+      expect(verses[0]!.notes.some((n) => n.start >= 15.25 && n.start < 16), g).toBe(true);
       const sig = (p: { notes: { start: number; key: number }[] }) => JSON.stringify(p.notes.map((n) => [n.start, n.key]));
       const hats = part(plan, 'hats')!.patterns.filter((p) => p.id.startsWith('verse'));
       expect(sig(verses[0]!) !== sig(verses[1]!) || sig(hats[0]!) !== sig(hats[1]!), g).toBe(true);
     }
   });
 
-  it('neo perreo: el 808 largo cae en el 1 y el 9', () => {
-    const bass = dropPattern(composeBeat({ genre: 'neoperreo', seed: 1 }), 'bass')!;
+  it('neo perreo oscuro: el 808 largo cae en el 1 y el 9', () => {
+    const bass = dropPattern(composeBeat({ genre: 'neoperreo', variant: 'oscuro', seed: 1 }), 'bass')!;
     for (const n of bass.notes) expect([0, 2]).toContain(n.start % 4);
   });
 

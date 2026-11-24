@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { COMPOSER_GENRES, GENRE_PRESETS, composeBeat, describePlan, genreVariants, recomposePart, resolvePreset } from '../src';
+import { SCALES } from '@orbit/core';
+import { COMPOSER_GENRES, GENRE_PRESETS, composeBeat, describePlan, factoryInstrument, factorySound, genreVariants, recomposePart, resolvePreset } from '../src';
 
 describe('variantes de género', () => {
   it('sin variante se usa el preset de siempre', () => {
@@ -36,4 +37,49 @@ describe('variantes de género', () => {
       });
     }
   }
+
+  // Las mismas reglas de calidad que los géneros de siempre, para cada variante.
+  const banned = /celesta|juguete|talkbox|melodica|saxo|campana|laser|sirena|requinto|8bit|metal(?!es)/;
+  for (const g of COMPOSER_GENRES) {
+    for (const v of genreVariants(g)) {
+      it(`${g} · ${v.id}: sonidos que existen, kit sampleado, sin timbres vetados, melodía sin b9 ni agudos, true peak`, () => {
+        const p = v.preset;
+        for (const ids of Object.values(p.drumKit ?? {})) for (const id of ids ?? []) expect(factorySound(id), id).toBeDefined();
+        if (p.fxKit) for (const id of [p.fxKit.riser, p.fxKit.impact]) expect(factorySound(id), id).toBeDefined();
+        for (const role of ['bass', 'chords', 'melody'] as const) {
+          for (const c of p.sounds[role]) if (c.instrument) expect(factoryInstrument(c.instrument)?.length ?? 0, c.instrument).toBeGreaterThan(1);
+        }
+        expect(p.master.find((f) => f.kind === 'limiter')!.params).toMatchObject({ ceiling: -1.2, truePeak: 1 });
+        for (const seed of [1, 2, 3, 4]) {
+          const plan = composeBeat({ genre: g, variant: v.id, seed });
+          for (const role of ['kick', 'snare', 'hats'] as const) expect(plan.parts.find((x) => x.role === role)!.sound.kind).toBe('sampler');
+          for (const part of plan.parts) {
+            expect(part.sound.preset ?? '', `${part.role}`).not.toMatch(banned);
+            const inst = (part.sound.zones?.[0]?.sampleId ?? '').replace(/^instrumentos\/guitarra-nylon.*/, '');
+            expect(inst, part.role).not.toMatch(banned);
+          }
+          const mel = plan.parts.find((x) => x.role === 'melody');
+          if (p.sounds.melody.length === 0) {
+            expect(mel).toBeUndefined();
+            continue;
+          }
+          const notes = mel!.patterns.flatMap((pt) => pt.notes);
+          expect(notes.reduce((s, n) => s + n.key, 0) / notes.length).toBeLessThan(84);
+          const scale = SCALES[plan.scaleName]!;
+          for (const pt of mel!.patterns) {
+            for (const n of pt.notes) {
+              const deg = plan.progression[Math.floor(n.start / 4) % plan.progression.length]!;
+              const tones = [0, 2, 4].map((o) => (plan.keyRoot + scale[(deg + o) % scale.length]!) % 12);
+              expect(tones.some((pc) => (((n.key - pc) % 12) + 12) % 12 === 1), `${seed} ${pt.id} ${n.key}`).toBe(false);
+            }
+          }
+        }
+      });
+    }
+  }
+
+  it('el trap sin melodía no tiene ni melodía ni acordes: batería, 808 y FX', () => {
+    const plan = composeBeat({ genre: 'trap', variant: 'crudo', seed: 5 });
+    expect(plan.parts.map((x) => x.role).sort()).toEqual(['bass', 'fx', 'hats', 'kick', 'snare'].sort());
+  });
 });

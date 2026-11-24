@@ -152,6 +152,12 @@ export interface GenrePreset {
     kickLayer?: string;
     /** Remate de caja al cerrar cada frase de 4 compases en verso y hook. */
     snareFills?: boolean;
+    /**
+     * Redobles de timbal (reggaetón de los 2000): en la percusión, al cerrar
+     * cada frase de 8, el último compás del hook y —más largo— el compás que
+     * entra al hook. Teclas de los dos timbales (sus samples, en `drumKit`).
+     */
+    timbales?: { hi: number; lo: number };
   };
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). */
   /** `hits`: pasos fijos del bajo (si no, sigue al bombo). `maxLen`: tope de duración de la nota del bajo `sub`, en tiempos. */
@@ -181,8 +187,8 @@ export interface GenrePreset {
    * rave pero no un trap ni un dembow.
    */
   drumKit?: Partial<Record<number, string[]>>;
-  /** FX de la librería de fábrica: barrido en la subida e impacto al caer el drop. */
-  fxKit?: { riser: string; impact: string };
+  /** FX de la librería de fábrica: barrido en la subida e impacto al caer el drop (y, con `hookImpact`, al entrar cada hook). */
+  fxKit?: { riser: string; impact: string; hookImpact?: boolean };
   /** Insertos por parte, además de la cadena del master. */
   fx: Partial<Record<ComposerRole, FxChoice[]>>;
   master: FxChoice[];
@@ -223,6 +229,9 @@ const HAT = 42;
 const OPENHAT = 46;
 const CONGA = 48;
 const SHAKER = 70;
+/** Los timbales del reggaetón de los 2000 (teclas libres del sampler; no son del DRUM_MAP). */
+const TIMBAL_HI = 65;
+const TIMBAL_LO = 64;
 
 /** Low-end en mono por debajo de 110 Hz (regla 3 del repo), antes del limitador. */
 const MONO_LOW: FxChoice = { kind: 'stereo', params: { width: 1, gain: 1, monoBelow: 110 } };
@@ -271,6 +280,195 @@ const AIR_CAP = (hz: number): FxChoice[] => [
 
 // ── Los géneros ───────────────────────────────────────────────────────────────
 
+/** El reggaetón actual (la variante «moderno»): el que el compositor hacía hasta la v3.18. */
+const REGGAETON_MODERNO: GenrePreset = {
+  id: 'reggaeton',
+  name: 'Reggaetón',
+  description: 'Dembow a 94: bombo en las cuatro negras, caja boxy en el tresillo, shaker en semicorcheas, sub corto, guitarra nylon y piano.',
+  bpm: { min: 88, max: 100, default: 94 },
+  swing: 0,
+  scales: [
+    { name: 'Menor natural', weight: 6 },
+    { name: 'Dórico', weight: 1 },
+    { name: 'Mayor', weight: 1 },
+  ],
+  // i-VI-III-VII, i-iv-VII-III, iv-i-VI-VII, vamp i-VII, VI-VII-i-i.
+  progressions: [
+    [0, 5, 2, 6],
+    [0, 3, 6, 2],
+    [3, 0, 5, 6],
+    [0, 6, 0, 6],
+    [5, 6, 0, 0],
+  ],
+  drums: {
+    kick: ['X...x...X...x...', 'X...x...X...x..?'],
+    // La variedad del reggaetón está en la caja: fantasma en el 10 o el 14.
+    snare: ['...x..x....x..x.', '...x..x..g.x..x.', '...x..x....x.gx.'],
+    // Shaker en las 16 semicorcheas con el acento en el tresillo 3+3+2 del dembow.
+    hats: ['xvvxvvxvxvvxvvxv', 'xvvxvvxvxvvxvvx?'],
+    // La clave en los huecos de la caja (3, 11, 14), no encima de ella.
+    perc: ['..x.......x..x..', '..x.......x..x.o'],
+    keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM },
+    hatRolls: 0,
+    openHats: 0,
+    tuneKick: true,
+    snareFills: true,
+    clapLayer: CLAP,
+  },
+  drumKit: {
+    [KICK]: ['drums/reggaeton/kick-01', 'drums/reggaeton/kick-02'],
+    [SNARE]: ['drums/reggaeton/snare-01', 'drums/reggaeton/snare-02'],
+    [CLAP]: ['drums/reggaeton/clap-01'],
+    [SHAKER]: ['percusion-latina/shaker-01', 'percusion-latina/shaker-02'],
+    [RIM]: ['percusion-latina/rim-01'],
+  },
+  fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
+  // Bajo corto (0,4 tiempos): con notas largas tapaba al bombo +7 dB.
+  bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.4 },
+  chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true, sparseVerse: true },
+  melody: { style: 'hook', density: 4, octave: 5, range: [60, 79], tune: true },
+  sounds: {
+    drums: [{ kind: 'drums' }],
+    bass: [
+      { kind: 'prisma', preset: 'bass/dembow-goma' },
+      { kind: 'sub808', params: { decay: 0.7, drive: 0.2, glide: 0.03, punch: 0.6, tone: 650 } },
+    ],
+    chords: [
+      // Los instrumentos grabados salían 10-19 dB por debajo del pluck (medido):
+      // el sampler lleva su ganancia al doble y el pluck baja.
+      { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 1.1 },
+      { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.9 },
+      { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.42 },
+    ],
+    melody: [
+      { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.85 },
+      { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 0.95 },
+      { kind: 'sampler', instrument: 'instrumentos/vibrafono', params: { gain: 2 }, volume: 0.75 },
+    ],
+    fx: [{ kind: 'sampler', volume: 0.4 }],
+  },
+  kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
+  // La caja del dembow tiene que mandar en medios: estaba 9,4 dB por debajo del bombo.
+  drumMix: { kick: 0.95, snare: 1.6, hats: 0.4, perc: 0.9 },
+  fx: {
+    // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
+    // La nylon grabada es casi toda lateral (correlación 0,13): se estrecha para que no se pierda en mono.
+    chords: [
+      { kind: 'eq', params: { hpFreq: 260, lowGain: -3, lowFreq: 320, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
+      { kind: 'stereo', params: { width: 0.3, gain: 1, monoBelow: 0 } },
+    ],
+    bass: [DUCK_FROM_KICK],
+    melody: [
+      // Valle en 3 kHz: ahí quedaba la última resonancia medida (+11 dB, 3079 Hz).
+      { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -5, midFreq: 3000, midQ: 1.1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
+      // La nylon grabada es casi toda lateral también cuando toca la melodía (correlación 0,12).
+      { kind: 'stereo', params: { width: 0.4, gain: 1, monoBelow: 0 } },
+      { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 0.7, predelay: 0.02 } },
+    ],
+    snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 250, midQ: 1 } }, ...AIR_CAP(12000)],
+    hats: AIR_CAP(11000),
+    // El rim de la clave llegaba a 20,8 kHz y subía el true peak 1,1 dB.
+    perc: AIR_CAP(12000),
+  },
+  master: [MONO_LOW, LIMITER_TP(6)],
+  shapes: [3, 4],
+};
+
+/**
+ * El perreo oscuro y despojado (la variante «oscuro»): el neo perreo que hacía
+ * el compositor hasta la v3.18. Al usuario le gustó, pero suena a otro
+ * género: queda como variante y el neo perreo de siempre pasa a ser el de club.
+ */
+const NEOPERREO_OSCURO: GenrePreset = {
+  id: 'neoperreo',
+  name: 'Neo perreo',
+  description:
+    'Dembow despojado y sucio a 94: bombo clipeado, caja rota en el tresillo, 808 distorsionado, bucle de uno o dos acordes oscuros y un lead de ringtone.',
+  bpm: { min: 88, max: 100, default: 94 },
+  swing: 0.04,
+  scales: [
+    { name: 'Frigio', weight: 4 },
+    { name: 'Menor natural', weight: 4 },
+    { name: 'Menor armónica', weight: 2 },
+  ],
+  // Uno o dos acordes en bucle: i, i-bVI, i-bII, i-iv.
+  progressions: [
+    [0, 0, 0, 0],
+    [0, 0, 5, 5],
+    [0, 1, 0, 1],
+    [0, 0, 3, 3],
+  ],
+  drums: {
+    // Bombo en las cuatro negras: con solo el 1 y el 9 era medio tiempo de trap bajo una caja dembow.
+    kick: ['X...x...X...x...', 'X...x...X...x...', 'X...x...X...x..?'],
+    snare: ['...x..x....x..x.', '...x..x....x..x.', '...x..x....x..xg'],
+    // Hats ausentes o a contratiempo.
+    hats: ['..x...x...x...x.', '..x.......x.....', '..x...x...x...xo'],
+    // Sin conga suelta: dos golpes cada 8 compases sonaban a error.
+    perc: [],
+    keys: { kick: KICK, snare: RIM, hats: HAT, perc: CONGA, openhat: OPENHAT },
+    hatRolls: 0.1,
+    openHats: 0.1,
+    clapLayer: SNARE,
+    tuneKick: true,
+    snareFills: true,
+  },
+  drumKit: {
+    [KICK]: ['drums/neoperreo/kick-01', 'drums/neoperreo/kick-02'],
+    [RIM]: ['drums/neoperreo/snare-01', 'drums/neoperreo/rim-01'],
+    [SNARE]: ['drums/reggaeton/clap-01'],
+    [HAT]: ['drums/trap/hat-03'],
+    [OPENHAT]: ['drums/trap/openhat-01'],
+  },
+  fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
+  // El 808 largo sobre el 1 y el 9, no en negras pegadas al bombo.
+  // `inIntro`: el 808 ya suena en la intro (sin él la intro quedaba 10 dB por debajo del hook).
+  bass: { style: '808', glide: 0.3, octave: 2, hits: [0, 8], inIntro: true },
+  chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 60, openVoicing: true },
+  melody: { style: 'riff', density: 4, octave: 5, range: [57, 79], tune: true },
+  sounds: {
+    drums: [{ kind: 'drums' }],
+    bass: [
+      { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 }, volume: 0.59 },
+      { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.59 },
+    ],
+    chords: [
+      // Los acordes quedaban enterrados (-25 LUFS en solitario): +5 dB.
+      { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.9 },
+      { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.9 },
+      { kind: 'sampler', instrument: 'instrumentos/pad-calido', params: { gain: 1.8 }, volume: 0.8 },
+    ],
+    melody: [
+      { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1.8 }, volume: 0.8 },
+      { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.78 },
+      { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
+    ],
+    fx: [{ kind: 'sampler', volume: 0.45 }],
+  },
+  kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
+  // El dembow tiene que cortar: la caja estaba 12 dB por debajo del bombo.
+  drumMix: { kick: 0.76, snare: 1.45, hats: 0.78, perc: 0.6 },
+  fx: {
+    bass: [{ kind: 'distortion', params: { drive: 0.2, tone: 3000, output: 0.9 } }],
+    melody: [
+      // Oscuro pero no apagado: con techo en 5 kHz el beat entero quedaba 7 dB por debajo de tus beats en agudos.
+      { kind: 'eq', params: { hpFreq: 180, midGain: -3, midFreq: 4800, midQ: 1.5, lpFreq: 9500 } },
+      { kind: 'reverb', params: { size: 0.6, damp: 0.75, width: 1, predelay: 0.03 } },
+    ],
+    // Paso alto doble (24 dB/oct): con uno solo seguía habiendo 90 Hz en los acordes.
+    chords: [
+      { kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 9000 } },
+      { kind: 'eq', params: { hpFreq: 250 } },
+    ],
+    // La caja rota sube en presencia: es la que corta en un dembow despojado.
+    snare: [{ kind: 'eq', params: { hpFreq: 180, midGain: 5, midFreq: 3000, midQ: 0.8 } }, ...AIR_CAP(13000)],
+    hats: AIR_CAP(12000),
+  },
+  master: [MONO_LOW, LIMITER_TP(0)],
+  shapes: [3, 4],
+};
+
+
 export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   // Las reglas de los cuatro géneros urbanos salen de la investigación de
   // producción (NI, MusicRadar, Attack, Output, Linn, Wayne Marshall…): la caja
@@ -281,6 +479,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   trap: {
     id: 'trap',
     name: 'Trap',
+    variantName: 'Melódico',
     description: 'Half-time a 142: caja sola en el 3, hats con redobles, 808 afinado que desliza al cerrar la frase, piano y cuerdas oscuras.',
     bpm: { min: 130, max: 160, default: 142 },
     swing: 0,
@@ -370,185 +569,198 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     shapes: [3, 4],
   },
 
+  // Reggaetón de los 2000 (Luny Tunes, DJ Nelson, Noriega; y el underground
+  // que hoy lo revive, como La Obsesión Factory en México): dembow seco y
+  // rápido, caja que restalla, timbales en cada cierre de frase, platillo al
+  // entrar el coro, cuerdas en staccato y piano o sinte de preset de los
+  // 2000. Menor armónica para el V mayor que tensa la vuelta (i-VI-iv-V).
   reggaeton: {
     id: 'reggaeton',
     name: 'Reggaetón',
-    description: 'Dembow a 94: bombo en las cuatro negras, caja boxy en el tresillo, shaker en semicorcheas, sub corto, guitarra nylon y piano.',
-    bpm: { min: 88, max: 100, default: 94 },
+    variantName: '2000',
+    description:
+      'Reggaetón de los 2000 a 96: dembow seco, caja que restalla, redobles de timbal, platillo al entrar el coro, cuerdas en staccato y piano o sinte de la época.',
+    bpm: { min: 90, max: 102, default: 96 },
     swing: 0,
     scales: [
-      { name: 'Menor natural', weight: 6 },
-      { name: 'Dórico', weight: 1 },
-      { name: 'Mayor', weight: 1 },
+      { name: 'Menor armónica', weight: 5 },
+      { name: 'Menor natural', weight: 4 },
+      { name: 'Frigio', weight: 1 },
     ],
-    // i-VI-III-VII, i-iv-VII-III, iv-i-VI-VII, vamp i-VII, VI-VII-i-i.
+    // Solo grados i, iv, V y VI: en menor armónica el III sale aumentado y el VII disminuido.
     progressions: [
-      [0, 5, 2, 6],
-      [0, 3, 6, 2],
-      [3, 0, 5, 6],
-      [0, 6, 0, 6],
-      [5, 6, 0, 0],
+      [0, 5, 3, 4],
+      [0, 3, 4, 0],
+      [0, 0, 5, 4],
+      [0, 5, 0, 4],
+      [3, 4, 0, 0],
     ],
     drums: {
-      kick: ['X...x...X...x...', 'X...x...X...x..?'],
-      // La variedad del reggaetón está en la caja: fantasma en el 10 o el 14.
-      snare: ['...x..x....x..x.', '...x..x..g.x..x.', '...x..x....x.gx.'],
-      // Shaker en las 16 semicorcheas con el acento en el tresillo 3+3+2 del dembow.
-      hats: ['xvvxvvxvxvvxvvxv', 'xvvxvvxvxvvxvvx?'],
-      // La clave en los huecos de la caja (3, 11, 14), no encima de ella.
-      perc: ['..x.......x..x..', '..x.......x..x.o'],
-      keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM },
+      kick: ['X...x...X...x...', 'X...x...X...x...', 'X...x...X...x..?'],
+      // El dembow de siempre; la variación la ponen los timbales, no la caja.
+      snare: ['...x..x....x..x.', '...x..x....x..x.', '...x..x..g.x..x.'],
+      // Hat cerrado en corcheas (lo de los 2000), no shaker en semicorcheas.
+      hats: ['x.x.x.x.x.x.x.x.', 'x.x.x.x.x.x.x.xo', 'x.xox.x.x.x.x.x.'],
+      // La percusión es de timbales: casi solo los redobles (ver `timbales`).
+      perc: ['................', '..............?.'],
+      keys: { kick: KICK, snare: SNARE, hats: HAT, perc: TIMBAL_HI },
       hatRolls: 0,
       openHats: 0,
       tuneKick: true,
-      snareFills: true,
       clapLayer: CLAP,
+      timbales: { hi: TIMBAL_HI, lo: TIMBAL_LO },
     },
     drumKit: {
-      [KICK]: ['drums/reggaeton/kick-01', 'drums/reggaeton/kick-02'],
-      [SNARE]: ['drums/reggaeton/snare-01', 'drums/reggaeton/snare-02'],
+      [KICK]: ['drums/reggaeton/kick-2000'],
+      [SNARE]: ['drums/reggaeton/snare-2000'],
       [CLAP]: ['drums/reggaeton/clap-01'],
-      [SHAKER]: ['percusion-latina/shaker-01', 'percusion-latina/shaker-02'],
-      [RIM]: ['percusion-latina/rim-01'],
+      [HAT]: ['drums/trap/hat-01', 'drums/boombap/hat-02'],
+      [TIMBAL_HI]: ['percusion-latina/timbal-alto-01'],
+      [TIMBAL_LO]: ['percusion-latina/timbal-bajo-01'],
     },
-    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
-    // Bajo corto (0,4 tiempos): con notas largas tapaba al bombo +7 dB.
-    bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.4 },
-    chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true, sparseVerse: true },
-    melody: { style: 'hook', density: 4, octave: 5, range: [60, 79], tune: true },
+    // Platillo con cola al entrar cada coro: la marca de la época.
+    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/crash-reverb-01', hookImpact: true },
+    bass: { style: 'sub', glide: 0, octave: 2, maxLen: 0.7 },
+    chords: { style: 'perreo', sevenths: 0, octave: 4, center: 64, openVoicing: true, sparseVerse: true },
+    melody: { style: 'hook', density: 4, octave: 5, range: [62, 84], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
-        { kind: 'prisma', preset: 'bass/dembow-goma' },
-        { kind: 'sub808', params: { decay: 0.7, drive: 0.2, glide: 0.03, punch: 0.6, tone: 650 } },
+        // A 0,62 el sub quedaba en -27 LUFS solo, 19 dB bajo el bombo: no se oía.
+        { kind: 'sub808', params: { decay: 0.6, drive: 0.3, glide: 0.02, punch: 0.7, tone: 900 }, volume: 1.5 },
+        { kind: 'prisma', preset: 'bass/sub-lienzo', volume: 0.22 },
       ],
       chords: [
-        // Los instrumentos grabados salían 10-19 dB por debajo del pluck (medido):
-        // el sampler lleva su ganancia al doble y el pluck baja.
-        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 1.1 },
-        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.9 },
-        { kind: 'prisma', preset: 'plucks/pluck-dembow', volume: 0.42 },
+        { kind: 'prisma', preset: 'strings/cuerdas-staccato', volume: 0.42 },
+        { kind: 'prisma', preset: 'plucks/pizzicato-cuerdas', volume: 0.45 },
+        // Los metales a 0,4 iban a -14 LUFS solos: tapaban la melodía.
+        { kind: 'prisma', preset: 'brass/metales-anchos', volume: 0.24 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/piano-suave', params: { gain: 2 }, volume: 0.85 },
-        { kind: 'sampler', instrument: 'instrumentos/guitarra-nylon', params: { gain: 2 }, volume: 0.95 },
-        { kind: 'sampler', instrument: 'instrumentos/vibrafono', params: { gain: 2 }, volume: 0.75 },
+        { kind: 'sampler', instrument: 'instrumentos/piano-brillante', params: { gain: 1.6 }, volume: 0.7 },
+        // Sin el supersaw: su centroide en 4 kHz era justo el agudo raro que ya vetaste.
+        { kind: 'prisma', preset: 'strings/violin-solo', volume: 0.45 },
+        { kind: 'prisma', preset: 'leads/flauta-humo', volume: 0.45 },
       ],
-      fx: [{ kind: 'sampler', volume: 0.4 }],
+      fx: [{ kind: 'sampler', volume: 0.3 }],
     },
-    kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
-    // La caja del dembow tiene que mandar en medios: estaba 9,4 dB por debajo del bombo.
-    drumMix: { kick: 0.95, snare: 1.6, hats: 0.4, perc: 0.9 },
+    kit: { kit: 2, tone: 0.6, decay: 0.9, punch: 0.7 },
+    // El bombo de los 2000 pega mucho (a 1 iba a -8 LUFS solo, por encima de todo el beat).
+    // Los timbales a 0,85 iban a -8 LUFS solos (en los redobles): eran lo más fuerte del beat.
+    drumMix: { kick: 0.5, snare: 1.2, hats: 0.65, perc: 0.3 },
     fx: {
-      // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
-      // La nylon grabada es casi toda lateral (correlación 0,13): se estrecha para que no se pierda en mono.
-      chords: [
-        { kind: 'eq', params: { hpFreq: 260, lowGain: -3, lowFreq: 320, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
-        { kind: 'stereo', params: { width: 0.3, gain: 1, monoBelow: 0 } },
-      ],
       bass: [DUCK_FROM_KICK],
-      melody: [
-        // Valle en 3 kHz: ahí quedaba la última resonancia medida (+11 dB, 3079 Hz).
-        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -5, midFreq: 3000, midQ: 1.1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
-        // La nylon grabada es casi toda lateral también cuando toca la melodía (correlación 0,12).
-        { kind: 'stereo', params: { width: 0.4, gain: 1, monoBelow: 0 } },
-        { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 0.7, predelay: 0.02 } },
+      // Las cuerdas en staccato llevan el ritmo: medios presentes, sin barro ni chillido.
+      chords: [
+        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 320, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
+        { kind: 'reverb', params: { size: 0.4, damp: 0.6, width: 0.6, predelay: 0.01 } },
       ],
-      snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 250, midQ: 1 } }, ...AIR_CAP(12000)],
+      melody: [
+        { kind: 'eq', params: { hpFreq: 220, lowGain: -2, lowFreq: 350, midGain: -3, midFreq: 2800, midQ: 1, highGain: -2, highFreq: 6000, lpFreq: 9500 } },
+        { kind: 'reverb', params: { size: 0.5, damp: 0.55, width: 0.7, predelay: 0.02 } },
+      ],
+      // La caja de los 2000 llevaba su sala corta.
+      // Valles estrechos en 3,8 y 8,1 kHz: la caja repetida idéntica dejaba ahí dos resonancias fijas (+16 y +14 dB en el beat).
+      snare: [
+        { kind: 'eq', params: { midGain: -5, midFreq: 3850, midQ: 3, highGain: -2, highFreq: 7000 } },
+        { kind: 'eq', params: { midGain: -5, midFreq: 8100, midQ: 3 } },
+        { kind: 'reverb', params: { size: 0.25, damp: 0.6, width: 0.5, predelay: 0 } },
+        ...AIR_CAP(12500),
+      ],
       hats: AIR_CAP(11000),
-      // El rim de la clave llegaba a 20,8 kHz y subía el true peak 1,1 dB.
       perc: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER_TP(6)],
+    master: [MONO_LOW, LIMITER_TP(7)],
     shapes: [3, 4],
   },
 
+  // Neo perreo (Tomasa del Real, Ms Nina, Chico Sonido, Deltatron): el
+  // reggaetón desarmado y pasado por el club. El dembow sigue mandando —es
+  // perreo—, pero vestido de rave y de internet de los 2000: bombo
+  // saturado, palmas, stabs de supersaw, arpegio de trance o lead de
+  // ringtone, láser al entrar el coro y un sub que rebota con el bombo.
   neoperreo: {
     id: 'neoperreo',
     name: 'Neo perreo',
+    variantName: 'Club',
     description:
-      'Dembow despojado y sucio a 94: bombo clipeado, caja rota en el tresillo, 808 distorsionado, bucle de uno o dos acordes oscuros y un lead de ringtone.',
-    bpm: { min: 88, max: 100, default: 94 },
-    swing: 0.04,
+      'Neo perreo de club a 98: dembow con bombo saturado y palmas, sub que rebota, stabs de supersaw, arpegio de trance o lead de ringtone y láser al entrar el coro.',
+    bpm: { min: 92, max: 106, default: 98 },
+    swing: 0,
     scales: [
-      { name: 'Frigio', weight: 4 },
-      { name: 'Menor natural', weight: 4 },
-      { name: 'Menor armónica', weight: 2 },
+      { name: 'Menor natural', weight: 5 },
+      { name: 'Frigio', weight: 2 },
+      { name: 'Dórico', weight: 2 },
     ],
-    // Uno o dos acordes en bucle: i, i-bVI, i-bII, i-iv.
+    // Bucles de dos a cuatro acordes: i-VI, i-VII-VI-VII, i-iv, i-VI-III-VII.
     progressions: [
-      [0, 0, 0, 0],
       [0, 0, 5, 5],
-      [0, 1, 0, 1],
+      [0, 6, 5, 6],
       [0, 0, 3, 3],
+      [0, 5, 2, 6],
     ],
     drums: {
-      // Bombo en las cuatro negras: con solo el 1 y el 9 era medio tiempo de trap bajo una caja dembow.
-      kick: ['X...x...X...x...', 'X...x...X...x...', 'X...x...X...x..?'],
-      snare: ['...x..x....x..x.', '...x..x....x..x.', '...x..x....x..xg'],
-      // Hats ausentes o a contratiempo.
-      hats: ['..x...x...x...x.', '..x.......x.....', '..x...x...x...xo'],
-      // Sin conga suelta: dos golpes cada 8 compases sonaban a error.
-      perc: [],
-      keys: { kick: KICK, snare: RIM, hats: HAT, perc: CONGA, openhat: OPENHAT },
-      hatRolls: 0.1,
-      openHats: 0.1,
-      clapLayer: SNARE,
+      kick: ['X...x...X...x...', 'X...x...X...x...', 'X...x...X...x.x.'],
+      snare: ['...x..x....x..x.', '...x..x....x..x.', '...x..x....x.xx.'],
+      hats: ['x.x.x.x.x.x.x.x.', 'x.xox.x.x.xox.x.', 'xoxoxoxoxoxoxoxo'],
+      perc: ['..x.......x..x..', '..x.......x..x.o'],
+      keys: { kick: KICK, snare: SNARE, hats: HAT, perc: RIM, openhat: OPENHAT },
+      hatRolls: 0.25,
+      openHats: 0.3,
+      clapLayer: CLAP,
       tuneKick: true,
       snareFills: true,
     },
     drumKit: {
-      [KICK]: ['drums/neoperreo/kick-01', 'drums/neoperreo/kick-02'],
-      [RIM]: ['drums/neoperreo/snare-01', 'drums/neoperreo/rim-01'],
-      [SNARE]: ['drums/reggaeton/clap-01'],
-      [HAT]: ['drums/trap/hat-03'],
+      [KICK]: ['drums/neoperreo/kick-01', 'drums/reggaeton/kick-2000'],
+      [SNARE]: ['drums/reggaeton/snare-02', 'drums/reggaeton/snare-2000'],
+      [CLAP]: ['drums/trap/clap-01', 'drums/reggaeton/clap-01'],
+      [HAT]: ['drums/trap/hat-01'],
       [OPENHAT]: ['drums/trap/openhat-01'],
+      [RIM]: ['drums/neoperreo/rim-01'],
     },
-    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
-    // El 808 largo sobre el 1 y el 9, no en negras pegadas al bombo.
-    // `inIntro`: el 808 ya suena en la intro (sin él la intro quedaba 10 dB por debajo del hook).
-    bass: { style: '808', glide: 0.3, octave: 2, hits: [0, 8], inIntro: true },
-    chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 60, openVoicing: true },
-    melody: { style: 'riff', density: 4, octave: 5, range: [57, 79], tune: true },
+    fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/zap-01', hookImpact: true },
+    bass: { style: 'sub', glide: 0.05, octave: 2, maxLen: 0.5, inIntro: true },
+    chords: { style: 'stabs', sevenths: 0, octave: 4, center: 62, openVoicing: true },
+    melody: { style: 'arp', density: 4, octave: 5, range: [60, 84], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
       bass: [
-        { kind: 'sub808', params: { decay: 1.1, drive: 0.6, glide: 0.07, punch: 0.7, tone: 1400 }, volume: 0.59 },
-        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.59 },
+        // A 0,6 el sub iba a -29 LUFS solo: 20 dB bajo el bombo.
+        { kind: 'sub808', params: { decay: 0.55, drive: 0.7, glide: 0.04, punch: 0.75, tone: 1600 }, volume: 1.4 },
+        { kind: 'prisma', preset: 'bass/dembow-goma', volume: 0.9 },
       ],
       chords: [
-        // Los acordes quedaban enterrados (-25 LUFS en solitario): +5 dB.
-        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.9 },
-        { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.9 },
-        { kind: 'sampler', instrument: 'instrumentos/pad-calido', params: { gain: 1.8 }, volume: 0.8 },
+        { kind: 'prisma', preset: 'leads/saw-ancho', volume: 0.3 },
+        { kind: 'prisma', preset: 'pads/pad-neon-house', volume: 1.2 },
+        { kind: 'prisma', preset: 'plucks/pluck-house', volume: 0.6 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1.8 }, volume: 0.8 },
-        { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.78 },
-        { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
+        { kind: 'prisma', preset: 'arps/arp-trance', volume: 0.85 },
+        { kind: 'prisma', preset: 'leads/chicle-neon', volume: 0.4 },
+        // El lead de ringtone, el grabado (el que ya pasó el crítico), no el 8 bits.
+        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1 }, volume: 0.42 },
       ],
-      fx: [{ kind: 'sampler', volume: 0.45 }],
+      fx: [{ kind: 'sampler', volume: 0.4 }],
     },
-    kit: { kit: 2, tone: 0.4, decay: 0.8, punch: 0.75 },
-    // El dembow tiene que cortar: la caja estaba 12 dB por debajo del bombo.
-    drumMix: { kick: 0.76, snare: 1.45, hats: 0.78, perc: 0.6 },
+    kit: { kit: 0, tone: 0.5, decay: 0.8, punch: 0.8 },
+    drumMix: { kick: 0.6, snare: 1.2, hats: 0.8, perc: 0.7 },
     fx: {
-      bass: [{ kind: 'distortion', params: { drive: 0.2, tone: 3000, output: 0.9 } }],
-      melody: [
-        // Oscuro pero no apagado: con techo en 5 kHz el beat entero quedaba 7 dB por debajo de tus beats en agudos.
-        { kind: 'eq', params: { hpFreq: 180, midGain: -3, midFreq: 4800, midQ: 1.5, lpFreq: 9500 } },
-        { kind: 'reverb', params: { size: 0.6, damp: 0.75, width: 1, predelay: 0.03 } },
-      ],
-      // Paso alto doble (24 dB/oct): con uno solo seguía habiendo 90 Hz en los acordes.
+      bass: [{ kind: 'distortion', params: { drive: 0.25, tone: 3200, output: 0.9 } }, DUCK_FROM_KICK],
       chords: [
-        { kind: 'eq', params: { hpFreq: 250, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 9000 } },
-        { kind: 'eq', params: { hpFreq: 250 } },
+        { kind: 'eq', params: { hpFreq: 250, lowGain: -2, lowFreq: 350, midGain: -2, midFreq: 3000, midQ: 1, highGain: -3, highFreq: 7000, lpFreq: 11000 } },
+        { kind: 'reverb', params: { size: 0.55, damp: 0.6, width: 0.8, predelay: 0.02 } },
       ],
-      // La caja rota sube en presencia: es la que corta en un dembow despojado.
-      snare: [{ kind: 'eq', params: { hpFreq: 180, midGain: 5, midFreq: 3000, midQ: 0.8 } }, ...AIR_CAP(13000)],
+      melody: [
+        { kind: 'eq', params: { hpFreq: 300, midGain: -3, midFreq: 3200, midQ: 1, highGain: -3, highFreq: 7000, lpFreq: 11000 } },
+        { kind: 'delay', params: { time: 4, feedback: 0.3, pingpong: 1, filter: 3500 } },
+        { kind: 'reverb', params: { size: 0.6, damp: 0.6, width: 0.9, predelay: 0.02 } },
+      ],
+      snare: [{ kind: 'eq', params: { hpFreq: 160, midGain: 2, midFreq: 2500, midQ: 1 } }, ...AIR_CAP(13000)],
       hats: AIR_CAP(12000),
+      perc: AIR_CAP(12000),
     },
-    master: [MONO_LOW, LIMITER_TP(0)],
+    master: [MONO_LOW, LIMITER_TP(2.5)],
     shapes: [3, 4],
   },
 
@@ -777,7 +989,94 @@ export interface GenreVariant {
   preset: GenrePreset;
 }
 
-export const GENRE_VARIANTS: Partial<Record<ComposerGenre, readonly GenreVariant[]>> = {};
+/**
+ * Trap duro (lo agresivo de Esbabyface y del trap de calle): más rápido,
+ * bombo saturado y sincopado, hats en semicorcheas que redoblan casi cada
+ * compás, 808 sucio que desliza sin parar y, en vez de melodía cantable, un
+ * riff de una o dos notas y un colchón de tensión.
+ */
+const TRAP_DURO: GenrePreset = {
+  ...GENRE_PRESETS.trap,
+  description:
+    'Trap duro a 150: bombo saturado y sincopado, hats en semicorcheas con redobles, 808 sucio que desliza sin parar, riff de una o dos notas y un colchón de tensión.',
+  bpm: { min: 140, max: 162, default: 150 },
+  scales: [
+    { name: 'Frigio', weight: 4 },
+    { name: 'Menor natural', weight: 3 },
+    { name: 'Menor armónica', weight: 2 },
+  ],
+  // Casi estático: la tensión la da el bII frigio, no la progresión.
+  progressions: [
+    [0, 0, 0, 0],
+    [0, 0, 1, 1],
+    [0, 1, 0, 1],
+    [0, 0, 5, 5],
+  ],
+  drums: {
+    ...GENRE_PRESETS.trap.drums,
+    kick: ['X.....x...x..x..', 'X..x..x...x.....', 'X.....xx..x...o.', 'X......x.x....x.'],
+    snare: ['........X.......', '........X.....x.', '........X......o'],
+    hats: ['xvxvxvxvxvxvxvxv', 'xvxxxvxvxvxxxvxv', 'xxvxxvxxxvxxvxxv'],
+    // Sin percusión suelta (como el trap de siempre: dos golpes sueltos sonaban a error).
+    hatRolls: 0.9,
+    openHats: 0.12,
+  },
+  // Golpe al entrar cada hook: en la forma de rap no hay drop y el FX no sonaba nunca.
+  fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-01', hookImpact: true },
+  bass: { style: '808', glide: 0.85, octave: 2 },
+  chords: { style: 'pad', sevenths: 0, octave: 4, center: 55, openVoicing: true },
+  melody: { style: 'riff', density: 4, octave: 5, range: [55, 79], tune: true },
+  sounds: {
+    ...GENRE_PRESETS.trap.sounds,
+    bass: [
+      // El 808 manda (en el type beat de Esbabyface de tus referencias el sub va 9 dB sobre el resto).
+      { kind: 'sub808', params: { decay: 1.5, drive: 0.7, glide: 0.1, punch: 0.75, tone: 1500 }, volume: 0.85 },
+      { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.85 },
+    ],
+    chords: [
+      // El colchón, por debajo de todo: a 0,3 era lo que embarraba los medios (-2,8 dB en 250-2k solo).
+      { kind: 'prisma', preset: 'strings/tremolo-tension', volume: 0.12 },
+      { kind: 'prisma', preset: 'atmos/drone-tension', volume: 0.1 },
+    ],
+    // Sin campanas ni plucks metálicos (el «agudo raro» que ya se vetó): riff grave y oscuro.
+    melody: [
+      { kind: 'prisma', preset: 'keys/piano-drill', volume: 0.65 },
+      // El corno no: con notas de semicorchea su ataque lento lo dejaba en -34 LUFS (no se oía).
+      { kind: 'prisma', preset: 'strings/cuerdas-staccato', volume: 0.8 },
+      { kind: 'prisma', preset: 'leads/sierra-drill', volume: 0.45 },
+    ],
+  },
+  drumMix: { kick: 1.05, snare: 1, hats: 0.65, perc: 0.55 },
+  fx: {
+    ...GENRE_PRESETS.trap.fx,
+    kick: [{ kind: 'distortion', params: { drive: 0.3, tone: 5000, output: 0.9 } }],
+    bass: [{ kind: 'distortion', params: { drive: 0.3, tone: 3500, output: 0.9 } }, DUCK_SOFT],
+    chords: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 400, midQ: 1, lpFreq: 4500 } }],
+    melody: [
+      { kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 2800, midQ: 1, highGain: -3, highFreq: 6000, lpFreq: 9000 } },
+      { kind: 'reverb', params: { size: 0.5, damp: 0.7, width: 0.5, predelay: 0.02 } },
+    ],
+  },
+  master: [MONO_LOW, LIMITER_TP(0)],
+};
+
+/** Trap sin melodía: el duro desnudo — batería, 808 y FX, para rapear encima sin nada que tape la voz. */
+const TRAP_CRUDO: GenrePreset = {
+  ...TRAP_DURO,
+  description: 'Trap sin melodía a 150: solo batería dura, 808 sucio que desliza y FX. Nada que le pise la voz.',
+  sounds: { ...TRAP_DURO.sounds, chords: [], melody: [] },
+  drumMix: { kick: 1.05, snare: 1.05, hats: 0.7, perc: 0.65 },
+  master: [MONO_LOW, LIMITER_TP(-0.5)],
+};
+
+export const GENRE_VARIANTS: Partial<Record<ComposerGenre, readonly GenreVariant[]>> = {
+  trap: [
+    { id: 'duro', name: 'Duro', description: TRAP_DURO.description, preset: TRAP_DURO },
+    { id: 'crudo', name: 'Sin melodía', description: TRAP_CRUDO.description, preset: TRAP_CRUDO },
+  ],
+  reggaeton: [{ id: 'moderno', name: 'Moderno', description: REGGAETON_MODERNO.description, preset: REGGAETON_MODERNO }],
+  neoperreo: [{ id: 'oscuro', name: 'Oscuro', description: NEOPERREO_OSCURO.description, preset: NEOPERREO_OSCURO }],
+};
 
 /** Las variantes de un género (vacío si no tiene). */
 export function genreVariants(genre: ComposerGenre): readonly GenreVariant[] {
@@ -808,7 +1107,14 @@ export function presetLabel(genre: ComposerGenre, variant?: string | null): stri
 export function genreDrumLanes(
   genre: ComposerGenre,
 ): Record<'kick' | 'snare' | 'hats' | 'perc', { key: number; variants: StepProb[][] }> {
-  const d = GENRE_PRESETS[genre].drums;
+  return presetDrumLanes(GENRE_PRESETS[genre]);
+}
+
+/** Carriles de batería de un preset (el de un género o el de una variante). */
+export function presetDrumLanes(
+  preset: GenrePreset,
+): Record<'kick' | 'snare' | 'hats' | 'perc', { key: number; variants: StepProb[][] }> {
+  const d = preset.drums;
   return {
     kick: { key: d.keys.kick, variants: d.kick.map(parseSteps) },
     snare: { key: d.keys.snare, variants: d.snare.map(parseSteps) },
