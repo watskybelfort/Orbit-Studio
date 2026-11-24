@@ -6,7 +6,9 @@ import {
   composeBeat,
   createProfile,
   describePlan,
+  DRUM_PITCH,
   factoryInstrument,
+  kickTune,
   factorySound,
   fitTempo,
   genreDrumLanes,
@@ -377,5 +379,62 @@ describe('reglas de la investigación de género', () => {
       expect(lim.params['ceiling']).toBeLessThanOrEqual(-2);
     }
     for (const g of ['techno', 'rave'] as const) expect(GENRE_PRESETS[g].master.find((f) => f.kind === 'limiter')!.params['ceiling']).toBe(-1);
+  });
+
+  it('el bombo se afina a la tónica o la quinta, y cada bombo de los kits tiene su altura medida', () => {
+    expect(kickTune(33.47, 9)).toBeCloseTo(-0.47, 2); // reggaetón sobre La: un cuarto de tono abajo
+    expect(Math.abs(kickTune(40.2, 0))).toBeLessThanOrEqual(3.5);
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      for (const id of GENRE_PRESETS[g].drumKit?.[36] ?? []) expect(DRUM_PITCH[id], id).toBeDefined();
+      for (const seed of [1, 2, 3]) {
+        const plan = composeBeat({ genre: g, seed });
+        const kick = part(plan, 'kick')!.sound;
+        const pitch = DRUM_PITCH[kick.samples![36]!]! + (kick.tunes?.[36] ?? 0);
+        const pc = (((Math.round(pitch) - plan.keyRoot) % 12) + 12) % 12;
+        expect([0, 7], `${g} ${seed}`).toContain(pc);
+      }
+    }
+  });
+
+  it('trap: el bombo lleva una capa de click en su misma tecla', () => {
+    const kick = part(composeBeat({ genre: 'trap', seed: 1 }), 'kick')!.sound;
+    expect(kick.layers).toEqual([{ key: 36, sampleId: 'drums/trap/kick-click-01' }]);
+    expect(factorySound('drums/trap/kick-click-01')).toBeDefined();
+  });
+
+  it('verso y hook: remate de caja al cerrar cada frase, y el segundo verso no es copia del primero', () => {
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      const plan = composeBeat({ genre: g, seed: 2, shape: 3 });
+      const verses = part(plan, 'snare')!.patterns.filter((p) => p.id.startsWith('verse'));
+      expect(verses.length, g).toBe(2);
+      const bar4 = verses[0]!.notes.filter((n) => n.start >= 12 && n.start < 16).length;
+      const bar1 = verses[0]!.notes.filter((n) => n.start < 4).length;
+      expect(bar4, g).toBeGreaterThan(bar1);
+      const sig = (p: { notes: { start: number; key: number }[] }) => JSON.stringify(p.notes.map((n) => [n.start, n.key]));
+      const hats = part(plan, 'hats')!.patterns.filter((p) => p.id.startsWith('verse'));
+      expect(sig(verses[0]!) !== sig(verses[1]!) || sig(hats[0]!) !== sig(hats[1]!), g).toBe(true);
+    }
+  });
+
+  it('neo perreo: el 808 largo cae en el 1 y el 9', () => {
+    const bass = dropPattern(composeBeat({ genre: 'neoperreo', seed: 1 }), 'bass')!;
+    for (const n of bass.notes) expect([0, 2]).toContain(n.start % 4);
+  });
+
+  it('la melodía no pone b9 sobre ninguna nota del acorde', () => {
+    for (const g of ['trap', 'reggaeton', 'neoperreo', 'boombap'] as const) {
+      for (const seed of [1, 2, 3, 4]) {
+        const plan = composeBeat({ genre: g, seed });
+        const scale = SCALES[plan.scaleName]!;
+        const mel = part(plan, 'melody')!;
+        for (const pt of mel.patterns) {
+          for (const n of pt.notes) {
+            const deg = plan.progression[Math.floor(n.start / 4) % plan.progression.length]!;
+            const tones = [0, 2, 4].map((o) => (plan.keyRoot + scale[(deg + o) % scale.length]!) % 12);
+            expect(tones.some((pc) => (((n.key - pc) % 12) + 12) % 12 === 1), `${g} ${seed} ${pt.id} ${n.key}`).toBe(false);
+          }
+        }
+      }
+    }
   });
 });

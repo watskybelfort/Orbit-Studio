@@ -38,6 +38,7 @@ import {
 import { fitTempo, styleHint, type StyleHint, type StyleProfile } from './profile';
 import { createRng, hashString, type Rng } from './rng';
 import { factoryInstrument, factorySound } from './factory-index';
+import { DRUM_PITCH, kickTune } from './drum-pitch';
 
 export const BEATS_PER_BAR = 4;
 /** Compases como mucho de un beat (tope de seguridad para MCP y UI). */
@@ -106,6 +107,10 @@ export interface ResolvedSound {
    * a su altura original.
    */
   samples?: Record<number, string>;
+  /** Solo sampler de batería: afinación de la zona de cada tecla, en semitonos (el bombo a la tonalidad). */
+  tunes?: Record<number, number>;
+  /** Solo sampler de batería: capas extra que suenan en la MISMA tecla (el click del bombo de trap). */
+  layers?: { key: number; sampleId: string }[];
   /**
    * Solo sampler: un instrumento multisampleado de fábrica (`instrumentos/…`)
    * con sus tomas por altura y por fuerza. Se toca como cualquier instrumento:
@@ -510,6 +515,16 @@ function drumPart(
         }
       }
     }
+    // Remate de caja al cerrar cada frase de 4 en verso y hook (urbanos): sin
+    // él la caja era idéntica 16 compases seguidos.
+    if (lane === 'snare' && preset.drums.snareFills && (kind === 'verse' || kind === 'hook') && phraseEnd) {
+      const at = (i: number) => b * BEATS_PER_BAR + i * STEP;
+      const fill = rng.pick([[13, 15], [14, 15], [11, 14, 15], [13, 14, 15]]);
+      for (const [j, i] of fill.entries()) {
+        if (notes.some((n) => Math.abs(n.start - at(i)) < 1e-6 && n.key === key)) continue;
+        notes.push({ start: at(i), duration: STEP * 0.8, key, velocity: round3(0.45 + 0.4 * (j / Math.max(1, fill.length - 1))) });
+      }
+    }
     // Palmas doblando la caja en el drop.
     if (lane === 'snare' && isFull(kind) && preset.drums.clapLayer !== undefined) {
       steps.forEach((v, i) => {
@@ -588,7 +603,7 @@ function bassNotes(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
       .filter((i) => i >= 0);
 
     if (style === '808' || style === 'sub') {
-      const hits = kicks.length > 0 ? kicks : [0];
+      const hits = preset.bass.hits ?? (kicks.length > 0 ? kicks : [0]);
       hits.forEach((step, idx) => {
         const next = hits[idx + 1] ?? 16;
         const len = (next - step) * STEP;
@@ -678,7 +693,10 @@ function chordPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: n
         break;
       }
       case 'perreo':
-        for (const at of [0, 0.75, 1.5, 2, 2.75, 3.5]) hits.push({ at, len: 0.4, vel: at % 2 === 0 ? 0.78 : 0.66 });
+        // En el verso, con `sparseVerse`, el rasgueo deja huecos para la voz.
+        for (const at of kind === 'verse' && preset.chords.sparseVerse ? [0, 1.5, 2, 3.5] : [0, 0.75, 1.5, 2, 2.75, 3.5]) {
+          hits.push({ at, len: 0.4, vel: at % 2 === 0 ? 0.78 : 0.66 });
+        }
         break;
       case 'chops':
         hits.push({ at: 0, len: 1.4, vel: 0.74 });
@@ -774,9 +792,10 @@ function melodyPart(ctx: Ctx, kind: SectionKind, bars: number, sectionStartBar: 
       let key = snapToScale(keyRoot + base + degreePc(scale, deg), keyRoot, scale);
       const tune = preset.melody.tune;
       if (tune) {
-        // Un semitono por encima de la raíz del acorde (la b9) choca: se baja a la raíz.
-        const chordRootPc = (keyRoot + degreePc(scale, chordDeg)) % 12;
-        if ((((key - chordRootPc) % 12) + 12) % 12 === 1) key -= 1;
+        // Un semitono por encima de una nota del acorde (b9: G sobre el F# de un
+        // Re, C sobre el B de un Mi menor) choca: se baja a esa nota del acorde.
+        const tones = chordTones(scale, chordDeg, false).map((pc) => (keyRoot + pc) % 12);
+        if (tones.some((pc) => (((key - pc) % 12) + 12) % 12 === 1)) key -= 1;
       }
       notes.push({
         start: b * BEATS_PER_BAR + m.start,
@@ -877,7 +896,7 @@ function resolveSound(
  * piezas que toca esa parte (bombo; caja + palmas; hat + abierto;
  * percusión), uno de los sonidos de fábrica que el género propone para ella.
  */
-function sampledDrum(preset: GenrePreset, lane: DrumLaneId, rng: Rng): ResolvedSound {
+function sampledDrum(preset: GenrePreset, lane: DrumLaneId, rng: Rng, keyRoot: number): ResolvedSound {
   const d = preset.drums;
   const keys: number[] =
     lane === 'kick' ? [d.keys.kick]
@@ -889,7 +908,15 @@ function sampledDrum(preset: GenrePreset, lane: DrumLaneId, rng: Rng): ResolvedS
     const options = preset.drumKit?.[key];
     if (options && options.length > 0) samples[key] = rng.pick(options);
   }
-  return { kind: 'sampler', params: {}, volume: 0.8, samples };
+  const sound: ResolvedSound = { kind: 'sampler', params: {}, volume: 0.8, samples };
+  if (lane === 'kick' && d.tuneKick) {
+    const id = samples[d.keys.kick];
+    const pitch = id ? DRUM_PITCH[id] : undefined;
+    const tune = pitch === undefined ? 0 : kickTune(pitch, keyRoot);
+    if (tune !== 0) sound.tunes = { [d.keys.kick]: tune };
+  }
+  if (lane === 'kick' && d.kickLayer) sound.layers = [{ key: d.keys.kick, sampleId: d.kickLayer }];
+  return sound;
 }
 
 // ── Plan entero ───────────────────────────────────────────────────────────────
@@ -984,7 +1011,7 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
     if (choices.length === 0) continue;
     const roleRng = sr.fork(role);
     const sound = isDrum && preset.drumKit
-      ? sampledDrum(preset, role as DrumLaneId, roleRng)
+      ? sampledDrum(preset, role as DrumLaneId, roleRng, keyRoot)
       : role === 'fx' && preset.fxKit
         ? { kind: 'sampler' as const, params: {}, volume: choices[0]!.volume ?? 0.5, samples: { [FX_RISER_KEY]: preset.fxKit.riser, [FX_IMPACT_KEY]: preset.fxKit.impact } }
         : resolveSound(roleRng.pick(timbreChoices(choices, role, preset, chordsTimbre)), role, preset, hint, opts.soundVariation, roleRng);
@@ -997,21 +1024,24 @@ export function composeBeat(input: ComposeOptions): BeatPlan {
       // Los dos drops (o las dos subidas) comparten patrón si miden lo mismo,
       // como en un arreglo hecho a mano; el bajo y la armonía dependen del
       // compás de arranque solo a través de la progresión, que es cíclica.
-      const pid = `${s.kind}-${s.bars}`;
+      // Cada verso se compone aparte (otros redobles, otros remates): copiar el
+      // primero en el segundo sonaba a bucle. Los hooks sí se repiten iguales.
+      const pid = s.kind === 'verse' ? `${s.kind}-${s.bars}-${s.startBar}` : `${s.kind}-${s.bars}`;
+      const at = s.kind === 'verse' ? s.startBar : 0;
       let pattern = byKey.get(pid);
       if (!pattern) {
         const notes =
           role === 'bass'
-            ? bassPart(ctx, s.kind, s.bars, 0)
+            ? bassPart(ctx, s.kind, s.bars, at)
             : role === 'chords'
-              ? chordPart(ctx, s.kind, s.bars, 0)
+              ? chordPart(ctx, s.kind, s.bars, at)
               : role === 'melody'
-                ? melodyPart(ctx, s.kind, s.bars, 0)
+                ? melodyPart(ctx, s.kind, s.bars, at)
                 : role === 'fx'
                   ? preset.fxKit
                     ? fxSamplePart(s.kind, s.bars, bpm, preset.fxKit.riser)
                     : fxPart(s.kind, s.bars, keyRoot)
-                  : drumPart(ctx, role, s.kind, s.bars, 0);
+                  : drumPart(ctx, role, s.kind, s.bars, at);
         pattern = { id: pid, name: `${ROLE_LABELS[role]} · ${SECTION_LABELS[s.kind]}`, bars: s.bars, notes };
         byKey.set(pid, pattern);
         if (notes.length > 0) patterns.push(pattern);

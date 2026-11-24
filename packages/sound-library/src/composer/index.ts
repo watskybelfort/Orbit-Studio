@@ -6,3 +6,4 @@ export * from './plan-commands';
 export { createRng, hashString, type Rng } from './rng';
 export * from './features';
 export { factoryInstrument, factorySound, type FactorySound, type FactoryTake } from './factory-index';
+export { DRUM_PITCH, kickTune } from './drum-pitch';

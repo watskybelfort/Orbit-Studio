@@ -142,7 +142,11 @@ export function contentEndBar(project: Project): number {
 
 /** Los samples de fábrica que pide el sonido de una parte (batería o instrumento). */
 function soundSampleIds(part: PlanPart): string[] {
-  return [...Object.values(part.sound.samples ?? {}), ...(part.sound.zones ?? []).map((z) => z.sampleId)];
+  return [
+    ...Object.values(part.sound.samples ?? {}),
+    ...(part.sound.layers ?? []).map((l) => l.sampleId),
+    ...(part.sound.zones ?? []).map((z) => z.sampleId),
+  ];
 }
 
 function channelFor(part: PlanPart, index: number): Channel {
@@ -153,7 +157,12 @@ function channelFor(part: PlanPart, index: number): Channel {
     // su altura original. `sampleId` va también (el primero), como en el
     // browser: quitar el keymap no deja el canal mudo.
     const entries = Object.entries(part.sound.samples).map(([k, id]) => [Number(k), id] as const);
-    channel.keymap = entries.map(([key, id]) => createKeymapZone(id, { keyLow: key, keyHigh: key, keyRoot: key }));
+    const tune = (key: number) => part.sound.tunes?.[key] ?? 0;
+    channel.keymap = [
+      ...entries.map(([key, id]) => createKeymapZone(id, { keyLow: key, keyHigh: key, keyRoot: key, tune: tune(key) })),
+      // Las capas comparten tecla (el keymap dispara todas las zonas que cubren la nota).
+      ...(part.sound.layers ?? []).map((l) => createKeymapZone(l.sampleId, { keyLow: l.key, keyHigh: l.key, keyRoot: l.key })),
+    ];
     if (entries[0]) channel.sampleId = entries[0][1];
   } else if (part.sound.kind === 'sampler' && part.sound.zones && part.sound.zones.length > 0) {
     // Instrumento multisampleado: el mismo reparto que hace el browser al

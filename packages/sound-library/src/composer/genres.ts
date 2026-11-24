@@ -138,11 +138,19 @@ export interface GenrePreset {
     clapLayer?: number;
     /** Microtiming fijo por carril, en ms (+ = tarde). El boom bap lo lleva; el resto, a la rejilla. */
     feelMs?: Partial<Record<'kick' | 'snare' | 'hats' | 'perc', number>>;
+    /** Afina el bombo sampleado a la tónica o la quinta (su altura medida en `DRUM_PITCH`). */
+    tuneKick?: boolean;
+    /** Capa que suena con el bombo en su misma tecla (el click que el 808 no tapa). */
+    kickLayer?: string;
+    /** Remate de caja al cerrar cada frase de 4 compases en verso y hook. */
+    snareFills?: boolean;
   };
-  bass: { style: BassStyle; glide: number; octave: number };
+  /** `hits`: pasos fijos del bajo (si no, sigue al bombo). */
+  bass: { style: BassStyle; glide: number; octave: number; hits?: number[] };
   /** `center`: nota MIDI alrededor de la que se colocan los acordes (si no, sale de la octava). */
   /** `openVoicing`: evita dos notas a un semitono en el voicing (barro en el grave). */
-  chords: { style: ChordStyle; sevenths: number; octave: number; center?: number; openVoicing?: boolean };
+  /** `sparseVerse`: en el verso, el rasgueo `perreo` deja huecos para la voz. */
+  chords: { style: ChordStyle; sevenths: number; octave: number; center?: number; openVoicing?: boolean; sparseVerse?: boolean };
   /** `range`: tesitura MIDI de la melodía [grave, agudo]; lo que se sale se dobla por octavas. */
   /** `tune`: quita las b9 contra la raíz del acorde y deja respirar la fuerza de las notas. */
   melody: { style: MelodyStyle; density: number; octave: number; range?: [number, number]; tune?: boolean };
@@ -267,6 +275,9 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       hatRolls: 0.55,
       openHats: 0.08,
       clapLayer: CLAP,
+      tuneKick: true,
+      kickLayer: 'drums/trap/kick-click-01',
+      snareFills: true,
     },
     drumKit: {
       [KICK]: ['drums/trap/kick-01', 'drums/trap/kick-03'],
@@ -284,8 +295,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       // El 808 lleva más saturación (armónicos que se oyen en un móvil) y va
       // 2 dB por debajo: tapaba al bombo +6,8 dB en 30-160 Hz.
       bass: [
-        { kind: 'sub808', params: { decay: 1.6, drive: 0.62, glide: 0.08, punch: 0.6, tone: 1300 }, volume: 0.64 },
-        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.64 },
+        { kind: 'sub808', params: { decay: 1.6, drive: 0.62, glide: 0.08, punch: 0.6, tone: 1300 }, volume: 0.56 },
+        { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.56 },
       ],
       chords: [
         { kind: 'prisma', preset: 'pads/pad-cine-oscuro', volume: 0.4 },
@@ -300,7 +311,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       fx: [{ kind: 'sampler', volume: 0.45 }],
     },
     kit: { kit: 0, tone: 0.55, decay: 1, punch: 0.65 },
-    drumMix: { kick: 1, snare: 0.9, hats: 0.5, perc: 0.6 },
+    drumMix: { kick: 1, snare: 0.9, hats: 0.7, perc: 0.6 },
     fx: {
       melody: [
         // Un valle ancho en 2,6-2,8 kHz: ahí se apilaba un armónico del piano (+14 dB medido).
@@ -310,9 +321,13 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       ],
       chords: [{ kind: 'eq', params: { hpFreq: 220, midGain: -2, midFreq: 400, midQ: 1, lpFreq: 6500 } }],
       // El click del bombo (+5 dB en 3 kHz): sin él, el 808 se lo comía.
-      kick: [{ kind: 'eq', params: { midGain: 5, midFreq: 3000, midQ: 1 } }],
-      hats: AIR_CAP(13000),
-      snare: AIR_CAP(13000),
+      // Los hats filtrados dejaban el trap apagado (-6 dB en 2-16 kHz frente a tus
+      // beats): brillo en 7 kHz y el techo más arriba, sin volver al pico de 21,7 kHz.
+      hats: [
+        { kind: 'eq', params: { highGain: 3, highFreq: 7000, lpFreq: 15000 } },
+        { kind: 'eq', params: { lpFreq: 15000 } },
+      ],
+      snare: [{ kind: 'eq', params: { highGain: 2, highFreq: 6000, lpFreq: 14000 } }, { kind: 'eq', params: { lpFreq: 14000 } }],
     },
     master: [MONO_LOW, LIMITER(1.3, -2.5)],
     // Forma de canción de rap (intro, hooks de 8, versos de 16): no de club.
@@ -344,11 +359,13 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       snare: ['...x..x....x..x.', '...x..x..g.x..x.', '...x..x....x.gx.'],
       // Shaker en las 16 semicorcheas con el acento en el tresillo 3+3+2 del dembow.
       hats: ['xvvxvvxvxvvxvvxv', 'xvvxvvxvxvvxvvx?'],
-      // La clave a contratiempo, que se oiga.
-      perc: ['..x...x...x...x.', '..x...x...x...xo'],
+      // La clave en los huecos de la caja (3, 11, 14), no encima de ella.
+      perc: ['..x.......x..x..', '..x.......x..x.o'],
       keys: { kick: KICK, snare: SNARE, hats: SHAKER, perc: RIM },
       hatRolls: 0,
       openHats: 0,
+      tuneKick: true,
+      snareFills: true,
       clapLayer: CLAP,
     },
     drumKit: {
@@ -360,7 +377,7 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/impact-02' },
     bass: { style: 'sub', glide: 0.05, octave: 2 },
-    chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true },
+    chords: { style: 'perreo', sevenths: 0.1, octave: 4, center: 62, openVoicing: true, sparseVerse: true },
     melody: { style: 'hook', density: 4, octave: 5, range: [60, 79], tune: true },
     sounds: {
       drums: [{ kind: 'drums' }],
@@ -384,16 +401,22 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
     },
     kit: { kit: 2, tone: 0.55, decay: 0.9, punch: 0.6 },
     // La caja del dembow tiene que mandar en medios: estaba 9,4 dB por debajo del bombo.
-    drumMix: { kick: 0.9, snare: 1.5, hats: 0.4, perc: 0.9 },
+    drumMix: { kick: 0.72, snare: 1.6, hats: 0.4, perc: 0.9 },
     fx: {
       // Las cuerdas de la nylon resuenan en 4,7 kHz y el piano en 2,2-2,6: valle y techo.
-      chords: [{ kind: 'eq', params: { hpFreq: 200, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } }],
+      // La nylon grabada es casi toda lateral (correlación 0,13): se estrecha para que no se pierda en mono.
+      chords: [
+        { kind: 'eq', params: { hpFreq: 200, midGain: -3, midFreq: 2400, midQ: 1.2, highGain: -4, highFreq: 4500, lpFreq: 7500 } },
+        { kind: 'stereo', params: { width: 0.55, gain: 1, monoBelow: 0 } },
+      ],
       melody: [
         { kind: 'eq', params: { hpFreq: 220, midGain: -4, midFreq: 2500, midQ: 1, highGain: -3, highFreq: 4500, lpFreq: 8000 } },
         { kind: 'reverb', params: { size: 0.45, damp: 0.6, width: 1, predelay: 0.02 } },
       ],
       snare: [{ kind: 'eq', params: { midGain: 2, midFreq: 250, midQ: 1 } }, ...AIR_CAP(12000)],
       hats: AIR_CAP(11000),
+      // El rim de la clave llegaba a 20,8 kHz y subía el true peak 1,1 dB.
+      perc: AIR_CAP(12000),
     },
     master: [MONO_LOW, LIMITER(2.8, -2.5)],
     shapes: [3, 4],
@@ -430,6 +453,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       hatRolls: 0.1,
       openHats: 0.1,
       clapLayer: SNARE,
+      tuneKick: true,
+      snareFills: true,
     },
     drumKit: {
       [KICK]: ['drums/neoperreo/kick-01', 'drums/neoperreo/kick-02'],
@@ -439,7 +464,8 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       [OPENHAT]: ['drums/trap/openhat-01'],
     },
     fxKit: { riser: 'fx/sweep-up-01', impact: 'fx/subdrop-01' },
-    bass: { style: '808', glide: 0.3, octave: 2 },
+    // El 808 largo sobre el 1 y el 9, no en negras pegadas al bombo.
+    bass: { style: '808', glide: 0.3, octave: 2, hits: [0, 8] },
     chords: { style: 'stabs', sevenths: 0.05, octave: 4, center: 60, openVoicing: true },
     melody: { style: 'riff', density: 4, octave: 5, range: [57, 79], tune: true },
     sounds: {
@@ -449,13 +475,14 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
         { kind: 'prisma', preset: 'bass/808-carbon', volume: 0.66 },
       ],
       chords: [
-        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.5 },
-        { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
-        { kind: 'sampler', instrument: 'instrumentos/pad-calido', volume: 0.45 },
+        // Los acordes quedaban enterrados (-25 LUFS en solitario): +5 dB.
+        { kind: 'prisma', preset: 'pads/pad-vapor', volume: 0.9 },
+        { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.9 },
+        { kind: 'sampler', instrument: 'instrumentos/pad-calido', params: { gain: 1.8 }, volume: 0.8 },
       ],
       melody: [
-        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1.6 }, volume: 0.6 },
-        { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.55 },
+        { kind: 'sampler', instrument: 'instrumentos/lead-cuadrada', params: { gain: 1.8 }, volume: 0.8 },
+        { kind: 'prisma', preset: 'arps/arp-sombrio', volume: 0.78 },
         { kind: 'nova', preset: 'keys/ep-oscuro', volume: 0.5 },
       ],
       fx: [{ kind: 'sampler', volume: 0.45 }],
@@ -513,7 +540,11 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       keys: { kick: KICK, snare: SNARE, hats: HAT, perc: RIM, openhat: OPENHAT },
       hatRolls: 0,
       openHats: 0.15,
-      feelMs: { kick: 8, snare: -4, hats: 10 },
+      // Todo tarde, la caja también: adelantada contra un bombo y unos hats que
+      // arrastran sonaba apurada. Desfase fijo, igual en cada compás.
+      feelMs: { kick: 8, snare: 6, hats: 10 },
+      tuneKick: true,
+      snareFills: true,
     },
     drumKit: {
       [KICK]: ['drums/boombap/kick-03', 'drums/boombap/kick-01'],
@@ -559,9 +590,9 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
       melody: [{ kind: 'eq', params: { hpFreq: 250, midGain: -3, midFreq: 1800, midQ: 0.8, highGain: -2, lpFreq: 7000 } }],
       // Sin reverb en la caja: la del motor sonaba a pitido en 4,6 y 13,4 kHz sobre una caja seca limpia.
       // Y fuera la caja de cartón (300 Hz): el crack va arriba, en 1,8 kHz.
-      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: 3, midFreq: 1800, midQ: 0.9 } }, ...AIR_CAP(12000)],
+      snare: [{ kind: 'eq', params: { hpFreq: 160, lowGain: -4, lowFreq: 320, midGain: 1, midFreq: 1800, midQ: 0.9 } }, ...AIR_CAP(12000)],
     },
-    master: [MONO_LOW, LIMITER(3.4, -2.5)],
+    master: [MONO_LOW, LIMITER(4.5, -2.5)],
     shapes: [3, 4],
   },
 
