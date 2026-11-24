@@ -31,7 +31,6 @@ export {
 
 export { Fft, getFft, hannWindow } from './fft';
 
-import type { SampleAnalysis } from './analyze';
 import type { SoundCategory, SoundEntry, SoundSample } from './types';
 
 /**
@@ -103,21 +102,6 @@ export const CATEGORY_LABELS: Record<SoundCategory, string> = {
   fx: 'FX',
   'melodic-loops': 'Loops melódicos',
 };
-
-/**
- * Rellena SOLO los campos que la entrada no traiga del manifest: lo declarado
- * por el pack manda siempre sobre lo estimado. Devuelve la misma entrada si no
- * hay nada que añadir (así la UI puede comparar por identidad).
- */
-export function withAnalysis(entry: SoundEntry, analysis: SampleAnalysis): SoundEntry {
-  const bpm = entry.bpm === undefined ? analysis.bpm : undefined;
-  const keyRoot = entry.keyRoot === undefined ? analysis.keyRoot : undefined;
-  if (bpm === undefined && keyRoot === undefined) return entry;
-  const next: SoundEntry = { ...entry };
-  if (bpm !== undefined) next.bpm = bpm;
-  if (keyRoot !== undefined) next.keyRoot = keyRoot;
-  return next;
-}
 
 // Packs a medida (los que pide Claude): recetas puras, sin fs ni render.
 export {

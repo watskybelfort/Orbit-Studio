@@ -11,7 +11,6 @@ import { renderProject } from '../../src/render/offline';
 import { encodeOpusFile } from '../../src/render/opus/encoder';
 import {
   GOLDEN_FIXTURES,
-  GOLDEN_OPUS_FIXTURES,
   GOLDEN_SR,
   type GoldenFixture,
   type OpusFixture,
@@ -59,21 +58,6 @@ export function encodeFixture(f: OpusFixture): OpusFingerprint {
   return { hash: createHash('sha256').update(file).digest('hex'), bytes: file.length };
 }
 
-export function encodeAll(): Record<string, OpusFingerprint> {
-  const out: Record<string, OpusFingerprint> = {};
-  for (const f of GOLDEN_OPUS_FIXTURES) out[f.name] = encodeFixture(f);
-  return out;
-}
-
-export function renderAll(only?: readonly string[]): Record<string, Fingerprint> {
-  const out: Record<string, Fingerprint> = {};
-  for (const f of GOLDEN_FIXTURES) {
-    if (only && only.length > 0 && !only.includes(f.name)) continue;
-    out[f.name] = renderFixture(f);
-  }
-  return out;
-}
-
 /** Forma del archivo de línea base. */
 export interface Baseline {
   /**
@@ -99,7 +83,3 @@ export interface Baseline {
 }
 
 export const BASELINE_FORMAT_VERSION = 1;
-
-export function fixtureCovers(name: string): string {
-  return GOLDEN_FIXTURES.find((f) => f.name === name)?.covers ?? '(fixture desconocido)';
-}

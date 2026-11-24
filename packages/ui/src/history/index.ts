@@ -4,6 +4,7 @@ export { HistoryBranches } from './HistoryBranches';
 export {
   branchRows,
   branchesSummary,
+  clockTime,
   historyResetNotice,
   originKind,
   originName,

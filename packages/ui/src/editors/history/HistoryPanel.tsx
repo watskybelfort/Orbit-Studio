@@ -11,7 +11,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import type { HistoryItem } from '@orbit/core';
-import { HistoryBranches } from '../../history';
+import { HistoryBranches, clockTime, originKind, originName } from '../../history';
 import { store } from '../../state/app';
 import { useProjectVersion } from '../../state/useProject';
 import { VersionList } from './VersionList';
@@ -105,32 +105,9 @@ function Row({ item, isNow }: { item: HistoryItem; isNow: boolean }) {
       <span className={`hist-dot ${kind}`} />
       <span className="hist-label">{item.label}</span>
       <span className={`hist-who ${kind}`}>{originName(item.origin)}</span>
-      <span className="hist-time">{shortTime(item.at)}</span>
+      <span className="hist-time">{clockTime(item.at)}</span>
     </button>
   );
-}
-
-/** Familia del origen (decide el color de la fila). */
-function originKind(origin: string): 'local' | 'claude' | 'remote' {
-  if (origin === 'local') return 'local';
-  if (origin === 'claude') return 'claude';
-  return 'remote';
-}
-
-/** 'local' → Tú · 'claude' → Claude · 'remote:ana' → ana. */
-function originName(origin: string): string {
-  if (origin === 'local') return 'Tú';
-  if (origin === 'claude') return 'Claude';
-  if (origin.startsWith('remote:')) return origin.slice('remote:'.length) || 'Remoto';
-  return origin;
-}
-
-function shortTime(at: number): string {
-  return new Date(at).toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
 }
 
 function fullTime(at: number): string {

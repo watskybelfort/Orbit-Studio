@@ -572,11 +572,6 @@ export const GOLDEN_FIXTURES: readonly GoldenFixture[] = [
   ),
 ];
 
-/** Índice por nombre, para `golden:update --only`. */
-export function fixtureByName(name: string): GoldenFixture | undefined {
-  return GOLDEN_FIXTURES.find((f) => f.name === name);
-}
-
 // ── El encoder Opus ──────────────────────────────────────────────────────────
 
 /**
