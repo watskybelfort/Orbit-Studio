@@ -571,6 +571,7 @@ export function MenuBar() {
     ],
     Patrón: [
       { label: 'Nuevo patrón', icon: <IconPattern />, action: () => addPattern() },
+      { label: 'Componer un beat…', action: () => useUiStore.getState().openWindow('composer') },
       {
         label: pattern ? `Clonar "${pattern.name}"` : 'Clonar patrón',
         icon: <IconPattern />,
@@ -608,6 +609,7 @@ export function MenuBar() {
       windowItem('pianoRoll', 'Piano Roll', <IconPianoRoll />, 'F7'),
       windowItem('liveView', 'Vista Live', <IconLive />, 'F8'),
       windowItem('mixer', 'Mixer', <IconMixer />, 'F9'),
+      windowItem('composer', 'Compositor de beats', <IconPattern />),
       { label: 'Sonido', heading: true },
       windowItem('nova', 'Orbit Nova', <IconTrack kind="keys" />),
       windowItem('prisma', 'Orbit Prisma', <IconTrack kind="synth" />),

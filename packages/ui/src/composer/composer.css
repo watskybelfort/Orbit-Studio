@@ -1,0 +1,275 @@
+/* Panel Compositor — mismo lenguaje que Exportar y Ajustes (filas etiqueta +
+   control), todo con tokens de theme/tokens.css; ningún color literal. El
+   texto va en la fuente de la interfaz (--font-ui, heredada): nada de mono. */
+
+.composer-panel {
+  padding: 14px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text);
+  font-size: 12px;
+  overflow: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.cmp-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmp-heading {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+
+.cmp-note {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.cmp-genres,
+.cmp-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cmp-chip {
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmp-chip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.cmp-chip.selected {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+.cmp-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cmp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cmp-grid {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.cmp-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cmp-label {
+  width: 110px;
+  flex: none;
+  color: var(--text);
+}
+
+.cmp-grid .cmp-label {
+  width: auto;
+}
+
+.cmp-select,
+.cmp-input {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: inherit;
+  min-width: 0;
+}
+
+.cmp-select {
+  max-width: 240px;
+}
+
+.cmp-input {
+  width: 160px;
+}
+
+.cmp-seed {
+  width: 120px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cmp-range {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--accent);
+}
+
+.cmp-value {
+  width: 42px;
+  flex: none;
+  text-align: right;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.cmp-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.cmp-seg-btn {
+  padding: 5px 12px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmp-seg-btn + .cmp-seg-btn {
+  border-left: 1px solid var(--border);
+}
+
+.cmp-seg-btn.selected {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.cmp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.cmp-check input {
+  accent-color: var(--accent);
+}
+
+.cmp-btn {
+  height: 28px;
+  padding: 0 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.cmp-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.cmp-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.cmp-btn.primary {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.cmp-btn.subtle {
+  height: 24px;
+  padding: 0 10px;
+}
+
+.cmp-actions {
+  justify-content: flex-end;
+}
+
+.cmp-actions-left {
+  flex-wrap: wrap;
+}
+
+.cmp-drops {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.cmp-drop {
+  min-height: 48px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+.cmp-drop.over {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.cmp-drop strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cmp-link {
+  margin-left: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cmp-link:hover {
+  text-decoration: underline;
+}
+
+.cmp-status {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.cmp-error {
+  margin: 0;
+  color: var(--danger);
+  line-height: 1.45;
+}
+
+.cmp-go {
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}

@@ -80,6 +80,7 @@ export function StudioNavigation() {
             <option value="lfo">LFO · modular parámetros</option>
             <option value="audioEditor">Editor de audio · recortar y afinar</option>
             <option value="liveView">Vista Live · lanzar escenas (F8)</option>
+            <option value="composer">Compositor · un beat entero por partes</option>
           </optgroup>
           <optgroup label="Analizar y colaborar">
             <option value="scope">Scope · ver la señal</option>

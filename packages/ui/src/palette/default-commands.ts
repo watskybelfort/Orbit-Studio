@@ -49,6 +49,7 @@ const WINDOWS: { id: WindowId; title: string; shortcut?: string }[] = [
   { id: 'graph', title: 'Enrutado (graph editor)' },
   { id: 'audioEditor', title: 'Editor de audio' },
   { id: 'collab', title: 'Colaboración' },
+  { id: 'composer', title: 'Compositor de beats' },
   { id: 'export', title: 'Exportar' },
   { id: 'settings', title: 'Ajustes', shortcut: 'F10' },
 ];

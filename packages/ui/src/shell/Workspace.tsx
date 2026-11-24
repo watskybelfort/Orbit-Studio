@@ -14,6 +14,7 @@ import { PrismaPanel } from '../editors/prisma';
 import { HistoryPanel } from '../editors/history';
 import { LfoPanel } from '../editors/lfo';
 import { ProjectInfo } from '../editors/project-info';
+import { ComposerPanel } from '../composer/ComposerPanel';
 import { LiveView } from '../editors/live';
 import { PianoRoll } from '../editors/pianoroll';
 import { Mixer } from '../editors/mixer';
@@ -66,6 +67,9 @@ export function Workspace() {
       </InternalWindow>
       <InternalWindow id="history" title="Historial" minW={360} minH={260}>
         <HistoryPanel />
+      </InternalWindow>
+      <InternalWindow id="composer" title="Compositor de beats" minW={460} minH={420}>
+        <ComposerPanel />
       </InternalWindow>
       <InternalWindow id="projectInfo" title="Info del proyecto" minW={380} minH={300}>
         <ProjectInfo />

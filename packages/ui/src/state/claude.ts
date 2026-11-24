@@ -16,6 +16,7 @@ import { loadManifest, type SoundEntry } from '@orbit/sound-library';
 import { addSamplerChannels } from '../browser/sound-actions';
 import { generatePack, packEntries, readPackEntries } from '../browser/pack-generator';
 import { store } from './app';
+import { composerHost } from './composer';
 import { collectPluginSources, collectSamples } from '../export/render-inputs';
 
 export interface ClaudeActivityEntry {
@@ -217,6 +218,7 @@ export function initClaudeBridge(): void {
       const { samples } = await collectSamples(project, compiled);
       return { samples, plugins };
     },
+    composerHost(),
   );
 
   api.claude.onBridgeStatus((s) => {

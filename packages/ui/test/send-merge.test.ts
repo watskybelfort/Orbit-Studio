@@ -210,10 +210,10 @@ describe('patchSend con mergeKey funde el arrastre del pan (ProjectStore real)',
 // nuevo a pasar por uno existente ni a acordarse de la mergeKey.
 //
 // Lo que SÍ es textual, barato, y no se puede esquivar sin que algo se rompa:
-// hoy hay exactamente OCHO `<input type="range">` en todo `packages/ui/src`.
-// Un inventario cerrado los nombra a los ocho con su veredicto — toca el
+// hoy hay exactamente ONCE `<input type="range">` en todo `packages/ui/src`.
+// Un inventario cerrado los nombra a los once con su veredicto — toca el
 // ProjectStore o no, y si lo toca, por qué su mergeKey está garantizada — y
-// si aparece un noveno, este test se rompe por la CUENTA antes de que nadie
+// si aparece un duodécimo, este test se rompe por la CUENTA antes de que nadie
 // tenga que acordarse de mirar. No adivina si el próximo slider está bien:
 // obliga a que alguien lo decida AQUÍ, a mano, la primera vez que aparece —
 // que es más barato y más de fiar que un analizador que un día deja de
@@ -273,9 +273,12 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
     throw new Error(`"${startMarker}" nunca cierra`);
   }
 
-  it('son exactamente estos ocho, ni uno más ni uno menos — uno nuevo rompe este test', () => {
+  it('son exactamente estos once, ni uno más ni uno menos — uno nuevo rompe este test', () => {
     expect(findRangeInputs()).toEqual([
       'collab/CollabPanel.tsx#range-1',
+      'composer/ComposerPanel.tsx#range-1',
+      'composer/ComposerPanel.tsx#range-2',
+      'composer/ComposerPanel.tsx#range-3',
       'editors/mixer/Mixer.tsx#range-1',
       'settings/InputSection.tsx#range-1',
       'settings/MidiSection.tsx#range-1',
@@ -284,6 +287,18 @@ describe('inventario cerrado de <input type="range"> en packages/ui/src', () => 
       'settings/SettingsPanel.tsx#range-2',
       'settings/SettingsPanel.tsx#range-3',
     ]);
+  });
+
+  it('ComposerPanel (influencia, densidad, sonidos nuevos) no toca el ProjectStore: es el formulario del compositor', () => {
+    const panel = readSource('composer/ComposerPanel.tsx');
+    for (const key of ['influence', 'complexity', 'soundVariation']) {
+      expect(panel).toContain(`onChange={(e) => updateForm({ ${key}: Number(e.target.value) })}`);
+    }
+    // updateForm guarda en el store del compositor y en settings.json: el beat
+    // solo llega al proyecto al pulsar Componer, en un batch.
+    const state = readSource('state/composer.ts');
+    const body = functionBodyAfter(state, 'export function updateForm(patch: Partial<ComposerForm>): void {');
+    expect(body).not.toContain('store.dispatch');
   });
 
   it('CollabPanel (volumen de escucha) no toca el ProjectStore: setStreamVolume es de la sesión, no del proyecto', () => {

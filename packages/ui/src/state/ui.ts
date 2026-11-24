@@ -20,7 +20,8 @@ export type WindowId =
   | 'scope'
   | 'audioEditor'
   | 'liveView'
-  | 'graph';
+  | 'graph'
+  | 'composer';
 
 export interface WindowState {
   open: boolean;
@@ -105,6 +106,7 @@ const defaultWindows: Record<WindowId, WindowState> = {
   audioEditor: { open: false, x: 260, y: 160, w: 720, h: 340, z: 1 },
   liveView: { open: false, x: 200, y: 120, w: 560, h: 420, z: 1 },
   graph: { open: false, x: 160, y: 100, w: 860, h: 520, z: 1 },
+  composer: { open: false, x: 280, y: 70, w: 560, h: 640, z: 1 },
 };
 
 /** Todos los editores, en runtime (para validar lo que venga de settings.json). */

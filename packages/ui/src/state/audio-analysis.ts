@@ -199,20 +199,31 @@ async function runAnalysis(mono: Float32Array, sampleRate: number): Promise<Audi
   });
 }
 
-/** Decodifica el archivo y mide tempo/tonalidad; no consulta ni guarda caché. */
-async function analyzeNow(sample: SampleRef): Promise<AnalysisSummary> {
-  const bytes = await readSampleBytes(sample.path);
-  if (!bytes) throw new Error('No se pudo leer el audio del sample.');
+/**
+ * Decodifica bytes de audio (wav/mp3/ogg/flac) a MONO. Lo usan este
+ * analizador y el compositor (perfiles de estilo): un solo sitio decide cómo
+ * se baja a mono, para que los dos midan la misma señal.
+ *
+ * Para un archivo mono no se copia nada: se devuelve el canal tal cual (el
+ * AudioBuffer no se vuelve a usar, así que se puede transferir a un worker).
+ */
+export async function decodeToMono(bytes: ArrayBuffer): Promise<{ mono: Float32Array; sampleRate: number }> {
   const ctx = decoder();
   if (!ctx) throw new Error('Este entorno no puede decodificar audio.');
   const decoded = await ctx.decodeAudioData(bytes);
   if (decoded.length === 0) throw new Error('El audio está vacío.');
   const left = decoded.getChannelData(0);
   const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : undefined;
-  // El worker recibe MONO ya mezclado; para un archivo mono no se copia nada y
-  // se transfiere el canal tal cual (el AudioBuffer no se vuelve a usar).
-  const mono = right ? downmix(left, right) : left;
-  const result = await runAnalysis(mono, decoded.sampleRate);
+  return { mono: right ? downmix(left, right) : left, sampleRate: decoded.sampleRate };
+}
+
+/** Decodifica el archivo y mide tempo/tonalidad; no consulta ni guarda caché. */
+async function analyzeNow(sample: SampleRef): Promise<AnalysisSummary> {
+  const bytes = await readSampleBytes(sample.path);
+  if (!bytes) throw new Error('No se pudo leer el audio del sample.');
+  // El worker recibe MONO ya mezclado.
+  const { mono, sampleRate } = await decodeToMono(bytes);
+  const result = await runAnalysis(mono, sampleRate);
   return summarizeAnalysis(result);
 }
 

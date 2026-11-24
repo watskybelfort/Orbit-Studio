@@ -193,8 +193,12 @@ async function readEntryFile(entry: SoundEntry, file: string): Promise<ArrayBuff
   return api.library.read(file);
 }
 
-/** La ruta con esquema que se guarda en el proyecto (y con la que rehidrata). */
-function pathOf(entry: SoundEntry, file: string): string {
+/**
+ * La ruta con esquema que se guarda en el proyecto (y con la que rehidrata):
+ * `factory:`/`pack:`/`user:`/`recording:`. También la usa el compositor para
+ * leer un sonido de la librería que se pide como referencia.
+ */
+export function pathOf(entry: SoundEntry, file: string): string {
   if (entry.id.startsWith('user:')) return `user:${file}`;
   if (entry.id.startsWith('pack:')) return `pack:${file}`;
   if (entry.id.startsWith('recording:')) return `recording:${file}`;
