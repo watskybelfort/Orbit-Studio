@@ -111,8 +111,14 @@ export async function refreshVersions(canPublish: () => boolean = () => true): P
       ...(pair ? { compareFrom: pair.from, compareTo: pair.to } : null),
       ...(stale ? { compare: null } : null),
     });
-  } catch {
-    if (isCurrent()) useVersions.setState({ notice: 'No se pudieron leer las versiones' });
+  } catch (err) {
+    // Misma regla que al leer una versión: el motivo real distingue un archivo
+    // de versiones inaccesible de un IPC caído; el genérico es el respaldo.
+    if (isCurrent()) {
+      useVersions.setState({
+        notice: err instanceof Error ? err.message : 'No se pudieron leer las versiones',
+      });
+    }
   }
 }
 
@@ -192,8 +198,15 @@ async function readVersion(file: string, request: VersionReadRequest): Promise<P
     const json = await api.read(request.projectId, file);
     if (!request.isCurrent()) return null;
     return parseProject(json);
-  } catch {
-    if (request.canPublish()) useVersions.setState({ notice: 'Esa versión no se puede leer' });
+  } catch (err) {
+    // El motivo real (archivo que ya no está, versión corrupta, JSON inválido)
+    // es lo único que distingue un caso de otro; el genérico se queda de
+    // respaldo, igual que al abrir o recuperar un proyecto.
+    if (request.canPublish()) {
+      useVersions.setState({
+        notice: err instanceof Error ? err.message : 'Esa versión no se puede leer',
+      });
+    }
     return null;
   }
 }

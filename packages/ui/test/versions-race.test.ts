@@ -342,7 +342,8 @@ describe('BUG022: identidad y respaldo antes de restaurar', () => {
     await restore;
     expect(dispose).toHaveBeenCalledOnce();
     expect(r.mod.useVersions.getState().busy).toBe(false);
-    if (outcome === 'lectura fallida') expect(r.mod.useVersions.getState().notice).toBe('Esa versión no se puede leer');
+    // El aviso lleva el motivo que devolvió el IPC, no un texto genérico.
+    if (outcome === 'lectura fallida') expect(r.mod.useVersions.getState().notice).toBe('No se puede leer');
   });
 });
 
