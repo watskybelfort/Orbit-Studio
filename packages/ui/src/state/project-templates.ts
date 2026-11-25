@@ -189,6 +189,33 @@ export function buildTemplateFromProject(
   };
 }
 
+/** Cómo se compara un nombre: como lo lee quien lo escribió (sin sobras ni mayúsculas). */
+function comparableTemplateName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLocaleLowerCase('es');
+}
+
+/**
+ * Motivo por el que un nombre de plantilla no vale, o `null` si vale.
+ *
+ * Guardar dos veces con el mismo nombre dejaba dos filas idénticas en el
+ * Browser —mismo nombre, distinto id— y ninguna forma de saber cuál es cuál;
+ * el diálogo lo aceptaba en silencio. Se compara sin mayúsculas ni espacios de
+ * sobra porque «Mi beat» y «mi beat » se ven igual en la lista.
+ *
+ * El último argumento existe para poder probarlo sin tocar el store; los dos
+ * llamantes lo omiten y se compara contra las plantillas del usuario de ahora.
+ */
+export function templateNameProblem(
+  name: string,
+  templates: readonly StoredTemplate[] = useTemplates.getState().userTemplates,
+): string | null {
+  const wanted = comparableTemplateName(name);
+  if (wanted === '') return 'Escribe un nombre.';
+  const clash = templates.find((t) => comparableTemplateName(t.name) === wanted);
+  if (!clash) return null;
+  return `Ya tienes una plantilla llamada «${clash.name}». Elige otro nombre, o bórrala antes en el Browser.`;
+}
+
 export function saveCurrentProjectAsTemplate(
   project: Project,
   name: string,

@@ -348,11 +348,25 @@ export async function restoreVersion(file: string): Promise<void> {
 export async function removeVersion(file: string): Promise<void> {
   const api = window.orbit?.versions;
   if (!api) return;
-  await api.remove(store.project.id, file).catch(() => undefined);
-  if (useVersions.getState().openFile === file) {
+  // El aviso es de ESTE borrado: uno viejo («no se pudo borrar…») no debe
+  // quedarse colgado si ahora sí se pudo.
+  useVersions.setState({ notice: null });
+  let failure: string | null = null;
+  try {
+    await api.remove(store.project.id, file);
+  } catch (err) {
+    // Antes este `catch` se comía el motivo: pulsar la ✕, ver la versión todavía
+    // en la lista y que nadie dijera por qué. El respaldo nombra la versión que
+    // no se pudo borrar, para no dejar un «falló» sin sujeto.
+    failure = err instanceof Error ? err.message : `No se pudo borrar la versión «${labelOf(file)}»`;
+  }
+  // Solo se cierra el diff si la versión de verdad se fue: si el borrado falló,
+  // su contenido sigue ahí y el panel no debe ocultarlo.
+  if (failure === null && useVersions.getState().openFile === file) {
     useVersions.setState({ openFile: null, diff: null });
   }
   await refreshVersions();
+  if (failure !== null) useVersions.setState({ notice: failure });
 }
 
 /** Resumen de una línea del cambio de esa versión al proyecto de ahora. */

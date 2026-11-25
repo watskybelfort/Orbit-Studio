@@ -54,7 +54,7 @@ import {
   saveProjectAsTemplate,
   useRecentProjects,
 } from '../state/project-file';
-import { allTemplates, loadUserTemplates } from '../state/project-templates';
+import { allTemplates, loadUserTemplates, templateNameProblem } from '../state/project-templates';
 import { LAYOUT_PRESETS, applyPreset, saveLayout } from '../state/layouts';
 import { askName } from './name-dialog';
 import { usePaletteStore } from '../palette';
@@ -466,6 +466,9 @@ export function MenuBar() {
             label: 'Nombre de la plantilla',
             initial: store.project.meta.title || 'Mi plantilla',
             confirmLabel: 'Guardar plantilla',
+            // Mismo motivo que en el Browser: dos filas con el mismo nombre no
+            // se distinguen después.
+            validate: templateNameProblem,
           }).then((name) => {
             if (name === null) return; // cancelado
             saveProjectAsTemplate(name);

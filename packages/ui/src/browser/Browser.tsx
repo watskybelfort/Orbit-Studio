@@ -39,6 +39,7 @@ import {
   allTemplates,
   deleteUserTemplate,
   loadUserTemplates,
+  templateNameProblem,
   useTemplates,
   type StoredTemplate,
 } from '../state/project-templates';
@@ -981,6 +982,8 @@ export function Browser() {
       label: 'Nombre de la plantilla',
       initial: suggested,
       confirmLabel: 'Guardar plantilla',
+      // Dos plantillas con el mismo nombre se veían idénticas en la lista.
+      validate: templateNameProblem,
     }).then((name) => {
       if (name === null) return; // cancelado
       saveProjectAsTemplate(name);

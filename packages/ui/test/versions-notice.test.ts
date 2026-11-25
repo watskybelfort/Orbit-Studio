@@ -24,7 +24,10 @@ vi.setConfig({ testTimeout: 60_000 });
 async function rig() {
   vi.resetModules();
   const list = vi.fn<() => Promise<{ file: string; at: number; bytes: number }[]>>();
+  list.mockResolvedValue([]);
   const read = vi.fn<(projectId: string, file: string) => Promise<string>>();
+  const remove = vi.fn<(projectId: string, file: string) => Promise<void>>();
+  remove.mockResolvedValue(undefined);
   vi.stubGlobal('window', {
     confirm: () => true,
     orbit: {
@@ -32,7 +35,7 @@ async function rig() {
         list,
         read,
         save: vi.fn(async () => 'version.orbit'),
-        remove: vi.fn(async () => undefined),
+        remove,
       },
       app: { setDirty: () => undefined },
       autosave: { clear: async () => undefined },
@@ -45,7 +48,7 @@ async function rig() {
   const mod = await import('../src/state/versions');
   const sounds = await import('../src/browser/sound-actions');
   vi.spyOn(sounds, 'rehydrateSamples').mockResolvedValue([]);
-  return { mod, list, read };
+  return { mod, list, read, remove };
 }
 
 afterEach(() => {
@@ -86,5 +89,34 @@ describe('el aviso de versiones lleva el motivo real del fallo', () => {
       busy: false,
       notice: 'Esa versión no se puede leer',
     });
+  });
+});
+
+describe('el aviso al borrar una versión', () => {
+  it('un error al borrar publica el motivo y deja el diff abierto', async () => {
+    const { mod, remove } = await rig();
+    mod.useVersions.setState({ openFile: '1700000000000-vieja.orbit' });
+    remove.mockRejectedValueOnce(new Error('EPERM: la carpeta de versiones está protegida'));
+    await mod.removeVersion('1700000000000-vieja.orbit');
+    // Antes el `catch` se comía el motivo: la ✕ no borraba y nada lo decía.
+    expect(mod.useVersions.getState()).toMatchObject({
+      notice: 'EPERM: la carpeta de versiones está protegida',
+      openFile: '1700000000000-vieja.orbit',
+    });
+  });
+
+  it('un rechazo que no es Error nombra la versión que no se pudo borrar', async () => {
+    const { mod, remove } = await rig();
+    remove.mockRejectedValueOnce('sin detalle');
+    await mod.removeVersion('1700000000000-antes-del-drop.orbit');
+    expect(mod.useVersions.getState().notice).toBe('No se pudo borrar la versión «Antes del drop»');
+  });
+
+  it('un borrado que va bien no inventa aviso y la versión sale de la lista', async () => {
+    const { mod, list } = await rig();
+    list.mockResolvedValueOnce([{ file: '1700000000001-otra.orbit', at: 2, bytes: 3 }]);
+    await mod.removeVersion('1700000000000-vieja.orbit');
+    expect(mod.useVersions.getState().notice).toBeNull();
+    expect(mod.useVersions.getState().entries.map((e) => e.file)).toEqual(['1700000000001-otra.orbit']);
   });
 });
