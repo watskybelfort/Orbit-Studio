@@ -26,8 +26,6 @@ export type MidiEvent =
 
 /** Controlador del pedal de sostenido en el estándar. */
 export const CC_SUSTAIN = 64;
-/** Rueda de modulación: el destino por defecto cuando se aprende un mando. */
-export const CC_MOD_WHEEL = 1;
 
 /**
  * Traduce los bytes crudos. Devuelve `null` para todo lo que Orbit no usa

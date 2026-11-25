@@ -50,14 +50,6 @@ export function peekWindowBox(id: WindowId): WindowBox | undefined {
   return box ? { ...box } : undefined;
 }
 
-/** Olvida una ventana (la suya ya no sirve). */
-export function forgetWindowBox(id: WindowId): void {
-  boxes.delete(id);
-  // Sin caja a la que volver, seguir «maximizada» solo dejaría un botón de
-  // restaurar que no hace nada.
-  maximized.delete(id);
-}
-
 /** Marca que la ventana está maximizada por decisión del usuario. */
 export function markMaximized(id: WindowId): void {
   maximized.add(id);

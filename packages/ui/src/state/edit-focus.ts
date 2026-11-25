@@ -61,12 +61,6 @@ export function claimEditFocus(target: EditTarget): void {
   claimed = target;
 }
 
-/** Solo para los tests: vuelve al estado de recién arrancado. */
-export function resetEditFocus(): void {
-  claimed = null;
-  providers.clear();
-}
-
 /** Cuál manda ahora: el que reclamó, o el que esté más arriba y abierto. */
 export function activeEditTarget(): EditTarget | null {
   if (claimed !== null && providers.has(claimed)) return claimed;

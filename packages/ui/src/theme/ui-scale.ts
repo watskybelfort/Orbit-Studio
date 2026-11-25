@@ -70,11 +70,6 @@ export function clampUiScale(value: unknown): number {
   return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, n));
 }
 
-/** Escala vigente (1 = 100 %). */
-export function getUiScale(): number {
-  return currentScale;
-}
-
 /**
  * Ventanas que llevan los tokens del tema: la principal y los editores
  * desacoplados (`window.open`, ver shell/DetachedWindow). Las que ya se

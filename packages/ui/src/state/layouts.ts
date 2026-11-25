@@ -167,13 +167,6 @@ export function applyLayout(name: string): boolean {
   return true;
 }
 
-/** Borra un layout guardado (deshacer lo devuelve: el inverso lo restaura). */
-export function deleteLayout(name: string): boolean {
-  if (!store.project.layouts?.[name]) return false;
-  store.dispatch({ type: 'setLayout', name, windows: null });
-  return true;
-}
-
 // ── Predefinidos ─────────────────────────────────────────────────────────────
 
 /** Tamaño útil del escritorio (`.workspace`), en píxeles. */
