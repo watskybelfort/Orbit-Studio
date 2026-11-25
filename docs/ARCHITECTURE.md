@@ -51,7 +51,10 @@
 
 ### `packages/engine`
 - `dsp/`: unidades puras (osciladores, filtros SVF/biquad RBJ, envolventes,
-  reverb, delay…). Funciones sobre `Float32Array`, sin alocaciones en proceso.
+  reverb, delay…). Funciones sobre `Float32Array`, sin alocaciones en proceso:
+  `orbit/no-audio-thread-alloc` vigila las siete entradas por las que corre una
+  muestra — `process`, `render`, `tick`, `read`/`write` (la línea de retardo) y
+  `forward`/`inverse` (la FFT del convolutor).
 - `worklet/processor.ts`: el kernel — recibe el **snapshot compilado** del
   proyecto (patrones→eventos absolutos), agenda con lookahead, renderiza bloques
   de 128 samples, aplica cadenas de efectos y routing, y postea medidores.

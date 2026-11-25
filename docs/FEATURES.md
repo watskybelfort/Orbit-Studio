@@ -3,7 +3,8 @@
 Guía completa de todo lo que tiene (y tendrá) Orbit Studio. Basado en el flujo de
 FL Studio, ampliado con lo nuestro: colaboración en tiempo real, Claude integrado
 y el sistema de temas acrílicos. Leyenda: **v0.1** a **v1.0** = ya publicado en
-esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte.
+esa versión · **v0.x** = pendiente tras el release · **v1+** = horizonte, todavía
+sin código.
 
 > Actualizado al estado REAL del código tras el QA de v1.0 (17-08-2026): lo que
 > lleva número de versión está implementado y probado; lo que sigue en v0.x
@@ -357,8 +358,6 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Reconciliación al conectar, al registrar un sample y tras cada resincronización (join y replay dejaban el proyecto lleno de referencias y el kernel vacío) | v1.1 |
 | **Congelar tu audio** mientras el otro trastea: los comandos remotos se siguen aplicando al modelo, pero tu motor se queda con el último snapshot hasta que lo sueltas. No silencia al otro — lo que oyes es tu propio motor tocando el proyecto común | v1.1 |
 | Aviso de "N sonidos de la sala todavía no están disponibles aquí", con nombres | v1.1 |
-| Audio streaming de la sesión (escuchar el master remoto) | v1+ |
-
 | **Gente en la red local**: los que tienen Orbit abierto en la misma red salen en el panel, se guardan como amigos y se les invita de un clic; al otro le llega un aviso con el botón de entrar. Baliza UDP multicast con TTL 1 (no sale de la subred), sin servidor central ni cuentas. Escuchar es siempre —es lo que hace que lleguen las invitaciones—; anunciar tu nombre es opcional | v2.4 |
 | **Invitaciones caducables**: el productor crea llaves con caducidad (15 min a 1 día) y usos (1, 3 o 10), las ve en una lista con lo que les queda y las revoca. Entrar con una no pide la contraseña. El servidor guarda SHA-256 del secreto y el token se enseña UNA vez: ni él lo puede repetir | v2.5 |
 | **Invitar de un clic**: el botón de la red local adjunta un token de un uso y media hora, así que al otro le llega un aviso con «Unirme» que entra directo, sin contraseña ni código dictado | v2.5 |
@@ -455,9 +454,8 @@ sin efectos sigue por el camino rápido de siempre, bit a bit idéntico.
 | Función | Versión |
 |---|---|
 | **SDK de plugins JS** (efectos): carpeta de usuario, perillas propias, sandbox del worklet con bypass anti-crash, en vivo y en el export (docs/PLUGINS.md) | v0.7 |
-| **Galería de la comunidad**: se añaden fuentes (la URL de un índice JSON publicado donde sea; formato en `docs/plugin-gallery.json`), se ve qué ofrecen y se instala de un clic. La descarga la hace el main (el renderer tiene la red cortada por CSP), lo que baja NO se ejecuta para saber qué es —se lee con el mismo parseo estático— y si no declara `createEffect` ni `createInstrument` no llega al disco. Tras instalar se re-escanea: el plugin aparece sin reiniciar | v1.9 |
+| **Galería de la comunidad**: se añaden fuentes (la URL de un índice JSON publicado donde sea; formato en `docs/plugin-gallery.json`), se ve qué ofrecen y se instala de un clic. La descarga la hace el main (el renderer tiene la red cortada por CSP), lo que baja NO se ejecuta para saber qué es —se lee con el mismo parseo estático— y si no declara `createEffect` ni `createInstrument` no llega al disco. Tras instalar se re-escanea: el plugin aparece sin reiniciar. Hoy vive en Ajustes; falta llevarla al panel Explorador | v1.9 |
 | **Plugins JS de instrumento** (`createInstrument`): canal propio en el rack, con bypass si falla | v1.0 |
-| Galería de plugins de la comunidad en el browser | v1+ |
 | Puente CLAP / VST3 vía proceso host nativo (necesita host nativo con GUI embebida: proyecto aparte) | v1+ |
 
 | **Galería firmada** (v2.7): el índice puede ir firmado (ECDSA P-256) y la firma cubre el **hash de cada plugin**, así que al instalar se comprueba que el archivo es exactamente el que se publicó. Confianza al primer uso, como SSH: la primera clave queda aceptada y un cambio **para la galería en seco** hasta que alguien compare las huellas. `tools/gallery-sign.ts` es el otro lado (generar clave y firmar) | v2.7 |
