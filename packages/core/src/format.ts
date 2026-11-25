@@ -50,10 +50,21 @@ export function parseProject(json: string): Project {
     throw new Error('El archivo no es un .orbit válido');
   }
   const p = data as Partial<Project>;
-  if (p.formatVersion !== FORMAT_VERSION) {
+  // Tres casos distintos y tres mensajes distintos: sin versión no es un
+  // .orbit; una versión MAYOR viene de una app más nueva (el usuario puede
+  // actualizar); cualquier otra no se soporta. Antes los tres decían lo mismo
+  // y el de «sin versión» imprimía «undefined», que no le dice nada a nadie.
+  const version = p.formatVersion;
+  if (typeof version !== 'number' || !Number.isFinite(version)) {
+    throw new Error('El archivo no es un .orbit válido: falta la versión de formato');
+  }
+  if (version > FORMAT_VERSION) {
     throw new Error(
-      `Versión de formato no soportada: ${String(p.formatVersion)} (esperada ${FORMAT_VERSION})`,
+      `El archivo es de una versión más nueva (formato ${version}; esta app lee hasta el ${FORMAT_VERSION})`,
     );
+  }
+  if (version !== FORMAT_VERSION) {
+    throw new Error(`Versión de formato no soportada: ${version} (esperada ${FORMAT_VERSION})`);
   }
   // Esqueleto obligatorio. Antes bastaba con que la clave no fuera `undefined`
   // (un `null`, un número o un string colaban) y faltaban los tres campos de

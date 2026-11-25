@@ -333,7 +333,12 @@ describe('formato .orbit', () => {
   });
 
   it('rechaza JSON corrupto y versiones desconocidas', () => {
-    expect(() => parseProject('{no json')).toThrow();
-    expect(() => parseProject('{"formatVersion": 99}')).toThrow(/Versión/);
+    expect(() => parseProject('{no json')).toThrow(/JSON corrupto/);
+    // Sin versión no es un .orbit; con una MAYOR sí lo es, pero de otra app
+    // (y el mensaje tiene que decirlo, no confundirlo con un archivo roto).
+    expect(() => parseProject('{"id":"x"}')).toThrow(/no es un \.orbit/);
+    expect(() => parseProject('{"formatVersion": 99}')).toThrow(/más nueva/);
+    expect(() => parseProject('{"formatVersion": "99"}')).toThrow(/falta la versión/);
+    expect(() => parseProject('{"formatVersion": 0}')).toThrow(/Versión de formato no soportada/);
   });
 });

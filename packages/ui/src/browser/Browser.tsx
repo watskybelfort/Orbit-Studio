@@ -56,6 +56,7 @@ import {
   EMPTY_SELECTION,
 } from './selection';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
+import { reasonOf } from './status';
 import { generatePack, onPacksChanged, packEntries } from './pack-generator';
 import {
   BPM_MAX,
@@ -280,7 +281,7 @@ export function Browser() {
         void api.folder
           .scan(dir)
           .then((files) => setFolderFiles((p) => ({ ...p, [dir]: files })))
-          .catch(() => setStatus(`No se pudo leer ${dir}`));
+          .catch((err: unknown) => setStatus(`No se pudo leer ${dir}${reasonOf(err)}`));
       }
     });
   }, []);
@@ -297,8 +298,8 @@ export function Browser() {
     try {
       const files = await api.folder.scan(dir);
       setFolderFiles((p) => ({ ...p, [dir]: files }));
-    } catch {
-      setStatus(`No se pudo escanear ${dir}`);
+    } catch (err) {
+      setStatus(`No se pudo escanear ${dir}${reasonOf(err)}`);
     }
   };
 

@@ -322,7 +322,9 @@ compilado. Al desactivarlo se resincroniza de golpe con todo lo acumulado.
 Pulsar play con el motor congelado tampoco recompila: si pediste no oírlo, no
 se cuela por ahí.
 
-El streaming del master remoto sigue en backlog (v1+).
+El streaming del master remoto ya no es backlog: la v1.8 lo mandó en crudo y la
+v1.9 lo comprime con ADPCM de 4 bits (`audio-stream.ts`, botón "Emitir mi
+master" y la escucha "Oír" de cada fila).
 
 ## Convergencia (test)
 
