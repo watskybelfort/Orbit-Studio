@@ -56,6 +56,7 @@ import {
   EMPTY_SELECTION,
 } from './selection';
 import { pendingAnalysis, queueAnalysis } from './analysis-queue';
+import { reasonOf } from './status';
 import { generatePack, onPacksChanged, packEntries } from './pack-generator';
 import {
   BPM_MAX,
@@ -91,11 +92,6 @@ type LibState =
   | { status: 'ok'; manifest: SoundManifest };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Motivo de un error para pegar detrás de un aviso (`: …`), si lo hay. */
-function reasonOf(err: unknown): string {
-  return err instanceof Error && err.message ? `: ${err.message}` : '';
-}
 
 /** "0.8 s" para cortos, "12 s" para largos. */
 function formatDuration(sec: number): string {
