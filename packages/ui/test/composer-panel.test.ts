@@ -77,6 +77,20 @@ describe('formulario del compositor', () => {
     expect(toComposeOptions({ ...ajeno, genre: 'reggaeton' as const }, []).variant).toBe('moderno');
   });
 
+  it('una escala que no existe no llega ni al ajuste guardado ni al compositor', () => {
+    // `compose` LANZA con una escala desconocida («escala desconocida "…"»),
+    // así que una guardada a mano o venida de un settings viejo dejaba el
+    // panel sin poder componer. Se tira al leer Y al traducir.
+    expect(parseForm({ scale: 'Frigio' }, 1).scale).toBe('Frigio');
+    expect(parseForm({ scale: 'Inventada' }, 1).scale).toBeNull();
+    expect(parseForm({ scale: 'toString' }, 1).scale).toBeNull();
+
+    const form = { ...defaultForm(2), scale: 'Inventada' };
+    expect(toComposeOptions(form, [])).not.toHaveProperty('scale');
+    expect(composeBeat(toComposeOptions(form, [])).parts.length).toBeGreaterThan(0);
+    expect(toComposeOptions({ ...form, scale: 'Frigio' }, []).scale).toBe('Frigio');
+  });
+
   it('la pista del tempo sigue a la variante y vuelve al género si no existe', () => {
     expect(bpmHint('trap')).toBe('142 (130–160)');
     expect(bpmHint('trap', 'duro')).toBe('150 (140–162)');

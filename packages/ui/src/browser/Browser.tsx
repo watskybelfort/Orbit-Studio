@@ -92,6 +92,11 @@ type LibState =
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/** Motivo de un error para pegar detrás de un aviso (`: …`), si lo hay. */
+function reasonOf(err: unknown): string {
+  return err instanceof Error && err.message ? `: ${err.message}` : '';
+}
+
 /** "0.8 s" para cortos, "12 s" para largos. */
 function formatDuration(sec: number): string {
   return sec >= 10 ? `${Math.round(sec)} s` : `${sec.toFixed(1)} s`;
@@ -280,7 +285,7 @@ export function Browser() {
         void api.folder
           .scan(dir)
           .then((files) => setFolderFiles((p) => ({ ...p, [dir]: files })))
-          .catch(() => setStatus(`No se pudo leer ${dir}`));
+          .catch((err: unknown) => setStatus(`No se pudo leer ${dir}${reasonOf(err)}`));
       }
     });
   }, []);
@@ -297,8 +302,8 @@ export function Browser() {
     try {
       const files = await api.folder.scan(dir);
       setFolderFiles((p) => ({ ...p, [dir]: files }));
-    } catch {
-      setStatus(`No se pudo escanear ${dir}`);
+    } catch (err) {
+      setStatus(`No se pudo escanear ${dir}${reasonOf(err)}`);
     }
   };
 

@@ -7,6 +7,7 @@
  * todo saliera en Do sin que nada fallara.
  */
 
+import { SCALES } from '@orbit/core';
 import {
   COMPOSER_GENRES,
   COMPOSER_ROLES,
@@ -73,6 +74,16 @@ export function rollSeed(random: () => number = Math.random): number {
 }
 
 /**
+ * Nombre de escala que `compose` acepta, o `null`. `hasOwnProperty` y no `in`:
+ * `'toString' in SCALES` es cierto y `compose` acabaría indexando el prototipo.
+ */
+function knownScale(value: unknown): string | null {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(SCALES, value)
+    ? value
+    : null;
+}
+
+/**
  * Traduce el formulario a opciones del compositor. `reference` es un perfil
  * de una sola pista (la referencia soltada en el panel): si hay, MANDA sobre
  * el perfil elegido, porque es lo último que el usuario pidió.
@@ -93,7 +104,11 @@ export function toComposeOptions(
   if (form.variant !== null && genreVariants(form.genre).some((v) => v.id === form.variant)) opts.variant = form.variant;
   if (form.bpm !== null) opts.bpm = form.bpm;
   if (form.keyRoot !== null) opts.keyRoot = form.keyRoot;
-  if (form.scale !== null) opts.scale = form.scale;
+  // La escala también se valida aquí: un formulario construido a mano (o uno
+  // restaurado por una ruta que no pase por `parseForm`) no debe reventar
+  // `compose` con «escala desconocida».
+  const scale = knownScale(form.scale);
+  if (scale !== null) opts.scale = scale;
   if (form.shape === 'loop') {
     opts.shape = 'loop';
     opts.loopBars = form.loopBars;
@@ -117,6 +132,10 @@ export function parseForm(raw: unknown, seed: number): ComposerForm {
     ? (r['roles'] as unknown[]).filter((x): x is ComposerRole => COMPOSER_ROLES.includes(x as ComposerRole))
     : base.roles;
   const variant = genreVariants(genre).find((v) => v.id === r['variant'])?.id ?? null;
+  // Una escala que no es de `SCALES` (settings viejo o editado a mano) se tira
+  // aquí: `compose` LANZA con una escala desconocida, así que dejarla pasar
+  // convertía el ajuste persistido en un compositor que no compone.
+  const scale = knownScale(r['scale']);
   return {
     genre,
     variant,
@@ -126,7 +145,7 @@ export function parseForm(raw: unknown, seed: number): ComposerForm {
       const k = num(r['keyRoot'], 0, 11);
       return k !== undefined && Number.isInteger(k) ? k : null;
     })(),
-    scale: typeof r['scale'] === 'string' ? r['scale'] : null,
+    scale,
     shape: r['shape'] === 'loop' ? 'loop' : 'song',
     loopBars: Math.round(num(r['loopBars'], 1, 32) ?? base.loopBars),
     roles: roles.length > 0 ? roles : base.roles,
