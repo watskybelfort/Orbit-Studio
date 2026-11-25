@@ -1038,10 +1038,6 @@ export const GENRE_PRESETS: Record<ComposerGenre, GenrePreset> = {
   },
 };
 
-export function genrePreset(genre: ComposerGenre): GenrePreset {
-  return GENRE_PRESETS[genre];
-}
-
 // ── Variantes ─────────────────────────────────────────────────────────────────
 
 /**

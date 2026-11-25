@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { COMPOSER_ROLES, composeBeat, createProfile, type TrackFeatures } from '@orbit/sound-library';
 import {
   MAX_TRAIN_FILES,
+  bpmHint,
   defaultForm,
   isAudioFileName,
   parseForm,
@@ -62,6 +63,26 @@ describe('formulario del compositor', () => {
     expect(parseForm(null, 3)).toEqual(defaultForm(3));
   });
 
+  it('una variante de otro género no sobrevive ni al guardado ni al componer', () => {
+    // El ajuste persistido puede venir con la variante del género anterior
+    // (lo que arregló el botón de la referencia). `parseForm` la tira y
+    // `toComposeOptions` tampoco la deja llegar a `resolvePreset`, que lanza
+    // con una variante que no existe para el género.
+    expect(parseForm({ genre: 'reggaeton', variant: 'moderno' }, 1).variant).toBe('moderno');
+    expect(parseForm({ genre: 'boombap', variant: 'moderno' }, 1).variant).toBeNull();
+    expect(parseForm({ genre: 'trap', variant: 'inventada' }, 1).variant).toBeNull();
+
+    const ajeno = { ...defaultForm(3), genre: 'boombap' as const, variant: 'moderno' };
+    expect(toComposeOptions(ajeno, [])).not.toHaveProperty('variant');
+    expect(toComposeOptions({ ...ajeno, genre: 'reggaeton' as const }, []).variant).toBe('moderno');
+  });
+
+  it('la pista del tempo sigue a la variante y vuelve al género si no existe', () => {
+    expect(bpmHint('trap')).toBe('142 (130–160)');
+    expect(bpmHint('trap', 'duro')).toBe('150 (140–162)');
+    expect(bpmHint('trap', 'inventada')).toBe('142 (130–160)');
+  });
+
   it('solo audios, y una semilla de 32 bits', () => {
     expect(isAudioFileName('Beat.WAV')).toBe(true);
     expect(isAudioFileName('beat.mp3')).toBe(true);
@@ -81,6 +102,16 @@ describe('panel y registro de la ventana (código fuente real)', () => {
     const read = body.indexOf('Array.from(event.dataTransfer.files)');
     expect(read).toBeGreaterThan(0);
     expect(body.slice(0, read)).not.toMatch(/\bawait\b|\.then\(/);
+  });
+
+  it('cambiar de género limpia la variante del anterior', () => {
+    // `resolvePreset` es estricto con la variante: si el formulario se queda
+    // con la del género viejo, no hay ninguna chip marcada y el ajuste guardado
+    // viaja inválido. Todo `updateForm` que toque `genre` limpia la variante.
+    const src = readSource('composer/ComposerPanel.tsx');
+    const calls = [...src.matchAll(/updateForm\(\{[^}]*genre:[^}]*\}\)/g)].map((m) => m[0]);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    for (const call of calls) expect(call).toMatch(/variant:\s*null/);
   });
 
   it('la ventana está en todos los sitios que la abren o la describen', () => {

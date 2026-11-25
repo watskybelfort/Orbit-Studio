@@ -21,26 +21,27 @@ Consecuencias de diseño (por qué es elegante):
 - En una sesión colaborativa, Claude publica **presencia**: aparece en la lista
   de conectados como "Claude", con color propio, y se ve qué editor está tocando.
 
-## Herramientas MCP (v0.1)
+## Herramientas MCP (36, v3.18)
 
 | Tool | Qué hace |
 |---|---|
 | `get_project` | Estado completo o resumido del proyecto (tempo, patrones, canales, mixer) |
-| `get_notes` / `set_notes` | Leer/escribir notas de un patrón+canal (piano roll) |
-| `add_channel` / `set_channel` | Crear canal con instrumento y preset; ajustar vol/pan/ruta |
-| `set_steps` | Programar el step sequencer de un canal |
+| `get_notes` / `set_notes` / `transform_notes` | Leer/escribir notas de un patrón+canal (piano roll) y transformarlas en un paso de undo: humanize, strum, arpegiar, chop, acordes, transponer, cuantizar o velocity |
+| `add_channel` / `set_channel` / `delete_channel` | Crear canal con instrumento y preset, ajustar vol/pan/ruta, o borrarlo con sus notas |
 | `set_keymap` | Multisample: repartir varias muestras por el teclado de un sampler (nota leída del nombre del archivo, o dada a mano) |
-
-| `arrange_clip` | Colocar/mover/cortar clips en la playlist |
-| `set_mixer` | Fader/pan/mute/solo/routing/sends de pistas |
-| `add_effect` / `set_effect` | Insertar efecto en un slot y ajustar sus parámetros |
-| `set_automation` | Crear/editar clips de automatización |
+| `add_pattern` / `delete_pattern` | Crear un patrón o borrarlo junto con sus clips (nunca el último) |
+| `set_steps` | Programar el step sequencer de un canal |
+| `riff` | Generar un riff/melodía en la escala dentro de un patrón, determinista por semilla (la «riff machine» del piano roll, Alt+G) |
+| `arrange_clip` / `sections` | Colocar/mover/cortar clips en la playlist; listar, añadir o quitar secciones del arreglo (intro, drop…) |
 | `set_tempo` / `set_swing` | Transport |
-| `render` | Exportar el master a WAV y devolver la ruta (los stems se exportan desde el panel de Exportar) |
-| `analyze_mix` | Medidas reales del render: LUFS, peak, balance espectral por bandas, correlación estéreo |
-| `advise_mix` | Diagnóstico accionable de la mezcla (tilts entre bandas, fase, loudness contra -14 LUFS) y cadena propuesta con valores reales; con `apply` la monta en un solo undo |
-| `list_library` | Qué hay en el browser: pack de fábrica + packs generados, con BPM y nota de cada loop |
-| `load_sample` | Mete sonidos de la librería en el rack como canales sampler, igual que arrastrarlos |
+| `set_mixer` | Fader/pan/mute/solo/routing/sends de pistas |
+| `add_effect` / `set_effect` / `remove_effect` | Insertar efecto en un slot, ajustar sus parámetros o quitarlo |
+| `set_automation` | Crear/editar clips de automatización |
+| `render` / `analyze_mix` / `advise_mix` | Exportar el master a WAV; medir LUFS, peak, balance espectral y correlación; diagnosticar la mezcla y proponer (o aplicar) la cadena con valores reales |
+| `list_library` / `load_sample` / `generate_pack` | Qué hay en el browser; meter sonidos en el rack como canales sampler; generar un pack nuevo por síntesis |
+| `list_genres` / `compose_beat` / `recompose_part` | Compositor local: géneros y variantes disponibles; un beat entero con cada parte en su canal, patrón y pista; rehacer una sola parte del último beat |
+| `list_style_profiles` / `learn_style` / `analyze_reference` / `compose_from_reference` | Perfiles de estilo medidos de audio: listarlos, entrenarlos, analizar una referencia y componer con su temática |
+| `undo` / `redo` | Deshacer/rehacer el último cambio hecho por Claude, sin tocar los del usuario |
 
 `load_sample` resuelve por NOMBRE, no solo por id: los ids del manifest
 (`pack:drums/warehouse/kick-hard-groove-01`) no se teclean de memoria y el nombre
