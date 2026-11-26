@@ -80,19 +80,21 @@ function notify(notice: string): void {
   noticeTimer = setTimeout(() => useNetworkStore.setState({ notice: null }), 4000);
 }
 
-let unsubscribe: (() => void)[] = [];
+// La suscripción es única para toda la vida de la app: no hay forma de
+// deshacerla, así que un boolean basta (antes era un array de unsubscribe que
+// solo servía para saber si ya se había arrancado).
+let started = false;
 
 /** Se suscribe a lo que manda el main y pide el estado inicial. Idempotente. */
 export function initNetwork(): void {
   const api = window.orbit;
-  if (!api || unsubscribe.length > 0) return;
+  if (!api || started) return;
+  started = true;
 
-  unsubscribe.push(api.net.onPeers((peers) => useNetworkStore.setState({ peers })));
-  unsubscribe.push(
-    api.net.onInvite((invite) => {
-      useNetworkStore.setState({ invite: { ...invite, at: Date.now() } });
-    }),
-  );
+  api.net.onPeers((peers) => useNetworkStore.setState({ peers }));
+  api.net.onInvite((invite) => {
+    useNetworkStore.setState({ invite: { ...invite, at: Date.now() } });
+  });
   void api.net.state().then((state) => {
     useNetworkStore.setState({
       listening: state.listening,
@@ -102,11 +104,6 @@ export function initNetwork(): void {
     });
   });
   void refreshFriends();
-}
-
-export function stopNetwork(): void {
-  for (const off of unsubscribe) off();
-  unsubscribe = [];
 }
 
 /** Enciende o apaga la baliza. El nombre es el mismo con el que entras a las salas. */

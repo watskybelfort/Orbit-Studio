@@ -82,17 +82,6 @@ export function IconPattern(props: IconProps) {
   );
 }
 
-/** Canción: líneas de arreglo escalonadas. */
-export function IconSong(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M4.5 6.5 H14" />
-      <path d="M8.5 12 H19.5" />
-      <path d="M4.5 17.5 H12" />
-    </Icon>
-  );
-}
-
 /** Metrónomo: cuerpo trapezoidal con péndulo (misma idea que el de 12px). */
 export function IconMetronome(props: IconProps) {
   return (
@@ -376,59 +365,7 @@ export function IconClose(props: IconProps) {
   );
 }
 
-/** Minimizar: guion. */
-export function IconMinimize(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M6.5 12 H17.5" />
-    </Icon>
-  );
-}
-
-/** Maximizar: cuadrado. */
-export function IconMaximize(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" />
-    </Icon>
-  );
-}
-
-/** Restaurar: dos cuadrados superpuestos. */
-export function IconRestore(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <rect x="5.5" y="9" width="9.5" height="9.5" rx="1.6" />
-      <path d="M9 5.5 H16.9 A1.6 1.6 0 0 1 18.5 7.1 V15" />
-    </Icon>
-  );
-}
-
 /* ── Varios ──────────────────────────────────────────────────────────────── */
-
-/** Loop: dos flechas circulares (repetición). */
-export function IconLoop(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M16.5 3.5 L20 7 L16.5 10.5" />
-      <path d="M20 7 H8.5 A4.5 4.5 0 0 0 4 11.5 V12" />
-      <path d="M7.5 13.5 L4 17 L7.5 20.5" />
-      <path d="M4 17 H15.5 A4.5 4.5 0 0 0 20 12.5 V12" />
-    </Icon>
-  );
-}
-
-/** Perilla: cuerpo, aguja y las dos marcas de fin de recorrido (arco 270°). */
-export function IconKnob(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <circle cx="12" cy="12" r="7" />
-      <path d="M12 12 L16.2 7.8" />
-      <path d="M7.05 16.95 L5.6 18.4" />
-      <path d="M16.95 16.95 L18.4 18.4" />
-    </Icon>
-  );
-}
 
 /** Forma de onda: barras simétricas alrededor del eje. */
 export function IconWave(props: IconProps) {
@@ -490,33 +427,6 @@ export function IconSearch(props: IconProps) {
     <Icon {...props}>
       <circle cx="10.8" cy="10.8" r="6.3" />
       <path d="M15.4 15.4 L20 20" />
-    </Icon>
-  );
-}
-
-/** Chevron hacia la derecha: submenús y divulgación. */
-export function IconChevronRight(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M9.5 6.5 L15 12 L9.5 17.5" />
-    </Icon>
-  );
-}
-
-/** Chevron hacia abajo: selects y acordeones. */
-export function IconChevronDown(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M6.5 9.5 L12 15 L17.5 9.5" />
-    </Icon>
-  );
-}
-
-/** Check: marca de opción elegida. */
-export function IconCheck(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M5 12.5 L9.8 17.2 L19 6.8" />
     </Icon>
   );
 }

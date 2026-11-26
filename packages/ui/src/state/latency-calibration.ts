@@ -109,7 +109,12 @@ const SETTINGS_FINGERPRINT = 'inputLatencyFingerprint';
 // mensaje mentía.
 const SETTINGS_CONFIDENCE = 'inputLatencyConfidence';
 
-function persist(patch: Record<string, unknown>): void {
+/**
+ * Guarda un patch de ajustes sin bloquear ni fallar en voz alta. Vive aquí y
+ * lo comparten `live-input.ts` —que también persiste ajustes MIDI— para no
+ * tener dos copias idénticas del mismo `settings.set` silencioso.
+ */
+export function persistSettings(patch: Record<string, unknown>): void {
   void window.orbit?.settings.set(patch).catch(() => {
     // Sin puente de escritorio el ajuste vale para esta sesión y ya está.
   });
@@ -187,7 +192,7 @@ export function setLatencySamplesManually(samples: number): void {
   // Se limpia también en disco: sin esto, pasar a mano DESPUÉS de haber
   // medido dejaría la confianza vieja persistida, y `loadLatencySettings`
   // la resucitaría en el próximo arranque aunque `source` ya diga 'manual'.
-  persist({ [SETTINGS_SAMPLES]: value, [SETTINGS_SOURCE]: 'manual', [SETTINGS_CONFIDENCE]: null });
+  persistSettings({ [SETTINGS_SAMPLES]: value, [SETTINGS_SOURCE]: 'manual', [SETTINGS_CONFIDENCE]: null });
 }
 
 /**
@@ -336,7 +341,7 @@ export async function runLatencyCalibration(): Promise<void> {
       calibratedFingerprint: fingerprint,
       stale: false,
     });
-    persist({
+    persistSettings({
       [SETTINGS_SAMPLES]: roundTripSamples,
       [SETTINGS_SOURCE]: 'measured',
       [SETTINGS_FINGERPRINT]: fingerprint,

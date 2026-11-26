@@ -27,7 +27,7 @@ buena voluntad. En corto:
 
 1. **Toda mutación del proyecto pasa por el bus de comandos de `packages/core`.**
    Mutar el store o Yjs directo rompe el undo y el merge de colaboración.
-2. **Cero alocaciones en el audio thread.** En `packages/engine/worklet` no se
+2. **Cero alocaciones en el audio thread.** En `packages/engine/src/worklet` no se
    crea ningún objeto ni array dentro de `process()`.
 3. **Ningún color hardcodeado en componentes**: todo por tokens CSS. La
    excepción de los `<canvas>` está explicada donde vive.

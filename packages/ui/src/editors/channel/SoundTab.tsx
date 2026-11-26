@@ -100,9 +100,18 @@ export function SoundTab({ channel, sample }: SoundTabProps) {
     setDetectError(null);
     try {
       const bytes = await readSampleBytes(sample.path);
-      if (!bytes) throw new Error('no se pudo leer el archivo');
+      if (!bytes) {
+        throw new Error('no se pudo leer el archivo; revisa que siga en su sitio');
+      }
       const ctx = new OfflineAudioContext(2, 1, 48000);
-      const decoded = await ctx.decodeAudioData(bytes);
+      let decoded: AudioBuffer;
+      try {
+        decoded = await ctx.decodeAudioData(bytes);
+      } catch {
+        // El DOMException del navegador viene en inglés y sin qué hacer; el
+        // caso típico es un archivo a medias o con una extensión que no es audio.
+        throw new Error('el archivo no se pudo decodificar como audio; comprueba que no esté dañado');
+      }
       const left = decoded.getChannelData(0);
       const right = decoded.numberOfChannels > 1 ? decoded.getChannelData(1) : left;
       const preset = GRAINS.find((g) => g.id === grain) ?? GRAINS[1]!;
@@ -113,7 +122,11 @@ export function SoundTab({ channel, sample }: SoundTabProps) {
       });
       const cuts = found.times.map((t) => t / Math.max(0.001, decoded.duration));
       const clean = normalizeSlicePoints(cuts);
-      if (!clean) throw new Error('no se encontró ningún golpe claro');
+      if (!clean) {
+        throw new Error(
+          `no se encontró ningún golpe claro con «${preset.label}»; prueba otro ajuste de detalle o corta los trozos a mano`,
+        );
+      }
       setSlicePoints(clean, `${clean.length} trozos por transientes`);
     } catch (err) {
       setDetectError(err instanceof Error ? err.message : String(err));

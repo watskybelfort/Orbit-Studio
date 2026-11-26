@@ -46,8 +46,3 @@ export function acquireScope(track = 0): () => void {
     apply();
   };
 }
-
-/** Cuántos lo tienen cogido ahora mismo (para tests). */
-export function scopeOwnerCount(): number {
-  return owners.length;
-}

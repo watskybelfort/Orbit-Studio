@@ -15,7 +15,7 @@
 
 import { create } from 'zustand';
 import { parsePluginSource } from './plugin-parse';
-import { initPlugins, rescanPlugins } from './plugins';
+import { rescanPlugins } from './plugins';
 import { isGalleryUrl, parseGalleryIndex, type GalleryIndex, type GalleryPlugin } from './gallery-index';
 import { fingerprint, sha256Base64, verifyIndex } from './gallery-signature';
 
@@ -310,10 +310,4 @@ export async function uninstallPlugin(id: string): Promise<void> {
     installed: s.installed.filter((x) => x !== id),
     notice: `Quitado: ${id}`,
   }));
-}
-
-/** Para el arranque de la app (no bloquea nada si no hay fuentes). */
-export function warmGallery(): void {
-  void initGallery();
-  void initPlugins();
 }

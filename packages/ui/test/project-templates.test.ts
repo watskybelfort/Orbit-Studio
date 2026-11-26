@@ -47,6 +47,7 @@ import {
   instantiateTemplate,
   loadUserTemplates,
   saveCurrentProjectAsTemplate,
+  templateNameProblem,
   useTemplates,
 } from '../src/state/project-templates';
 
@@ -145,6 +146,28 @@ describe('guardar y crear desde una plantilla propia', () => {
     // prueba aquí (ver el comentario de cabecera).
     expect(allTemplates().length).toBe(before);
     expect(findStoredTemplate(template.id)).toBeUndefined();
+  });
+});
+
+describe('el nombre de una plantilla nueva', () => {
+  const saved = (name: string) => buildTemplateFromProject(sampleProject('x'), name);
+
+  it('un nombre que no choca vale (null)', () => {
+    expect(templateNameProblem('Techno propio', [saved('Trap propio')])).toBeNull();
+  });
+
+  it('rechaza uno repetido y dice cuál es el que ya está', () => {
+    const message = templateNameProblem('Trap propio', [saved('Trap propio')]);
+    expect(message).toContain('Ya tienes una plantilla llamada «Trap propio»');
+    expect(message).toContain('bórrala antes en el Browser');
+  });
+
+  it('la comparación no distingue mayúsculas ni espacios de sobra', () => {
+    expect(templateNameProblem('  mi base ', [saved('Mi  Base')])).not.toBeNull();
+  });
+
+  it('sin nombre no se puede guardar', () => {
+    expect(templateNameProblem('   ', [saved('Otra')])).toBe('Escribe un nombre.');
   });
 });
 

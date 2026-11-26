@@ -44,7 +44,7 @@ import {
   onMidiControl,
   SOURCE_BEND,
 } from './midi-learn';
-import { loadLatencySettings } from './latency-calibration';
+import { loadLatencySettings, persistSettings } from './latency-calibration';
 import { SustainPedal } from './sustain';
 
 import { useUiStore } from './ui';
@@ -367,12 +367,6 @@ const SETTINGS_BEND_RANGE = 'midiBendRange';
 /** Ids de dispositivo que el usuario apagó (se recuerdan entre sesiones). */
 let disabledIds = new Set<string>();
 
-function persist(patch: Record<string, unknown>): void {
-  void window.orbit?.settings.set(patch).catch(() => {
-    // Sin puente de escritorio el ajuste vale para esta sesión y ya está.
-  });
-}
-
 /** Canal MIDI que se escucha (0 = todos). */
 export function setMidiChannel(channel: number): void {
   const value = Math.min(16, Math.max(0, Math.round(channel)));
@@ -382,7 +376,7 @@ export function setMidiChannel(channel: number): void {
   // motivo que en `setMidiOctave`.
   releaseAll();
   useLiveInputStore.setState({ channel: value });
-  persist({ [SETTINGS_CHANNEL]: value });
+  persistSettings({ [SETTINGS_CHANNEL]: value });
 }
 
 /** Transposición en octavas de lo que entra. */
@@ -392,19 +386,19 @@ export function setMidiOctave(octave: number): void {
   // transposición NUEVA y la nota vieja se quedaría sonando sola.
   releaseAll();
   useLiveInputStore.setState({ octave: value });
-  persist({ [SETTINGS_OCTAVE]: value });
+  persistSettings({ [SETTINGS_OCTAVE]: value });
 }
 
 export function setMidiVelocityCurve(curve: VelocityCurve): void {
   useLiveInputStore.setState({ velocityCurve: curve });
-  persist({ [SETTINGS_CURVE]: curve });
+  persistSettings({ [SETTINGS_CURVE]: curve });
 }
 
 /** Rejilla de la grabación MIDI (un id de `MIDI_QUANTIZE`). */
 export function setMidiQuantize(id: string): void {
   if (!MIDI_QUANTIZE.some((q) => q.id === id)) return;
   useLiveInputStore.setState({ quantize: id });
-  persist({ [SETTINGS_QUANTIZE]: id });
+  persistSettings({ [SETTINGS_QUANTIZE]: id });
 }
 
 /** Semitonos que dobla la rueda de tono arriba del todo. */
@@ -415,7 +409,7 @@ export function setMidiBendRange(semitones: number): void {
   // vez con el rango nuevo.
   recenterBend();
   useLiveInputStore.setState({ bendRange: semitones });
-  persist({ [SETTINGS_BEND_RANGE]: semitones });
+  persistSettings({ [SETTINGS_BEND_RANGE]: semitones });
 }
 
 /** Prefijo de fuente de un dispositivo (para soltar solo lo suyo). */
@@ -440,7 +434,7 @@ function releaseMidiDevice(deviceId: string): void {
 export function setMidiDeviceEnabled(id: string, enabled: boolean): void {
   if (enabled) disabledIds.delete(id);
   else disabledIds.add(id);
-  persist({ [SETTINGS_DISABLED]: [...disabledIds] });
+  persistSettings({ [SETTINGS_DISABLED]: [...disabledIds] });
   // Apagar un teclado con el pedal pisado dejaba sus notas sonando: nadie iba
   // a mandar ya el CC 64 con valor 0.
   releaseMidiDevice(id);

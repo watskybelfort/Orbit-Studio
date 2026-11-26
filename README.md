@@ -102,7 +102,8 @@ no instalás nada, Orbit sigue funcionando igual con el acrílico nativo.
 6. **Claude dentro del estudio** — la app expone un servidor MCP con **36 tools**
 
    (`.mcp.json` en el repo): Claude lee el proyecto, escribe notas, programa
-   steps, ajusta la mezcla, añade efectos, renderiza y analiza LUFS/balance —
+   steps, ajusta la mezcla, añade efectos, **compone un beat entero** (seis
+   géneros, cada parte en su canal), renderiza y analiza LUFS/balance —
    todo por el mismo bus de comandos, visible en vivo y deshacible.
 
 ## Lo último
@@ -697,7 +698,7 @@ fina del encoder Opus, en la **v3.4**. Lo de abajo es lo que dejaron detrás.
 
 | Qué | Por qué |
 |---|---|
-| **Firmar el instalador** | Sin firma de editor, SmartScreen avisa a todo el que lo baja. El camino queda preparado en el workflow: falta el certificado |
+| **Firmar el instalador** | Sin firma de editor, SmartScreen avisa a todo el que lo baja. El camino queda preparado en el workflow ([detalle](docs/FIRMA.md)): falta el certificado |
 
 ### Horizonte
 
@@ -842,6 +843,8 @@ Panel de Claude).
 | [docs/PLUGINS.md](docs/PLUGINS.md) | SDK de plugins JS (efectos e instrumentos) con ejemplo |
 | [docs/THEMING.md](docs/THEMING.md) | Sistema de temas: oscuro, claro, acrílico, semáforo Mac |
 | [docs/GOLDEN.md](docs/GOLDEN.md) | Golden tests: cómo se fija el sonido y por qué el banco muerde |
+| [docs/HISTORY.md](docs/HISTORY.md) | Historial en árbol: las ramas del undo que no se pierden |
+| [docs/FIRMA.md](docs/FIRMA.md) | Firma del instalador: qué falta y cómo se activa sola |
 | [docs/PLAN.md](docs/PLAN.md) | Plan por fases, con lo que se quedó fuera y su motivo |
 
 ## Estructura
@@ -857,8 +860,10 @@ orbit-studio/
 │  ├─ ui/             Interfaz React (rack, piano roll, playlist, mixer, browser…)
 │  ├─ collab/         Sesión Yjs + protocolo y-websocket
 │  ├─ claude-bridge/  Tools MCP + executor + relay stdio⇄WS
-│  └─ sound-library/  Pack de fábrica generado por síntesis + manifest
-├─ tools/qa/          QA en vivo: driver CDP, peer de presencia, beat por el bridge
+│  └─ sound-library/  Pack de fábrica + compositor de beats (puro) + manifest
+├─ tools/
+│  ├─ qa/            QA: driver CDP, golden, encoder Opus, release y timeouts
+│  └─ eslint/        Reglas duras (fronteras, colores, alocaciones) + grafo
 └─ docs/              Toda la documentación
 ```
 

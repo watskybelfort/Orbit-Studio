@@ -44,9 +44,9 @@
 
 ### `packages/core`
 - `model/`: tipos del proyecto. Todas las entidades con `id` (nanoid).
-- `commands/`: comandos serializables `{type, payload}` con `apply/invert`.
+- `commands.ts`: comandos serializables `{type, payload}` con `apply/invert`.
 - `store.ts`: estado del proyecto + suscripciones granulares.
-- `orbit-format.ts`: guardar/cargar `.orbit` (JSON con `formatVersion`).
+- `format.ts`: guardar/cargar `.orbit` (JSON con `formatVersion`).
 - Sin dependencias de DOM ni de Electron: corre en renderer, server y tests.
 
 ### `packages/engine`
@@ -55,7 +55,7 @@
   `orbit/no-audio-thread-alloc` vigila las siete entradas por las que corre una
   muestra — `process`, `render`, `tick`, `read`/`write` (la línea de retardo) y
   `forward`/`inverse` (la FFT del convolutor).
-- `worklet/processor.ts`: el kernel — recibe el **snapshot compilado** del
+- `worklet/kernel.worklet.ts`: el kernel — recibe el **snapshot compilado** del
   proyecto (patrones→eventos absolutos), agenda con lookahead, renderiza bloques
   de 128 samples, aplica cadenas de efectos y routing, y postea medidores.
 - `render/offline.ts`: mismo kernel sobre OfflineAudioContext (export).
@@ -87,6 +87,8 @@
 
 ### `packages/sound-library`
 - `manifest.json` clasificado (categoría/género/tonalidad/BPM/tags).
+- `src/composer/`: compositor determinista de beats (seis géneros y sus
+  variantes); devuelve `Command[]` para aplicarlos en un solo batch.
 - `generate/`: scripts Node que sintetizan contenido con las unidades de
   `engine` (determinista, semilla fija) → WAVs reproducibles. Son **dos** y no
   escriben en el mismo sitio:
@@ -103,15 +105,15 @@
     fade anti-click, mono cuando L==R y releer el pico del archivo.
 
 ### `apps/desktop`
-- `main.ts`: BrowserWindow frameless; acrílico por `backgroundMaterial` DWM
+- `src/main/index.ts`: BrowserWindow frameless; acrílico por `backgroundMaterial` DWM
   (arquitectura A del skill); IPC tipado (`preload.ts` con contextBridge);
   diálogos de archivo; watcher de carpetas del usuario para el browser.
-- `windows.ts`: opción semáforo Mac ⇄ botones Windows (los dibuja la UI, el
-  main solo ejecuta minimize/maximize/close).
+- La opción semáforo Mac la dibuja `packages/ui/src/shell/TitleBar.tsx`; el
+  main solo ejecuta minimize/maximize/close.
 
 ### `apps/server`
 - Node + `ws` + y-websocket protocol: rooms por código, persistencia snapshot
-  del doc en disco, tokens simples, lista de presencia.
+  del doc en disco, credenciales de sesión firmadas, lista de presencia.
 
 ## Fronteras entre paquetes
 
